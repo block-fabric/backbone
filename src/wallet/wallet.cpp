@@ -191,7 +191,7 @@ bool RemoveWallet(WalletContext& context, const std::shared_ptr<CWallet>& wallet
     // A rescan under way (rescanblockchain, importdescriptors, a sidechain wallet's own background
     // scan through ScanForWalletTransactions) holds the wallet until it ends: stop it, so that the
     // wallet is released promptly. The RPC that started it fails with "Rescan aborted".
-    wallet->AbortRescan();
+    wallet->AbortRescansForUnload();
     WITH_LOCK(wallet->cs_wallet, wallet->WriteBestBlock());
 
     // Unregister with the validation interface which also drops shared pointers, and wait for a
@@ -300,8 +300,8 @@ void WaitForDeleteWallet(std::shared_ptr<CWallet>&& wallet)
     }
 
     // Stop a rescan that began after RemoveWallet aborted the ones under way: it would hold the
-    // wallet until its end.
-    wallet->AbortRescan();
+    // wallet until its end. (Rescans reserved from now on are aborted as well.)
+    wallet->AbortRescansForUnload();
 
     // Time to ditch our shared_ptr and wait for FlushAndDeleteWallet call.
     wallet.reset();

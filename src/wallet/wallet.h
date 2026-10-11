@@ -319,6 +319,9 @@ private:
     bool Unlock(const CKeyingMaterial& vMasterKeyIn);
 
     std::atomic<bool> fAbortRescan{false};
+    //! Set once the wallet is being unloaded: every rescan from then on is aborted, a rescan
+    //! reserved later (by an RPC that still holds the wallet) included.
+    std::atomic<bool> m_unloading{false};
     std::atomic<bool> fScanningWallet{false}; // controlled by WalletRescanReserver
     std::atomic<bool> m_scanning_with_passphrase{false};
     std::atomic<SteadyClock::time_point> m_scanning_start{SteadyClock::time_point{}};
@@ -589,6 +592,8 @@ public:
      * Rescan abort properties
      */
     void AbortRescan() { fAbortRescan = true; }
+    /** The wallet is being unloaded: abort the rescan under way, and any reserved later. */
+    void AbortRescansForUnload() { m_unloading = true; fAbortRescan = true; }
     bool IsAbortingRescan() const { return fAbortRescan; }
     bool IsScanning() const { return fScanningWallet; }
     bool IsScanningWithPassphrase() const { return m_scanning_with_passphrase; }
@@ -1138,6 +1143,9 @@ public:
         // that an abort requested while the reservation is held always applies
         // to abort this rescan, even if it arrives before the scan loop starts.
         m_wallet.fAbortRescan = false;
+        // But a wallet being unloaded rescans no more: the abort is kept. (Read after the reset:
+        // AbortRescansForUnload sets the flag before the abort, so one of the two sees the other.)
+        if (m_wallet.m_unloading) m_wallet.fAbortRescan = true;
         m_wallet.m_scanning_with_passphrase.exchange(with_passphrase);
         m_wallet.m_scanning_start = SteadyClock::now();
         m_wallet.m_scanning_progress = 0;

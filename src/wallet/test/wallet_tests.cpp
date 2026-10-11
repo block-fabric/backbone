@@ -270,6 +270,16 @@ BOOST_FIXTURE_TEST_CASE(remove_wallet_aborts_rescan, TestChain100Setup)
         BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::USER_ABORT);
         BOOST_CHECK(!result.last_scanned_height);
     }
+    // A rescan reserved after the unload began (by an RPC that still holds the wallet) is
+    // aborted too: reserving does not discard the abort.
+    {
+        WalletRescanReserver reserver(*wallet);
+        BOOST_REQUIRE(reserver.reserve());
+        BOOST_CHECK(wallet->IsAbortingRescan());
+        const CWallet::ScanResult result{wallet->ScanForWalletTransactions(genesis_hash, /*start_height=*/0, /*max_height=*/{}, reserver, /*save_progress=*/false)};
+        BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::USER_ABORT);
+        BOOST_CHECK(!result.last_scanned_height);
+    }
     TestUnloadWallet(std::move(wallet));
 }
 
