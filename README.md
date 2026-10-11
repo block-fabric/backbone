@@ -8,7 +8,8 @@ wallet runs sidechain nodes.
 
 - SHA-256d, one-minute blocks, aserti3 difficulty (two-hour half-life).
 - 50 CHN per block, halving every 210 000 blocks, no premine. Coinbase maturity 360 blocks.
-- Blocks of 6 MB, of which 4 MB for transactions; the rest is kept for the coinbase and the
+- Blocks of up to 800,000 weight units, of which 400,000 for transactions (as much room per hour
+  as Bitcoin, most activity being on the sidechains); the rest is kept for the coinbase and the
   drivechain messages.
 - Addresses `chn1…` (`tchn1…` on the test networks).
 

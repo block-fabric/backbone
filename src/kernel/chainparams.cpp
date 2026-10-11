@@ -125,10 +125,12 @@ public:
         consensus.nPowTargetTimespan = 2016 * consensus.nPowTargetSpacing; // only sizes version bits periods; difficulty uses aserti3
         consensus.asert_half_life = 2 * 60 * 60; // two hours, i.e. 120 blocks
         consensus.asert_anchor_height = 2016; // blocks before it are mined at the proof of work limit
-        // Blocks of up to six million weight units, four of them for transactions
-        // and the rest for the coinbase with its drivechain messages and payouts.
-        consensus.max_block_weight = 6'000'000;
-        consensus.max_block_tx_weight = 4'000'000;
+        // Blocks of up to 800,000 weight units every minute: as much room for
+        // transactions per hour as Bitcoin (400,000 per block), most activity
+        // being on the sidechains, and as much again for the coinbase with its
+        // drivechain messages and payouts.
+        consensus.max_block_weight = 800'000;
+        consensus.max_block_tx_weight = 400'000;
         consensus.coinbase_maturity = 360; // six hours
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.enforce_BIP94 = false; // aserti3 is not subject to the timewarp attack
@@ -219,10 +221,12 @@ public:
         consensus.nPowTargetTimespan = 2016 * consensus.nPowTargetSpacing; // only sizes version bits periods; difficulty uses aserti3
         consensus.asert_half_life = 2 * 60 * 60; // two hours, i.e. 120 blocks
         consensus.asert_anchor_height = 2016; // blocks before it are mined at the proof of work limit
-        // Blocks of up to six million weight units, four of them for transactions
-        // and the rest for the coinbase with its drivechain messages and payouts.
-        consensus.max_block_weight = 6'000'000;
-        consensus.max_block_tx_weight = 4'000'000;
+        // Blocks of up to 800,000 weight units every minute: as much room for
+        // transactions per hour as Bitcoin (400,000 per block), most activity
+        // being on the sidechains, and as much again for the coinbase with its
+        // drivechain messages and payouts.
+        consensus.max_block_weight = 800'000;
+        consensus.max_block_tx_weight = 400'000;
         consensus.coinbase_maturity = 360; // six hours
         // Drivechain periods of a test network: short enough to go through a sidechain's life in a day.
         consensus.drivechain.activation_period = 60;
@@ -343,8 +347,8 @@ public:
         consensus.nPowTargetTimespan = 2016 * consensus.nPowTargetSpacing; // only sizes version bits periods; difficulty uses aserti3
         consensus.asert_half_life = 2 * 60 * 60; // two hours, i.e. 120 blocks
         consensus.asert_anchor_height = 2016; // blocks before it are mined at the proof of work limit
-        consensus.max_block_weight = 6'000'000;
-        consensus.max_block_tx_weight = 4'000'000;
+        consensus.max_block_weight = 800'000;
+        consensus.max_block_tx_weight = 400'000;
         consensus.coinbase_maturity = 360; // six hours
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.enforce_BIP94 = false; // aserti3 is not subject to the timewarp attack

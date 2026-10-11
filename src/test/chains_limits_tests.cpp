@@ -80,15 +80,15 @@ BlockValidationState Check(ChainstateManager& chainman, const std::vector<CTrans
 BOOST_AUTO_TEST_CASE(block_weight_split)
 {
     const Consensus::Params& consensus{m_node.chainman->GetConsensus()};
-    BOOST_CHECK_EQUAL(consensus.max_block_weight, 6'000'000);
-    BOOST_CHECK_EQUAL(consensus.max_block_tx_weight, 4'000'000);
+    BOOST_CHECK_EQUAL(consensus.max_block_weight, 800'000);
+    BOOST_CHECK_EQUAL(consensus.max_block_tx_weight, 400'000);
     LOCK(cs_main);
-    // Transactions of 4.2 million weight units, in a block well under 6 million: refused, the rest
-    // of the block being the coinbase's.
-    const BlockValidationState over{Check(*m_node.chainman, {BigTx(1, 2'100'000), BigTx(2, 2'100'000)})};
+    // Transactions of 420,000 weight units, in a block well under 800,000: refused, the rest of the
+    // block being the coinbase's.
+    const BlockValidationState over{Check(*m_node.chainman, {BigTx(1, 210'000), BigTx(2, 210'000)})};
     BOOST_CHECK_EQUAL(over.GetRejectReason(), "bad-blk-tx-weight");
-    // Under 4 million the weight passes; the made-up inputs are what fails then.
-    const BlockValidationState under{Check(*m_node.chainman, {BigTx(3, 1'900'000), BigTx(4, 1'900'000)})};
+    // Under 400,000 the weight passes; the made-up inputs are what fails then.
+    const BlockValidationState under{Check(*m_node.chainman, {BigTx(3, 190'000), BigTx(4, 190'000)})};
     BOOST_CHECK(under.GetRejectReason() != "bad-blk-tx-weight");
     BOOST_CHECK(under.GetRejectReason() != "bad-blk-weight");
     BOOST_CHECK(under.GetRejectReason() != "bad-blk-length");
