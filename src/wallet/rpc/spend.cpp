@@ -503,7 +503,8 @@ RPCMethod createbmmrequest()
         "The request is only valid in the next block; if no miner takes it, it is dropped and the coins stay in the wallet.\n"
         "The mempool holds one request per sidechain. If it already holds one for the same sidechain block, that one is\n"
         "returned (\"existing\": true) and nothing is paid; if it holds one for another block paying at least as much,\n"
-        "the call fails with an error starting \"Outbid:\"." +
+        "the call fails with an error starting \"Outbid:\". A request of this wallet's that it outbids it replaces, spending\n"
+        "the same coins again." +
         HELP_REQUIRING_PASSPHRASE,
         {
             {"slot", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sidechain slot number"},
@@ -558,7 +559,17 @@ RPCMethod createbmmrequest()
     // The request replaces the one in the mempool for the sidechain: it cannot be paid with the
     // change of that one (or of what spends it), which goes with it.
     CCoinControl coin_control;
-    if (existing) coin_control.m_replaced_txid = existing->txid;
+    if (existing) {
+        coin_control.m_replaced_txid = existing->txid;
+        // A request of this wallet's is replaced properly: the new one spends its inputs again, so
+        // that a wallet whose coins it took (a single coin, say) can still outbid it.
+        LOCK(pwallet->cs_wallet);
+        if (const CWalletTx* own{pwallet->GetWalletTx(existing->txid)}) {
+            for (const CTxIn& in : own->GetTx()->vin) {
+                if (pwallet->IsMine(in.prevout)) coin_control.Select(in.prevout);
+            }
+        }
+    }
     // The mempool takes a BMM request of MAX_DRIVECHAIN_TX_VSIZE at most (and one paid from the
     // change of another as large as a TRUC child: see AllowDrivechainParents).
     coin_control.m_max_tx_weight = MAX_DRIVECHAIN_TX_VSIZE * WITNESS_SCALE_FACTOR;

@@ -6,7 +6,8 @@
 
 - createbmmrequest: a request already in the mempool for the same sidechain block is returned as
   it is; one outbid only once the mempool refused it says so; a wallet whose only coins are the
-  change of a request pays the next one with it.
+  change of a request pays the next one with it; a wallet outbids its own request with the coins
+  that request spends.
 - createsidechaindeposit: a wallet that cannot sign, a node whose mempool refuses the deposit, and
   a deposit after an unconfirmed one.
 - vouchwithdrawalbundle: what the sidechain node says its chain has decides the vote.
@@ -61,6 +62,7 @@ class DrivechainWalletTest(BitcoinTestFramework):
         self.test_bmm_request_already_there()
         self.test_bmm_request_outbid()
         self.test_bmm_request_from_change()
+        self.test_bmm_request_single_coin()
         self.test_deposit_cannot_sign()
         self.test_deposit_refused()
         self.test_deposit_after_unconfirmed()
@@ -112,13 +114,35 @@ class DrivechainWalletTest(BitcoinTestFramework):
         assert_equal(spent, [first["txid"]])
         assert_equal(set(node.getrawmempool()), {first["txid"], second["txid"]})
 
-        self.log.info("...but not to outbid the request whose change it is")
-        # Its only coin is the change of the request for slot 2: a request for slot 2 that spends
-        # it would replace its own parent.
-        assert_raises_rpc_error(-6, "The total exceeds your balance", wallet.createbmmrequest, 2, "ee" * 32, Decimal("0.001"))
-        assert_equal(set(node.getrawmempool()), {first["txid"], second["txid"]})
+        self.log.info("...and outbids its own request with the coin that request spends")
+        # Its only coin went to the request for slot 2 (whose change it cannot spend: that would
+        # replace its own parent). The new request replaces it, spending the same coin.
+        coin = [(vin["txid"], vin["vout"]) for vin in node.getrawtransaction(second["txid"], True)["vin"]]
+        better = wallet.createbmmrequest(2, "ee" * 32, Decimal("0.001"))
+        assert_equal([(vin["txid"], vin["vout"]) for vin in node.getrawtransaction(better["txid"], True)["vin"]], coin)
+        assert_equal(set(node.getrawmempool()), {first["txid"], better["txid"]})
         self.generate(node, 1)
         assert_equal(node.getrawmempool(), [])
+
+    def test_bmm_request_single_coin(self):
+        self.log.info("A wallet with a single coin outbids its own request")
+        node = self.nodes[0]
+        node.createwallet("single")
+        wallet = node.get_wallet_rpc("single")
+        node.get_wallet_rpc(self.default_wallet_name).sendtoaddress(wallet.getnewaddress(), 1)
+        self.generate(node, 1)
+        assert_equal(len(wallet.listunspent()), 1)
+        first = wallet.createbmmrequest(1, "f1" * 32, Decimal("0.0001"))
+        coin = [(vin["txid"], vin["vout"]) for vin in node.getrawtransaction(first["txid"], True)["vin"]]
+        second = wallet.createbmmrequest(1, "f2" * 32, Decimal("0.0002"))
+        assert_equal(node.getrawmempool(), [second["txid"]])
+        assert_equal([(vin["txid"], vin["vout"]) for vin in node.getrawtransaction(second["txid"], True)["vin"]], coin)
+        # A request of another wallet is outbid with this wallet's own coins, as before.
+        third = node.get_wallet_rpc(self.default_wallet_name).createbmmrequest(1, "f3" * 32, Decimal("0.0005"))
+        assert_equal(node.getrawmempool(), [third["txid"]])
+        self.generate(node, 1)
+        assert_equal(wallet.getbalance(), Decimal(1))
+        wallet.unloadwallet()
 
     def test_deposit_cannot_sign(self):
         self.log.info("A wallet without the keys of its coins cannot deposit")
