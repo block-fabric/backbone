@@ -1635,6 +1635,24 @@ void CWallet::blockConnected(const ChainstateRole& role, const interfaces::Block
         transactionRemovedFromMempool(block.data->vtx[index], MemPoolRemovalReason::BLOCK);
     }
 
+    // A BMM request is for the block after the one it names: once another block is the tip, it can
+    // never be mined. The mempool drops those it holds (and the wallet then abandons them, see
+    // transactionRemovedFromMempool); one the mempool never held (with -walletbroadcast=0, or one
+    // the user has yet to send) is abandoned here, which gives its coins back. (A deposit whose
+    // treasury input another deposit spent in a block is marked conflicted by SyncTransaction.)
+    std::vector<Txid> stale_requests;
+    for (const auto& [txid, wtx] : mapWallet) {
+        if (!wtx.isInactive() || wtx.isAbandoned() || wtx.InMempool()) continue;
+        const auto request{drivechain::GetBmmRequest(*wtx.GetTx())};
+        if (request && request->prev_main_block_hash != block.hash) stale_requests.push_back(txid);
+    }
+    for (const Txid& txid : stale_requests) {
+        // (An earlier one may have abandoned it already, as a descendant.)
+        if (const auto it{mapWallet.find(txid)}; it != mapWallet.end() && !it->second.isAbandoned() && AbandonTransaction(it->second)) {
+            WalletLogPrintf("Abandoned BMM request %s, for a block that can no longer be mined\n", txid.ToString());
+        }
+    }
+
     // Update on disk if this block resulted in us updating a tx, or periodically every 144 blocks (~1 day)
     if (wallet_updated || block.height % 144 == 0) {
         WriteBestBlock();

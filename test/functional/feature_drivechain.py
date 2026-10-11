@@ -591,6 +591,40 @@ class DrivechainTest(BitcoinTestFramework):
         self.mine()
         assert_equal(node.listsidechaindeposits(SLOT)[-1]["txid"], deposit["txid"])
 
+        def own_inputs(txid):
+            tx = node.decoderawtransaction(node.gettransaction(txid)["hex"])
+            unspent = {(u["txid"], u["vout"]) for u in node.listunspent(0)}
+            return [(i["txid"], i["vout"]) for i in tx["vin"]], unspent
+
+        self.log.info("With -walletbroadcast=0 a BMM request the next block makes stale is abandoned, and its coins are back")
+        request = node.createbmmrequest(SLOT, "ab" * 32, Decimal("0.001"))
+        assert request["txid"] not in node.getrawmempool()
+        inputs, unspent = own_inputs(request["txid"])
+        assert not any(i in unspent for i in inputs)
+        self.mine()
+        assert all(d.get("abandoned", False) for d in node.gettransaction(request["txid"])["details"])
+        inputs, unspent = own_inputs(request["txid"])
+        assert all(i in unspent for i in inputs)
+        # One for the block to come is kept.
+        request = node.createbmmrequest(SLOT, "ac" * 32, Decimal("0.001"))
+        assert all(not d.get("abandoned", False) for d in node.gettransaction(request["txid"])["details"])
+        self.mine()
+
+        self.log.info("...and a deposit whose treasury input another deposit spent gives its coins back")
+        escrow = node.getsidechain(SLOT)["escrow"]
+        mine_deposit = node.createsidechaindeposit(SLOT, "grace", 1)
+        assert mine_deposit["txid"] not in node.getrawmempool()
+        other = self.nodes[1].createsidechaindeposit(SLOT, "heidi", Decimal("0.1"))
+        self.sync_mempools()
+        assert other["txid"] in node.getrawmempool()
+        self.mine()
+        assert_equal(node.getsidechain(SLOT)["escrow"]["txid"], other["txid"])
+        assert_greater_than(0, node.gettransaction(mine_deposit["txid"])["confirmations"])
+        inputs, unspent = own_inputs(mine_deposit["txid"])
+        assert (escrow["txid"], escrow["n"]) in inputs
+        own = [i for i in inputs if i != (escrow["txid"], escrow["n"])]
+        assert own and all(i in unspent for i in own)
+
 
 if __name__ == '__main__':
     DrivechainTest(__file__).main()
