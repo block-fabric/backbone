@@ -8,9 +8,12 @@
 - Without a payable bundle, transactions fill the block.
 - When the block has the withdrawal from the mempool already, the room kept for it goes to
   transactions.
+- A standard transaction of the largest size, and a cluster of the largest size, fit in a block.
 """
 from decimal import Decimal
 
+from test_framework.blocktools import MAX_STANDARD_TX_WEIGHT
+from test_framework.mempool_util import DEFAULT_CLUSTER_SIZE_LIMIT_KVB
 from test_framework.messages import COIN, CTransaction, CTxOut
 from test_framework.script import CScript, OP_RETURN
 from test_framework.script_util import key_to_p2wpkh_script
@@ -54,6 +57,7 @@ class DrivechainBlockspaceTest(BitcoinTestFramework):
         self.test_payable_bundle_full_mempool()
         self.test_withdrawal_from_mempool()
         self.test_no_bundle_full_mempool()
+        self.test_largest_standard_tx()
 
     def make_bundle(self, payouts, fee):
         """A blind bundle of `payouts` outputs of 0.001 each."""
@@ -131,6 +135,24 @@ class DrivechainBlockspaceTest(BitcoinTestFramework):
         block, _ = self.mine_full_block()
         assert all(tx["weight"] <= 4 * FILLER_VSIZE for tx in block["tx"][1:])
         assert_equal(node.getsidechain(SLOT)["escrow"], escrow)
+
+    def test_largest_standard_tx(self):
+        self.log.info("The largest standard transaction, with a child that makes the largest cluster, is mined")
+        node = self.nodes[0]
+        while node.getmempoolinfo()["size"]:
+            self.generate(node, 1)
+        assert_equal(MAX_STANDARD_TX_WEIGHT, MAX_BLOCK_TX_WEIGHT - 8_000)
+        too_large = self.wallet.create_self_transfer(target_vsize=MAX_STANDARD_TX_WEIGHT // 4 + 1)
+        assert_equal(node.testmempoolaccept([too_large["hex"]])[0]["reject-reason"], "tx-size")
+        largest = self.wallet.send_self_transfer(from_node=node, target_vsize=MAX_STANDARD_TX_WEIGHT // 4)
+        assert_greater_than(largest["tx"].get_weight(), MAX_STANDARD_TX_WEIGHT - 4)
+        # A child at a higher fee rate: the two make one chunk, of the largest cluster size.
+        child_vsize = DEFAULT_CLUSTER_SIZE_LIMIT_KVB * 1000 - MAX_STANDARD_TX_WEIGHT // 4
+        assert_equal(node.testmempoolaccept([self.wallet.create_self_transfer(utxo_to_spend=largest["new_utxo"], target_vsize=child_vsize + 1, fee_rate=Decimal("0.01"))["hex"]])[0]["reject-reason"], "too-large-cluster")
+        child = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=largest["new_utxo"], target_vsize=child_vsize, fee_rate=Decimal("0.01"))
+        block = node.getblock(self.generate(node, 1)[0])
+        assert_equal(block["tx"][1:], [largest["txid"], child["txid"]])
+        assert_equal(node.getmempoolinfo()["size"], 0)
 
 
 if __name__ == '__main__':
