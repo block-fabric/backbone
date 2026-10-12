@@ -1376,6 +1376,31 @@ bool CWallet::AbandonTransaction(CWalletTx& tx)
     if (GetTxDepthInMainChain(tx) != 0 || tx.InMempool()) {
         return false;
     }
+    // Nor while a transaction spending it, or one further down, is still known to be in the mempool:
+    // abandoning marks those too, and they cannot be abandoned while there. The wallet can learn that
+    // a parent left the mempool before it learns that its children did (a BMM request whose change the
+    // next request spends, abandoned when a block makes it stale): it waits for the mempool's
+    // notifications instead.
+    {
+        std::set<Txid> seen{tx.GetHash()};
+        std::vector<Txid> todo{tx.GetHash()};
+        while (!todo.empty()) {
+            const Txid txid{todo.back()};
+            todo.pop_back();
+            const auto parent{mapWallet.find(txid)};
+            if (parent == mapWallet.end()) continue;
+            for (unsigned int i = 0; i < parent->second.GetTx()->vout.size(); ++i) {
+                const auto range{mapTxSpends.equal_range(COutPoint(txid, i))};
+                for (auto spend{range.first}; spend != range.second; ++spend) {
+                    if (!seen.insert(spend->second).second) continue;
+                    const auto child{mapWallet.find(spend->second)};
+                    if (child == mapWallet.end()) continue;
+                    if (child->second.InMempool()) return false;
+                    todo.push_back(spend->second);
+                }
+            }
+        }
+    }
 
     auto try_updating_state = [](CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
         // If the orig tx was not in block/mempool, none of its spends can be.
