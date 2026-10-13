@@ -428,6 +428,12 @@ private:
     /** Drivechain transactions the mempool dropped whose abandoning waits for the wallet to learn
      * that a transaction spending them left the mempool too (see transactionRemovedFromMempool). */
     std::set<Txid> m_drivechain_abandon_retry GUARDED_BY(cs_wallet);
+
+    /** While a rescan is under way, the block it resumes from (the last one it scanned, or the one
+     * it starts at): the best block saved is that one, not the tip, as the history after it may be
+     * missing (keys just imported, say). Kept after a rescan the unloading of the wallet or a
+     * shutdown stopped, so that the wallet resumes the rescan when loaded again. */
+    std::optional<uint256> m_rescan_resume_block GUARDED_BY(cs_wallet);
     /** Abandon the drivechain transactions of m_drivechain_abandon_retry that now can be. */
     void RetryDrivechainAbandons() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
@@ -601,6 +607,8 @@ public:
     /** The wallet is being unloaded: abort the rescan under way, and any reserved later. */
     void AbortRescansForUnload() { m_unloading = true; fAbortRescan = true; }
     bool IsAbortingRescan() const { return fAbortRescan; }
+    //! Whether the wallet is being unloaded (which aborts its rescans).
+    bool IsUnloading() const { return m_unloading; }
     bool IsScanning() const { return fScanningWallet; }
     bool IsScanningWithPassphrase() const { return m_scanning_with_passphrase; }
     SteadyClock::duration ScanningDuration() const { return fScanningWallet ? SteadyClock::now() - m_scanning_start.load() : SteadyClock::duration{}; }
@@ -655,7 +663,7 @@ public:
     void blockConnected(const kernel::ChainstateRole& role, const interfaces::BlockInfo& block) override;
     void blockDisconnected(const interfaces::BlockInfo& block) override;
     void updatedBlockTip() override;
-    int64_t RescanFromTime(int64_t startTime, const WalletRescanReserver& reserver);
+    int64_t RescanFromTime(int64_t startTime, const WalletRescanReserver& reserver, bool* aborted = nullptr);
 
     struct ScanResult {
         enum { SUCCESS, FAILURE, USER_ABORT } status = SUCCESS;

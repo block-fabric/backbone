@@ -1998,8 +1998,9 @@ void CWallet::MaybeUpdateBirthTime(int64_t time)
  * @return Earliest timestamp that could be successfully scanned from. Timestamp
  * returned will be higher than startTime if relevant blocks could not be read.
  */
-int64_t CWallet::RescanFromTime(int64_t startTime, const WalletRescanReserver& reserver)
+int64_t CWallet::RescanFromTime(int64_t startTime, const WalletRescanReserver& reserver, bool* aborted)
 {
+    if (aborted) *aborted = false;
     // Find starting block. May be null if nCreateTime is greater than the
     // highest blockchain timestamp, in which case there is nothing that needs
     // to be scanned.
@@ -2009,8 +2010,8 @@ int64_t CWallet::RescanFromTime(int64_t startTime, const WalletRescanReserver& r
     WalletLogPrintf("%s: Rescanning last %i blocks\n", __func__, start ? WITH_LOCK(cs_wallet, return GetLastBlockHeight()) - start_height + 1 : 0);
 
     if (start) {
-        // TODO: this should take into account failure by ScanResult::USER_ABORT
         ScanResult result = ScanForWalletTransactions(start_block, start_height, /*max_height=*/{}, reserver, /*save_progress=*/false);
+        if (aborted) *aborted = result.status == ScanResult::USER_ABORT;
         if (result.status == ScanResult::FAILURE) {
             int64_t time_max;
             CHECK_NONFATAL(chain().findBlock(result.last_failed_block, FoundBlock().maxTime(time_max)));
@@ -2066,6 +2067,10 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
     double progress_end = chain().guessVerificationProgress(end_hash);
     double progress_current = progress_begin;
     int block_height = start_height;
+    // Until it ends, the wallet saves no best block past the scan (see WriteBestBlock); nor past a
+    // block it could not read.
+    WITH_LOCK(cs_wallet, m_rescan_resume_block = start_block);
+    bool read_failure{false};
     while (!fAbortRescan && !chain().shutdownRequested()) {
         if (progress_end - progress_begin > 0.0) {
             m_scanning_progress = (progress_current - progress_begin) / (progress_end - progress_begin);
@@ -2092,6 +2097,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                 } else {
                     result.last_scanned_block = block_hash;
                     result.last_scanned_height = block_height;
+                    if (!read_failure) WITH_LOCK(cs_wallet, m_rescan_resume_block = block_hash);
                     fetch_block = false;
                 }
             } else {
@@ -2130,6 +2136,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                 // scan succeeded, record block as most recent successfully scanned
                 result.last_scanned_block = block_hash;
                 result.last_scanned_height = block_height;
+                if (!read_failure) m_rescan_resume_block = block_hash;
 
                 if (!loc.IsNull()) {
                     WalletLogPrintf("Saving scan progress %d.\n", block_height);
@@ -2140,6 +2147,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                 // could not scan block, keep scanning but record this block as the most recent failure
                 result.last_failed_block = block_hash;
                 result.status = ScanResult::FAILURE;
+                read_failure = true;
             }
         }
         if (max_height && block_height >= *max_height) {
@@ -2187,6 +2195,16 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
         result.status = ScanResult::USER_ABORT;
     } else {
         WalletLogPrintf("Rescan completed in %15dms\n", Ticks<std::chrono::milliseconds>(reserver.now() - start_time));
+    }
+    // A rescan that the unloading of the wallet or a shutdown stopped is resumed when the wallet is
+    // loaded again: the best block saved stays the block it got to. (One the user aborted is not.)
+    if (!((fAbortRescan && m_unloading) || chain().shutdownRequested())) {
+        WITH_LOCK(cs_wallet, m_rescan_resume_block.reset());
+    } else {
+        // (Saved now: the unloading may have saved the best block before this rescan began.)
+        LOCK(cs_wallet);
+        WriteBestBlock();
+        WalletLogPrintf("The rescan resumes from block %s when the wallet is loaded again\n", m_rescan_resume_block->ToString());
     }
     return result;
 }
@@ -4782,9 +4800,11 @@ void CWallet::WriteBestBlock() const
 {
     AssertLockHeld(cs_wallet);
 
-    if (!m_last_block_processed.IsNull()) {
+    // Not past a rescan under way, or one the unloading of the wallet stopped.
+    const uint256& best_block{m_rescan_resume_block ? *m_rescan_resume_block : m_last_block_processed};
+    if (!best_block.IsNull()) {
         CBlockLocator loc;
-        chain().findBlock(m_last_block_processed, FoundBlock().locator(loc));
+        chain().findBlock(best_block, FoundBlock().locator(loc));
 
         if (!loc.IsNull()) {
             WalletBatch batch(GetDatabase());

@@ -283,6 +283,19 @@ BOOST_FIXTURE_TEST_CASE(remove_wallet_aborts_rescan, TestChain100Setup)
         BOOST_CHECK_EQUAL(result.status, CWallet::ScanResult::USER_ABORT);
         BOOST_CHECK(!result.last_scanned_height);
     }
+    // The best block saved is where the rescan stopped, not the tip (which RemoveWallet saved before
+    // the rescan began): loaded again, the wallet resumes the rescan, and finds what keys imported
+    // just before it (importdescriptors) have.
+    const auto saved_best_block{[](CWallet& w) {
+        CBlockLocator locator;
+        BOOST_REQUIRE(WalletBatch(w.GetDatabase()).ReadBestBlock(locator));
+        BOOST_REQUIRE(!locator.vHave.empty());
+        return locator.vHave.front();
+    }};
+    BOOST_CHECK_EQUAL(saved_best_block(*wallet), genesis_hash);
+    // Later writes keep it.
+    WITH_LOCK(wallet->cs_wallet, wallet->WriteBestBlock());
+    BOOST_CHECK_EQUAL(saved_best_block(*wallet), genesis_hash);
     TestUnloadWallet(std::move(wallet));
 }
 
