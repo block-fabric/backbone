@@ -8,6 +8,9 @@
   it is; one outbid only once the mempool refused it says so; a wallet whose only coins are the
   change of a request pays the next one with it; a wallet outbids its own request with the coins
   that request spends, but not one whose change pays for its requests for other sidechains.
+- A chain of requests a block makes stale is abandoned, also after a crash with mempool.dat; so is a
+  chain of deposits another deposit replaces, and (with -walletbroadcast=0) a deposit kept unsent
+  once another deposit takes its treasury input.
 - createsidechaindeposit: a wallet that cannot sign, a node whose mempool refuses the deposit, and
   a deposit after an unconfirmed one.
 - vouchwithdrawalbundle: what the sidechain node says its chain has decides the vote.
@@ -15,9 +18,9 @@
 """
 from decimal import Decimal
 
-from test_framework.messages import COIN, CTransaction, CTxOut
+from test_framework.messages import COIN, COutPoint, CTransaction, CTxIn, CTxOut
 from test_framework.script import CScript, OP_RETURN
-from test_framework.address import address_to_scriptpubkey
+from test_framework.address import ADDRESS_RCHN1_UNSPENDABLE, address_to_scriptpubkey
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_greater_than, assert_raises_rpc_error
 
@@ -70,6 +73,9 @@ class DrivechainWalletTest(BitcoinTestFramework):
         self.test_deposit_after_unconfirmed()
         self.test_vouch()
         self.test_bmm_request_outbid_parent()
+        self.test_stale_chained_requests()
+        self.test_replaced_deposit_chain()
+        self.test_unsent_deposit_outdated()
         self.test_unreadable_miner_state()
 
     def test_bmm_request_already_there(self):
@@ -240,6 +246,27 @@ class DrivechainWalletTest(BitcoinTestFramework):
         self.generate(node, 1)
         return wallet
 
+    def restart_miner(self, wallets, *, kill=False, extra_args=None):
+        """Restart node 0 (killed, with what mempool.dat holds), connected again, with the given wallets loaded."""
+        node = self.nodes[0]
+        args = self.extra_args[0] + (extra_args or [])
+        if kill:
+            # The chain state on disk at the tip (a node killed replays the blocks after the one it
+            # holds, after loading mempool.dat), and the mempool in mempool.dat.
+            tip = node.getbestblockhash()
+            node.gettxoutsetinfo()
+            node.savemempool()
+            node.kill_process()
+            self.start_node(0, extra_args=args)
+            self.wait_until(lambda: node.getbestblockhash() == tip and node.getmempoolinfo()["loaded"])
+        else:
+            self.restart_node(0, extra_args=args)
+        self.connect_nodes(0, 1)
+        self.connect_nodes(0, 2)
+        for name in wallets:
+            node.loadwallet(name)
+        return [node.get_wallet_rpc(name) for name in wallets]
+
     def chained_requests(self, wallet, slots, side_block):
         """Requests for the given sidechains, each paid from the change of the one before."""
         node = self.nodes[0]
@@ -250,6 +277,11 @@ class DrivechainWalletTest(BitcoinTestFramework):
                 assert_equal([vin["txid"] for vin in node.getrawtransaction(requests[-1], True)["vin"]], [requests[-2]])
         assert_equal(set(node.getrawmempool()), set(requests))
         return requests
+
+    def assert_abandoned(self, wallet, txids):
+        self.nodes[0].syncwithvalidationinterfacequeue()
+        for txid in txids:
+            assert_equal(wallet.gettransaction(txid)["details"][0]["abandoned"], True)
 
     def test_bmm_request_outbid_parent(self):
         self.log.info("A wallet does not outbid its own request whose change pays for its requests for other sidechains")
@@ -266,6 +298,98 @@ class DrivechainWalletTest(BitcoinTestFramework):
         assert_equal(set(node.getrawmempool()), {first, better["txid"]})
         self.generate(node, 1)
         assert_equal(node.getrawmempool(), [])
+
+    def test_stale_chained_requests(self):
+        self.log.info("A chain of requests a block makes stale is abandoned, the coins back")
+        node = self.nodes[0]
+        wallet = self.fund_wallet("stale_chain", [1])
+        requests = self.chained_requests(wallet, [1, 2, 3], "b1")
+        self.generateblock(node, ADDRESS_RCHN1_UNSPENDABLE, [], sync_fun=self.sync_blocks)
+        assert_equal(node.getrawmempool(), [])
+        self.assert_abandoned(wallet, requests)
+        assert_equal(wallet.getbalance(), 1)
+
+        self.log.info("...also after a crash, with the requests back from mempool.dat (b7409e8597: the node aborted)")
+        requests = self.chained_requests(wallet, [1, 2, 3], "b2")
+        [wallet] = self.restart_miner(["stale_chain"], kill=True)
+        assert_equal(set(node.getrawmempool()), set(requests))
+        self.generateblock(node, ADDRESS_RCHN1_UNSPENDABLE, [], sync_fun=self.sync_blocks)
+        assert_equal(node.getrawmempool(), [])
+        self.assert_abandoned(wallet, requests)
+        assert_equal(wallet.getbalance(), 1)
+        # Restarted again, nothing comes back.
+        [wallet] = self.restart_miner(["stale_chain"])
+        self.generate(node, 1)
+        self.assert_abandoned(wallet, requests)
+        assert_equal(wallet.getbalance(), 1)
+        wallet.unloadwallet()
+
+    def outdating_deposit(self, deposit_hex):
+        """A deposit of the default wallet's spending the treasury input of the given one, with a high fee."""
+        node = self.nodes[0]
+        default = node.get_wallet_rpc(self.default_wallet_name)
+        decoded = node.decoderawtransaction(deposit_hex)
+        escrow_script = decoded["vout"][0]["scriptPubKey"]["hex"]
+        treasury = None
+        for vin in decoded["vin"]:
+            coin = node.gettxout(vin["txid"], vin["vout"], False)
+            if coin and coin["scriptPubKey"]["hex"] == escrow_script:
+                treasury = (vin["txid"], vin["vout"], coin["value"])
+        assert treasury is not None
+        funding = [u for u in default.listunspent() if u["amount"] >= 1][0]
+        tx = CTransaction()
+        tx.vin = [CTxIn(COutPoint(int(treasury[0], 16), treasury[1])), CTxIn(COutPoint(int(funding["txid"], 16), funding["vout"]))]
+        tx.vout = [CTxOut(int((treasury[2] + Decimal("0.1")) * COIN), bytes.fromhex(escrow_script)),
+                   CTxOut(0, bytes.fromhex(decoded["vout"][1]["scriptPubKey"]["hex"])),
+                   CTxOut(int((funding["amount"] - Decimal("0.11")) * COIN), address_to_scriptpubkey(default.getnewaddress()))]
+        signed = default.signrawtransactionwithwallet(tx.serialize().hex())
+        # The treasury input needs no signature.
+        assert_equal([e["vout"] for e in signed.get("errors", [])], [treasury[1]] if signed.get("errors") else [])
+        return signed["hex"]
+
+    def test_replaced_deposit_chain(self):
+        self.log.info("A chain of deposits another deposit replaces is abandoned, the coins back, after a crash with mempool.dat too")
+        node = self.nodes[0]
+        wallet = self.fund_wallet("deposit_chain", [1, 1])
+        balance = wallet.getbalance()
+        first = wallet.createsidechaindeposit(1, "first", Decimal("0.1"))["txid"]
+        second = wallet.createsidechaindeposit(1, "second", Decimal("0.1"))["txid"]
+        assert first in [vin["txid"] for vin in node.getrawtransaction(second, True)["vin"]]
+        assert_equal(set(node.getrawmempool()), {first, second})
+        [wallet] = self.restart_miner(["deposit_chain"], kill=True)
+        assert_equal(set(node.getrawmempool()), {first, second})
+        other = node.sendrawtransaction(self.outdating_deposit(node.getrawtransaction(first)))
+        assert_equal(node.getrawmempool(), [other])
+        self.assert_abandoned(wallet, [first, second])
+        assert_equal(wallet.getbalance(), balance)
+        # Once the other is mined, they conflict with it.
+        self.generate(node, 1)
+        assert_equal([wallet.gettransaction(txid)["confirmations"] for txid in [first, second]], [-1, -1])
+        assert_equal(wallet.getbalance(), balance)
+        wallet.unloadwallet()
+
+    def test_unsent_deposit_outdated(self):
+        self.log.info("With -walletbroadcast=0, a deposit another deposit outdates is abandoned on the next block")
+        node = self.nodes[0]
+        wallet = self.fund_wallet("unsent_deposit", [1])
+        balance = wallet.getbalance()
+        [wallet] = self.restart_miner(["unsent_deposit"], extra_args=["-walletbroadcast=0"])
+        deposit = wallet.createsidechaindeposit(1, "unsent", Decimal("0.1"))["txid"]
+        assert_equal(node.getrawmempool(), [])
+        # Kept while it can still be sent.
+        self.generateblock(node, ADDRESS_RCHN1_UNSPENDABLE, [], sync_fun=self.sync_blocks)
+        node.syncwithvalidationinterfacequeue()
+        assert_equal(wallet.gettransaction(deposit)["details"][0]["abandoned"], False)
+        assert_greater_than(balance, wallet.getbalance())
+        # Another deposit takes its treasury input, in the mempool: it can no longer be.
+        other = node.sendrawtransaction(self.outdating_deposit(wallet.gettransaction(deposit)["hex"]))
+        assert_equal(node.getrawmempool(), [other])
+        self.generateblock(node, ADDRESS_RCHN1_UNSPENDABLE, [], sync_fun=self.sync_blocks)
+        self.assert_abandoned(wallet, [deposit])
+        assert_equal(wallet.getbalance(), balance)
+        wallet.unloadwallet()
+        self.restart_miner([])
+        self.generate(node, 1)
 
     def test_unreadable_miner_state(self):
         self.log.info("A miner state that cannot be read is reset at startup, with a warning")
