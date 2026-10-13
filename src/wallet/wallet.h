@@ -425,6 +425,12 @@ private:
      */
     int m_last_block_processed_height GUARDED_BY(cs_wallet) = -1;
 
+    /** Drivechain transactions the mempool dropped whose abandoning waits for the wallet to learn
+     * that a transaction spending them left the mempool too (see transactionRemovedFromMempool). */
+    std::set<Txid> m_drivechain_abandon_retry GUARDED_BY(cs_wallet);
+    /** Abandon the drivechain transactions of m_drivechain_abandon_retry that now can be. */
+    void RetryDrivechainAbandons() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
     std::map<OutputType, ScriptPubKeyMan*> m_external_spk_managers;
     std::map<OutputType, ScriptPubKeyMan*> m_internal_spk_managers;
 

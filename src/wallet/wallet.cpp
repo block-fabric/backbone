@@ -1599,10 +1599,18 @@ void CWallet::transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRe
     if ((reason == MemPoolRemovalReason::CONFLICT || reason == MemPoolRemovalReason::REPLACED) && it != mapWallet.end() &&
         (drivechain::GetBmmRequest(*tx) || std::any_of(tx->vout.begin(), tx->vout.end(), [](const CTxOut& out) { return drivechain::ParseEscrowScript(out.scriptPubKey).has_value(); }))) {
         if (!it->second.isAbandoned() && GetTxDepthInMainChain(it->second) == 0 && !it->second.InMempool()) {
-            AbandonTransaction(tx->GetHash());
-            WalletLogPrintf("Abandoned drivechain transaction %s, which the mempool dropped and can never be mined\n", tx->GetHash().ToString());
+            if (AbandonTransaction(it->second)) {
+                WalletLogPrintf("Abandoned drivechain transaction %s, which the mempool dropped and can never be mined\n", tx->GetHash().ToString());
+            } else {
+                // A transaction spending it (the next request, paid from its change; the next deposit,
+                // spending its treasury output) is still marked as in the mempool: the mempool notifies
+                // the removals of a parent and of its children in any order. Abandoned once the wallet
+                // learns that those left too.
+                m_drivechain_abandon_retry.insert(tx->GetHash());
+            }
         }
     }
+    RetryDrivechainAbandons();
 
     const Txid& txid = tx->GetHash();
 
@@ -1637,6 +1645,23 @@ void CWallet::transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRe
     }
 }
 
+void CWallet::RetryDrivechainAbandons()
+{
+    AssertLockHeld(cs_wallet);
+    for (auto txid{m_drivechain_abandon_retry.begin()}; txid != m_drivechain_abandon_retry.end();) {
+        const auto it{mapWallet.find(*txid)};
+        // Gone, abandoned already (as a descendant), mined, or back in the mempool: nothing to do.
+        if (it == mapWallet.end() || !it->second.isInactive() || it->second.isAbandoned() || it->second.InMempool()) {
+            txid = m_drivechain_abandon_retry.erase(txid);
+        } else if (AbandonTransaction(it->second)) {
+            WalletLogPrintf("Abandoned drivechain transaction %s, which the mempool dropped and can never be mined\n", txid->ToString());
+            txid = m_drivechain_abandon_retry.erase(txid);
+        } else {
+            ++txid;
+        }
+    }
+}
+
 void CWallet::blockConnected(const ChainstateRole& role, const interfaces::BlockInfo& block)
 {
     if (role.historical) {
@@ -1665,11 +1690,36 @@ void CWallet::blockConnected(const ChainstateRole& role, const interfaces::Block
     // transactionRemovedFromMempool); one the mempool never held (with -walletbroadcast=0, or one
     // the user has yet to send) is abandoned here, which gives its coins back. (A deposit whose
     // treasury input another deposit spent in a block is marked conflicted by SyncTransaction.)
+    // So is a deposit of the wallet's out of the mempool that does not spend the treasury output
+    // the sidechain has now: the mempool dropped it for another deposit (whatever the order the
+    // wallet learnt that in, and across a restart), or it was never sent and can no longer be. One
+    // that spends an unconfirmed transaction of the wallet's waits for that one.
     std::vector<Txid> stale_requests;
+    std::vector<Txid> stale_deposits;
+    std::map<drivechain::SidechainId, interfaces::Chain::SidechainEscrow> escrows;
     for (const auto& [txid, wtx] : mapWallet) {
         if (!wtx.isInactive() || wtx.isAbandoned() || wtx.InMempool()) continue;
-        const auto request{drivechain::GetBmmRequest(*wtx.GetTx())};
-        if (request && request->prev_main_block_hash != block.hash) stale_requests.push_back(txid);
+        const CTransaction& tx{*wtx.GetTx()};
+        const auto request{drivechain::GetBmmRequest(tx)};
+        if (request) {
+            if (request->prev_main_block_hash != block.hash) stale_requests.push_back(txid);
+            continue;
+        }
+        std::optional<drivechain::SidechainId> slot;
+        for (const CTxOut& out : tx.vout) {
+            if ((slot = drivechain::ParseEscrowScript(out.scriptPubKey))) break;
+        }
+        if (!slot || !IsFromMe(tx)) continue;
+        if (std::any_of(tx.vin.begin(), tx.vin.end(), [&](const CTxIn& in) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
+                const auto parent{mapWallet.find(in.prevout.hash)};
+                return parent != mapWallet.end() && GetTxDepthInMainChain(parent->second) == 0;
+            })) continue;
+        auto escrow{escrows.find(*slot)};
+        if (escrow == escrows.end()) escrow = escrows.emplace(*slot, chain().getSidechainEscrow(*slot)).first;
+        if (!escrow->second.active || !escrow->second.has_output) continue;
+        if (std::none_of(tx.vin.begin(), tx.vin.end(), [&](const CTxIn& in) { return in.prevout == escrow->second.outpoint; })) {
+            stale_deposits.push_back(txid);
+        }
     }
     for (const Txid& txid : stale_requests) {
         // (An earlier one may have abandoned it already, as a descendant.)
@@ -1677,6 +1727,12 @@ void CWallet::blockConnected(const ChainstateRole& role, const interfaces::Block
             WalletLogPrintf("Abandoned BMM request %s, for a block that can no longer be mined\n", txid.ToString());
         }
     }
+    for (const Txid& txid : stale_deposits) {
+        if (const auto it{mapWallet.find(txid)}; it != mapWallet.end() && !it->second.isAbandoned() && AbandonTransaction(it->second)) {
+            WalletLogPrintf("Abandoned deposit %s, whose treasury input another deposit spends\n", txid.ToString());
+        }
+    }
+    RetryDrivechainAbandons();
 
     // Update on disk if this block resulted in us updating a tx, or periodically every 144 blocks (~1 day)
     if (wallet_updated || block.height % 144 == 0) {
