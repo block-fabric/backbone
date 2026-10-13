@@ -15,6 +15,7 @@
 #include <rpc/util.h>
 #include <script/script.h>
 #include <util/rbf.h>
+#include <util/string.h>
 #include <util/translation.h>
 #include <util/vector.h>
 #include <wallet/coincontrol.h>
@@ -504,7 +505,8 @@ RPCMethod createbmmrequest()
         "The mempool holds one request per sidechain. If it already holds one for the same sidechain block, that one is\n"
         "returned (\"existing\": true) and nothing is paid; if it holds one for another block paying at least as much,\n"
         "the call fails with an error starting \"Outbid:\". A request of this wallet's that it outbids it replaces, spending\n"
-        "the same coins again." +
+        "the same coins again; unless the change of that request pays for other requests of the wallet's in the mempool,\n"
+        "which the replacement would drop: the call then fails, naming them." +
         HELP_REQUIRING_PASSPHRASE,
         {
             {"slot", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sidechain slot number"},
@@ -565,6 +567,20 @@ RPCMethod createbmmrequest()
         // that a wallet whose coins it took (a single coin, say) can still outbid it.
         LOCK(pwallet->cs_wallet);
         if (const CWalletTx* own{pwallet->GetWalletTx(existing->txid)}) {
+            // Unless its change pays for other requests of the wallet's (for other sidechains), which
+            // the replacement would drop from the mempool with it: their sidechains would lose this
+            // block, without a word. (Nor could the replacement, paying for those too, be the bid it
+            // was asked to be.) Bidding for them again is for their own callers, on the next block.
+            const std::vector<Txid> descendants{pwallet->GetMempoolDescendants(existing->txid)};
+            if (!descendants.empty()) {
+                std::vector<std::string> names;
+                for (const Txid& txid : descendants) {
+                    const CWalletTx* wtx{pwallet->GetWalletTx(txid)};
+                    const auto other{wtx ? drivechain::GetBmmRequest(*wtx->GetTx()) : std::nullopt};
+                    names.push_back(other ? strprintf("%s (sidechain %u)", txid.ToString(), other->slot) : txid.ToString());
+                }
+                throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Outbidding the request of this wallet for this sidechain (%s) would drop from the mempool its transactions paid from that request's change: %s. Try again after the next block", existing->txid.ToString(), util::Join(names, ", ")));
+            }
             for (const CTxIn& in : own->GetTx()->vin) {
                 if (pwallet->IsMine(in.prevout)) coin_control.Select(in.prevout);
             }

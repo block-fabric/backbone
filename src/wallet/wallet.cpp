@@ -1362,6 +1362,31 @@ void CWallet::MarkInputsDirty(const CTransactionRef& tx)
     }
 }
 
+std::vector<Txid> CWallet::GetMempoolDescendants(const Txid& txid) const
+{
+    AssertLockHeld(cs_wallet);
+    std::vector<Txid> in_mempool;
+    std::set<Txid> seen{txid};
+    std::vector<Txid> todo{txid};
+    while (!todo.empty()) {
+        const Txid now{todo.back()};
+        todo.pop_back();
+        const auto parent{mapWallet.find(now)};
+        if (parent == mapWallet.end()) continue;
+        for (unsigned int i = 0; i < parent->second.GetTx()->vout.size(); ++i) {
+            const auto range{mapTxSpends.equal_range(COutPoint(now, i))};
+            for (auto spend{range.first}; spend != range.second; ++spend) {
+                if (!seen.insert(spend->second).second) continue;
+                const auto child{mapWallet.find(spend->second)};
+                if (child == mapWallet.end()) continue;
+                if (child->second.InMempool()) in_mempool.push_back(spend->second);
+                todo.push_back(spend->second);
+            }
+        }
+    }
+    return in_mempool;
+}
+
 bool CWallet::AbandonTransaction(const Txid& hashTx)
 {
     LOCK(cs_wallet);
@@ -1381,26 +1406,7 @@ bool CWallet::AbandonTransaction(CWalletTx& tx)
     // a parent left the mempool before it learns that its children did (a BMM request whose change the
     // next request spends, abandoned when a block makes it stale): it waits for the mempool's
     // notifications instead.
-    {
-        std::set<Txid> seen{tx.GetHash()};
-        std::vector<Txid> todo{tx.GetHash()};
-        while (!todo.empty()) {
-            const Txid txid{todo.back()};
-            todo.pop_back();
-            const auto parent{mapWallet.find(txid)};
-            if (parent == mapWallet.end()) continue;
-            for (unsigned int i = 0; i < parent->second.GetTx()->vout.size(); ++i) {
-                const auto range{mapTxSpends.equal_range(COutPoint(txid, i))};
-                for (auto spend{range.first}; spend != range.second; ++spend) {
-                    if (!seen.insert(spend->second).second) continue;
-                    const auto child{mapWallet.find(spend->second)};
-                    if (child == mapWallet.end()) continue;
-                    if (child->second.InMempool()) return false;
-                    todo.push_back(spend->second);
-                }
-            }
-        }
-    }
+    if (!GetMempoolDescendants(tx.GetHash()).empty()) return false;
 
     auto try_updating_state = [](CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
         // If the orig tx was not in block/mempool, none of its spends can be.

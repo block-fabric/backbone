@@ -7,7 +7,7 @@
 - createbmmrequest: a request already in the mempool for the same sidechain block is returned as
   it is; one outbid only once the mempool refused it says so; a wallet whose only coins are the
   change of a request pays the next one with it; a wallet outbids its own request with the coins
-  that request spends.
+  that request spends, but not one whose change pays for its requests for other sidechains.
 - createsidechaindeposit: a wallet that cannot sign, a node whose mempool refuses the deposit, and
   a deposit after an unconfirmed one.
 - vouchwithdrawalbundle: what the sidechain node says its chain has decides the vote.
@@ -53,8 +53,10 @@ class DrivechainWalletTest(BitcoinTestFramework):
         node.createsidechainproposal(1, "one")
         self.generate(node, 1)
         node.createsidechainproposal(2, "two")
+        self.generate(node, 1)
+        node.createsidechainproposal(3, "three")
         self.generate(node, ACTIVATION_PERIOD)
-        assert_equal([s["slot"] for s in node.listactivesidechains()], [1, 2])
+        assert_equal([s["slot"] for s in node.listactivesidechains()], [1, 2, 3])
         for other in self.nodes[1:]:
             node.sendtoaddress(other.getnewaddress(), 10)
         self.generate(node, 1)
@@ -67,6 +69,7 @@ class DrivechainWalletTest(BitcoinTestFramework):
         self.test_deposit_refused()
         self.test_deposit_after_unconfirmed()
         self.test_vouch()
+        self.test_bmm_request_outbid_parent()
         self.test_unreadable_miner_state()
 
     def test_bmm_request_already_there(self):
@@ -228,6 +231,41 @@ class DrivechainWalletTest(BitcoinTestFramework):
         # And back.
         node.vouchwithdrawalbundle(1, bundle)
         assert_equal(node.listwithdrawalbundles(1)[0]["vote"], "upvote")
+
+    def fund_wallet(self, name, amounts):
+        node = self.nodes[0]
+        node.createwallet(name)
+        wallet = node.get_wallet_rpc(name)
+        node.get_wallet_rpc(self.default_wallet_name).sendmany("", {wallet.getnewaddress(): amount for amount in amounts})
+        self.generate(node, 1)
+        return wallet
+
+    def chained_requests(self, wallet, slots, side_block):
+        """Requests for the given sidechains, each paid from the change of the one before."""
+        node = self.nodes[0]
+        requests = []
+        for slot in slots:
+            requests.append(wallet.createbmmrequest(slot, side_block * 32, Decimal("0.0001"))["txid"])
+            if len(requests) > 1:
+                assert_equal([vin["txid"] for vin in node.getrawtransaction(requests[-1], True)["vin"]], [requests[-2]])
+        assert_equal(set(node.getrawmempool()), set(requests))
+        return requests
+
+    def test_bmm_request_outbid_parent(self):
+        self.log.info("A wallet does not outbid its own request whose change pays for its requests for other sidechains")
+        node = self.nodes[0]
+        wallet = self.fund_wallet("outbid_parent", [1])
+        first, second = self.chained_requests(wallet, [1, 2], "a1")
+        # Replacing the first would drop the second from the mempool, and sidechain 2 would lose the
+        # block: refused, saying which.
+        assert_raises_rpc_error(-4, f"Outbidding the request of this wallet for this sidechain ({first}) would drop from the mempool its transactions paid from that request's change: {second} (sidechain 2). Try again after the next block",
+                                wallet.createbmmrequest, 1, "a2" * 32, Decimal("0.01"))
+        assert_equal(set(node.getrawmempool()), {first, second})
+        # The last of the chain can be outbid.
+        better = wallet.createbmmrequest(2, "a3" * 32, Decimal("0.001"))
+        assert_equal(set(node.getrawmempool()), {first, better["txid"]})
+        self.generate(node, 1)
+        assert_equal(node.getrawmempool(), [])
 
     def test_unreadable_miner_state(self):
         self.log.info("A miner state that cannot be read is reset at startup, with a warning")

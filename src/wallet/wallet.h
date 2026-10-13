@@ -857,6 +857,9 @@ public:
 
     //! Check if a given transaction has any of its outputs spent by another transaction in the wallet
     bool HasWalletSpend(const CTransactionRef& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** The transactions of the wallet spending an output of txid, or of one of those, further down,
+     * that it marks as in the mempool. */
+    std::vector<Txid> GetMempoolDescendants(const Txid& txid) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     //! Close wallet database
     void Close();
