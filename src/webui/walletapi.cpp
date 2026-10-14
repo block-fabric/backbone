@@ -19,6 +19,7 @@
 #include <interfaces/wallet.h>
 #include <key_io.h>
 #include <logging.h>
+#include <node/context.h>
 #include <node/psbt.h>
 #include <node/transaction.h>
 #include <node/types.h>
@@ -44,6 +45,7 @@
 #include <wallet/wallet.h>
 #include <wallet/walletutil.h>
 #include <webui/bridge.h>
+#include <webui/rpcpolicy.h>
 
 #include <algorithm>
 #include <limits>
@@ -140,6 +142,18 @@ SecureString Secure(const std::string& text)
     return out;
 }
 
+/**
+ * A passphrase of the params, straight into locked, wiped memory: no copy of it in a std::string.
+ * The params themselves are wiped by the bridge after the call (CleanseSecrets).
+ */
+SecureString SecretParam(const UniValue& params, const std::string& key, bool required = true)
+{
+    const UniValue& v{Param(params, key)};
+    if (v.isNull() && !required) return {};
+    if (!v.isStr()) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("%s: a string is needed", key));
+    return Secure(v.get_str());
+}
+
 UniValue Warnings(const std::vector<bilingual_str>& warnings)
 {
     UniValue out{UniValue::VARR};
@@ -234,7 +248,8 @@ public:
     {
         // Wallets without private keys may look "encrypted" after an old bug: they need no unlocking.
         if (wallet.privateKeysDisabled() || !wallet.isCrypted() || !wallet.isLocked()) return;
-        const UniValue pass{Param(params, "passphrase")};
+        static const std::string KEY{"passphrase"};
+        const UniValue& pass{Param(params, KEY)};
         if (!pass.isStr() || pass.get_str().empty()) throw HostError(WalletApi::UNLOCK_NEEDED, "This operation needs your wallet passphrase to unlock the wallet.");
         if (!wallet.unlock(Secure(pass.get_str()))) {
             throw HostError(WalletApi::PASSPHRASE_INCORRECT, pass.get_str().find('\0') == std::string::npos ?
@@ -455,7 +470,15 @@ std::map<std::string, std::string> LabelsOf(interfaces::Wallet& wallet)
     return labels;
 }
 
-UniValue RecordJson(const Record& rec, const RecordStatus& s, const std::map<std::string, std::string>& labels)
+/** How the page brings the status of a record up to date by itself with each block (lib/wallet.ts recordStatus). */
+const char* StateCode(const wallet::CWalletTx& wtx)
+{
+    if (wtx.state<wallet::TxStateConfirmed>()) return "c";
+    if (wtx.state<wallet::TxStateBlockConflicted>()) return "x";
+    return "u";
+}
+
+UniValue RecordJson(const Record& rec, const RecordStatus& s, const interfaces::WalletTxStatus& status, const char* state, const std::map<std::string, std::string>& labels)
 {
     // An array per record, short as a long history is long: see the page (lib/wallet.ts) for the fields.
     UniValue r{UniValue::VARR};
@@ -473,7 +496,23 @@ UniValue RecordJson(const Record& rec, const RecordStatus& s, const std::map<std
     r.push_back(s.matures_in);
     r.push_back(s.counts_for_balance);
     r.push_back(s.sort_key);
+    // What the status follows from: the height of the block (of the conflict), the state, and for a
+    // transaction not in a block whether the wallet trusts it.
+    r.push_back(status.block_height == std::numeric_limits<int>::max() ? -1 : status.block_height);
+    r.push_back(state);
+    r.push_back(status.is_coinbase);
+    r.push_back(status.is_abandoned);
+    r.push_back(status.is_trusted);
     return r;
+}
+
+/** The records of a transaction of the wallet, under its lock. */
+void AppendRecords(UniValue& records, const wallet::CWallet& w, const wallet::CWalletTx& wtx, std::set<Txid>& trusted_parents, const std::map<std::string, std::string>& labels) EXCLUSIVE_LOCKS_REQUIRED(w.cs_wallet)
+{
+    const interfaces::WalletTx tx{MakeTx(w, wtx)};
+    const interfaces::WalletTxStatus status{MakeStatus(w, wtx, trusted_parents)};
+    const char* state{StateCode(wtx)};
+    for (const Record& rec : Decompose(tx)) records.push_back(RecordJson(rec, StatusOf(rec, status), status, state, labels));
 }
 
 /** TransactionDesc::FormatTxStatus. */
@@ -791,12 +830,22 @@ std::string WalletApi::ChosenFile(const UniValue& params, bool write) const
     return file;
 }
 
+interfaces::WalletLoader& WalletApi::Loader() const
+{
+    // A node without wallets (-disablewallet) has no wallet loader: the wallet methods answer with an
+    // error then, they never reach the loader (Node::walletLoader asserts that there is one).
+    interfaces::Node& node{m_node()};
+    const node::NodeContext* context{node.context()};
+    if (!context || !context->wallet_loader) throw HostError(WALLETS_DISABLED, "Wallets are disabled in this node (-disablewallet).");
+    return node.walletLoader();
+}
+
 WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node)), m_may_use_file(std::move(may_use_file))
 {
     // Find a loaded wallet by its name (the RPC methods of the page name wallets the same way).
     auto get_wallet{[this](const UniValue& params) -> std::unique_ptr<interfaces::Wallet> {
         const std::string name{Str(params, "wallet")};
-        for (auto& w : m_node().walletLoader().getWallets()) {
+        for (auto& w : Loader().getWallets()) {
             if (w->getWalletName() == name) return std::move(w);
         }
         throw HostError(-18, strprintf("Requested wallet does not exist or is not loaded: %s", name));
@@ -804,7 +853,7 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
     auto find_wallet{[this](const UniValue& params) -> std::unique_ptr<interfaces::Wallet> {
         const UniValue name{Param(params, "wallet")};
         if (!name.isStr()) return nullptr;
-        for (auto& w : m_node().walletLoader().getWallets()) {
+        for (auto& w : Loader().getWallets()) {
             if (w->getWalletName() == name.get_str()) return std::move(w);
         }
         return nullptr;
@@ -814,9 +863,9 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
 
     Add("wallets.list", [this](const UniValue&) {
         std::set<std::string> loaded;
-        for (auto& w : m_node().walletLoader().getWallets()) loaded.insert(w->getWalletName());
+        for (auto& w : Loader().getWallets()) loaded.insert(w->getWalletName());
         UniValue out{UniValue::VARR};
-        for (const auto& [name, format] : m_node().walletLoader().listWalletDir()) {
+        for (const auto& [name, format] : Loader().listWalletDir()) {
             UniValue w{UniValue::VOBJ};
             w.pushKV("name", name);
             w.pushKV("format", format);
@@ -857,9 +906,9 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
         if (Bool(params, "disablePrivateKeys")) flags |= wallet::WALLET_FLAG_DISABLE_PRIVATE_KEYS;
         if (Bool(params, "blank")) flags |= wallet::WALLET_FLAG_BLANK_WALLET;
         if (Bool(params, "externalSigner")) flags |= wallet::WALLET_FLAG_EXTERNAL_SIGNER;
-        const SecureString passphrase{Secure(OptStr(params, "passphrase"))};
+        const SecureString passphrase{SecretParam(params, "passphrase", /*required=*/false)};
         std::vector<bilingual_str> warnings;
-        auto w{m_node().walletLoader().createWallet(name, passphrase, flags, warnings)};
+        auto w{Loader().createWallet(name, passphrase, flags, warnings)};
         if (!w) throw HostError(util::ErrorString(w).translated);
         UniValue out{UniValue::VOBJ};
         out.pushKV("name", (*w)->getWalletName());
@@ -868,7 +917,7 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
     });
     Add("wallets.open", [this](const UniValue& params) {
         std::vector<bilingual_str> warnings;
-        auto w{m_node().walletLoader().loadWallet(Str(params, "name"), warnings)};
+        auto w{Loader().loadWallet(Str(params, "name"), warnings)};
         if (!w) throw HostError(util::ErrorString(w).translated);
         UniValue out{UniValue::VOBJ};
         out.pushKV("name", (*w)->getWalletName());
@@ -877,7 +926,7 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
     });
     Add("wallets.close", [this](const UniValue& params) {
         const std::string name{Str(params, "name")};
-        for (auto& w : m_node().walletLoader().getWallets()) {
+        for (auto& w : Loader().getWallets()) {
             if (w->getWalletName() == name) {
                 // As WalletController::removeWallet: the wallet goes, and is no longer loaded at start.
                 w->remove();
@@ -890,7 +939,7 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
         const std::string name{Str(params, "name")};
         if (name.empty()) throw HostError(BRIDGE_INVALID_REQUEST, "Wallet name cannot be empty");
         std::vector<bilingual_str> warnings;
-        auto w{m_node().walletLoader().restoreWallet(fs::PathFromString(ChosenFile(params, /*write=*/false)), name, warnings, /*load_after_restore=*/true)};
+        auto w{Loader().restoreWallet(fs::PathFromString(ChosenFile(params, /*write=*/false)), name, warnings, /*load_after_restore=*/true)};
         if (!w) throw HostError(util::ErrorString(w).translated);
         UniValue out{UniValue::VOBJ};
         out.pushKV("name", (*w)->getWalletName());
@@ -898,7 +947,7 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
         return out;
     });
     auto migrate{[this](const std::string& name, const SecureString& passphrase, bool load) {
-        auto res{m_node().walletLoader().migrateWallet(name, passphrase, load)};
+        auto res{Loader().migrateWallet(name, passphrase, load)};
         if (!res) throw HostError(util::ErrorString(res).translated);
         UniValue out{UniValue::VOBJ};
         out.pushKV("name", name);
@@ -909,16 +958,16 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
         return out;
     }};
     Add("wallets.migrate", [migrate](const UniValue& params) {
-        return migrate(Str(params, "name"), Secure(OptStr(params, "passphrase")), Bool(params, "load", true));
+        return migrate(Str(params, "name"), SecretParam(params, "passphrase", /*required=*/false), Bool(params, "load", true));
     });
     Add("wallets.restoreMigrate", [this, migrate](const UniValue& params) {
         const std::string name{Str(params, "name")};
         if (name.empty()) throw HostError(BRIDGE_INVALID_REQUEST, "Wallet name cannot be empty");
         std::vector<bilingual_str> warnings;
-        auto restored{m_node().walletLoader().restoreWallet(fs::PathFromString(ChosenFile(params, /*write=*/false)), name, warnings, /*load_after_restore=*/false)};
+        auto restored{Loader().restoreWallet(fs::PathFromString(ChosenFile(params, /*write=*/false)), name, warnings, /*load_after_restore=*/false)};
         if (!restored) throw HostError(util::ErrorString(restored).translated);
-        const std::string passphrase{OptStr(params, "passphrase")};
-        if (passphrase.empty() && m_node().walletLoader().isEncrypted(name)) {
+        const SecureString passphrase{SecretParam(params, "passphrase", /*required=*/false)};
+        if (passphrase.empty() && Loader().isEncrypted(name)) {
             // As MigrateWalletActivity::do_migrate: the passphrase of an encrypted wallet is asked for
             // now that it is restored; the page migrates it then (wallets.migrate).
             UniValue out{UniValue::VOBJ};
@@ -927,12 +976,12 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
             out.pushKV("warnings", Warnings(warnings));
             return out;
         }
-        UniValue out{migrate(name, Secure(passphrase), /*load=*/true)};
+        UniValue out{migrate(name, passphrase, /*load=*/true)};
         out.pushKV("warnings", Warnings(warnings));
         return out;
     });
     Add("wallets.isEncrypted", [this](const UniValue& params) {
-        return UniValue{m_node().walletLoader().isEncrypted(Str(params, "name"))};
+        return UniValue{Loader().isEncrypted(Str(params, "name"))};
     });
 
     // --- One wallet ---
@@ -952,7 +1001,7 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
         out.pushKV("confirmTarget", static_cast<int64_t>(w->getConfirmTarget()));
         out.pushKV("requiredFeePerK", w->getRequiredFee(1000));
         out.pushKV("maxTxFee", w->getDefaultMaxTxFee());
-        out.pushKV("multiwallet", m_node().walletLoader().getWallets().size() > 1);
+        out.pushKV("multiwallet", Loader().getWallets().size() > 1);
         const interfaces::WalletBalances b{w->getBalances()};
         out.pushKV("balance", b.balance);
         out.pushKV("unconfirmed", b.unconfirmed_balance);
@@ -961,18 +1010,18 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
     });
     Add("wallet.encrypt", [get_wallet](const UniValue& params) {
         auto w{get_wallet(params)};
-        const std::string pass{Str(params, "passphrase")};
+        const SecureString pass{SecretParam(params, "passphrase")};
         if (pass.empty()) throw HostError(BRIDGE_INVALID_REQUEST, "Cannot encrypt with an empty passphrase");
         if (w->isCrypted()) throw HostError("The wallet is encrypted already");
-        if (!w->encryptWallet(Secure(pass))) throw HostError("Wallet encryption failed due to an internal error. Your wallet was not encrypted.");
+        if (!w->encryptWallet(pass)) throw HostError("Wallet encryption failed due to an internal error. Your wallet was not encrypted.");
         return UniValue{true};
     });
     Add("wallet.changePassphrase", [get_wallet](const UniValue& params) {
         auto w{get_wallet(params)};
-        const std::string old_pass{Str(params, "old")};
+        const SecureString old_pass{SecretParam(params, "old")};
         // Make sure the wallet is locked before attempting the change (as WalletModel::changePassphrase).
         w->lock();
-        if (!w->changeWalletPassphrase(Secure(old_pass), Secure(Str(params, "new")))) {
+        if (!w->changeWalletPassphrase(old_pass, SecretParam(params, "new"))) {
             throw HostError(WalletApi::PASSPHRASE_INCORRECT, old_pass.find('\0') == std::string::npos ?
                 "The passphrase entered for the wallet decryption was incorrect." :
                 "The old passphrase entered for the wallet decryption is incorrect. It contains a null character (ie - a zero byte). "
@@ -982,8 +1031,8 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
     });
     Add("wallet.unlock", [get_wallet](const UniValue& params) {
         auto w{get_wallet(params)};
-        const std::string pass{Str(params, "passphrase")};
-        if (!w->unlock(Secure(pass))) {
+        const SecureString pass{SecretParam(params, "passphrase")};
+        if (!w->unlock(pass)) {
             throw HostError(WalletApi::PASSPHRASE_INCORRECT, pass.find('\0') == std::string::npos ?
                 "The passphrase entered for the wallet decryption was incorrect." :
                 "The passphrase entered for the wallet decryption is incorrect. It contains a null character (ie - a zero byte).");
@@ -1010,22 +1059,119 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
     // --- Transactions ---
 
     Add("wallet.transactions", [get_wallet](const UniValue& params) {
+        // The history (TransactionTableModel): all of it, or the records of some transactions only (the
+        // ones an event said changed: the page keeps the rest, and brings their status up to date with
+        // each block by itself), or the latest ones (the overview).
         auto w{get_wallet(params)};
+        wallet::CWallet* cw{w->wallet()};
+        if (!cw) throw HostError("No wallet behind this interface");
+        const UniValue txids{Param(params, "txids")};
+        if (!txids.isNull() && !txids.isArray()) throw HostError(BRIDGE_INVALID_REQUEST, "txids: a list of transaction ids");
+        const std::optional<int64_t> latest{OptInt(params, "latest")};
         const auto labels{LabelsOf(*w)};
         UniValue records{UniValue::VARR};
         UniValue out{UniValue::VOBJ};
-        wallet::CWallet* cw{w->wallet()};
-        if (!cw) throw HostError("No wallet behind this interface");
         LOCK(cw->cs_wallet);
         std::set<Txid> trusted_parents;
-        for (const auto& [txid, wtx] : cw->mapWallet) {
-            const interfaces::WalletTx tx{MakeTx(*cw, wtx)};
-            const interfaces::WalletTxStatus status{MakeStatus(*cw, wtx, trusted_parents)};
-            for (const Record& rec : Decompose(tx)) records.push_back(RecordJson(rec, StatusOf(rec, status), labels));
+        if (txids.isArray()) {
+            UniValue gone{UniValue::VARR};
+            for (const UniValue& id : txids.getValues()) {
+                const auto txid{id.isStr() ? Txid::FromHex(id.get_str()) : std::nullopt};
+                if (!txid) throw HostError(BRIDGE_INVALID_REQUEST, "txids: a list of transaction ids");
+                const auto it{cw->mapWallet.find(*txid)};
+                if (it == cw->mapWallet.end()) {
+                    gone.push_back(txid->GetHex());
+                    continue;
+                }
+                AppendRecords(records, *cw, it->second, trusted_parents, labels);
+            }
+            out.pushKV("gone", std::move(gone));
+        } else if (latest) {
+            // The newest transactions by their order in the wallet, enough of them for `latest` records;
+            // the page sorts them by date.
+            const int64_t wanted{std::clamp<int64_t>(*latest, 1, 1000)};
+            int64_t txs{0};
+            for (auto it{cw->wtxOrdered.rbegin()}; it != cw->wtxOrdered.rend() && (records.size() < static_cast<size_t>(wanted) || txs < wanted * 4); ++it, ++txs) {
+                AppendRecords(records, *cw, *it->second, trusted_parents, labels);
+            }
+        } else {
+            for (const auto& [txid, wtx] : cw->mapWallet) AppendRecords(records, *cw, wtx, trusted_parents, labels);
         }
         out.pushKV("height", cw->GetLastBlockHeight());
         out.pushKV("hash", cw->GetLastBlockHash().GetHex());
+        // Blocks a coinbase needs on top of its own to be spent (GetTxBlocksToMaturity).
+        out.pushKV("maturity", Params().GetConsensus().coinbase_maturity + 1);
         out.pushKV("records", std::move(records));
+        return out;
+    });
+    Add("wallet.balanceHistory", [get_wallet](const UniValue& params) {
+        // The balance after each transaction, oldest first, at most `points` of them (the chart of the
+        // overview). The amounts are the ones the wallet keeps for each transaction: no records are made.
+        auto w{get_wallet(params)};
+        wallet::CWallet* cw{w->wallet()};
+        if (!cw) throw HostError("No wallet behind this interface");
+        const int64_t points{std::clamp<int64_t>(OptInt(params, "points").value_or(500), 2, 5000)};
+        std::vector<std::pair<int64_t, CAmount>> changes;
+        {
+            LOCK(cw->cs_wallet);
+            changes.reserve(cw->mapWallet.size());
+            for (const auto& [txid, wtx] : cw->mapWallet) {
+                // Not counted, as on the page: abandoned, conflicted, and coinbases that did not make it.
+                if (wtx.isAbandoned()) continue;
+                const int depth{cw->GetTxDepthInMainChain(wtx)};
+                if (depth < 0) continue;
+                if (wtx.IsCoinBase() && depth == 0) continue;
+                CAmount net{0};
+                if (wtx.IsCoinBase()) {
+                    // Counted as the history shows it, mature or not (the wallet values an immature one at 0).
+                    for (const CTxOut& txout : wtx.GetTx()->vout) {
+                        if (cw->IsMine(txout)) net += txout.nValue;
+                    }
+                } else {
+                    net = wallet::CachedTxGetCredit(*cw, wtx, /*avoid_reuse=*/true) - wallet::CachedTxGetDebit(*cw, wtx, /*avoid_reuse=*/true);
+                }
+                changes.emplace_back(wtx.GetTxTime(), net);
+            }
+        }
+        std::stable_sort(changes.begin(), changes.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<std::pair<int64_t, CAmount>> series;
+        CAmount balance{0};
+        for (const auto& [time, net] : changes) {
+            balance += net;
+            if (!series.empty() && series.back().first == time) series.back().second = balance;
+            else series.emplace_back(time, balance);
+        }
+        UniValue out{UniValue::VARR};
+        if (series.size() <= static_cast<size_t>(points)) {
+            for (const auto& [time, b] : series) {
+                UniValue p{UniValue::VARR};
+                p.push_back(time);
+                p.push_back(b);
+                out.push_back(std::move(p));
+            }
+        } else {
+            // The last balance of each of `points` stretches of time, and the very last one.
+            const int64_t first{series.front().first}, last{series.back().first};
+            const double step{double(last - first + 1) / points};
+            size_t i{0};
+            for (int64_t bucket{0}; bucket < points && i < series.size(); ++bucket) {
+                const int64_t end{first + static_cast<int64_t>((bucket + 1) * step)};
+                size_t j{i};
+                while (j < series.size() && series[j].first < end) ++j;
+                if (j == i) continue;
+                UniValue p{UniValue::VARR};
+                p.push_back(series[j - 1].first);
+                p.push_back(series[j - 1].second);
+                out.push_back(std::move(p));
+                i = j;
+            }
+            if (out.empty() || out[out.size() - 1][0].getInt<int64_t>() != series.back().first) {
+                UniValue p{UniValue::VARR};
+                p.push_back(series.back().first);
+                p.push_back(series.back().second);
+                out.push_back(std::move(p));
+            }
+        }
         return out;
     });
     Add("wallet.transaction", [this, get_wallet](const UniValue& params) {
@@ -1437,6 +1583,14 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
         return out;
     });
 
+    Add("send.isDust", [this](const UniValue& params) {
+        // GUIUtil::isDust: an output of this amount to this address would be dust (the send form refuses it).
+        const CTxDestination dest{DecodeDestination(Str(params, "address"))};
+        if (!IsValidDestination(dest)) return UniValue{false};
+        const CTxOut txout{Int(params, "amount"), GetScriptForDestination(dest)};
+        return UniValue{IsDust(txout, m_node().getDustRelayFee())};
+    });
+
     // --- Send (WalletModel::prepareTransaction, sendCoins; SendCoinsDialog) ---
 
     Add("wallet.send.prepare", [this, get_wallet](const UniValue& params) {
@@ -1606,6 +1760,38 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
         return UniValue{m_prepared.erase(Str(params, "token")) > 0};
     });
 
+    // --- Wallet RPC methods that need the keys (deposits, stamps, multisig, proofs of funds) ---
+
+    Add("wallet.withKeys", [this, get_wallet](const UniValue& params) {
+        // The keys are unlocked in this process for these calls alone and locked again right after
+        // (UnlockScope, as WalletModel::UnlockContext): never left unlocked for a while, whatever the page does.
+        auto w{get_wallet(params)};
+        const UniValue calls{Param(params, "calls")};
+        if (!calls.isArray() || calls.empty() || calls.size() > 10000) throw HostError(BRIDGE_INVALID_REQUEST, "calls: a list of {method, params}");
+        for (const UniValue& call : calls.getValues()) {
+            if (!KeyedWalletRpc(Str(call, "method"))) throw HostError(BRIDGE_METHOD_NOT_FOUND, strprintf("%s does not run with the keys of the wallet", Str(call, "method")));
+            const UniValue p{Param(call, "params")};
+            if (!p.isNull() && !p.isArray() && !p.isObject()) throw HostError(BRIDGE_INVALID_REQUEST, "params: an array or an object");
+        }
+        UnlockScope unlock{*w, params};
+        const std::string uri{WalletUri(w->getWalletName())};
+        UniValue out{UniValue::VARR};
+        for (const UniValue& call : calls.getValues()) {
+            const UniValue p{Param(call, "params")};
+            UniValue answer{UniValue::VOBJ};
+            try {
+                answer.pushKV("result", m_node().executeRpc(Str(call, "method"), p.isNull() ? UniValue{UniValue::VARR} : p, uri));
+            } catch (const UniValue& error) {
+                const bool known{error.isObject() && error.find_value("code").isNum() && error.find_value("message").isStr()};
+                answer.pushKV("error", ErrorObject(known ? error.find_value("code").getInt<int>() : BRIDGE_HOST_ERROR, known ? error.find_value("message").get_str() : error.write()));
+            } catch (const std::exception& e) {
+                answer.pushKV("error", ErrorObject(BRIDGE_HOST_ERROR, e.what()));
+            }
+            out.push_back(std::move(answer));
+        }
+        return out;
+    });
+
     // --- Messages (SignVerifyMessageDialog) ---
 
     Add("wallet.signMessage", [get_wallet](const UniValue& params) {
@@ -1771,8 +1957,13 @@ UniValue WalletApi::Call(const std::string& method, const UniValue& params)
 
 void WalletApi::Register(Bridge& bridge)
 {
+    // Loading, restoring, migrating and backing up a wallet can take minutes (a rescan, a large file):
+    // apart from the quick calls of the pages.
+    static const std::set<std::string> SLOW{"wallets.create", "wallets.open", "wallets.restore", "wallets.migrate", "wallets.restoreMigrate",
+                                            "wallet.backup", "wallet.exportWatchOnly", "wallet.encrypt", "wallet.withKeys", "wallets.signers",
+                                            "wallet.displayAddress", "wallet.send.commit"};
     for (const auto& [name, fn] : m_methods) {
-        bridge.RegisterHost(name, [this, name](const UniValue& params) { return Call(name, params); });
+        bridge.RegisterHost(name, [this, name](const UniValue& params) { return Call(name, params); }, SLOW.contains(name) ? Bridge::Thread::LONG : Bridge::Thread::WORKER);
     }
 }
 

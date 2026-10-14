@@ -2,9 +2,7 @@
   // Proof of funds (ProofOfFundsDialog of chains-qt): a statement signed with every address of the
   // wallet that holds coins, and the check of such a proof against the chain as it is now.
   import CopyButton from '../components/CopyButton.svelte';
-  import { BridgeError } from '../lib/bridge';
-  import { errorText, inform, withWalletKeys } from '../lib/dialogs.svelte';
-  import { WalletError } from '../lib/wallet';
+  import { errorText, inform, withKeys } from '../lib/dialogs.svelte';
   import { nav } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
   import { wallets } from '../lib/state.svelte';
@@ -39,21 +37,25 @@
       const addresses = [...new Set(unspent.map((c) => c.address).filter((a): a is string => !!a))].sort();
       let failed = 0;
       let lastError = '';
-      const signed = await withWalletKeys(wallet, async () => {
-        const out: { address: string; signature: string }[] = [];
-        failed = 0;
-        for (const address of addresses) {
-          try {
-            out.push({ address, signature: await rpc.raw<string>('signmessage', [address, text], { wallet }) });
-          } catch (e) {
-            // A locked wallet: the passphrase is asked for, and all of it signed again.
-            if (BridgeError.from(e).code === WalletError.UNLOCK_NEEDED) throw e;
-            failed++;
-            lastError = errorText(e);
-          }
-        }
-        return out;
-      });
+      // Every address signs in one call of the host, with the keys unlocked for it alone.
+      const answers =
+        addresses.length === 0
+          ? []
+          : await withKeys<string>(
+              wallet,
+              addresses.map((address) => ({ method: 'signmessage', params: [address, text] })),
+            );
+      const signed =
+        answers === null
+          ? null
+          : answers.flatMap((a, i) => {
+              if (a.error || typeof a.result !== 'string') {
+                failed++;
+                lastError = a.error?.message ?? 'no signature';
+                return [];
+              }
+              return [{ address: addresses[i], signature: a.result }];
+            });
       if (signed === null) return;
       const signatures = signed;
       if (signatures.length === 0) {

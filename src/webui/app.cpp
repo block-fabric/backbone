@@ -32,6 +32,7 @@
 #include <webui/nodeapi.h>
 #include <webui/nodeevents.h>
 #include <webui/options.h>
+#include <webui/rpcpolicy.h>
 #include <webui/sidechainnodes.h>
 #include <webui/singleinstance.h>
 #ifdef ENABLE_WALLET
@@ -118,7 +119,13 @@ void SetupUIArgs(ArgsManager& argsman)
 }
 
 App::App(interfaces::Init& init, ArgsManager& args, std::vector<std::string> uris)
-    : m_init(init), m_args(args)
+    : m_init(init), m_args(args),
+      // The debug options of the app are taken from the command line alone (only it is read yet): a
+      // chains.conf cannot run a script in the page, nor open the inspector.
+      m_devtools(args.GetBoolArg("-webuidevtools", false)),
+      m_test_script(args.GetArg("-webuitestscript", "")),
+      m_test_shots(args.GetArg("-webuitestshots", "")),
+      m_config_path(args.GetArg("-webuiconfig", ""))
 {
     LOCK(m_mutex);
     m_pending_uris = std::move(uris);
@@ -163,8 +170,8 @@ UniValue App::Info()
 #else
     info.pushKV("walletEnabled", false);
 #endif
-    info.pushKV("devtools", m_args.GetBoolArg("-webuidevtools", false));
-    info.pushKV("test", !m_args.GetArg("-webuitestscript", "").empty());
+    info.pushKV("devtools", m_devtools);
+    info.pushKV("test", !m_test_script.empty());
 #if defined(__linux__)
     info.pushKV("platform", "linux");
 #elif defined(WIN32)
@@ -388,6 +395,12 @@ bool App::StartNode()
         LOCK(m_mutex);
         m_network = ChainTypeToString(m_args.GetChainType());
     }
+    // The debug options come from the command line alone: what chains.conf says of them is ignored.
+    const std::vector<std::pair<std::string, std::string>> command_line{{"-webuitestscript", m_test_script}, {"-webuitestshots", m_test_shots}, {"-webuiconfig", m_config_path}};
+    for (const auto& [arg, value] : command_line) {
+        if (m_args.GetArg(arg, "") != value) LogWarning("webui: %s is taken from the command line only; the configuration file sets it, and is ignored", arg);
+    }
+    if (m_args.GetBoolArg("-webuidevtools", false) != m_devtools) LogWarning("webui: -webuidevtools is taken from the command line only; the configuration file sets it, and is ignored");
 
     // One app per data directory: a second start hands its URIs to the first one.
     std::vector<std::string> uris;
@@ -699,7 +712,7 @@ void App::RegisterHostMethods()
         out.pushKV("dialogs", std::move(dialogs));
         out.pushKV("info", Info());
         m_hub->SetReady(true);
-        const std::string script_path{m_args.GetArg("-webuitestscript", "")};
+        const std::string script_path{m_test_script};
         if (first_hello && !script_path.empty()) {
             std::ifstream file{static_cast<const std::filesystem::path&>(fs::PathFromString(script_path))};
             std::stringstream script;
@@ -717,7 +730,7 @@ void App::RegisterHostMethods()
     });
     // Stop, and start again with the same options (a change of the options needs it).
     b.RegisterHost("app.restart", [this](const UniValue&) {
-        if (!m_args.GetArg("-webuitestscript", "").empty()) throw HostError("No restart in the tests");
+        if (!m_test_script.empty()) throw HostError("No restart in the tests");
         m_restart_requested = true;
         RequestShutdown();
         return UniValue{true};
@@ -829,13 +842,6 @@ void App::RegisterHostMethods()
         out.pushKV("ignored", node.isSettingIgnored(name));
         return out;
     });
-    b.RegisterHost("node.setSetting", [need_node](const UniValue& params) {
-        interfaces::Node& node{need_node()};
-        const std::string name{ParamStr(params, "name")};
-        node.updateRwSetting(name, Param(params, "value"));
-        return UniValue{true};
-    });
-
     b.RegisterHost("window.setWallet", [this](const UniValue& params) {
         const UniValue name{Param(params, "name")};
         {
@@ -869,7 +875,7 @@ void App::RegisterHostMethods()
         }
         const auto chosen{Choose(dialog)};
         return chosen ? UniValue{*chosen} : UniValue{};
-    });
+    }, Bridge::Thread::LONG);
     b.RegisterHost("file.read", [this](const UniValue& params) {
         const std::string path{ParamStr(params, "path")};
         {
@@ -1038,7 +1044,7 @@ void App::RegisterHostMethods()
         const bool ok{future.get()};
         if (!ok && what == "config") throw HostError("The configuration file could not be opened.");
         return UniValue{ok};
-    });
+    }, Bridge::Thread::LONG);
 
     // Notifications of the desktop (Notificator) and the tray.
     b.RegisterHost("app.notify", [this](const UniValue& params) {
@@ -1074,7 +1080,7 @@ void App::RegisterHostMethods()
     m_wallet_api->Register(b);
 #endif
 
-    if (!m_args.GetArg("-webuitestscript", "").empty()) {
+    if (!m_test_script.empty()) {
         // The hooks of the tests of the app (only with the debug option -webuitestscript).
         b.RegisterHost("test.log", [](const UniValue& params) {
             const std::string message{params.isObject() && params.find_value("message").isStr() ? params.find_value("message").get_str() : params.write()};
@@ -1088,7 +1094,7 @@ void App::RegisterHostMethods()
             if (name.empty() || name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos) {
                 throw HostError(BRIDGE_INVALID_REQUEST, "name: letters, digits, '.', '_' and '-'");
             }
-            const fs::path dir{fs::PathFromString(m_args.GetArg("-webuitestshots", ""))};
+            const fs::path dir{fs::PathFromString(m_test_shots)};
             if (dir.empty()) throw HostError("No -webuitestshots folder");
             fs::create_directories(dir);
             const std::string path{fs::PathToString(dir / fs::PathFromString(name + ".png"))};
@@ -1097,7 +1103,7 @@ void App::RegisterHostMethods()
             auto future{done->get_future()};
             if (future.wait_for(30s) != std::future_status::ready || !future.get()) throw HostError("The snapshot failed");
             return UniValue{path};
-        });
+        }, Bridge::Thread::LONG);
         b.RegisterHost("test.fileAnswer", [this](const UniValue& params) {
             // The answer of the next file chooser: a path, or null for "cancelled".
             LOCK(m_mutex);
@@ -1135,13 +1141,13 @@ void App::RegisterHostMethods()
 int App::Run()
 {
     g_ui_thread = std::this_thread::get_id();
-    const std::string config_path{m_args.GetArg("-webuiconfig", "")};
+    const std::string config_path{m_config_path};
     m_config = std::make_unique<AppConfig>(config_path.empty() ? AppConfig::DefaultPath() : fs::PathFromString(config_path));
     m_config->Load();
 
     Window::Options options;
     options.title = CLIENT_NAME;
-    options.devtools = m_args.GetBoolArg("-webuidevtools", false);
+    options.devtools = m_devtools;
     // The size the window had last time (MainWindowGeometry).
     if (const UniValue geometry{m_config->Value("window")}; geometry.isObject()) {
         const UniValue& width{geometry.find_value("width")};
@@ -1177,6 +1183,8 @@ int App::Run()
     m_bridge = std::make_unique<Bridge>(
         [this](const std::string& id, int status, const std::string& json) { m_window->Reply(id, status, json); },
         [this](std::function<void()> fn) { m_window->Post(std::move(fn)); });
+    // The pages call the RPC methods they need, and no other (the console runs any command).
+    m_bridge->SetRpcPolicy(PageRpcPolicy);
     RegisterHostMethods();
 
     m_node_thread = std::thread([this] { NodeThread(); });

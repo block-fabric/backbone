@@ -181,7 +181,6 @@ export const host = {
   nodeState: () => request<NodeSnapshot>('host', 'node.state', {}),
   setNetworkActive: (active: boolean) => request<boolean>('host', 'node.setNetworkActive', { active }),
   getSetting: (name: string) => request<{ value: unknown; ignored: boolean }>('host', 'node.getSetting', { name }),
-  setSetting: (name: string, value: unknown) => request<boolean>('host', 'node.setSetting', { name, value }),
   setWalletTitle: (name: string | null) => request<boolean>('host', 'window.setWallet', { name }),
   minimize: () => request<boolean>('host', 'window.minimize', {}),
   copy: (text: string) => request<boolean>('host', 'clipboard.write', { text }),

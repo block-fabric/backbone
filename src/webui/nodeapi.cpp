@@ -110,7 +110,10 @@ std::vector<std::string> NodeApi::Methods() const { return METHODS; }
 void NodeApi::Register(Bridge& bridge)
 {
     for (const std::string& method : METHODS) {
-        bridge.RegisterHost(method, [this, method](const UniValue& params) { return Call(method, params); });
+        // Commands of the console, the search of a stamp and the hash of a file can take long: they run
+        // apart from the quick calls of the pages.
+        const bool slow{method == "console.run" || method == "timestamp.search" || method == "timestamp.hashFile"};
+        bridge.RegisterHost(method, [this, method](const UniValue& params) { return Call(method, params); }, slow ? Bridge::Thread::LONG : Bridge::Thread::WORKER);
     }
 }
 

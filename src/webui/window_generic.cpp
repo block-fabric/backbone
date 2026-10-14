@@ -11,6 +11,7 @@
 // node down as it does after Quit.
 
 #include <webui/assets.h>
+#include <support/cleanse.h>
 #include <webui/window.h>
 
 #include <logging.h>
@@ -34,6 +35,8 @@ public:
         m_webview->set_size(options.width, options.height, WEBVIEW_HINT_NONE);
         m_webview->bind("__chains", [this](std::string id, std::string args, void*) {
             if (m_callbacks.call) m_callbacks.call(id, args);
+            // The request may hold a passphrase: not left in freed memory (the bridge took what it needs).
+            memory_cleanse(args.data(), args.size());
         }, nullptr);
         const auto document{InlineDocument(BuiltinAssets())};
         if (!document) throw std::runtime_error("The interface is missing from this build");

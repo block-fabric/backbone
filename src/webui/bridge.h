@@ -13,8 +13,10 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace webui {
 
@@ -48,6 +50,20 @@ std::string WalletUri(const std::string& wallet_name);
 std::string PercentEncode(const std::string& text);
 
 /**
+ * The text as valid UTF-8: every ill-formed sequence becomes U+FFFD (the maximal subparts of the
+ * Unicode standard, as browsers decode). Everything the page gets goes through it: text from the
+ * chain (a sidechain title, a deposit destination) is arbitrary bytes, and the web view drops a script
+ * that is not valid UTF-8, with the answer or the events in it.
+ */
+std::string ValidUtf8(std::string_view text);
+
+/**
+ * Wipe the secrets of a request (the strings under "passphrase", "old", "new", at any depth) once
+ * it is done with, so that they do not stay in freed memory.
+ */
+void CleanseSecrets(UniValue& value);
+
+/**
  * The bridge between the page and the node. The page calls one function,
  * with requests like
  *
@@ -77,9 +93,20 @@ public:
     //! Runs a function on the UI thread, later.
     using UiRunner = std::function<void(std::function<void()>)>;
 
-    enum class Thread { WORKER, UI };
+    /**
+     * Where a call runs: on a worker (WORKER), on a worker of the calls that may take long (LONG: a
+     * download, a rescan, a command of the console; they never hold up the quick ones), or on the UI
+     * thread (window, clipboard).
+     */
+    enum class Thread { WORKER, LONG, UI };
 
-    Bridge(ReplyFn reply, UiRunner ui, int workers = 4);
+    /**
+     * Which RPC methods the page may call, and where they run: nullopt for a method the page may not
+     * call (it is answered with BRIDGE_METHOD_NOT_FOUND). Without a policy, every method runs on a worker.
+     */
+    using RpcPolicy = std::function<std::optional<Thread>(const std::string& method)>;
+
+    Bridge(ReplyFn reply, UiRunner ui, int workers = 4, int long_workers = 6);
     ~Bridge();
 
     Bridge(const Bridge&) = delete;
@@ -87,6 +114,9 @@ public:
 
     /** Where RPC calls go. Until it is set, they are answered with BRIDGE_NOT_READY. */
     void SetRpc(RpcFn rpc) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /** Set the RPC methods the page may call (RpcPolicy). */
+    void SetRpcPolicy(RpcPolicy policy) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /** Make a host method available to the page. */
     void RegisterHost(const std::string& name, HostFn fn, Thread thread = Thread::WORKER) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
@@ -122,9 +152,11 @@ private:
     const ReplyFn m_reply;
     const UiRunner m_ui;
     ThreadPool m_pool{"webui"};
+    ThreadPool m_long_pool{"webuilong"};
 
     mutable Mutex m_mutex;
     RpcFn m_rpc GUARDED_BY(m_mutex);
+    RpcPolicy m_rpc_policy GUARDED_BY(m_mutex);
     struct Host {
         HostFn fn;
         Thread thread;

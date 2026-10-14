@@ -4,6 +4,8 @@
 
 #include <webui/events.h>
 
+#include <webui/bridge.h>
+
 #include <algorithm>
 #include <optional>
 #include <utility>
@@ -72,7 +74,8 @@ void EventHub::Flush()
     }
     UniValue events{UniValue::VARR};
     for (Event& e : batch) events.push_back(std::move(e.value));
-    m_deliver(events.write());
+    // Text of the chain may be any bytes: the page gets valid UTF-8 (see ValidUtf8).
+    m_deliver(ValidUtf8(events.write()));
 }
 
 size_t EventHub::Waiting() const

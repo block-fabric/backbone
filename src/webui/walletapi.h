@@ -19,6 +19,7 @@
 namespace interfaces {
 class Node;
 class Wallet;
+class WalletLoader;
 } // namespace interfaces
 
 namespace webui {
@@ -39,6 +40,8 @@ class Bridge;
  * one, a locked wallet answers with the code WALLET_UNLOCK_NEEDED (-13), and
  * the page asks for the passphrase and calls again.
  *
+ * In a node without wallets (-disablewallet) every method that needs one answers WALLETS_DISABLED.
+ *
  * Methods (params; result):
  *   wallets.list         {}; [{name, loaded, format, needsMigration}]
  *   wallets.signers      {}; {signers: [{name, fingerprint}], error?}
@@ -52,7 +55,9 @@ class Bridge;
  *   wallet.info          {wallet}; {name, encrypted, locked, privateKeysDisabled, externalSigner, hd, ...}
  *   wallet.encrypt / wallet.changePassphrase / wallet.unlock / wallet.lock
  *   wallet.backup / wallet.exportWatchOnly {wallet, file}
- *   wallet.transactions  {wallet}; {height, hash, records: [...]}
+ *   wallet.transactions  {wallet, txids? | latest?}; {height, hash, maturity, records: [...], gone?}
+ *                        (all records; those of some transactions, and the ids no longer in the wallet; the newest)
+ *   wallet.balanceHistory {wallet, points?}; [[time, balance]...]
  *   wallet.transaction   {wallet, txid, idx?, address?}; the details of TransactionDesc
  *   wallet.txActions     {wallet, txid}; {canAbandon, canBump, hex}
  *   wallet.abandon       {wallet, txid}
@@ -67,7 +72,10 @@ class Bridge;
  *   wallet.available     {wallet, selected?}; the balance that can be sent
  *   wallet.checkChange   {wallet, address}; {valid, mine, label}
  *   wallet.send.prepare / wallet.send.commit / wallet.send.psbt / wallet.send.discard
+ *   send.isDust          {address, amount}; whether the output would be dust
  *   wallet.signMessage   {wallet, address, message, passphrase?}; {signature} or an error
+ *   wallet.withKeys      {wallet, calls: [{method, params}], passphrase?}; [{result} or {error}]
+ *                        (wallet RPC methods that need the keys, unlocked for the call alone)
  *   message.verify       {address, signature, message}; {ok, result, message}
  *   psbt.decode          {base64} or {fileBase64}; {psbt}
  *   wallet.psbt.open / wallet.psbt.sign {wallet?, psbt}; the state of the PSBT
@@ -104,6 +112,8 @@ public:
     static constexpr int PASSPHRASE_INCORRECT{-14};
     /** Error code of an amount or recipient the wallet refuses (as SendCoinsReturn). */
     static constexpr int SEND_REFUSED{-6};
+    /** Error code of every wallet method in a node without wallets (-disablewallet). */
+    static constexpr int WALLETS_DISABLED{-18};
 
 private:
     struct Prepared;
@@ -114,6 +124,8 @@ private:
 
     NodeFn m_node;
     FileFn m_may_use_file;
+    //! The wallet loader of the node; throws WALLETS_DISABLED in a node without one.
+    interfaces::WalletLoader& Loader() const;
     //! The file of a call, if the user chose it (FileFn); throws otherwise.
     std::string ChosenFile(const UniValue& params, bool write) const;
     std::map<std::string, Method> m_methods;

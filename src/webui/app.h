@@ -104,6 +104,11 @@ private:
 
     interfaces::Init& m_init;
     ArgsManager& m_args;
+    //! The debug options, from the command line only.
+    const bool m_devtools;
+    const std::string m_test_script;
+    const std::string m_test_shots;
+    const std::string m_config_path;
     std::unique_ptr<AppConfig> m_config;
     std::unique_ptr<interfaces::Node> m_node;
     std::unique_ptr<Window> m_window;
