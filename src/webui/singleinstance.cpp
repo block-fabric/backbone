@@ -7,6 +7,7 @@
 #include <crypto/sha256.h>
 #include <logging.h>
 #include <util/strencodings.h>
+#include <tinyformat.h>
 #include <util/threadnames.h>
 
 #include <array>
@@ -17,11 +18,24 @@
 #include <cerrno>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
 #endif
 
 namespace webui {
+
+#ifndef WIN32
+bool SingleInstance::PrivateDir(const fs::path& dir)
+{
+    // Not a link, a directory of this user that nobody else may enter: no other user can put a
+    // socket in it, nor take one's place.
+    struct stat st;
+    if (::lstat(fs::PathToString(dir).c_str(), &st) != 0) return false;
+    return S_ISDIR(st.st_mode) && st.st_uid == ::geteuid() && (st.st_mode & 077) == 0;
+}
+#endif
 
 fs::path SingleInstance::SocketPath(const fs::path& datadir_net)
 {
@@ -29,11 +43,27 @@ fs::path SingleInstance::SocketPath(const fs::path& datadir_net)
     const std::string dir{fs::PathToString(fs::absolute(datadir_net))};
     CSHA256().Write(reinterpret_cast<const unsigned char*>(dir.data()), dir.size()).Finalize(hash.data());
     const std::string name{"chains-app-" + HexStr(std::span{hash}.first(10)) + ".sock"};
-    // A socket path is short (108 bytes on Linux): in the runtime directory of the user, or the temporary one.
-    fs::path base;
-    if (const char* runtime{std::getenv("XDG_RUNTIME_DIR")}; runtime && *runtime) base = fs::PathFromString(runtime);
-    else base = fs::temp_directory_path();
-    return base / fs::PathFromString(name);
+#ifdef WIN32
+    return fs::PathFromString(name);
+#else
+    // A socket path is short (108 bytes on Linux): in the runtime directory of the user if it is
+    // private, or else in a directory of this user's own in the temporary one, made private. Never
+    // in a directory others can write to (the temporary one itself): another user could take the
+    // socket's place, and get the URIs handed over, or send some. Nothing if neither is private: every
+    // start then runs on its own (a second one for the data directory stops at its lock).
+    if (const char* runtime{std::getenv("XDG_RUNTIME_DIR")}; runtime && *runtime && PrivateDir(fs::PathFromString(runtime))) {
+        return fs::PathFromString(runtime) / fs::PathFromString(name);
+    }
+    std::error_code ec;
+    const fs::path own{fs::temp_directory_path(ec) / fs::PathFromString(strprintf("chains-app-%u", static_cast<unsigned>(::geteuid())))};
+    if (ec) return {};
+    ::mkdir(fs::PathToString(own).c_str(), 0700);
+    if (!PrivateDir(own)) {
+        LogWarning("webui: %s is not a private directory of this user: no single app per data directory", fs::PathToString(own));
+        return {};
+    }
+    return own / fs::PathFromString(name);
+#endif
 }
 
 #ifdef WIN32
@@ -59,6 +89,7 @@ int Accept(int fd)
 
 bool Address(const fs::path& socket, sockaddr_un& addr)
 {
+    if (socket.empty()) return false;
     const std::string path{fs::PathToString(socket)};
     std::memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -83,15 +114,36 @@ bool WriteAll(int fd, std::string_view data)
     }
     return true;
 }
+//! Whether the other end of a local connection runs as this user.
+bool SameUser(int fd)
+{
+#if defined(SO_PEERCRED)
+    struct ucred cred;
+    socklen_t size{sizeof(cred)};
+    return ::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &size) == 0 && cred.uid == ::geteuid();
+#else
+    uid_t uid;
+    gid_t gid;
+    return ::getpeereid(fd, &uid, &gid) == 0 && uid == ::geteuid();
+#endif
+}
+
+//! Whether a socket file is this user's (not one another user put there).
+bool OwnSocket(const fs::path& socket)
+{
+    struct stat st;
+    return ::lstat(fs::PathToString(socket).c_str(), &st) == 0 && S_ISSOCK(st.st_mode) && st.st_uid == ::geteuid();
+}
 } // namespace
 
 bool SingleInstance::Send(const fs::path& socket, const std::vector<std::string>& lines)
 {
     sockaddr_un addr;
-    if (!Address(socket, addr)) return false;
+    if (!Address(socket, addr) || !OwnSocket(socket)) return false;
     const int fd{::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0)};
     if (fd < 0) return false;
-    bool sent{::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0};
+    // Only to an app of this user.
+    bool sent{::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0 && SameUser(fd)};
     for (const std::string& line : lines) {
         if (!sent) break;
         // One message per line: a line break inside one would split it.
@@ -123,6 +175,8 @@ bool SingleInstance::Listen(const fs::path& socket, MessageFn on_message)
         m_fd = -1;
         return false;
     }
+    // For this user only (its directory is already private).
+    ::chmod(addr.sun_path, 0600);
     m_socket = socket;
     m_stop = false;
     m_thread = std::thread([this, on_message = std::move(on_message)] {
@@ -132,6 +186,11 @@ bool SingleInstance::Listen(const fs::path& socket, MessageFn on_message)
             if (::poll(&p, 1, 200) <= 0) continue;
             const int client{Accept(m_fd)};
             if (client < 0) continue;
+            // Only from an app of this user: another one could otherwise hand payment URIs over.
+            if (!SameUser(client)) {
+                ::close(client);
+                continue;
+            }
             // A client has a second to say what it wants.
             timeval timeout{1, 0};
             ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));

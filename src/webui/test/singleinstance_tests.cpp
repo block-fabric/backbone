@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -17,6 +18,9 @@
 using namespace std::chrono_literals;
 
 #ifndef WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+
 namespace {
 struct Received {
     std::mutex mutex;
@@ -101,6 +105,53 @@ BOOST_AUTO_TEST_CASE(stale_socket)
     BOOST_REQUIRE(app.Listen(socket, received.Fn()));
     BOOST_CHECK(webui::SingleInstance::SendToRunning(socket, {}));
     BOOST_CHECK(received.WaitFor(1));
+}
+
+BOOST_AUTO_TEST_CASE(private_directories_only)
+{
+    const fs::path base{m_args.GetDataDirBase()};
+    const fs::path open{base / "open"}, closed{base / "closed"}, link{base / "link"};
+    fs::create_directories(open);
+    fs::create_directories(closed);
+    ::chmod(fs::PathToString(open).c_str(), 0755);
+    ::chmod(fs::PathToString(closed).c_str(), 0700);
+    fs::create_directory_symlink(closed, link);
+    BOOST_CHECK(webui::SingleInstance::PrivateDir(closed));
+    BOOST_CHECK(!webui::SingleInstance::PrivateDir(open));
+    BOOST_CHECK(!webui::SingleInstance::PrivateDir(link));
+    BOOST_CHECK(!webui::SingleInstance::PrivateDir(base / "missing"));
+
+    // A runtime directory others can enter is not used: the socket goes to a private directory of
+    // this user's own in the temporary one, never to the temporary directory itself.
+    const char* saved{std::getenv("XDG_RUNTIME_DIR")};
+    const std::string kept{saved ? saved : ""};
+    ::setenv("XDG_RUNTIME_DIR", fs::PathToString(open).c_str(), 1);
+    const fs::path socket{webui::SingleInstance::SocketPath(fs::PathFromString("/data/one"))};
+    BOOST_CHECK(!socket.empty());
+    BOOST_CHECK(socket.parent_path() != open);
+    BOOST_CHECK(socket.parent_path() != fs::temp_directory_path());
+    BOOST_CHECK(webui::SingleInstance::PrivateDir(socket.parent_path()));
+    ::setenv("XDG_RUNTIME_DIR", fs::PathToString(closed).c_str(), 1);
+    BOOST_CHECK(webui::SingleInstance::SocketPath(fs::PathFromString("/data/one")).parent_path() == closed);
+    if (saved) ::setenv("XDG_RUNTIME_DIR", kept.c_str(), 1); else ::unsetenv("XDG_RUNTIME_DIR");
+}
+
+BOOST_AUTO_TEST_CASE(socket_for_this_user_only)
+{
+    const fs::path socket{m_args.GetDataDirBase() / "own.sock"};
+    Received received;
+    webui::SingleInstance instance;
+    BOOST_REQUIRE(instance.Listen(socket, received.Fn()));
+    struct stat st;
+    BOOST_REQUIRE(::lstat(fs::PathToString(socket).c_str(), &st) == 0);
+    BOOST_CHECK_EQUAL(st.st_mode & 0777, 0600u);
+    BOOST_CHECK_EQUAL(st.st_uid, ::geteuid());
+    // Nothing is handed to a path that is not a socket of this user.
+    const fs::path not_socket{m_args.GetDataDirBase() / "plain"};
+    std::ofstream{fs::PathToString(not_socket)} << "x";
+    BOOST_CHECK(!webui::SingleInstance::Send(not_socket, {"activate"}));
+    BOOST_CHECK(!webui::SingleInstance::Send(fs::path{}, {"activate"}));
+    instance.Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

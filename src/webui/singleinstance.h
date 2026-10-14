@@ -28,7 +28,10 @@ class SingleInstance
 public:
     using MessageFn = std::function<void(const std::string& line)>;
 
-    /** The socket of the app of a data directory (the network directory, as GetDataDirNet()). */
+    /**
+     * The socket of the app of a data directory (the network directory, as GetDataDirNet()), in a
+     * directory private to this user; empty if there is none (no single app per data directory then).
+     */
     static fs::path SocketPath(const fs::path& datadir_net);
 
     /**
@@ -53,6 +56,11 @@ public:
 
     /** Stop listening and remove the socket. */
     void Stop();
+
+#ifndef WIN32
+    /** Whether a directory is this user's and private (not a link; no access for others). */
+    static bool PrivateDir(const fs::path& dir);
+#endif
 
     /** Most bytes of one message. */
     static constexpr size_t MAX_MESSAGE{64 * 1024};
