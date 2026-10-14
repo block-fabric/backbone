@@ -795,7 +795,10 @@ void App::RegisterHostMethods()
 
 #ifdef ENABLE_WALLET
     // The wallet functions (the wallet pages of chains-qt).
-    m_wallet_api = std::make_unique<WalletApi>(need_node);
+    m_wallet_api = std::make_unique<WalletApi>(need_node, [this](const std::string& path, bool write) {
+        LOCK(m_mutex);
+        return (write ? m_writable : m_readable).contains(path);
+    });
     m_wallet_api->Register(b);
 #endif
 

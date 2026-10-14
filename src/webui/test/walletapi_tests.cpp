@@ -19,6 +19,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <set>
+
 #include <condition_variable>
 #include <map>
 #include <mutex>
@@ -31,13 +33,17 @@ struct WalletApiSetup : TestChain100Setup {
     std::unique_ptr<interfaces::WalletLoader> loader;
     std::unique_ptr<interfaces::Node> node;
     std::unique_ptr<webui::WalletApi> api;
+    //! The files "the user chose" (the app's file chooser), as the app passes them.
+    std::set<std::string> readable, writable;
 
     WalletApiSetup()
     {
         loader = interfaces::MakeWalletLoader(*m_node.chain, *Assert(m_node.args));
         m_node.wallet_loader = loader.get();
         node = interfaces::MakeNode(m_node);
-        api = std::make_unique<webui::WalletApi>([this]() -> interfaces::Node& { return *node; });
+        api = std::make_unique<webui::WalletApi>([this]() -> interfaces::Node& { return *node; }, [this](const std::string& path, bool write) {
+            return (write ? writable : readable).contains(path);
+        });
     }
 
     ~WalletApiSetup()
@@ -210,10 +216,17 @@ BOOST_AUTO_TEST_CASE(wallet_lifecycle)
     Call("wallets.open", Obj({{"name", "w2"}}));
     BOOST_CHECK(Call("wallet.info", Obj({{"wallet", "w2"}}))["encrypted"].get_bool());
 
-    // Backup and restore under another name.
+    // Backup and restore under another name: only to and from files the user chose.
     const std::string backup{fs::PathToString(m_args.GetDataDirBase() / "w1-backup.dat")};
+    BOOST_CHECK_EQUAL(ErrorOf("wallet.backup", Obj({{"wallet", "w1"}, {"file", backup}})), webui::BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK(!fs::exists(fs::PathFromString(backup)));
+    writable.insert(backup);
     Call("wallet.backup", Obj({{"wallet", "w1"}, {"file", backup}}));
     BOOST_CHECK(fs::exists(fs::PathFromString(backup)));
+    // Written by the user's choice is not chosen to be read: restoring needs its own choice.
+    BOOST_CHECK_EQUAL(ErrorOf("wallets.restore", Obj({{"file", backup}, {"name", "w1-restored"}})), webui::BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(ErrorOf("wallets.restoreMigrate", Obj({{"file", backup}, {"name", "w1-migrated"}})), webui::BRIDGE_INVALID_REQUEST);
+    readable.insert(backup);
     UniValue restored{Call("wallets.restore", Obj({{"file", backup}, {"name", "w1-restored"}}))};
     BOOST_CHECK_EQUAL(restored["name"].get_str(), "w1-restored");
     BOOST_CHECK(Call("wallet.info", Obj({{"wallet", "w1-restored"}}))["encrypted"].get_bool());
@@ -221,6 +234,9 @@ BOOST_AUTO_TEST_CASE(wallet_lifecycle)
 
     // A watch-only export of a wallet with keys.
     const std::string exported{fs::PathToString(m_args.GetDataDirBase() / "w2-watch.dat")};
+    BOOST_CHECK_EQUAL(ErrorOf("wallet.exportWatchOnly", Obj({{"wallet", "w2"}, {"file", exported}})), webui::BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK(!fs::exists(fs::PathFromString(exported)));
+    writable.insert(exported);
     Call("wallet.exportWatchOnly", Obj({{"wallet", "w2"}, {"file", exported}}));
     BOOST_CHECK(fs::exists(fs::PathFromString(exported)));
 }

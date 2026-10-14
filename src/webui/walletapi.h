@@ -77,8 +77,13 @@ class WalletApi
 {
 public:
     using NodeFn = std::function<interfaces::Node&()>;
+    /**
+     * Whether the page may use a file: only one the user chose in a file chooser (to read, or with
+     * `write`, to save). Without it, no method takes a file.
+     */
+    using FileFn = std::function<bool(const std::string& path, bool write)>;
 
-    explicit WalletApi(NodeFn node);
+    explicit WalletApi(NodeFn node, FileFn may_use_file = {});
     ~WalletApi();
 
     WalletApi(const WalletApi&) = delete;
@@ -108,6 +113,9 @@ private:
     void Add(const std::string& name, Method method);
 
     NodeFn m_node;
+    FileFn m_may_use_file;
+    //! The file of a call, if the user chose it (FileFn); throws otherwise.
+    std::string ChosenFile(const UniValue& params, bool write) const;
     std::map<std::string, Method> m_methods;
 
     Mutex m_mutex;

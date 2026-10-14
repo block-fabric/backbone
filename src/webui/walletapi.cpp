@@ -780,7 +780,18 @@ struct WalletApi::Bump {
     CMutableTransaction mtx;
 };
 
-WalletApi::WalletApi(NodeFn node) : m_node(std::move(node))
+std::string WalletApi::ChosenFile(const UniValue& params, bool write) const
+{
+    // The page names a file only by what the user chose in a file chooser: page code (or content
+    // shown in it) never decides where a wallet is written, nor which file is restored.
+    const std::string file{Str(params, "file")};
+    if (!m_may_use_file || !m_may_use_file(file, write)) {
+        throw HostError(BRIDGE_INVALID_REQUEST, write ? "Only a file chosen by the user can be written" : "Only a file chosen by the user can be read");
+    }
+    return file;
+}
+
+WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node)), m_may_use_file(std::move(may_use_file))
 {
     // Find a loaded wallet by its name (the RPC methods of the page name wallets the same way).
     auto get_wallet{[this](const UniValue& params) -> std::unique_ptr<interfaces::Wallet> {
@@ -879,7 +890,7 @@ WalletApi::WalletApi(NodeFn node) : m_node(std::move(node))
         const std::string name{Str(params, "name")};
         if (name.empty()) throw HostError(BRIDGE_INVALID_REQUEST, "Wallet name cannot be empty");
         std::vector<bilingual_str> warnings;
-        auto w{m_node().walletLoader().restoreWallet(fs::PathFromString(Str(params, "file")), name, warnings, /*load_after_restore=*/true)};
+        auto w{m_node().walletLoader().restoreWallet(fs::PathFromString(ChosenFile(params, /*write=*/false)), name, warnings, /*load_after_restore=*/true)};
         if (!w) throw HostError(util::ErrorString(w).translated);
         UniValue out{UniValue::VOBJ};
         out.pushKV("name", (*w)->getWalletName());
@@ -904,7 +915,7 @@ WalletApi::WalletApi(NodeFn node) : m_node(std::move(node))
         const std::string name{Str(params, "name")};
         if (name.empty()) throw HostError(BRIDGE_INVALID_REQUEST, "Wallet name cannot be empty");
         std::vector<bilingual_str> warnings;
-        auto restored{m_node().walletLoader().restoreWallet(fs::PathFromString(Str(params, "file")), name, warnings, /*load_after_restore=*/false)};
+        auto restored{m_node().walletLoader().restoreWallet(fs::PathFromString(ChosenFile(params, /*write=*/false)), name, warnings, /*load_after_restore=*/false)};
         if (!restored) throw HostError(util::ErrorString(restored).translated);
         UniValue out{migrate(name, Secure(OptStr(params, "passphrase")), /*load=*/true)};
         out.pushKV("warnings", Warnings(warnings));
@@ -972,16 +983,16 @@ WalletApi::WalletApi(NodeFn node) : m_node(std::move(node))
     Add("wallet.lock", [get_wallet](const UniValue& params) {
         return UniValue{get_wallet(params)->lock()};
     });
-    Add("wallet.backup", [get_wallet](const UniValue& params) {
+    Add("wallet.backup", [this, get_wallet](const UniValue& params) {
         auto w{get_wallet(params)};
-        const std::string file{Str(params, "file")};
+        const std::string file{ChosenFile(params, /*write=*/true)};
         if (!w->backupWallet(file)) throw HostError(strprintf("There was an error trying to save the wallet data to %s.", file));
         return UniValue{file};
     });
-    Add("wallet.exportWatchOnly", [get_wallet](const UniValue& params) {
+    Add("wallet.exportWatchOnly", [this, get_wallet](const UniValue& params) {
         auto w{get_wallet(params)};
         if (w->privateKeysDisabled()) throw HostError("This wallet is watch-only already");
-        auto res{w->exportWatchOnlyWallet(fs::PathFromString(Str(params, "file")))};
+        auto res{w->exportWatchOnlyWallet(fs::PathFromString(ChosenFile(params, /*write=*/true)))};
         if (!res) throw HostError(util::ErrorString(res).translated);
         return UniValue{*res};
     });
