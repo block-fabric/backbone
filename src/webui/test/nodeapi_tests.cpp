@@ -68,7 +68,7 @@ UniValue Obj(std::initializer_list<std::pair<std::string, UniValue>> kvs)
     return out;
 }
 
-void WriteScript(const fs::path& path, const std::string& body)
+[[maybe_unused]] void WriteScript(const fs::path& path, const std::string& body)
 {
     {
         std::ofstream file{path.std_path()};
@@ -338,6 +338,8 @@ BOOST_AUTO_TEST_CASE(node_options)
     m_node.args->LockSettings([](common::Settings& settings) { settings.command_line_options.erase("par"); });
 }
 
+#ifndef WIN32
+// The programs of the sidechain are shell scripts here.
 BOOST_AUTO_TEST_CASE(sidechain_nodes)
 {
     // The network of the node, as chains-app has it on the command line.
@@ -426,6 +428,7 @@ esac
     BOOST_CHECK(!webui::SidechainNodes::Launch({"/no/such/program"}));
     m_node.args->LockSettings([](common::Settings& settings) { settings.forced_settings.erase("chain"); });
 }
+#endif
 
 BOOST_AUTO_TEST_CASE(app_values)
 {

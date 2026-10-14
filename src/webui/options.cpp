@@ -32,6 +32,14 @@
 #include <stdexcept>
 #include <unistd.h>
 
+#ifdef WIN32
+#include <util/fs_helpers.h>
+
+#include <shlobj.h>
+#include <shobjidl.h>
+#include <objbase.h>
+#endif
+
 namespace webui {
 namespace {
 constexpr const char* DEFAULT_GUI_PROXY_HOST{"127.0.0.1"};
@@ -117,6 +125,25 @@ fs::path AutostartFile(ArgsManager& args)
     return AutostartDir() / fs::u8path(strprintf("chains-app-%s.desktop", ChainTypeToString(chain)));
 }
 #endif
+
+#ifdef WIN32
+//! The link in the startup folder of the user, as chains-qt (GUIUtil::StartupShortcutPath).
+fs::path StartupShortcutPath(ArgsManager& args)
+{
+    const ChainType chain{args.GetChainType()};
+    if (chain == ChainType::MAIN) return GetSpecialFolderPath(CSIDL_STARTUP) / "Chains.lnk";
+    return GetSpecialFolderPath(CSIDL_STARTUP) / fs::u8path(strprintf("Chains (%s).lnk", ChainTypeToString(chain)));
+}
+
+//! COM on this thread for as long as it lives.
+struct ComScope {
+    bool ok{SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))};
+    ~ComScope()
+    {
+        if (ok) CoUninitialize();
+    }
+};
+#endif
 } // namespace
 
 NodeOptions::NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart)
@@ -144,8 +171,11 @@ bool NodeOptions::StartAtLogin(ArgsManager& args)
         if (line.find("Hidden") != std::string::npos && line.find("true") != std::string::npos) return false;
     }
     return true;
+#elif defined(WIN32)
+    std::error_code ec;
+    return std::filesystem::exists(StartupShortcutPath(args), ec);
 #else
-    // TODO(windows/macos port): the startup folder link of Windows, the login items of macOS.
+    // TODO(macos port): the login items of macOS.
     (void)args;
     return false;
 #endif
@@ -176,6 +206,28 @@ bool NodeOptions::SetStartAtLogin(ArgsManager& args, bool start)
     file << "Terminal=false\n";
     file << "Hidden=false\n";
     return file.good();
+#elif defined(WIN32)
+    const fs::path link_path{StartupShortcutPath(args)};
+    std::error_code ec;
+    fs::remove(link_path, ec);
+    if (!start) return !std::filesystem::exists(link_path, ec);
+    ComScope com;
+    wchar_t exe[MAX_PATH];
+    if (!GetModuleFileNameW(nullptr, exe, MAX_PATH)) return false;
+    IShellLinkW* link{nullptr};
+    if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW, reinterpret_cast<void**>(&link)))) return false;
+    const std::wstring arguments{fs::u8path(strprintf("-min -chain=%s", ChainTypeToString(args.GetChainType()))).wstring()};
+    link->SetPath(exe);
+    link->SetArguments(arguments.c_str());
+    link->SetWorkingDirectory(fs::path{exe}.parent_path().wstring().c_str());
+    IPersistFile* file{nullptr};
+    bool ok{SUCCEEDED(link->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&file)))};
+    if (ok) {
+        ok = SUCCEEDED(file->Save(link_path.wstring().c_str(), TRUE));
+        file->Release();
+    }
+    link->Release();
+    return ok;
 #else
     (void)args;
     (void)start;

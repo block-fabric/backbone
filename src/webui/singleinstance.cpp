@@ -14,7 +14,11 @@
 #include <cstdlib>
 #include <cstring>
 
-#ifndef WIN32
+#ifdef WIN32
+#include <windows.h>
+#include <sddl.h>
+#include <vector>
+#else
 #include <cerrno>
 #include <poll.h>
 #include <sys/socket.h>
@@ -67,11 +71,169 @@ fs::path SingleInstance::SocketPath(const fs::path& datadir_net)
 }
 
 #ifdef WIN32
-// TODO(windows port): a named pipe. Until then every start runs on its own (and a second one for the
-// same data directory stops at the lock of the data directory, with its message).
-bool SingleInstance::Send(const fs::path&, const std::vector<std::string>&) { return false; }
-bool SingleInstance::Listen(const fs::path&, MessageFn) { return true; }
-void SingleInstance::Stop() {}
+// A named pipe of this user (its name from the socket path and the user, its access for the user
+// alone), in place of the socket of Unix.
+namespace {
+//! The SID of the user of a process, as text ("S-1-5-21-...").
+std::wstring UserSid(HANDLE process)
+{
+    HANDLE token{nullptr};
+    if (!OpenProcessToken(process, TOKEN_QUERY, &token)) return {};
+    std::wstring out;
+    DWORD size{0};
+    GetTokenInformation(token, TokenUser, nullptr, 0, &size);
+    std::vector<unsigned char> buffer(size);
+    if (size && GetTokenInformation(token, TokenUser, buffer.data(), size, &size)) {
+        LPWSTR text{nullptr};
+        if (ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &text)) {
+            out = text;
+            LocalFree(text);
+        }
+    }
+    CloseHandle(token);
+    return out;
+}
+
+//! Whether the process at the other end of a pipe runs as this user.
+bool SameUser(ULONG pid)
+{
+    HANDLE process{OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)};
+    if (!process) return false;
+    const std::wstring sid{UserSid(process)};
+    CloseHandle(process);
+    return !sid.empty() && sid == UserSid(GetCurrentProcess());
+}
+
+std::wstring PipeName(const fs::path& socket)
+{
+    if (socket.empty()) return {};
+    const std::wstring sid{UserSid(GetCurrentProcess())};
+    const std::string key{fs::PathToString(socket) + "|" + std::string(sid.begin(), sid.end())};
+    std::array<unsigned char, CSHA256::OUTPUT_SIZE> hash;
+    CSHA256().Write(reinterpret_cast<const unsigned char*>(key.data()), key.size()).Finalize(hash.data());
+    // A SID is ASCII, and so is the name.
+    const std::string name{"\\\\.\\pipe\\chains-app-" + HexStr(std::span{hash}.first(12))};
+    return std::wstring(name.begin(), name.end());
+}
+
+HANDLE CreatePipe(const std::wstring& name, bool first)
+{
+    // Only this user may open it (and nobody may take its name while the app runs: the first instance).
+    PSECURITY_DESCRIPTOR descriptor{nullptr};
+    const std::wstring sddl{L"D:P(A;;GA;;;" + UserSid(GetCurrentProcess()) + L")"};
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr)) return INVALID_HANDLE_VALUE;
+    SECURITY_ATTRIBUTES attributes{sizeof(attributes), descriptor, FALSE};
+    HANDLE pipe{CreateNamedPipeW(name.c_str(), PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
+                                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                                 PIPE_UNLIMITED_INSTANCES, 0, static_cast<DWORD>(SingleInstance::MAX_MESSAGE), 0, &attributes)};
+    LocalFree(descriptor);
+    return pipe;
+}
+
+//! Wait for an overlapped operation; false when it did not end in time or the app stops.
+bool WaitIo(HANDLE pipe, OVERLAPPED& ov, DWORD& bytes, const std::atomic<bool>& stop, int timeout_ms)
+{
+    for (int waited{0}; !stop; waited += 200) {
+        if (timeout_ms >= 0 && waited >= timeout_ms) break;
+        if (WaitForSingleObject(ov.hEvent, 200) == WAIT_OBJECT_0) return GetOverlappedResult(pipe, &ov, &bytes, FALSE);
+    }
+    CancelIo(pipe);
+    GetOverlappedResult(pipe, &ov, &bytes, TRUE);
+    return false;
+}
+} // namespace
+
+bool SingleInstance::Send(const fs::path& socket, const std::vector<std::string>& lines)
+{
+    const std::wstring name{PipeName(socket)};
+    if (name.empty()) return false;
+    HANDLE pipe{INVALID_HANDLE_VALUE};
+    for (int attempt{0}; attempt < 3; ++attempt) {
+        pipe = CreateFileW(name.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
+        if (pipe != INVALID_HANDLE_VALUE || GetLastError() != ERROR_PIPE_BUSY) break;
+        WaitNamedPipeW(name.c_str(), 1000);
+    }
+    if (pipe == INVALID_HANDLE_VALUE) return false;
+    // Only to an app of this user; it may then come to the front.
+    ULONG pid{0};
+    bool sent{GetNamedPipeServerProcessId(pipe, &pid) && SameUser(pid)};
+    if (sent) AllowSetForegroundWindow(pid);
+    for (const std::string& line : lines) {
+        if (!sent) break;
+        // One message per line: a line break inside one would split it.
+        if (line.find_first_of("\r\n") != std::string::npos || line.size() > MAX_MESSAGE) continue;
+        const std::string data{line + "\n"};
+        DWORD written{0};
+        sent = WriteFile(pipe, data.data(), static_cast<DWORD>(data.size()), &written, nullptr) && written == data.size();
+    }
+    if (sent) FlushFileBuffers(pipe);
+    CloseHandle(pipe);
+    return sent;
+}
+
+bool SingleInstance::Listen(const fs::path& socket, MessageFn on_message)
+{
+    const std::wstring name{PipeName(socket)};
+    if (name.empty()) return false;
+    HANDLE pipe{CreatePipe(name, /*first=*/true)};
+    if (pipe == INVALID_HANDLE_VALUE) {
+        // Another app listens there (or the name is taken).
+        LogDebug(BCLog::RPC, "webui: cannot listen on the pipe of %s (%u)\n", fs::PathToString(socket), static_cast<unsigned>(GetLastError()));
+        return false;
+    }
+    m_socket = socket;
+    m_stop = false;
+    m_thread = std::thread([this, pipe, on_message = std::move(on_message)] {
+        util::ThreadRename("webui-instance");
+        OVERLAPPED ov{};
+        ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        while (!m_stop) {
+            ResetEvent(ov.hEvent);
+            DWORD bytes{0};
+            bool connected{ConnectNamedPipe(pipe, &ov) != FALSE};
+            if (!connected) {
+                const DWORD error{GetLastError()};
+                if (error == ERROR_PIPE_CONNECTED) connected = true;
+                else if (error == ERROR_IO_PENDING) connected = WaitIo(pipe, ov, bytes, m_stop, -1);
+            }
+            if (!connected) {
+                DisconnectNamedPipe(pipe);
+                continue;
+            }
+            // Only from an app of this user: another one could otherwise hand payment URIs over.
+            ULONG pid{0};
+            std::string data;
+            if (GetNamedPipeClientProcessId(pipe, &pid) && SameUser(pid)) {
+                // A client has a second to say what it wants.
+                const auto deadline{GetTickCount64() + 1000};
+                char buffer[4096];
+                while (!m_stop && data.size() <= MAX_MESSAGE * 4 && GetTickCount64() < deadline) {
+                    ResetEvent(ov.hEvent);
+                    DWORD n{0};
+                    bool ok{ReadFile(pipe, buffer, sizeof(buffer), &n, &ov) != FALSE};
+                    if (!ok && GetLastError() == ERROR_IO_PENDING) ok = WaitIo(pipe, ov, n, m_stop, static_cast<int>(deadline - GetTickCount64()));
+                    if (!ok || n == 0) break;
+                    data.append(buffer, n);
+                }
+            }
+            DisconnectNamedPipe(pipe);
+            size_t start{0};
+            for (size_t end{data.find('\n')}; end != std::string::npos; start = end + 1, end = data.find('\n', start)) {
+                const std::string line{data.substr(start, end - start)};
+                if (!line.empty() && line.size() <= MAX_MESSAGE) on_message(line);
+            }
+        }
+        CloseHandle(ov.hEvent);
+        CloseHandle(pipe);
+    });
+    return true;
+}
+
+void SingleInstance::Stop()
+{
+    m_stop = true;
+    if (m_thread.joinable()) m_thread.join();
+}
 #else
 namespace {
 #ifndef SOCK_CLOEXEC

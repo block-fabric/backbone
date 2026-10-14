@@ -20,6 +20,7 @@ using namespace std::chrono_literals;
 #ifndef WIN32
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace {
 struct Received {
@@ -107,6 +108,7 @@ BOOST_AUTO_TEST_CASE(stale_socket)
     BOOST_CHECK(received.WaitFor(1));
 }
 
+#ifndef WIN32
 BOOST_AUTO_TEST_CASE(private_directories_only)
 {
     const fs::path base{m_args.GetDataDirBase()};
@@ -153,6 +155,22 @@ BOOST_AUTO_TEST_CASE(socket_for_this_user_only)
     BOOST_CHECK(!webui::SingleInstance::Send(fs::path{}, {"activate"}));
     instance.Stop();
 }
+#else
+BOOST_AUTO_TEST_CASE(pipe_for_this_user_only)
+{
+    // On Windows a named pipe of this user: another start of the app for the same data directory
+    // finds it, a different data directory does not.
+    const fs::path socket{m_args.GetDataDirBase() / "own.sock"};
+    Received received;
+    webui::SingleInstance instance;
+    BOOST_REQUIRE(instance.Listen(socket, received.Fn()));
+    BOOST_CHECK(!webui::SingleInstance::Send(m_args.GetDataDirBase() / "other.sock", {"activate"}));
+    BOOST_CHECK(!webui::SingleInstance::Send(fs::path{}, {"activate"}));
+    BOOST_CHECK(webui::SingleInstance::Send(socket, {"activate"}));
+    BOOST_CHECK(received.WaitFor(1));
+    instance.Stop();
+    BOOST_CHECK(!webui::SingleInstance::Send(socket, {"activate"}));
+}
+#endif
 
 BOOST_AUTO_TEST_SUITE_END()
-#endif

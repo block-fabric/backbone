@@ -25,6 +25,10 @@ target_link_libraries(test_chains-app
   bitcoin_node
   Boost::headers
 )
+if(WIN32)
+  # The UTF-8 code page, as test_bitcoin.
+  add_windows_application_manifest(test_chains-app)
+endif()
 add_test(NAME webui_tests COMMAND test_chains-app)
 
 # The tests of the interface (vitest), and the end-to-end smoke test of chains-app in a virtual
