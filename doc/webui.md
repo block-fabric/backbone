@@ -3,7 +3,9 @@
 `chains-app` is the node of Chains with its wallet and an HTML interface in a
 native web view, in one program. It replaces `chains-qt` (src/qt, kept in the
 tree but not built on this branch). What it must do is listed in
-[webui-parity.md](webui-parity.md).
+[webui-parity.md](webui-parity.md). Its window comes in three layouts (workspace
+tabs, dashboard, compact sidebar) with a command palette:
+[webui-layouts.md](webui-layouts.md).
 
 ## How it is made
 

@@ -65,7 +65,7 @@ transactions page).
 |----|----------|-----------|--------|
 | C01 | Sidebar: Wallet (Overview, Send, Receive, Transactions), Chain (Sidechains, Sidechain Nodes, Mine, Block Explorer), Node (Node Window, Settings), Theme | bitcoingui.cpp `createToolBars` | [x] shell; pages land in later phases |
 | C02 | Shortcuts Alt+1..5 for the pages, Ctrl+Q quit, Ctrl+Shift+C console, Ctrl+Shift+D node window, Ctrl+Shift+M mask values, Ctrl+M minimize, Ctrl+W closes a dialog, Ctrl+/Ctrl- font size | bitcoingui.cpp, guiutil.cpp | [~] page, quit, console, mask, font, Esc closes dialogs; Ctrl+M later |
-| C03 | Menu "Your Wallet": create, open (list of wallets on disk), close, close all, migrate (list + restore-and-migrate a file), sending addresses, receiving addresses, backup, restore, export watch-only, encrypt, change passphrase, mask values | bitcoingui.cpp `createMenuBar`, `createActions` | [x] views/Shell.svelte menu → pages/Wallets.svelte, pages/Addresses.svelte |
+| C03 | Menu "Your Wallet": create, open (list of wallets on disk), close, close all, migrate (list + restore-and-migrate a file), sending addresses, receiving addresses, backup, restore, export watch-only, encrypt, change passphrase, mask values | bitcoingui.cpp `createMenuBar`, `createActions` | [x] lib/commands.svelte.ts (the menus in every layout and the palette, doc/webui-layouts.md) → pages/Wallets.svelte, pages/Addresses.svelte |
 | C04 | Menu "Banking": send, receive, transactions, open URI, proof of funds, multisig lounge, load PSBT from file, from clipboard | bitcoingui.cpp | [~] send, receive, transactions, open URI, PSBT from file/clipboard done (pages/Psbt.svelte); proof of funds and multisig lounge later |
 | C05 | Menu "Use Chains": timestamp file, sign message, verify message, sidechains | bitcoingui.cpp | [~] sign and verify message done (pages/Messages.svelte); timestamp and sidechains later |
 | C06 | Menu "Chains": sidechain nodes, solo mine, sidechain proposals and votes | bitcoingui.cpp | [~] menu present |
@@ -78,7 +78,7 @@ transactions page).
 | C13 | Remember the window geometry | bitcoingui.cpp `MainWindowGeometry` | [ ] |
 | C14 | Status tips of every action (shown in the status bar on hover) | bitcoingui.cpp | [~] titles/tooltips |
 | C15 | About dialog (version, licence) and command-line options dialog | utilitydialog.cpp `HelpMessageDialog` | [x] |
-| C16 | Themed window frame with the menus in the title bar | themedframe.cpp | [ ] (webview window keeps the desktop frame; menus are in the app bar) |
+| C16 | Themed window frame with the menus in the title bar | themedframe.cpp | [ ] (webview window keeps the desktop frame; the menus are in the Menus button of each layout and the palette, doc/webui-layouts.md) |
 
 ## D. Status bar and notifications
 
