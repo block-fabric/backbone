@@ -51,7 +51,9 @@
     await check('preferences kept by the app', prefs.unit === 'CHN' && prefs.mask === false, JSON.stringify(prefs));
 
     // Text from the chain is text: a wallet whose name is markup.
-    const evil = '<img src=x onerror=alert(1)>w';
+    // (Windows has no < or > in file names: there, entities that must not be decoded.)
+    const windows = (await host('app.info')).platform === 'windows';
+    const evil = windows ? '&lt;img src=x onerror=alert(1)&gt;w' : '<img src=x onerror=alert(1)>w';
     await rpc('createwallet', [evil]);
     await waitFor('the second wallet', () => T().wallets.list.length === 2);
     T().savePrefs({ sidebarExpanded: true });

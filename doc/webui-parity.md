@@ -38,7 +38,7 @@ transactions page).
 | A11 | Load the wallets at start (`LoadWalletsActivity`), `-min` keeps it minimized | walletcontroller.cpp | [x] |
 | A12 | Clean shutdown: hide windows, show "shutting down, do not shut down the computer", `appShutdown` on a thread, exit status of the node | bitcoin.cpp `requestShutdown`, utilitydialog.cpp `ShutdownWindow` | [x] |
 | A13 | Poll for a shutdown requested from elsewhere (RPC `stop`, signal) | bitcoin.cpp `pollShutdownTimer`, bitcoingui.cpp `detectShutdown` | [x] |
-| A14 | Windows: block the session end until the node has stopped | winshutdownmonitor.cpp | [ ] (Windows port) |
+| A14 | Windows: block the session end until the node has stopped | winshutdownmonitor.cpp | [x] (window_win32.cpp: WM_QUERYENDSESSION) |
 | A15 | macOS: App Nap off while syncing, dock icon click shows the window | macos_appnap.mm, macdockiconhandler.mm | [ ] (macOS port) |
 | A16 | Prune setting chosen in the intro applied (`InitPruneSetting`) | bitcoin.cpp | [x] |
 | A17 | Fatal error / non-fatal internal error dialogs with the bug report link | bitcoin.cpp `handleRunawayException`, `handleNonFatalException` | [~] fatal error view done; non-fatal toast |
@@ -56,7 +56,7 @@ transactions page).
 | B06 | Open URI dialog (Banking > Open URI…) | openuridialog.cpp | [x] Send page, "Open URI…" (pages/Send.svelte) |
 | B07 | URI fills the Send page, after checking the address is valid for this network | paymentserver.cpp `handleURIOrFile`, bitcoingui.cpp `handlePaymentRequest` | [x] pages/Send.svelte `pasteUri` (fills the first empty entry, checks the network) |
 | B08 | Drag and drop a URI onto the window | bitcoingui.cpp `dropEvent` | [ ] |
-| B09 | Register as the handler of `chains:` (desktop file / registry) | share/, paymentserver.cpp | [ ] |
+| B09 | Register as the handler of `chains:` (desktop file / registry) | share/, paymentserver.cpp | [ ] (Windows: urischeme_win.cpp and the installer) |
 | B10 | A second start without URI brings the running window to the front (Qt fails on the datadir lock) | (improvement) | [x] |
 
 ## C. Main window, navigation, menus, shortcuts

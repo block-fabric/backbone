@@ -51,8 +51,11 @@ App, on a thread of its own: intro, configuration, init, then shutdown
   from `chains-app://app/` with a content security policy that allows nothing
   but its own files: no remote content, no inline code or styles, no eval.
   Text that comes from the chain or the node is always shown as text. On
-  Windows and macOS (not built yet) the interface is one self-contained
-  document (assets.cpp `InlineDocument`), its script and style allowed by hash.
+  Windows (WebView2) the same files are served by the web view itself
+  (WebResourceRequested) under `https://app.chains-app.invalid/`, a name that
+  never resolves, with the same policy as a header. On macOS (not built yet)
+  the interface is one self-contained document (assets.cpp `InlineDocument`),
+  its script and style allowed by hash.
 * **Settings**: the node's stay in settings.json in the data directory, as
   with chains-qt. The app's own (the chosen data directory, and the look,
   unit, text size, privacy mode, per network) are in
@@ -69,6 +72,30 @@ Needs GTK 3 and WebKitGTK 4.1 (`libwebkit2gtk-4.1-dev`) and Node.js with npm.
 The first build runs `npm ci` (exact versions of package-lock.json); later
 builds need no network. `-DWEBUI_PREBUILT_DIST=<dir>` uses an interface built
 elsewhere (`npm run build`) and needs no npm.
+
+### Windows
+
+Cross-compiled from Linux (or WSL) with the depends system and mingw-w64 (posix):
+
+```
+make -C depends HOST=x86_64-w64-mingw32 NO_QT=1 -j4
+cmake -B build_win --toolchain depends/x86_64-w64-mingw32/toolchain.cmake \
+  -DBUILD_GUI=OFF -DBUILD_WEBUI=ON -DWITH_CCACHE=OFF
+cmake --build build_win -j4 --target chains-app test_chains-app
+cmake --build build_win --target deploy-app   # zip + NSIS installer in build_win/release-app
+```
+
+The depends package `webview2` brings the headers of the Microsoft.Web.WebView2
+NuGet package (BSD-3-Clause, its LICENSE.txt in depends/<host>/share/webview2).
+No WebView2Loader is linked or shipped: webview.h finds the WebView2 Runtime
+itself. The runtime is part of Windows 10 (since 2021) and 11; the app and the
+installer point to its download page when it is missing. The window
+(window_win32.cpp) has the integrated title bar, the tray icon and its menu,
+notifications (balloons of the tray icon, shown as toasts), file dialogs
+(IFileDialog), the clipboard, per monitor DPI awareness, the single instance
+over a named pipe only the user can open, and registers `chains:` for the user
+(HKCU\Software\Classes; `-webuiregisteruri=0` to skip, never with a test
+script). Its data (WebView2 caches) are in `%LOCALAPPDATA%\Chains\WebView2`.
 
 Debug options: `-webuidevtools` (web inspector), `-webuiconfig=<file>`,
 `-webuitestscript=<file>` and `-webuitestshots=<dir>` (tests).
@@ -94,6 +121,11 @@ Debug options: `-webuidevtools` (web inspector), `-webuiconfig=<file>`,
   loaded, signed and broadcast, encryption, a timed unlock, a new passphrase,
   messages, the address book, backups and a restore, coin control; pictures of
   every wallet page.
+
+* `src/webui/test/e2e/run_windows.py --app build_win/bin/chains-app.exe
+  --unit build_win/bin/test_chains-app.exe --shots <dir>`: from WSL, on the
+  Windows of the machine (in a folder of the Windows temporary folder, removed
+  at the end): the unit tests, then smoke.js, layouts.js and titlebar.js.
 
 All are CTest tests (`webui_tests`, `webui_frontend_tests`,
 `webui_frontend_types`, `webui_e2e_smoke`, `webui_e2e_wallet`).

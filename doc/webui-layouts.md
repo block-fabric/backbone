@@ -74,11 +74,13 @@ The host side (src/webui/window.h, window_gtk.cpp, windowframe.h):
 | `window.setTitleBar {mode}` | Keeps the choice, applies it when it can; returns the state |
 | event `window` `{maximized}` | The window was maximized or restored |
 
-Linux has it (GTK: `gtk_window_set_decorated(false)`). Windows and macOS (window_generic.cpp) keep
-the frame of the system for now (`supported: false`, the page hides its bar); the TODOs in window.h
-say how they will do it: on Windows a WebView2 window without caption whose WM_NCHITTEST uses
-`EdgeAt` (windowframe.h) for the borders; on macOS a hidden title bar keeping the native traffic
-lights at the left.
+Linux has it (GTK: `gtk_window_set_decorated(false)`), and Windows (window_win32.cpp: no caption
+through WM_NCCALCSIZE, the other borders of the system kept for resizing, the shadow and the
+rounded corners; `startMove`/`startResize` as WM_NCLBUTTONDOWN with HTCAPTION or the HT of the
+edge; a window over the page's maximize button answering HTMAXBUTTON for the snap layouts of
+Windows 11). macOS (window_generic.cpp) keeps the frame of the system for now (`supported: false`,
+the page hides its bar); the TODO in window.h says how: a hidden title bar keeping the native
+traffic lights at the left.
 
 ## Where things are in the code
 
