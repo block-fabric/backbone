@@ -65,6 +65,9 @@ public:
 
     /** Ask for the app to stop (from any thread). */
     void RequestShutdown() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** Whether the user asked for the app to start again after it stopped (Settings). */
+    bool RestartRequested() const { return m_restart_requested.load(); }
+
     /** The user closes the window: the app stops, or the window is minimized (options). UI thread. */
     void CloseRequested() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
@@ -115,6 +118,7 @@ private:
     //! The nodes of sidechains run from here.
     std::unique_ptr<SidechainNodes> m_sidechain_nodes;
     std::thread m_node_thread;
+    std::atomic<bool> m_restart_requested{false};
     //! Messages and questions of the node.
     std::vector<std::unique_ptr<interfaces::Handler>> m_node_handlers;
 

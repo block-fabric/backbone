@@ -217,7 +217,9 @@ UniValue NodeOptions::Get()
     for (const char* name : {"dbcache", "par", "spendzeroconfchange", "signer", "natpmp", "listen", "server", "prune", "proxy", "onion", "lang"}) {
         if (!m_node.isSettingIgnored(name)) continue;
         ignored.pushKV(name, true);
-        overridden += strprintf("-%s=%s ", name, m_args.GetArg(std::string{"-"} + name, ""));
+        // A flag given without a value ("-server") shows as it was given.
+        const std::string value{m_args.GetArg(std::string{"-"} + name, "")};
+        overridden += value.empty() ? strprintf("-%s ", name) : strprintf("-%s=%s ", name, value);
     }
     out.pushKV("ignored", std::move(ignored));
     out.pushKV("overridden", overridden);

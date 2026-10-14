@@ -715,6 +715,13 @@ void App::RegisterHostMethods()
         RequestShutdown();
         return UniValue{true};
     });
+    // Stop, and start again with the same options (a change of the options needs it).
+    b.RegisterHost("app.restart", [this](const UniValue&) {
+        if (!m_args.GetArg("-webuitestscript", "").empty()) throw HostError("No restart in the tests");
+        m_restart_requested = true;
+        RequestShutdown();
+        return UniValue{true};
+    });
     b.RegisterHost("app.help", [this](const UniValue&) {
         UniValue out{UniValue::VOBJ};
         out.pushKV("usage", "Usage: chains-app [options] [URI]");

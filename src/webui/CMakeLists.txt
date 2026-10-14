@@ -118,6 +118,18 @@ elseif(APPLE)
   target_link_libraries(chains-app "-framework WebKit" "-framework Cocoa")
 endif()
 install_binary_component(chains-app)
+if(NOT WIN32 AND NOT APPLE)
+  # The desktop entry: the app in the menus of the desktop, and the handler of chains: links (BIP 21).
+  install(FILES ${PROJECT_SOURCE_DIR}/share/chains-app.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+    COMPONENT chains-app
+  )
+  install(FILES ${PROJECT_SOURCE_DIR}/share/pixmaps/bitcoin256.png
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+    RENAME chains.png
+    COMPONENT chains-app
+  )
+endif()
 
 if(BUILD_TESTS)
   add_subdirectory(test)

@@ -20,7 +20,13 @@
 #include <util/strencodings.h>
 #include <util/threadnames.h>
 #include <util/translation.h>
+#include <util/syserror.h>
 #include <webui/app.h>
+
+#ifndef WIN32
+#include <cerrno>
+#include <unistd.h>
+#endif
 
 #include <cstdlib>
 #include <iostream>
@@ -100,7 +106,21 @@ MAIN_FUNCTION
 
     try {
         webui::App app{*init, gArgs, std::move(uris)};
-        return app.Run();
+        const int status{app.Run()};
+#ifndef WIN32
+        if (app.RestartRequested() && status == EXIT_SUCCESS) {
+            // Start again as the user asked (Settings: restart), with the same options, once the node stopped.
+            // The payment URIs given at start were handled already.
+            std::vector<char*> args;
+            for (int i{0}; i < argc; ++i) {
+                if (!StartsWithScheme(argv[i])) args.push_back(argv[i]);
+            }
+            args.push_back(nullptr);
+            execv("/proc/self/exe", args.data());
+            tfm::format(std::cerr, "%s: could not start again: %s\n", CLIENT_NAME, SysErrorString(errno));
+        }
+#endif
+        return status;
     } catch (const std::exception& e) {
         PrintExceptionContinue(&e, "Runaway exception");
         tfm::format(std::cerr, "%s: %s\n", CLIENT_NAME, e.what());
