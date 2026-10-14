@@ -11,7 +11,10 @@
     id,
     label = 'Pay to',
     required = true,
-  }: { value?: string; valid?: boolean; id: string; label?: string; required?: boolean } = $props();
+    onbook = undefined,
+    disabled = false,
+    hint = '',
+  }: { value?: string; valid?: boolean; id: string; label?: string; required?: boolean; onbook?: () => void; disabled?: boolean; hint?: string } = $props();
 
   let error = $state('');
   let checking = $state(false);
@@ -79,8 +82,14 @@
       onblur={() => (touched = true)}
       aria-invalid={error ? 'true' : undefined}
       aria-describedby={error ? `${id}-error` : undefined}
+      {disabled}
     />
-    <button type="button" class="btn icon" title="Paste the address" aria-label="Paste the address" onclick={paste}>
+    {#if onbook}
+      <button type="button" class="btn icon" title="Choose previously used address" aria-label="Choose previously used address" {disabled} onclick={onbook}>
+        <Icon name="book" />
+      </button>
+    {/if}
+    <button type="button" class="btn icon" title="Paste address from clipboard" aria-label="Paste address from clipboard" {disabled} onclick={paste}>
       <Icon name="paste" />
     </button>
   </div>
@@ -90,6 +99,8 @@
     <span class="hint ok"><Icon name="check" size={14} /> Valid address</span>
   {:else if checking}
     <span class="hint">Checking…</span>
+  {:else if hint}
+    <span class="hint">{hint}</span>
   {/if}
 </div>
 

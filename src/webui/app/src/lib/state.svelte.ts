@@ -53,6 +53,10 @@ export const wallets = $state({
   progress: {} as Record<string, { title: string; progress: number }>,
   /** Bumped on every transaction event of the current wallet, for pages to refresh. */
   txVersion: 0,
+  /** Bumped on every change of the address book of the current wallet. */
+  addressVersion: 0,
+  /** Transactions new in a wallet since the page loaded, oldest first (for the notices): wallet and txid. */
+  newTxs: [] as { wallet: string; txid: string }[],
 });
 
 export const prefs = $state({
@@ -63,6 +67,17 @@ export const prefs = $state({
   /** The navigation bar shows icons only. */
   compactNav: false,
   lastWallet: null as string | null,
+  /** Wallet options (OptionsModel): coin control features, PSBT controls, subtract the fee by default. */
+  coinControl: false,
+  psbtControls: false,
+  subtractFeeDefault: false,
+  /** The send page: the fee section folded, smart or custom fee, the target, the custom rate (sat/kvB). */
+  feeMinimized: true,
+  feeMode: 'smart' as 'smart' | 'custom',
+  confTarget: 0,
+  customFee: 0,
+  /** Coin control shows coins by address (tree) or in a list. */
+  coinTree: true,
   loaded: false,
 });
 
@@ -198,8 +213,15 @@ export function subscribe(): void {
     if (p.progress >= 100 || p.progress < 0) delete wallets.progress[p.name];
     else wallets.progress[p.name] = { title: p.title, progress: p.progress };
   });
-  on<{ name: string }>('wallet.tx', ({ name }) => {
+  on<{ name: string; txid: string; change: string }>('wallet.tx', ({ name, txid, change }) => {
     if (name === wallets.current) wallets.txVersion++;
+    if (change === 'new') {
+      wallets.newTxs.push({ wallet: name, txid });
+      if (wallets.newTxs.length > 100) wallets.newTxs.splice(0, wallets.newTxs.length - 100);
+    }
+  });
+  on<{ name: string }>('wallet.addressbook', ({ name }) => {
+    if (name === wallets.current) wallets.addressVersion++;
   });
 }
 
@@ -212,6 +234,12 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (typeof raw.mask === 'boolean') prefs.mask = raw.mask;
   if (typeof raw.compactNav === 'boolean') prefs.compactNav = raw.compactNav;
   if (typeof raw.lastWallet === 'string') prefs.lastWallet = raw.lastWallet;
+  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree'] as const) {
+    if (typeof raw[key] === 'boolean') prefs[key] = raw[key];
+  }
+  if (raw.feeMode === 'smart' || raw.feeMode === 'custom') prefs.feeMode = raw.feeMode;
+  if (typeof raw.confTarget === 'number' && raw.confTarget >= 0) prefs.confTarget = Math.floor(raw.confTarget);
+  if (typeof raw.customFee === 'number' && raw.customFee >= 0) prefs.customFee = Math.floor(raw.customFee);
   prefs.loaded = true;
 }
 

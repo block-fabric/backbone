@@ -12,7 +12,23 @@
     max = undefined,
     required = false,
     placeholder = '0.00000000',
-  }: { value?: bigint | null; unit?: Unit; id: string; label?: string; max?: bigint; required?: boolean; placeholder?: string } = $props();
+    min = undefined,
+    minError = 'The amount is below the minimum',
+    disabled = false,
+    title = undefined,
+  }: {
+    value?: bigint | null;
+    unit?: Unit;
+    id: string;
+    label?: string;
+    max?: bigint;
+    required?: boolean;
+    placeholder?: string;
+    min?: bigint;
+    minError?: string;
+    disabled?: boolean;
+    title?: string;
+  } = $props();
 
   let text = $state(value !== null && value !== undefined ? formatAmount(value, unit, { separators: false, trim: true }) : '');
   let touched = $state(false);
@@ -22,11 +38,22 @@
     if (parsed === null) return required && touched ? 'Enter an amount' : '';
     if (!parsed.ok) return parsed.error;
     if (max !== undefined && parsed.sats > max) return 'The amount exceeds your balance';
+    if (min !== undefined && parsed.sats < min) return minError;
     return '';
   });
 
+  // The value given out last: a value set from outside (use available balance, a payment URI) is shown.
+  let emitted: bigint | null | undefined = value;
   $effect(() => {
-    value = parsed && parsed.ok && !error ? parsed.sats : null;
+    const v = parsed && parsed.ok && !error ? parsed.sats : null;
+    emitted = v;
+    value = v;
+  });
+  $effect(() => {
+    const v = value;
+    if (v === emitted) return;
+    emitted = v;
+    text = v === null || v === undefined ? '' : formatAmount(v, unit, { separators: false, trim: true });
   });
 
   function switchUnit(next: Unit) {
@@ -51,8 +78,10 @@
       onblur={() => (touched = true)}
       aria-invalid={error ? 'true' : undefined}
       aria-describedby={error ? `${id}-error` : undefined}
+      {disabled}
+      {title}
     />
-    <select aria-label="Unit" value={unit} onchange={(e) => switchUnit((e.currentTarget as HTMLSelectElement).value as Unit)}>
+    <select aria-label="Unit" {disabled} value={unit} onchange={(e) => switchUnit((e.currentTarget as HTMLSelectElement).value as Unit)}>
       {#each UNITS as u (u.id)}
         <option value={u.id}>{u.short}</option>
       {/each}

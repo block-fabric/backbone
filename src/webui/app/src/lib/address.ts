@@ -165,3 +165,20 @@ export async function checkAddress(text: string, network: string): Promise<Addre
 export function exampleAddress(network: string): string {
   return `${networkParams(network).hrp}1q…`;
 }
+
+/**
+ * Whether messages can be signed with an address: one key, P2PKH or P2WPKH (the address book of the
+ * sign page lists only those). Checked on the form of the address; the node checks again.
+ */
+export function isSingleKeyAddress(address: string, network: string): boolean {
+  const params = networkParams(network);
+  if (address.toLowerCase().startsWith(params.hrp + '1')) {
+    const decoded = bech32Decode(address);
+    if (!decoded || decoded.hrp !== params.hrp) return false;
+    const [version, ...rest] = decoded.data;
+    const program = convertBits(rest, 5, 8, false);
+    return version === 0 && program !== null && program.length === 20;
+  }
+  const bytes = base58Decode(address);
+  return bytes !== null && bytes.length === 25 && bytes[0] === params.pubkey;
+}

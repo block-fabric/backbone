@@ -24,7 +24,8 @@ body {
   font-family: var(--font-ui);
   font-size: 1rem;
   line-height: 1.45;
-  font-feature-settings: 'cv11', 'ss01';
+  /* No contextual alternates: Inter would write the x of "3x7" in an address as a multiplication sign. */
+  font-feature-settings: 'cv11', 'ss01', 'calt' 0;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -371,4 +372,11 @@ kbd {
 .facts dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+/* Addresses, transaction ids, PSBTs typed in fields: monospaced too (after the rules of the fields). */
+input.mono,
+textarea.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
 }
