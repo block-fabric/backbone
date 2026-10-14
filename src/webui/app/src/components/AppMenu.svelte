@@ -5,8 +5,10 @@
     shortcut?: string;
     disabled?: boolean;
     checked?: boolean;
-    /** A submenu: its items, shown under this one. */
-    items?: MenuItem[];
+    /** One of a group of which one is chosen (a radio button), rather than a box to tick. */
+    radio?: boolean;
+    /** A submenu: its items, shown under this one as a group. */
+    items?: MenuEntry[];
     tip?: string;
   }
   export type MenuEntry = MenuItem | 'separator';
@@ -18,10 +20,61 @@
 
 <script lang="ts">
   // The menu bar, with the menus of chains-qt. Keyboard: arrows move, Enter runs, Escape closes.
-  let { menus }: { menus: Menu[] } = $props();
+  // The menus that do not fit in the width of the window go in a last one, "More", as groups.
+  let { menus: all }: { menus: Menu[] } = $props();
 
   let open = $state(-1);
   let bar: HTMLDivElement | undefined = $state();
+  let measure: HTMLDivElement | undefined = $state();
+  let available = $state(10000);
+  let widths: number[] = $state([]);
+  let moreWidth = $state(70);
+
+  $effect(() => {
+    void all.map((m) => m.label).join();
+    if (!measure) return;
+    const tops = [...measure.querySelectorAll<HTMLElement>('.top')];
+    widths = tops.slice(0, all.length).map((t) => t.getBoundingClientRect().width);
+    moreWidth = tops[all.length]?.getBoundingClientRect().width || 70;
+  });
+  $effect(() => {
+    const holder = bar?.parentElement;
+    if (!holder || typeof ResizeObserver === 'undefined') return;
+    const inner = () => {
+      const cs = getComputedStyle(holder);
+      return holder.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+    };
+    const o = new ResizeObserver(() => (available = inner()));
+    o.observe(holder);
+    available = inner();
+    return () => o.disconnect();
+  });
+
+  /** How many menus fit, with room for "More" when not all do (jsdom measures nothing: all fit). */
+  const fit = $derived.by(() => {
+    if (widths.length !== all.length || widths.every((w) => w === 0)) return all.length;
+    const total = widths.reduce((a, b) => a + b, 0);
+    if (total <= available) return all.length;
+    let used = moreWidth;
+    let k = 0;
+    while (k < all.length && used + widths[k] <= available) used += widths[k++];
+    return k;
+  });
+  const menus: Menu[] = $derived(
+    fit >= all.length ? all : [...all.slice(0, fit), { label: 'More', items: all.slice(fit).map((m) => ({ label: m.label, items: m.items })) }],
+  );
+
+  /** Where the open menu shows: under its button, inside the window, scrolled when it is too long. */
+  let place = $state('');
+  $effect(() => {
+    if (open < 0 || !bar) return;
+    const top = bar.querySelectorAll<HTMLElement>('.top')[open];
+    if (!top) return;
+    const r = top.getBoundingClientRect();
+    const width = Math.min(18 * 16, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    place = `left: ${left}px; top: ${r.bottom + 4}px; max-height: ${Math.max(160, window.innerHeight - r.bottom - 16)}px;`;
+  });
 
   function items(index: number): HTMLElement[] {
     return Array.from(bar?.querySelectorAll<HTMLElement>(`[data-menu="${index}"] [role^="menuitem"]:not([disabled])`) ?? []);
@@ -76,7 +129,38 @@
   }
 </script>
 
-<svelte:window onclick={onWindowClick} />
+<svelte:window onclick={onWindowClick} onresize={() => open >= 0 && close(false)} />
+
+{#snippet entries(list: MenuEntry[], depth: number)}
+  {#each list as entry, i (i)}
+    {#if entry === 'separator'}
+      <div class="sep" role="separator"></div>
+    {:else if entry.items}
+      <div class="group-label" role="presentation" style="padding-left: {1.6 + depth * 0.8}rem">{entry.label}</div>
+      {@render entries(entry.items, depth + 1)}
+    {:else}
+      <button
+        type="button"
+        class="item"
+        role={entry.checked === undefined ? 'menuitem' : entry.radio ? 'menuitemradio' : 'menuitemcheckbox'}
+        aria-checked={entry.checked === undefined ? undefined : entry.checked}
+        disabled={entry.disabled}
+        title={entry.tip}
+        style={depth > 0 ? `padding-left: ${0.3 + depth * 0.6}rem` : undefined}
+        onclick={() => run(entry)}
+      >
+        <span class="mark" aria-hidden="true">{entry.checked ? (entry.radio ? '●' : '✓') : ''}</span>
+        <span class="grow">{entry.label}</span>
+        {#if entry.shortcut}<kbd>{entry.shortcut}</kbd>{/if}
+      </button>
+    {/if}
+  {/each}
+{/snippet}
+
+<!-- The widths of the menus, measured where nobody sees them. -->
+<div class="measure" aria-hidden="true" bind:this={measure}>
+  {#each all as menu (menu.label)}<span class="top">{menu.label}</span>{/each}<span class="top">More</span>
+</div>
 
 <div class="menubar" role="menubar" aria-label="Menu" bind:this={bar}>
   {#each menus as menu, index (menu.label)}
@@ -98,34 +182,8 @@
         {menu.label}
       </button>
       {#if open === index}
-        <div class="dropdown" role="menu" aria-label={menu.label} tabindex="-1" onkeydown={(e) => onMenuKey(e, index)}>
-          {#each menu.items as entry, i (i)}
-            {#if entry === 'separator'}
-              <div class="sep" role="separator"></div>
-            {:else if entry.items}
-              <div class="group-label" role="presentation">{entry.label}</div>
-              {#each entry.items as sub (sub.label)}
-                <button type="button" class="item sub" role="menuitemradio" aria-checked={!!sub.checked} disabled={sub.disabled} onclick={() => run(sub)}>
-                  <span class="mark" aria-hidden="true">{sub.checked ? '●' : ''}</span>
-                  <span class="grow">{sub.label}</span>
-                </button>
-              {/each}
-            {:else}
-              <button
-                type="button"
-                class="item"
-                role={entry.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
-                aria-checked={entry.checked === undefined ? undefined : entry.checked}
-                disabled={entry.disabled}
-                title={entry.tip}
-                onclick={() => run(entry)}
-              >
-                <span class="mark" aria-hidden="true">{entry.checked ? '✓' : ''}</span>
-                <span class="grow">{entry.label}</span>
-                {#if entry.shortcut}<kbd>{entry.shortcut}</kbd>{/if}
-              </button>
-            {/if}
-          {/each}
+        <div class="dropdown" role="menu" aria-label={menu.label} tabindex="-1" style={place} onkeydown={(e) => onMenuKey(e, index)}>
+          {@render entries(menu.items, 0)}
         </div>
       {/if}
     </div>
@@ -161,11 +219,23 @@
     background: var(--raised);
     color: var(--text);
   }
+  .measure {
+    position: absolute;
+    visibility: hidden;
+    pointer-events: none;
+    white-space: nowrap;
+    height: 0;
+    overflow: hidden;
+  }
+  .measure .top {
+    display: inline-block;
+  }
   .dropdown {
     position: fixed;
     z-index: 40;
-    margin-top: 0.25rem;
-    min-width: 16rem;
+    min-width: min(16rem, calc(100vw - 16px));
+    max-width: calc(100vw - 16px);
+    overflow-y: auto;
     padding: 0.35rem;
     border: 1px solid var(--line-strong);
     border-radius: var(--radius-m);
@@ -194,9 +264,6 @@
   .item:disabled {
     color: var(--text-faint);
     cursor: default;
-  }
-  .item.sub {
-    padding-left: 0.9rem;
   }
   .mark {
     width: 1rem;

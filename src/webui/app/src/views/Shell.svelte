@@ -145,7 +145,7 @@
         {
           label: 'Theme',
           items: [
-            ...THEMES.map((t) => ({ label: t.name, checked: prefs.theme === t.id, action: () => savePrefs({ theme: t.id }) })),
+            ...THEMES.map((t) => ({ label: t.name, checked: prefs.theme === t.id, radio: true, action: () => savePrefs({ theme: t.id }) })),
             { label: 'Custom…', action: to('settings', 'display') },
           ],
         },

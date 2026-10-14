@@ -4,8 +4,9 @@
   import Dialog from './Dialog.svelte';
   import { formatTime } from '../lib/format';
   import { nav } from '../lib/nav.svelte';
-  import { app, node } from '../lib/state.svelte';
-  import { blocksLeft, estimate } from '../lib/syncoverlay';
+  import { app, node, walletsEnabled } from '../lib/state.svelte';
+  import { MAX_BLOCK_TIME_GAP } from '../lib/sync';
+  import { blocksLeft, estimate, overlay } from '../lib/syncoverlay';
 
   let now = $state(Date.now());
   $effect(() => {
@@ -21,8 +22,31 @@
   const pct = $derived(tip ? (tip.progress * 100).toFixed(2) : '0.00');
 
   function close() {
+    // Closed by the user: it no longer opens by itself (ModalOverlay userClosed).
+    if (nav.dialog === 'sync') overlay.userClosed = true;
     nav.dialog = null;
   }
+
+  // As BitcoinGUI::setNumBlocks with a wallet: the overlay shows while the node is behind, unless the user
+  // closed it, and goes once it has caught up.
+  const behind = $derived(!!tip && Math.floor(now / 1000) - tip.time >= MAX_BLOCK_TIME_GAP);
+  $effect(() => {
+    if (!tip || !walletsEnabled()) return;
+    if (behind) {
+      if (nav.dialog === null && !overlay.userClosed && !overlay.shown) {
+        overlay.shown = true;
+        nav.dialog = 'sync';
+      }
+    } else {
+      overlay.shown = false;
+      if (nav.dialog === 'sync' && !overlay.byUser) nav.dialog = null;
+    }
+  });
+  // Opened from a menu, the label of the status bar or the warning of the overview: the user's own.
+  $effect(() => {
+    if (nav.dialog !== 'sync') overlay.byUser = false;
+    else if (!overlay.shown) overlay.byUser = true;
+  });
 </script>
 
 {#if nav.dialog === 'sync'}

@@ -16,6 +16,8 @@
     minError = 'The amount is below the minimum',
     disabled = false,
     title = undefined,
+    invalid = $bindable(''),
+    extraError = '',
   }: {
     value?: bigint | null;
     unit?: Unit;
@@ -28,6 +30,10 @@
     minError?: string;
     disabled?: boolean;
     title?: string;
+    /** Out: what is wrong with the text typed ('' when it is an amount, or empty). */
+    invalid?: string;
+    /** In: an error the page found (dust), shown under the field. */
+    extraError?: string;
   } = $props();
 
   let text = $state(value !== null && value !== undefined ? formatAmount(value, unit, { separators: false, trim: true }) : '');
@@ -40,6 +46,10 @@
     if (max !== undefined && parsed.sats > max) return 'The amount exceeds your balance';
     if (min !== undefined && parsed.sats < min) return minError;
     return '';
+  });
+
+  $effect(() => {
+    invalid = error;
   });
 
   // The value given out last: a value set from outside (use available balance, a payment URI) is shown.
@@ -76,8 +86,8 @@
       {placeholder}
       bind:value={text}
       onblur={() => (touched = true)}
-      aria-invalid={error ? 'true' : undefined}
-      aria-describedby={error ? `${id}-error` : undefined}
+      aria-invalid={error || extraError ? 'true' : undefined}
+      aria-describedby={error || extraError ? `${id}-error` : undefined}
       {disabled}
       {title}
     />
@@ -87,7 +97,7 @@
       {/each}
     </select>
   </div>
-  {#if error}<span class="error" id="{id}-error">{error}</span>{/if}
+  {#if error || extraError}<span class="error" id="{id}-error">{error || extraError}</span>{/if}
 </div>
 
 <style>

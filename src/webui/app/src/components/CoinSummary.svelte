@@ -38,7 +38,7 @@
 <style>
   .summary {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(10rem, 100%), 1fr));
     gap: 0.4rem;
   }
   .cell {
@@ -59,8 +59,18 @@
     color: var(--text-muted);
     font-size: 0.8rem;
   }
+  .cell {
+    min-width: 0;
+    overflow: hidden;
+  }
   .cell strong {
+    max-width: 100%;
     font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  /* A long amount wraps inside its box rather than spilling out of it. */
+  .cell strong :global(*) {
+    white-space: normal;
   }
   .cell.off {
     opacity: 0.55;

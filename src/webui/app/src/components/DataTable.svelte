@@ -121,7 +121,7 @@
         {#if column.sortable === false}
           <span>{column.label}</span>
         {:else}
-          <button type="button" tabindex="-1" onclick={() => sortBy(column)}>
+          <button type="button" title="Sort by {column.label || 'status'}" onclick={() => sortBy(column)}>
             {column.label}
             <span class="arrow" aria-hidden="true">{sortKey === column.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
           </button>
@@ -140,7 +140,7 @@
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
           <div
             id="{gridId}-row-{index}"
-            class="row"
+            class="dt-row"
             class:odd={index % 2 === 1}
             class:selected={selected === key(row)}
             role="row"
@@ -220,19 +220,20 @@
     inset: 0 0 auto 0;
     will-change: transform;
   }
-  .row {
+  /* Not .row: that is the flex row of base.css, whose gap would widen every column of the rows (not of the head). */
+  .dt-row {
     display: grid;
     min-width: max-content;
     width: 100%;
     cursor: default;
   }
-  .row.odd {
+  .dt-row.odd {
     background: var(--surface-2);
   }
-  .row:hover {
+  .dt-row:hover {
     background: var(--raised);
   }
-  .row.selected {
+  .dt-row.selected {
     background: var(--accent-soft);
     box-shadow: inset 3px 0 0 var(--accent);
   }

@@ -152,3 +152,155 @@ describe('the settings wait for Apply (M7)', () => {
     expect(prefs.theme).toBe('matrix');
   });
 });
+
+describe('the smaller findings (L2 to L10)', () => {
+  it('lines the table headers up with their columns, and sorts from the keyboard (L2, L9)', async () => {
+    const { default: TableHarness } = await import('./TableHarness.svelte');
+    render(TableHarness, { count: 20 });
+    // The rows are not the .row of base.css: its gap widened every column of the rows, not of the head.
+    const rows = [...document.querySelectorAll('[role="grid"] [role="row"]')].slice(1);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(r.classList.contains('row')).toBe(false);
+    const sort = screen.getAllByRole('columnheader')[0].querySelector('button') as HTMLButtonElement;
+    expect(sort.tabIndex).toBe(0);
+    sort.focus();
+    expect(document.activeElement).toBe(sort);
+  });
+
+  it('opens the sync overlay by itself while behind, until the user closes it (L3)', async () => {
+    host();
+    const { default: SyncOverlay } = await import('../components/SyncOverlay.svelte');
+    const { overlay } = await import('../lib/syncoverlay');
+    overlay.userClosed = false;
+    overlay.shown = false;
+    nav.dialog = null;
+    node.tip = { height: 1, time: 1_300_000_000, hash: '11'.repeat(32), progress: 0.1, state: 'init', ibd: true, loadingBlocks: false };
+    render(SyncOverlay);
+    await waitFor(() => expect(nav.dialog).toBe('sync'));
+    expect(document.body.textContent).toContain('Attempting to spend coins that are affected by not-yet-displayed transactions will not be accepted by the network.');
+    await fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(nav.dialog).toBeNull();
+    expect(overlay.userClosed).toBe(true);
+    // Caught up: an overlay that opened by itself goes.
+    overlay.userClosed = false;
+    overlay.shown = false;
+    node.tip = { ...node.tip!, height: 2, hash: '22'.repeat(32) };
+    await waitFor(() => expect(nav.dialog).toBe('sync'));
+    node.tip = { ...node.tip!, height: 3, time: Math.floor(Date.now() / 1000), hash: '33'.repeat(32), ibd: false };
+    await waitFor(() => expect(nav.dialog).toBeNull());
+  });
+
+  it('says what is wrong with an amount, refuses dust, a bad custom fee, and a signer without its script (L4, L5, L6)', async () => {
+    const { default: Send } = await import('../pages/Send.svelte');
+    const INFO = { name: 'w', encrypted: false, locked: false, privateKeysDisabled: false, externalSigner: false, signerConfigured: false, hd: true, canGetAddresses: true, taproot: true, defaultAddressType: 'bech32', confirmTarget: 6, requiredFeePerK: 1000, maxTxFee: 10_000_000, multiwallet: false, balance: 5_000_000_000, unconfirmed: 0, immature: 0 };
+    let info = { ...INFO };
+    const calls = host({
+      'wallet.info': () => info,
+      'wallet.fee': () => ({ feePerK: 1000, fallback: false, target: 6, requiredFeePerK: 1000 }),
+      'send.isDust': (r) => Number((r.params as { amount: number }).amount) < 546,
+      'wallet.send.prepare': () => {
+        throw { code: -6, message: 'should not be asked' };
+      },
+      validateaddress: () => ({ isvalid: true }),
+    });
+    wallets.list = [{ name: 'w', encrypted: false, locked: false, privateKeysDisabled: false, hd: true }];
+    wallets.current = 'w';
+    wallets.balances.w = { trusted: 5_000_000_000n, untrustedPending: 0n, immature: 0n };
+    prefs.feeMode = 'smart';
+    const { regtestP2wpkh } = await import('./bech32');
+    render(Send);
+    await fireEvent.input(screen.getByLabelText('Pay to'), { target: { value: regtestP2wpkh } });
+    // The address is checked offline, then by the node.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Too many decimals: the toast says so, not "larger than 0".
+    await fireEvent.input(screen.getByLabelText('Amount'), { target: { value: '1.123456789' } });
+    const send = await waitFor(() => screen.getByRole('button', { name: /^Send/ }) as HTMLButtonElement);
+    await waitFor(() => expect(send.disabled).toBe(false));
+    await fireEvent.click(send);
+    const { toasts } = await import('../lib/state.svelte');
+    await waitFor(() => expect(toasts.list.at(-1)?.message ?? '').not.toBe('The amount to pay must be larger than 0.'));
+    expect(toasts.list.at(-1)?.message).toMatch(/decimal|digits|precision/i);
+    // Dust.
+    await fireEvent.input(screen.getByLabelText('Amount'), { target: { value: '0.000001' } });
+    await waitFor(() => screen.getByText('The amount is too small to send: the output would be dust.'));
+    await fireEvent.click(send);
+    await waitFor(() => expect(toasts.list.at(-1)?.message).toBe('The amount is too small to send: the output would be dust.'));
+    // A custom fee that is not valid is not replaced by the smart fee in silence.
+    await fireEvent.input(screen.getByLabelText('Amount'), { target: { value: '1' } });
+    prefs.feeMode = 'custom';
+    prefs.feeMinimized = false;
+    await waitFor(() => screen.getByLabelText('Fee per 1000 virtual bytes'));
+    await fireEvent.input(screen.getByLabelText('Fee per 1000 virtual bytes'), { target: { value: '0.000005' } });
+    await waitFor(() => expect(screen.getByText(/At least the minimum fee/)).toBeTruthy());
+    await fireEvent.click(send);
+    await waitFor(() => expect(toasts.list.at(-1)?.message ?? '').toMatch(/^Enter a custom fee of at least/));
+    expect(calls.some((c) => c.method === 'wallet.send.prepare')).toBe(false);
+    prefs.feeMode = 'smart';
+    prefs.customFee = 0;
+    toasts.list.splice(0);
+    // A hardware wallet without the path of its signer script.
+    info = { ...INFO, externalSigner: true, privateKeysDisabled: true, signerConfigured: false };
+    const { refreshInfo } = await import('../lib/walletdata.svelte');
+    await refreshInfo(true);
+    await waitFor(() => screen.getByText('Set external signer script path in Options -> Wallet'));
+    const sign = screen.getByRole('button', { name: /Sign on device/ }) as HTMLButtonElement;
+    expect(sign.disabled).toBe(true);
+    expect(sign.title).toBe('Set external signer script path in Options -> Wallet');
+    info = { ...INFO, externalSigner: true, privateKeysDisabled: true, signerConfigured: true };
+    await refreshInfo(true);
+    await waitFor(() => expect((screen.getByRole('button', { name: /Sign on device/ }) as HTMLButtonElement).title).toBe('Connect your hardware wallet first.'));
+  });
+
+  it('says "Indexing blocks on disk" while a reindex reads the block files (L7)', async () => {
+    const { syncStatus } = await import('../lib/sync');
+    const base = { tipHeight: 10, tipTime: 0, progress: 0.1, loadingBlocks: true, headerHeight: 10, headerTime: 0, connections: 0, networkActive: true, spacing: 600, now: 1_700_000_000 };
+    expect(syncStatus(base).label).toBe('Processing blocks on disk…');
+    expect(syncStatus({ ...base, headerHeight: 5000 }).label).toBe('Indexing blocks on disk…');
+  });
+
+  it('tells in the intro what the folder is, and how old a backup the pruned blocks restore (L8)', async () => {
+    const { backupDays, pathMessage } = await import('../lib/intro');
+    expect(backupDays(2)).toBe(6);
+    expect(backupDays(550)).toBe(1697);
+    expect(pathMessage({ exists: true, isDirectory: true, free: 1 })?.text).toBe('Directory already exists. Add /name if you intend to create a new directory here.');
+    expect(pathMessage({ exists: true, isDirectory: false, free: 1 })).toEqual({ text: 'Path already exists, and is not a directory.', error: true });
+    expect(pathMessage({ exists: false, isDirectory: false, free: 1 })?.text).toBe('A new data directory will be created.');
+    expect(pathMessage({ error: 'No folder of this path exists' })).toEqual({ text: 'Cannot create data directory here.', error: true });
+  });
+
+  it('closes the dialog on top with Ctrl+W, and opens the node tabs from anywhere (L9)', async () => {
+    const { handleShortcut } = await import('../lib/keyboard');
+    host();
+    nav.page = 'overview';
+    const key = (k: string) => new KeyboardEvent('keydown', { key: k, ctrlKey: true });
+    expect(handleShortcut(key('p'))).toBe(true);
+    expect(nav.page).toBe('node');
+    expect(nav.tab).toBe('peers');
+    nav.page = 'send';
+    handleShortcut(key('t'));
+    expect([nav.page, nav.tab]).toEqual(['node', 'console']);
+    const { default: DialogHost } = await import('../components/DialogHost.svelte');
+    const { inform } = await import('../lib/dialogs.svelte');
+    render(DialogHost);
+    const done = inform('Title', 'A message');
+    await waitFor(() => screen.getByText('A message'));
+    expect(handleShortcut(key('w'))).toBe(true);
+    await done;
+    expect(dialogs.queue.length).toBe(0);
+    // No dialog: Ctrl+W closes the node window.
+    expect(handleShortcut(key('w'))).toBe(true);
+    expect(nav.page).toBe('overview');
+  });
+
+  it('shows two notices at most, the others waiting behind them (L10)', async () => {
+    const { default: Toasts } = await import('../components/Toasts.svelte');
+    const { toast, toasts } = await import('../lib/state.svelte');
+    toasts.list.splice(0);
+    render(Toasts);
+    for (let i = 0; i < 4; i++) toast('info', `Notice ${i}`, 'text', 0);
+    await waitFor(() => screen.getByText('2 more'));
+    expect(document.querySelectorAll('.toast').length).toBe(2);
+    expect(screen.getByText('Notice 3')).toBeTruthy();
+    toasts.list.splice(0);
+  });
+});

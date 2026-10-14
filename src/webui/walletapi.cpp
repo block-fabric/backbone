@@ -9,6 +9,7 @@
 #include <addresstype.h>
 #include <chainparams.h>
 #include <coins.h>
+#include <common/args.h>
 #include <common/messages.h>
 #include <common/signmessage.h>
 #include <common/types.h>
@@ -994,6 +995,8 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file) : m_node(std::move(node))
         out.pushKV("locked", w->isLocked());
         out.pushKV("privateKeysDisabled", w->privateKeysDisabled());
         out.pushKV("externalSigner", w->hasExternalSigner());
+        // OptionsModel::hasSigner: the path of a signer script is set (the send button needs it).
+        out.pushKV("signerConfigured", !gArgs.GetArg("-signer", "").empty());
         out.pushKV("hd", w->hdEnabled());
         out.pushKV("canGetAddresses", w->canGetAddresses());
         out.pushKV("taproot", w->taprootEnabled());

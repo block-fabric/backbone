@@ -45,10 +45,12 @@ export function formatBytes(bytes: number): string {
 }
 
 /** A date and time of the chain (seconds since 1970), in the local time. */
-export function formatTime(secs: number): string {
+export function formatTime(secs: number, short = false): string {
   if (!secs) return '–';
   const d = new Date(secs * 1000);
   const pad = (n: number) => String(n).padStart(2, '0');
+  // Short: the year left out (a narrow window).
+  if (short) return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 

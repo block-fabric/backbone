@@ -7,6 +7,21 @@ import { clampFontAdjust } from './themes';
 const PAGE_KEYS: Record<string, PageId> = { '1': 'overview', '2': 'send', '3': 'receive', '4': 'transactions', '5': 'sidechains' };
 const WALLET_PAGES = new Set<PageId>(['send', 'receive', 'transactions']);
 
+/** Close what is on top: the newest open dialog (as Escape does), else the node window. */
+export function closeTop(): boolean {
+  const open = [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')];
+  const top = open[open.length - 1];
+  if (top) {
+    top.dispatchEvent(new Event('cancel', { cancelable: true }));
+    return true;
+  }
+  if (nav.page === 'node') {
+    go('overview');
+    return true;
+  }
+  return false;
+}
+
 /** Handle a key press; true if it was a shortcut. */
 export function handleShortcut(e: KeyboardEvent): boolean {
   const ctrl = e.ctrlKey || e.metaKey;
@@ -31,10 +46,12 @@ export function handleShortcut(e: KeyboardEvent): boolean {
     return true;
   }
   if (e.shiftKey) return false;
-  // The tabs of the node window, while it shows (RPCConsole::setTabFocus shortcuts).
+  // Ctrl+W closes the dialog on top (GUIUtil::handleCloseWindowShortcut), or the node window.
+  if (key === 'w') return closeTop();
+  // The tabs of the node window, from anywhere (the Window menu of chains-qt).
   const NODE_TABS: Record<string, string> = { i: 'info', t: 'console', n: 'traffic', p: 'peers' };
-  if (nav.page === 'node' && NODE_TABS[key]) {
-    nav.tab = NODE_TABS[key];
+  if (NODE_TABS[key]) {
+    go('node', NODE_TABS[key]);
     return true;
   }
   if (key === 'q') {

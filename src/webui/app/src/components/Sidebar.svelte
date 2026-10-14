@@ -4,6 +4,7 @@
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { app, prefs, savePrefs, selectWallet, wallets, walletsEnabled } from '../lib/state.svelte';
   import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
+  import { narrowWindow } from '../lib/media.svelte';
 
   const sections: { title: string; pages: PageId[] }[] = [
     { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions'] },
@@ -12,22 +13,35 @@
   ];
 
   const noWallet = $derived(wallets.list.length === 0);
+  // Icons only when the user wants it, or when the window is narrow (the page keeps its room).
+  const compact = $derived(prefs.compactNav || narrowWindow.matches);
 </script>
 
-<nav class="sidebar" class:compact={prefs.compactNav} aria-label="Pages">
+<nav class="sidebar" class:compact={compact} aria-label="Pages">
   <div class="brand">
     <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
       <rect x="3" y="9" width="12" height="14" rx="3.5" />
       <rect x="17" y="9" width="12" height="14" rx="3.5" />
       <path d="M11 16h10" />
     </svg>
-    {#if !prefs.compactNav}
+    {#if !compact}
       <span class="name">Chains</span>
       {#if app.info?.networkLabel}<span class="badge warning net">{app.info.networkLabel}</span>{/if}
     {/if}
   </div>
 
-  {#if wallets.list.length > 0 && !prefs.compactNav}
+  {#if wallets.list.length > 1 && compact}
+    <!-- Icons only: the wallet chosen in a narrow box (its list opens as usual). -->
+    <label class="wallet narrow" title="The wallet shown: {wallets.current === '' ? 'default wallet' : (wallets.current ?? '')}">
+      <span class="sr-only">Wallet</span>
+      <select value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
+        {#each wallets.list as w (w.name)}
+          <option value={w.name}>{w.name === '' ? 'default wallet' : w.name}</option>
+        {/each}
+      </select>
+    </label>
+  {/if}
+  {#if wallets.list.length > 0 && !compact}
     <label class="wallet">
       <span class="sr-only">Wallet</span>
       <select title="The wallet shown" value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
@@ -40,7 +54,7 @@
 
   {#each sections as section (section.title)}
     <div class="section">
-      {#if !prefs.compactNav}<div class="caption">{section.title}</div>{/if}
+      {#if !compact}<div class="caption">{section.title}</div>{/if}
       {#each section.pages.filter((id) => walletsEnabled() || !PAGES[id].wallet) as id (id)}
         {@const page = PAGES[id]}
         <button
@@ -53,14 +67,14 @@
           onclick={() => go(id)}
         >
           <Icon name={page.icon} size={19} />
-          {#if !prefs.compactNav}<span class="grow">{page.title}</span>{/if}
+          {#if !compact}<span class="grow">{page.title}</span>{/if}
         </button>
       {/each}
     </div>
   {/each}
 
   <div class="look">
-    {#if !prefs.compactNav}
+    {#if !compact}
       <label class="caption" for="look">Theme</label>
       <select id="look" value={prefs.theme} onchange={(e) => savePrefs({ theme: (e.currentTarget as HTMLSelectElement).value as ThemeId })}>
         {#each THEMES as theme (theme.id)}
@@ -68,12 +82,12 @@
         {/each}
       </select>
     {/if}
-    <div class="sizes" class:column={prefs.compactNav}>
+    <div class="sizes" class:column={compact}>
       <button type="button" class="btn ghost small" title="Smaller text (Ctrl+-)" aria-label="Smaller text" onclick={() => savePrefs({ fontAdjust: clampFontAdjust(prefs.fontAdjust - 1) })}>A−</button>
       <button type="button" class="btn ghost small" title="Larger text (Ctrl++)" aria-label="Larger text" onclick={() => savePrefs({ fontAdjust: clampFontAdjust(prefs.fontAdjust + 1) })}>A+</button>
-      <button type="button" class="btn ghost small icon" title={prefs.compactNav ? 'Show the names of the pages' : 'Icons only'} aria-label={prefs.compactNav ? 'Show the names of the pages' : 'Icons only'} onclick={() => savePrefs({ compactNav: !prefs.compactNav })}>
+      {#if !narrowWindow.matches}<button type="button" class="btn ghost small icon" title={compact ? 'Show the names of the pages' : 'Icons only'} aria-label={compact ? 'Show the names of the pages' : 'Icons only'} onclick={() => savePrefs({ compactNav: !prefs.compactNav })}>
         <Icon name="menu" size={16} />
-      </button>
+      </button>{/if}
     </div>
   </div>
 </nav>
@@ -119,6 +133,14 @@
     flex-direction: column;
     gap: 0.25rem;
     padding: 0 0.4rem 0.5rem;
+  }
+  .wallet.narrow {
+    width: 2.8rem;
+    padding: 0 0 0.5rem;
+  }
+  .wallet.narrow select {
+    padding-inline: 0.3rem;
+    font-size: 0.8rem;
   }
   .caption {
     padding: 0.7rem 0.55rem 0.25rem;

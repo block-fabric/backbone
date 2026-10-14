@@ -32,6 +32,8 @@ export interface WalletInfo {
   locked: boolean;
   privateKeysDisabled: boolean;
   externalSigner: boolean;
+  /** The path of a signer script is set (-signer): a hardware wallet can sign. */
+  signerConfigured?: boolean;
   hd: boolean;
   canGetAddresses: boolean;
   taproot: boolean;
@@ -312,6 +314,11 @@ export type WalletClient = ReturnType<typeof walletApi>;
 export const messages = {
   verify: (address: string, signature: string, message: string) => call<{ ok: boolean; message: string; field?: 'address' | 'signature' }>('message.verify', { address, signature, message }),
 };
+
+/** GUIUtil::isDust: an output of this amount to this address would be dust. */
+export function isDust(address: string, amount: bigint): Promise<boolean> {
+  return call<boolean>('send.isDust', { address, amount: Number(amount) });
+}
 
 export const psbt = {
   fromClipboardText: (base64: string) => call<{ psbt: string }>('psbt.decode', { base64 }),

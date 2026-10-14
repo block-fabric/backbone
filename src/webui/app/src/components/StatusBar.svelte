@@ -153,10 +153,11 @@
 <style>
   .statusbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.9rem;
+    gap: 0.2rem 0.9rem;
     min-height: 2.4rem;
-    padding: 0 0.6rem 0 0.9rem;
+    padding: 0.15rem 0.6rem 0.15rem 0.9rem;
     border-top: 1px solid var(--line);
     background: var(--surface);
     color: var(--text-muted);
@@ -304,10 +305,13 @@
     display: inline-flex;
     color: var(--text-muted);
   }
+  /* A narrow window: everything stays, on two lines if it must (the height of the chain, how far behind). */
   @media (max-width: 760px) {
-    .chain,
-    .behind {
-      display: none;
+    progress {
+      width: 5rem;
+    }
+    .statusbar {
+      gap: 0.2rem 0.6rem;
     }
   }
 </style>

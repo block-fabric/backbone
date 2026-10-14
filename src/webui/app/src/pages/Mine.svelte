@@ -171,7 +171,7 @@
 <style>
   .layout {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
     gap: 1rem;
     margin-top: 1rem;
   }

@@ -2,6 +2,7 @@
   // The first start: where the node keeps its data, and whether it keeps every block (intro.cpp).
   import { host, type IntroData, type Space } from '../lib/rpc';
   import { app } from '../lib/state.svelte';
+  import { backupDays, pathMessage } from '../lib/intro';
 
   const data = $derived(app.phaseData as unknown as IntroData);
   const GB = 1_000_000_000;
@@ -28,6 +29,10 @@
   const dir = $derived(useDefault ? data?.defaultDir ?? '' : custom.trim());
   const requiredGB = $derived(data ? (prune && pruneGB <= data.blockchainGB ? pruneGB + data.chainstateGB : data.blockchainGB + data.chainstateGB) : 0);
   const freeGB = $derived(space?.free !== undefined ? space.free / GB : null);
+
+  // FreespaceChecker: what the path chosen is; Intro::UpdatePruneLabels: the backups the blocks kept restore.
+  const pathState = $derived(pathMessage(space));
+  const days = $derived(backupDays(Math.max(data?.minPruneGB ?? 1, pruneGB || 0)));
 
   $effect(() => {
     const d = dir;
@@ -88,8 +93,9 @@
     </fieldset>
 
     <div class="space">
+      {#if pathState}<p class:error={pathState.error} class:muted={!pathState.error} id="intro-path">{pathState.text}</p>{/if}
       {#if space?.error}
-        <p class="error">{space.error}</p>
+        <!-- No room to tell. -->
       {:else if freeGB !== null}
         <p class:low={freeGB < requiredGB}>
           {freeGB.toFixed(0)} GB of free space available{space?.exists ? '' : ' (the folder will be made)'}.
@@ -107,6 +113,7 @@
       <span>Limit block chain storage to</span>
       <input type="number" class="gb" min={data?.minPruneGB ?? 1} bind:value={pruneGB} disabled={!prune || data?.pruneForced !== undefined} aria-label="Storage limit in GB" />
       <span>GB</span>
+      <span class="muted" id="intro-backup-days">(sufficient to restore backups {days} day{days === 1 ? '' : 's'} old)</span>
     </label>
     {#if prune}
       <p class="hint">Old blocks are deleted once they are verified. Reverting this setting requires downloading the whole chain again.</p>
@@ -116,7 +123,7 @@
 
     <div class="actions">
       <button type="button" class="btn" onclick={() => host.introCancel()}>Cancel</button>
-      <button type="button" class="btn primary" disabled={busy || !dir} onclick={start}>Start</button>
+      <button type="button" class="btn primary" disabled={busy || !dir || !!pathState?.error} onclick={start}>Start</button>
     </div>
   </div>
 </main>

@@ -47,7 +47,9 @@ export function syncStatus(s: SyncInput): SyncStatus {
   }
   let label: string;
   if (s.loadingBlocks) {
-    label = 'Processing blocks on disk…';
+    // While a reindex reads the block files, the headers run ahead of the blocks (BlockSource::DISK, a
+    // header tip): "Indexing"; then the blocks are connected: "Processing".
+    label = s.headerHeight > s.tipHeight ? 'Indexing blocks on disk…' : 'Processing blocks on disk…';
   } else if (s.connections > 0 && s.networkActive) {
     label = 'Synchronizing with network…';
     const headersLeft = Math.floor((s.now - s.headerTime) / s.spacing);
