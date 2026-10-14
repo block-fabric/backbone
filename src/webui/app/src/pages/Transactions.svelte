@@ -272,7 +272,7 @@
               {#if column.key === 'status'}<TxStatusIcon record={row} />
               {:else if column.key === 'date'}{narrow ? formatTime(row.time, true) : formatTime(row.time)}
               {:else if column.key === 'type'}<span class="type {row.type}"><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /> {typeText(row.type) || 'Other'}</span>
-              {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeText(row.type) || 'Other'}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span> {/if}<span class:bare={!row.label}>{addressText(row)}</span>
+              {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeText(row.type) || 'Other'}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span> {/if}<span class:bare={!row.label} translate="no">{addressText(row)}</span>
               {:else if column.key === 'amount'}
                 {#if prefs.mask}<Amount sats={row.amount} showUnit={false} />
                 {:else}<span class="amt" class:neg={row.amount < 0n}>{amountText(row, prefs.unit)}</span>{/if}

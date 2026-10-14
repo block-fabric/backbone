@@ -252,7 +252,7 @@
         <ul class="list" aria-label="Keys">
           {#each prefs.multisigKeys as key, i (i)}
             <li class:chosen={selectedKey === i}>
-              <label class="pick"><input type="radio" name="key" checked={selectedKey === i} onchange={() => (selectedKey = i)} /> <strong>{key.name}</strong></label>
+              <label class="pick"><input type="radio" name="key" checked={selectedKey === i} onchange={() => (selectedKey = i)} /> <strong translate="no">{key.name}</strong></label>
               <code class="break">{key.value}</code>
               <CopyButton text={key.value} label="Copy key" />
             </li>
@@ -278,7 +278,7 @@
         <fieldset class="signers">
           <legend class="label">Tick the keys that share the address</legend>
           {#each prefs.multisigKeys as key, i (i)}
-            <label class="check"><input type="checkbox" bind:checked={ticked[i]} /> {key.name}</label>
+            <label class="check"><input type="checkbox" bind:checked={ticked[i]} /> <span translate="no">{key.name}</span></label>
           {:else}
             <p class="muted">Add keys on the Keys tab first.</p>
           {/each}
@@ -301,7 +301,7 @@
       <ul class="list addresses" aria-label="Shared addresses">
         {#each prefs.multisigAddresses as entry, i (entry.value)}
           <li class:chosen={selectedAddress === i}>
-            <label class="pick"><input type="radio" name="address" checked={selectedAddress === i} onchange={() => (selectedAddress = i)} /> <strong>{entry.name}</strong></label>
+            <label class="pick"><input type="radio" name="address" checked={selectedAddress === i} onchange={() => (selectedAddress = i)} /> <strong translate="no">{entry.name}</strong></label>
             <span class="badge accent">{signersText(entry.value)}</span>
             <span class="balance num">{balances[entry.value] ?? '?'} CHN</span>
             <code class="break">{addressOf[entry.value] ?? '…'}</code>
@@ -327,7 +327,7 @@
         <div class="field">
           <label for="multisig-from">Spend from</label>
           <select id="multisig-from" bind:value={from}>
-            {#each prefs.multisigAddresses as entry, i (entry.value)}<option value={i}>{entry.name} ({signersText(entry.value)})</option>{/each}
+            {#each prefs.multisigAddresses as entry, i (entry.value)}<option value={i} translate="no">{entry.name} ({signersText(entry.value)})</option>{/each}
           </select>
         </div>
         <div class="field">

@@ -6,6 +6,7 @@
   import NodeDialogs from './components/NodeDialogs.svelte';
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
+  import { followLocale, installTranslator, loadLocale } from './lib/i18n.svelte';
   import { handleShortcut } from './lib/keyboard';
   import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
@@ -57,6 +58,10 @@
       }
       try {
         const hello = await host.hello();
+        // The language first: the page shows in it from its first frame on.
+        installTranslator();
+        followLocale();
+        await loadLocale();
         app.info = hello.info;
         app.dialogs = hello.dialogs;
         app.phaseData = hello.phaseData;
@@ -67,7 +72,8 @@
           const navigation = await import('./lib/nav.svelte');
           const dialogs = await import('./lib/dialogs.svelte');
           const walletdata = await import('./lib/walletdata.svelte');
-          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current };
+          const i18n = await import('./lib/i18n.svelte');
+          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current, i18n: i18n.i18n, t: i18n.t };
         }
         await loadPrefs();
         if (hello.phase === 'ready') await refreshNode();

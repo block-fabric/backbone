@@ -286,7 +286,7 @@
               {#each dc.sidechains as s (s.slot)}
                 <tr class:chosen={s.slot === selectedSlot} onclick={() => (selectedSlot = s.slot)} use:selectable={() => (selectedSlot = s.slot)}>
                   <td class="num">{s.slot}</td>
-                  <td><button type="button" class="link" onclick={() => (selectedSlot = s.slot)}>{s.title}</button><span class="desc muted">{s.description}</span></td>
+                  <td><button type="button" class="link" onclick={() => (selectedSlot = s.slot)} translate="no">{s.title}</button><span class="desc muted" translate="no">{s.description}</span></td>
                   <td class="end">{#if s.escrow}<Amount sats={escrowOf(s)} />{:else}<span class="muted">no deposits yet</span>{/if}</td>
                   <td class="end num">{s.pendingbundles}</td>
                   <td class="end num">{formatCount(s.activationheight)}</td>
@@ -370,7 +370,7 @@
             {#each dc.proposals.pending as p (p.proposalhash)}
               <tr class:chosen={p.proposalhash === selectedProposal} onclick={() => (selectedProposal = p.proposalhash)} use:selectable={() => (selectedProposal = p.proposalhash)}>
                 <td class="num">{p.slot}</td>
-                <td>{p.title}{#if p.description}<span class="desc muted">{p.description}</span>{/if}</td>
+                <td translate="no">{p.title}{#if p.description}<span class="desc muted">{p.description}</span>{/if}</td>
                 <td class="end num">{p.age}</td>
                 <td><Meter value={p.acks} max={proposalNeeds(p, dc.info)} label="Acks of {p.title}" text="{p.acks} / {proposalNeeds(p, dc.info)}" tone={p.ack ? 'positive' : 'accent'} /></td>
                 <td class="end num" class:bad={p.failures > 0}>{p.failures} / {dc.info.activationmaxfailures}</td>
@@ -402,7 +402,7 @@
           <tbody>
             {#each dc.proposals.queued as q (q.proposalhash)}
               <tr class:chosen={q.proposalhash === selectedQueued} onclick={() => (selectedQueued = q.proposalhash)} use:selectable={() => (selectedQueued = q.proposalhash)}>
-                <td class="num">{q.slot}</td><td>{q.title}</td><td class="muted">{q.description}</td><td class="mono">{shortHash(q.proposalhash)}</td>
+                <td class="num">{q.slot}</td><td translate="no">{q.title}</td><td class="muted" translate="no">{q.description}</td><td class="mono">{shortHash(q.proposalhash)}</td>
               </tr>
             {/each}
           </tbody>

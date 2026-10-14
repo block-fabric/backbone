@@ -29,6 +29,8 @@
 #include <webui/appconfig.h>
 #include <webui/bridge.h>
 #include <webui/events.h>
+#include <webui/i18n.h>
+#include <webui/assets.h>
 #include <webui/nodeapi.h>
 #include <webui/nodeevents.h>
 #include <webui/options.h>
@@ -171,6 +173,10 @@ UniValue App::Info()
     info.pushKV("walletEnabled", false);
 #endif
     info.pushKV("devtools", m_devtools);
+    {
+        LOCK(m_mutex);
+        info.pushKV("language", m_language);
+    }
     info.pushKV("test", !m_test_script.empty());
 #if defined(__linux__)
     info.pushKV("platform", "linux");
@@ -248,6 +254,20 @@ void App::Fatal(const std::string& title, const std::string& message, const std:
     }
     m_window->Post([this] { m_window->Show(false); });
     SetPhase("fatal", std::move(data));
+}
+
+void App::UpdateLanguage()
+{
+    const std::string language{ChooseLanguage(BuiltinAssets(), m_args.GetArg("-lang", ""))};
+    {
+        LOCK(m_mutex);
+        if (language == m_language) return;
+        m_language = language;
+    }
+    SetCoreCatalog(LoadCatalog(BuiltinAssets(), language));
+    UniValue data{UniValue::VOBJ};
+    data.pushKV("code", language);
+    if (m_hub) m_hub->Emit("locale", std::move(data));
 }
 
 void App::CloseRequested()
@@ -395,6 +415,9 @@ bool App::StartNode()
         LOCK(m_mutex);
         m_network = ChainTypeToString(m_args.GetChainType());
     }
+    // The language option is in settings.json: the page and the node follow it from now on.
+    UpdateLanguage();
+
     // The debug options come from the command line alone: what chains.conf says of them is ignored.
     const std::vector<std::pair<std::string, std::string>> command_line{{"-webuitestscript", m_test_script}, {"-webuitestshots", m_test_shots}, {"-webuiconfig", m_config_path}};
     for (const auto& [arg, value] : command_line) {
@@ -743,6 +766,33 @@ void App::RegisterHostMethods()
         return out;
     });
     b.RegisterHost("app.info", [this](const UniValue&) { return Info(); });
+    // The language of the interface, with its catalog (the messages of the page), and the languages there are.
+    b.RegisterHost("app.locale", [this](const UniValue&) {
+        std::string language;
+        {
+            LOCK(m_mutex);
+            language = m_language;
+        }
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("code", language);
+        if (auto catalog{LoadCatalog(BuiltinAssets(), language)}) {
+            out.pushKV("name", catalog->find_value("name"));
+            out.pushKV("rtl", catalog->find_value("rtl"));
+            out.pushKV("messages", catalog->find_value("gui"));
+        } else {
+            out.pushKV("name", "English");
+            out.pushKV("rtl", false);
+            out.pushKV("messages", UniValue{UniValue::VOBJ});
+        }
+        return out;
+    });
+    b.RegisterHost("app.languages", [](const UniValue&) { return Languages(BuiltinAssets()); });
+    // The language option changed (Settings, applied): the page and the node follow it at once.
+    b.RegisterHost("app.updateLanguage", [this](const UniValue&) {
+        UpdateLanguage();
+        LOCK(m_mutex);
+        return UniValue{m_language};
+    });
     b.RegisterHost("app.quit", [this](const UniValue&) {
         RequestShutdown();
         return UniValue{true};
@@ -1185,6 +1235,15 @@ int App::Run()
     const std::string config_path{m_config_path};
     m_config = std::make_unique<AppConfig>(config_path.empty() ? AppConfig::DefaultPath() : fs::PathFromString(config_path));
     m_config->Load();
+    // The language from the command line or the system, until settings.json is read (-lang there).
+    {
+        const std::string language{ChooseLanguage(BuiltinAssets(), m_args.GetArg("-lang", ""))};
+        {
+            LOCK(m_mutex);
+            m_language = language;
+        }
+        SetCoreCatalog(LoadCatalog(BuiltinAssets(), language));
+    }
     m_options_journal = std::make_unique<OptionsJournal>(*m_config, m_args, [this] {
         LOCK(m_mutex);
         return "optionsUndo:" + (m_network.empty() ? ChainTypeToString(m_args.GetChainType()) : m_network);

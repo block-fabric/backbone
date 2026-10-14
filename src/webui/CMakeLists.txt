@@ -58,6 +58,7 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   rpcpolicy.cpp
   console.cpp
   events.cpp
+  i18n.cpp
   nodeapi.cpp
   nodeevents.cpp
   options.cpp

@@ -432,7 +432,7 @@
   <div class="grid">
     <section class="panel current" aria-labelledby="current-title">
       <div class="panel-head">
-        <h2 id="current-title">{name === null ? 'No wallet loaded' : walletDisplayName(name)}</h2>
+        <h2 id="current-title" translate={name === null || name === '' ? undefined : 'no'}>{name === null ? 'No wallet loaded' : walletDisplayName(name)}</h2>
         {#if summary}
           <div class="badges">
             {#if summary.privateKeysDisabled}<span class="badge">watch-only</span>{/if}

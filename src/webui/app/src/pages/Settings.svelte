@@ -7,7 +7,10 @@
   import { nav } from '../lib/nav.svelte';
   import { host, type NodeOptions, type NodeOptionValues } from '../lib/rpc';
   import { app, prefs, toast } from '../lib/state.svelte';
-  import { applyChanges, askOnLeave, cancelChanges, noteBaseline, pendingCount, stagePrefs } from '../lib/settingsdraft.svelte';
+  import { applyChanges, askOnLeave, cancelChanges, draft, noteBaseline, pendingCount, stagePrefs } from '../lib/settingsdraft.svelte';
+  import { loadLocale } from '../lib/i18n.svelte';
+
+  const draftBaselineLang = () => draft.baseline?.lang ?? '';
   import { clampFontAdjust, FONTS, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type FontChoice, type ThemeId } from '../lib/themes';
   import { UNITS, type Unit } from '../lib/units';
 
@@ -131,12 +134,27 @@
   // Apply and Cancel (the OK and Cancel of the options dialog): nothing takes effect before Apply.
   const pending = $derived(pendingCount(options));
   let applying = $state(false);
+  // The languages there are catalogs for (app.languages), by their own names.
+  let languages = $state<{ code: string; name: string }[]>([]);
+  $effect(() => {
+    host
+      .languages()
+      .then((list) => (languages = [...list].sort((a, b) => a.name.localeCompare(b.name))))
+      .catch(() => (languages = []));
+  });
+
   async function apply() {
     applying = true;
     try {
       const before = options?.restartRequired ?? false;
+      const langBefore = draftBaselineLang();
       const after = await applyChanges(options);
       if (after) {
+        if (after.lang !== langBefore) {
+          // The interface and the node follow the language at once.
+          await host.updateLanguage().catch(() => undefined);
+          await loadLocale();
+        }
         options = after;
         if (after.restartRequired && !before) changedNow = true;
         toast('success', 'Settings', 'The changes are applied.');
@@ -389,9 +407,12 @@
           <label for="opt-lang">User Interface language</label>
           <select id="opt-lang" value={options?.lang ?? ''} disabled={!options || ignored('lang')} onchange={(e) => set('lang', (e.currentTarget as HTMLSelectElement).value)}>
             <option value="">(default)</option>
-            <option value="en">English (en)</option>
+            <option value="en" translate="no">English (en)</option>
+            {#each languages as l (l.code)}
+              {#if l.code !== 'en'}<option value={l.code} translate="no">{l.name} ({l.code})</option>{/if}
+            {/each}
           </select>
-          <span class="hint">The user interface language can be set here. This setting will take effect after restarting {app.info?.name ?? 'Chains'}. The interface of chains-app is in English only for now.</span>
+          <span class="hint">The user interface language can be set here. It takes effect once the changes are applied, for the messages of the node too. The translations are the ones of chains-qt: what is new in this interface shows in English until it is translated.</span>
         </div>
 
         {#if app.info?.walletEnabled}

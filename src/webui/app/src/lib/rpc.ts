@@ -108,6 +108,8 @@ export interface AppInfo {
   datadir: string;
   walletEnabled: boolean;
   devtools: boolean;
+  /** The language of the interface ('' for English). */
+  language?: string;
   test: boolean;
   platform: string;
   blockSpacing?: number;
@@ -172,6 +174,8 @@ export const host = {
   restart: () => request<boolean>('host', 'app.restart', {}),
   help: () => request<{ usage: string; options: string }>('host', 'app.help', {}),
   about: () => request<{ name: string; version: string; license: string }>('host', 'app.about', {}),
+  languages: () => request<{ code: string; name: string; rtl: boolean; messages: number }[]>('host', 'app.languages', {}),
+  updateLanguage: () => request<string>('host', 'app.updateLanguage', {}),
   introSpace: (dir: string) => request<Space>('host', 'intro.space', { dir }),
   introChoose: (dir: string, pruneGB: number) => request<boolean>('host', 'intro.choose', { dir, pruneGB }),
   introCancel: () => request<boolean>('host', 'intro.cancel', {}),

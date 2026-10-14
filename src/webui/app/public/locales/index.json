@@ -1,0 +1,608 @@
+[
+ {
+  "code": "am",
+  "name": "አማርኛ",
+  "rtl": false,
+  "messages": 104
+ },
+ {
+  "code": "ar",
+  "name": "العربية",
+  "rtl": true,
+  "messages": 515
+ },
+ {
+  "code": "ast_ES",
+  "name": "Asturianu (España)",
+  "rtl": false,
+  "messages": 112
+ },
+ {
+  "code": "az",
+  "name": "Azərbaycan",
+  "rtl": false,
+  "messages": 205
+ },
+ {
+  "code": "az@latin",
+  "name": "Azərbaycan (latın)",
+  "rtl": false,
+  "messages": 200
+ },
+ {
+  "code": "be",
+  "name": "Беларуская",
+  "rtl": false,
+  "messages": 136
+ },
+ {
+  "code": "bg",
+  "name": "Български",
+  "rtl": false,
+  "messages": 435
+ },
+ {
+  "code": "bn",
+  "name": "বাংলা",
+  "rtl": false,
+  "messages": 80
+ },
+ {
+  "code": "br",
+  "name": "Brezhoneg",
+  "rtl": false,
+  "messages": 106
+ },
+ {
+  "code": "bs",
+  "name": "Bosanski",
+  "rtl": false,
+  "messages": 197
+ },
+ {
+  "code": "ca",
+  "name": "Català",
+  "rtl": false,
+  "messages": 573
+ },
+ {
+  "code": "cmn",
+  "name": "中文",
+  "rtl": false,
+  "messages": 318
+ },
+ {
+  "code": "cs",
+  "name": "Čeština",
+  "rtl": false,
+  "messages": 587
+ },
+ {
+  "code": "cy",
+  "name": "Cymraeg",
+  "rtl": false,
+  "messages": 237
+ },
+ {
+  "code": "da",
+  "name": "Dansk",
+  "rtl": false,
+  "messages": 525
+ },
+ {
+  "code": "de",
+  "name": "Deutsch",
+  "rtl": false,
+  "messages": 175
+ },
+ {
+  "code": "el",
+  "name": "Ελληνικά",
+  "rtl": false,
+  "messages": 578
+ },
+ {
+  "code": "en",
+  "name": "English",
+  "rtl": false,
+  "messages": 89
+ },
+ {
+  "code": "eo",
+  "name": "Esperanto",
+  "rtl": false,
+  "messages": 308
+ },
+ {
+  "code": "es",
+  "name": "Español",
+  "rtl": false,
+  "messages": 260
+ },
+ {
+  "code": "et",
+  "name": "Eesti",
+  "rtl": false,
+  "messages": 269
+ },
+ {
+  "code": "eu",
+  "name": "Euskara",
+  "rtl": false,
+  "messages": 620
+ },
+ {
+  "code": "fa",
+  "name": "فارسی",
+  "rtl": true,
+  "messages": 467
+ },
+ {
+  "code": "fi",
+  "name": "Suomi",
+  "rtl": false,
+  "messages": 610
+ },
+ {
+  "code": "fil",
+  "name": "Filipino",
+  "rtl": false,
+  "messages": 421
+ },
+ {
+  "code": "fo",
+  "name": "Føroyskt",
+  "rtl": false,
+  "messages": 620
+ },
+ {
+  "code": "fr",
+  "name": "Français",
+  "rtl": false,
+  "messages": 610
+ },
+ {
+  "code": "ga",
+  "name": "Gaeilge",
+  "rtl": false,
+  "messages": 617
+ },
+ {
+  "code": "ga_IE",
+  "name": "Gaeilge (Éire)",
+  "rtl": false,
+  "messages": 617
+ },
+ {
+  "code": "gl",
+  "name": "Galego",
+  "rtl": false,
+  "messages": 296
+ },
+ {
+  "code": "gl_ES",
+  "name": "Galego (España)",
+  "rtl": false,
+  "messages": 154
+ },
+ {
+  "code": "gu",
+  "name": "ગુજરાતી",
+  "rtl": false,
+  "messages": 426
+ },
+ {
+  "code": "hak",
+  "name": "Hakka Chinese",
+  "rtl": false,
+  "messages": 321
+ },
+ {
+  "code": "he",
+  "name": "עברית",
+  "rtl": true,
+  "messages": 574
+ },
+ {
+  "code": "hi",
+  "name": "हिन्दी",
+  "rtl": false,
+  "messages": 90
+ },
+ {
+  "code": "hr",
+  "name": "Hrvatski",
+  "rtl": false,
+  "messages": 560
+ },
+ {
+  "code": "hu",
+  "name": "Magyar",
+  "rtl": false,
+  "messages": 609
+ },
+ {
+  "code": "id",
+  "name": "Indonesia",
+  "rtl": false,
+  "messages": 508
+ },
+ {
+  "code": "is",
+  "name": "Íslenska",
+  "rtl": false,
+  "messages": 154
+ },
+ {
+  "code": "it",
+  "name": "Italiano",
+  "rtl": false,
+  "messages": 593
+ },
+ {
+  "code": "ja",
+  "name": "日本語",
+  "rtl": false,
+  "messages": 616
+ },
+ {
+  "code": "ka",
+  "name": "Ქართული",
+  "rtl": false,
+  "messages": 427
+ },
+ {
+  "code": "kk",
+  "name": "Қазақ тілі",
+  "rtl": false,
+  "messages": 218
+ },
+ {
+  "code": "kk@latin",
+  "name": "Қазақ тілі (латын жазуы)",
+  "rtl": false,
+  "messages": 217
+ },
+ {
+  "code": "km",
+  "name": "ខ្មែរ",
+  "rtl": false,
+  "messages": 421
+ },
+ {
+  "code": "kn",
+  "name": "ಕನ್ನಡ",
+  "rtl": false,
+  "messages": 82
+ },
+ {
+  "code": "ko",
+  "name": "한국어",
+  "rtl": false,
+  "messages": 610
+ },
+ {
+  "code": "ku",
+  "name": "Kurdî (kurmancî)",
+  "rtl": false,
+  "messages": 97
+ },
+ {
+  "code": "ku_IQ",
+  "name": "Kurdî (kurmancî) (Îraq)",
+  "rtl": true,
+  "messages": 97
+ },
+ {
+  "code": "la",
+  "name": "Latin",
+  "rtl": false,
+  "messages": 183
+ },
+ {
+  "code": "lt",
+  "name": "Lietuvių",
+  "rtl": false,
+  "messages": 432
+ },
+ {
+  "code": "lv",
+  "name": "Latviešu",
+  "rtl": false,
+  "messages": 197
+ },
+ {
+  "code": "mi",
+  "name": "Māori",
+  "rtl": false,
+  "messages": 46
+ },
+ {
+  "code": "mk",
+  "name": "Македонски",
+  "rtl": false,
+  "messages": 160
+ },
+ {
+  "code": "ml",
+  "name": "മലയാളം",
+  "rtl": false,
+  "messages": 187
+ },
+ {
+  "code": "mn",
+  "name": "Монгол",
+  "rtl": false,
+  "messages": 142
+ },
+ {
+  "code": "ms",
+  "name": "Melayu",
+  "rtl": false,
+  "messages": 79
+ },
+ {
+  "code": "mt",
+  "name": "Malti",
+  "rtl": false,
+  "messages": 306
+ },
+ {
+  "code": "nb",
+  "name": "Norsk bokmål",
+  "rtl": false,
+  "messages": 543
+ },
+ {
+  "code": "ne",
+  "name": "नेपाली",
+  "rtl": false,
+  "messages": 122
+ },
+ {
+  "code": "nl",
+  "name": "Nederlands",
+  "rtl": false,
+  "messages": 547
+ },
+ {
+  "code": "no",
+  "name": "Norsk",
+  "rtl": false,
+  "messages": 148
+ },
+ {
+  "code": "pam",
+  "name": "Pampanga",
+  "rtl": false,
+  "messages": 151
+ },
+ {
+  "code": "pl",
+  "name": "Polski",
+  "rtl": false,
+  "messages": 610
+ },
+ {
+  "code": "ps",
+  "name": "پښتو",
+  "rtl": true,
+  "messages": 240
+ },
+ {
+  "code": "pt",
+  "name": "Português",
+  "rtl": false,
+  "messages": 603
+ },
+ {
+  "code": "pt_BR",
+  "name": "Português (Brasil)",
+  "rtl": false,
+  "messages": 561
+ },
+ {
+  "code": "ro",
+  "name": "Română",
+  "rtl": false,
+  "messages": 518
+ },
+ {
+  "code": "ru",
+  "name": "Русский",
+  "rtl": false,
+  "messages": 536
+ },
+ {
+  "code": "si",
+  "name": "සිංහල",
+  "rtl": false,
+  "messages": 166
+ },
+ {
+  "code": "sk",
+  "name": "Slovenčina",
+  "rtl": false,
+  "messages": 611
+ },
+ {
+  "code": "sl",
+  "name": "Slovenščina",
+  "rtl": false,
+  "messages": 592
+ },
+ {
+  "code": "sm",
+  "name": "Samoan",
+  "rtl": false,
+  "messages": 282
+ },
+ {
+  "code": "sq",
+  "name": "Shqip",
+  "rtl": false,
+  "messages": 94
+ },
+ {
+  "code": "sr",
+  "name": "Српски",
+  "rtl": false,
+  "messages": 559
+ },
+ {
+  "code": "sr@ijekavianlatin",
+  "name": "Српски",
+  "rtl": false,
+  "messages": 558
+ },
+ {
+  "code": "sr@latin",
+  "name": "Srpski (latinica)",
+  "rtl": false,
+  "messages": 557
+ },
+ {
+  "code": "sv",
+  "name": "Svenska",
+  "rtl": false,
+  "messages": 538
+ },
+ {
+  "code": "sw",
+  "name": "Kiswahili",
+  "rtl": false,
+  "messages": 184
+ },
+ {
+  "code": "szl",
+  "name": "Ślōnski",
+  "rtl": false,
+  "messages": 237
+ },
+ {
+  "code": "ta",
+  "name": "தமிழ்",
+  "rtl": false,
+  "messages": 443
+ },
+ {
+  "code": "te",
+  "name": "తెలుగు",
+  "rtl": false,
+  "messages": 348
+ },
+ {
+  "code": "th",
+  "name": "ไทย",
+  "rtl": false,
+  "messages": 277
+ },
+ {
+  "code": "tk",
+  "name": "Türkmen dili",
+  "rtl": false,
+  "messages": 349
+ },
+ {
+  "code": "tl",
+  "name": "Filipino",
+  "rtl": false,
+  "messages": 193
+ },
+ {
+  "code": "tr",
+  "name": "Türkçe",
+  "rtl": false,
+  "messages": 543
+ },
+ {
+  "code": "uk",
+  "name": "Українська",
+  "rtl": false,
+  "messages": 624
+ },
+ {
+  "code": "ur",
+  "name": "اردو",
+  "rtl": true,
+  "messages": 414
+ },
+ {
+  "code": "uz",
+  "name": "O‘zbek",
+  "rtl": false,
+  "messages": 398
+ },
+ {
+  "code": "uz@Cyrl",
+  "name": "O‘zbek",
+  "rtl": false,
+  "messages": 397
+ },
+ {
+  "code": "uz@Latn",
+  "name": "O‘zbek",
+  "rtl": false,
+  "messages": 397
+ },
+ {
+  "code": "ve",
+  "name": "Venda",
+  "rtl": false,
+  "messages": 84
+ },
+ {
+  "code": "vi",
+  "name": "Tiếng Việt",
+  "rtl": false,
+  "messages": 337
+ },
+ {
+  "code": "yi",
+  "name": "ייִדיש",
+  "rtl": true,
+  "messages": 58
+ },
+ {
+  "code": "yue",
+  "name": "粵語",
+  "rtl": false,
+  "messages": 321
+ },
+ {
+  "code": "zh-Hans",
+  "name": "简体中文",
+  "rtl": false,
+  "messages": 331
+ },
+ {
+  "code": "zh-Hant",
+  "name": "繁體中文",
+  "rtl": false,
+  "messages": 321
+ },
+ {
+  "code": "zh",
+  "name": "中文",
+  "rtl": false,
+  "messages": 214
+ },
+ {
+  "code": "zh_CN",
+  "name": "中文（中国）",
+  "rtl": false,
+  "messages": 607
+ },
+ {
+  "code": "zh_HK",
+  "name": "中文（中國香港特別行政區）",
+  "rtl": false,
+  "messages": 329
+ },
+ {
+  "code": "zh_TW",
+  "name": "中文（台灣）",
+  "rtl": false,
+  "messages": 596
+ }
+]

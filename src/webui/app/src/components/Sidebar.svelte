@@ -37,7 +37,7 @@
       <span class="sr-only">Wallet</span>
       <select value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
         {#each wallets.list as w (w.name)}
-          <option value={w.name}>{w.name === '' ? 'default wallet' : w.name}</option>
+          <option value={w.name} translate={w.name === '' ? undefined : 'no'}>{w.name === '' ? 'default wallet' : w.name}</option>
         {/each}
       </select>
     </label>
@@ -47,7 +47,7 @@
       <span class="sr-only">Wallet</span>
       <select title="The wallet shown" value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
         {#each wallets.list as w (w.name)}
-          <option value={w.name}>{w.name === '' ? 'default wallet' : w.name}</option>
+          <option value={w.name} translate={w.name === '' ? undefined : 'no'}>{w.name === '' ? 'default wallet' : w.name}</option>
         {/each}
       </select>
     </label>

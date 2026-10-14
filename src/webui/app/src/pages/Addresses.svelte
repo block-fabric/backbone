@@ -135,7 +135,7 @@
       oncontext={(r, e) => (menu = { open: true, x: e.clientX, y: e.clientY })}
     >
       {#snippet cell(row, column)}
-        {#if column.key === 'label'}<span class:faint={!row.label}>{row.label || '(no label)'}</span>{:else}{row.address}{/if}
+        {#if column.key === 'label'}<span class:faint={!row.label} translate={row.label ? 'no' : undefined}>{row.label || '(no label)'}</span>{:else}{row.address}{/if}
       {/snippet}
     </DataTable>
   </div>

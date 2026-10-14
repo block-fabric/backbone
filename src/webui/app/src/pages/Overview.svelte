@@ -231,7 +231,7 @@
                 <button type="button" class="tx" disabled={prefs.mask} title={prefs.mask ? 'Hidden: privacy mode' : 'Show in the transactions'} onclick={() => openTx(r.txid)}>
                   <TxStatusIcon record={r} />
                   <span class="what">
-                    <span class="addr" class:muted={!r.label}>{addressText(r)}</span>
+                    <span class="addr" class:muted={!r.label} translate="no">{addressText(r)}</span>
                     <span class="faint small">{typeText(r.type) || 'Other'} · {formatTime(r.time)}</span>
                   </span>
                   <span class:pending={!r.countsForBalance}><Amount sats={r.amount} colored plus /></span>

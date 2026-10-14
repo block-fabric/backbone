@@ -27,7 +27,7 @@
 
 {#snippet value(row: DetailRow)}
   {#if row.address !== undefined}
-    {#if row.label}<span>{row.label}</span>{/if}
+    {#if row.label}<span translate="no">{row.label}</span>{/if}
     <span class="mono break">{row.address}</span>
     {#if row.own}<span class="badge accent">own address</span>{/if}
   {:else if row.sats !== undefined}
@@ -55,7 +55,7 @@
       </dl>
       {#each details.notes as note, i (i)}
         <h3>{note.k}</h3>
-        <p class="pre break">{note.text}</p>
+        <p class="pre break" translate="no">{note.text}</p>
       {/each}
       {#each details.messages as m, i (i)}
         <h3>Message</h3>

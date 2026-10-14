@@ -159,7 +159,7 @@
         <span class="muted">Wallet:</span>
         <select class="wallet" value={wallet} onchange={(e) => (walletChoice = (e.currentTarget as HTMLSelectElement).value)} aria-label="Wallet the commands run on">
           <option value="">(none)</option>
-          {#each wallets.list as w (w.name)}<option value={w.name}>{walletDisplayName(w.name)}</option>{/each}
+          {#each wallets.list as w (w.name)}<option value={w.name} translate="no">{walletDisplayName(w.name)}</option>{/each}
         </select>
       </label>
     {/if}

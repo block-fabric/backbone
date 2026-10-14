@@ -104,6 +104,8 @@ private:
 
     /** Take back the changes of the options never applied (OptionsJournal), with the restart flag they set. */
     void UndoOptions(interfaces::Node& node, const std::string& why) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** Choose the language again (-lang, the option, the system), for the page and the node; an event if it changed. */
+    void UpdateLanguage() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void Fatal(const std::string& title, const std::string& message, const std::vector<std::string>& details = {}) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     interfaces::Init& m_init;
@@ -139,6 +141,8 @@ private:
     UniValue m_phase_data GUARDED_BY(m_mutex){UniValue::VOBJ};
     std::string m_network GUARDED_BY(m_mutex);
     std::string m_wallet_title GUARDED_BY(m_mutex);
+    //! The language of the interface ("" for English).
+    std::string m_language GUARDED_BY(m_mutex);
     bool m_shutdown_requested GUARDED_BY(m_mutex){false};
     bool m_page_ready GUARDED_BY(m_mutex){false};
     std::vector<std::string> m_pending_uris GUARDED_BY(m_mutex);

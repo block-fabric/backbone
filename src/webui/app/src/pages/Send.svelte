@@ -470,7 +470,7 @@
           </div>
           {#if e.message}
             <p class="message" title="A message that was attached to the chains: URI which will be stored with the transaction for your reference. Note: This message will not be sent over the Chains network.">
-              <strong>Message:</strong> <span class="break">{e.message}</span>
+              <strong>Message:</strong> <span class="break" translate="no">{e.message}</span>
             </p>
           {/if}
         </div>

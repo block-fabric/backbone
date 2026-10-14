@@ -22,6 +22,7 @@
 #include <util/translation.h>
 #include <util/syserror.h>
 #include <webui/app.h>
+#include <webui/i18n.h>
 
 #ifndef WIN32
 #include <cerrno>
@@ -33,8 +34,8 @@
 #include <string>
 #include <vector>
 
-//! The messages of the node are not translated: the interface of chains-app is in English for now.
-const TranslateFn G_TRANSLATION_FUN{nullptr};
+//! The messages of the node, in the language of the interface (the catalogs of chains-qt, webui/i18n.h).
+const TranslateFn G_TRANSLATION_FUN{[](const char* message) { return webui::TranslateCore(message); }};
 
 namespace {
 //! The scheme of payment URIs (BIP 21) of this chain.
