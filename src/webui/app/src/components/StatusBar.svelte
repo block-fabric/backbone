@@ -1,0 +1,275 @@
+<script lang="ts">
+  // The bar at the bottom: sync, the chain as it grows, peers, the unit of amounts, the lock of the wallet.
+  import Icon from './Icon.svelte';
+  import { css } from '../lib/actions';
+  import { formatCount, formatTime, shortHash } from '../lib/format';
+  import { host } from '../lib/rpc';
+  import { app, node, prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
+  import { syncStatus } from '../lib/sync';
+  import { UNITS, type Unit } from '../lib/units';
+  import { go } from '../lib/nav.svelte';
+
+  let now = $state(Math.floor(Date.now() / 1000));
+  $effect(() => {
+    const timer = setInterval(() => (now = Math.floor(Date.now() / 1000)), 5000);
+    return () => clearInterval(timer);
+  });
+
+  const status = $derived(
+    node.tip
+      ? syncStatus({
+          tipHeight: node.tip.height,
+          tipTime: node.tip.time,
+          progress: node.tip.progress,
+          loadingBlocks: node.tip.loadingBlocks,
+          headerHeight: node.header?.height ?? node.tip.height,
+          headerTime: node.header?.time ?? node.tip.time,
+          presyncHeight: node.presync?.height,
+          presyncTime: node.presync?.time,
+          connections: node.connections,
+          networkActive: node.networkActive,
+          spacing: app.info?.blockSpacing ?? 60,
+          now,
+        })
+      : null,
+  );
+  const wallet = $derived(wallets.list.find((w) => w.name === wallets.current) ?? null);
+  const walletProgress = $derived(wallets.current ? wallets.progress[wallets.current] : undefined);
+  const busy = $derived(app.progress ?? walletProgress ?? null);
+
+  let netMenu = $state(false);
+
+  async function toggleNetwork() {
+    netMenu = false;
+    try {
+      await host.setNetworkActive(!node.networkActive);
+    } catch (e) {
+      toast('error', 'Could not change network activity', e instanceof Error ? e.message : String(e));
+    }
+  }
+</script>
+
+<footer class="statusbar">
+  <div class="sync" title={status?.detail}>
+    {#if busy}
+      <span class="label">{busy.title}</span>
+      <progress max="100" value={busy.progress} aria-label={busy.title}></progress>
+    {:else if status && !status.upToDate}
+      <Icon name="history" size={16} />
+      <span class="label">{status.label}</span>
+      <progress max="1" value={status.progress} aria-label="Verification progress"></progress>
+      <span class="behind num">{status.behind}</span>
+    {:else if status}
+      <Icon name="check" size={16} />
+      <span class="label ok">Up to date</span>
+    {:else}
+      <span class="label">Starting…</span>
+    {/if}
+  </div>
+
+  {#if node.recent.length}
+    <ol class="chain" aria-label="Latest blocks">
+      {#each node.recent as block, i (block.hash)}
+        <li
+          class="link"
+          class:newest={i === node.recent.length - 1}
+          title={`Block ${block.height}\n${shortHash(block.hash, 10)}\n${formatTime(block.time)}`}
+          use:css={{ opacity: 0.35 + (0.65 * (i + 1)) / node.recent.length }}
+        >
+          {#if i === node.recent.length - 1}<span class="num">{formatCount(block.height)}</span>{/if}
+        </li>
+      {/each}
+    </ol>
+  {/if}
+
+  <div class="spacer"></div>
+
+  {#if node.warnings.length}
+    <span class="badge warning" title={node.warnings.join('\n')}><Icon name="alert" size={14} /> Warning</span>
+  {/if}
+
+  <div class="net">
+    <button
+      type="button"
+      class="btn ghost small"
+      aria-haspopup="menu"
+      aria-expanded={netMenu}
+      title={node.networkActive ? `${node.connections} active connection${node.connections === 1 ? '' : 's'} to the Chains network. Click for more actions.` : 'Network activity disabled. Click for more actions.'}
+      onclick={() => (netMenu = !netMenu)}
+    >
+      <Icon name={node.networkActive ? 'peers' : 'offline'} size={16} />
+      <span class="num">{node.networkActive ? node.connections : 'Off'}</span>
+    </button>
+    {#if netMenu}
+      <div class="popup" role="menu">
+        <button type="button" role="menuitem" class="item" onclick={() => { netMenu = false; go('node', 'peers'); }}>Show peers</button>
+        <button type="button" role="menuitem" class="item" onclick={toggleNetwork}>{node.networkActive ? 'Disable network activity' : 'Enable network activity'}</button>
+      </div>
+    {/if}
+  </div>
+
+  <label class="unit">
+    <span class="sr-only">Unit to show amounts in</span>
+    <select value={prefs.unit} title="Unit to show amounts in" onchange={(e) => savePrefs({ unit: (e.currentTarget as HTMLSelectElement).value as Unit })}>
+      {#each UNITS as u (u.id)}
+        <option value={u.id}>{u.short}</option>
+      {/each}
+    </select>
+  </label>
+
+  {#if wallet}
+    {#if wallet.encrypted}
+      <span class="lock" title={wallet.locked ? 'Wallet is encrypted and currently locked' : 'Wallet is encrypted and currently unlocked'}>
+        <Icon name={wallet.locked ? 'lock' : 'unlock'} size={16} label={wallet.locked ? 'Wallet locked' : 'Wallet unlocked'} />
+      </span>
+    {/if}
+    {#if wallet.privateKeysDisabled}
+      <span class="badge" title="This wallet has no private keys: it watches only">Watch-only</span>
+    {/if}
+  {/if}
+</footer>
+
+<style>
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    min-height: 2.4rem;
+    padding: 0 0.6rem 0 0.9rem;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: 0.86rem;
+  }
+  .sync {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .label.ok {
+    color: var(--positive);
+  }
+  progress {
+    width: 9rem;
+    height: 0.45rem;
+    appearance: none;
+    border: 0;
+    border-radius: 999px;
+    background: var(--raised);
+    overflow: hidden;
+  }
+  progress::-webkit-progress-bar {
+    background: var(--raised);
+  }
+  progress::-webkit-progress-value {
+    background: var(--accent);
+  }
+  .behind {
+    white-space: nowrap;
+  }
+  /* The chain: the latest blocks as links, the newest with its height. */
+  .chain {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .link {
+    position: relative;
+    width: 0.8rem;
+    height: 0.8rem;
+    border: 2px solid var(--accent);
+    border-radius: 3px;
+    margin-left: 0.55rem;
+  }
+  .link::before {
+    content: '';
+    position: absolute;
+    left: calc(-0.55rem - 2px);
+    top: 50%;
+    width: 0.55rem;
+    height: 2px;
+    background: var(--chain-link);
+  }
+  .link:first-child {
+    margin-left: 0;
+  }
+  .link:first-child::before {
+    display: none;
+  }
+  .link.newest {
+    width: auto;
+    height: 1.35rem;
+    padding: 0 0.45rem;
+    display: flex;
+    align-items: center;
+    background: var(--accent-soft);
+    color: var(--text);
+    font-weight: 600;
+    animation: arrive 900ms ease-out;
+  }
+  @keyframes arrive {
+    from {
+      transform: translateX(-0.5rem) scale(0.9);
+      box-shadow: 0 0 0 0.35rem var(--accent-soft);
+    }
+  }
+  .spacer {
+    flex: 1;
+  }
+  .net {
+    position: relative;
+  }
+  .popup {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.3rem);
+    z-index: 30;
+    min-width: 14rem;
+    padding: 0.3rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .item {
+    display: block;
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 0;
+    border-radius: var(--radius-s);
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .item:hover,
+  .item:focus-visible {
+    background: var(--accent-soft);
+  }
+  .unit select {
+    min-height: 1.8rem;
+    padding: 0 0.4rem;
+    border-color: var(--line);
+    background: var(--surface-2);
+    font-size: 0.86rem;
+  }
+  .lock {
+    display: inline-flex;
+    color: var(--text-muted);
+  }
+  @media (max-width: 760px) {
+    .chain,
+    .behind {
+      display: none;
+    }
+  }
+</style>

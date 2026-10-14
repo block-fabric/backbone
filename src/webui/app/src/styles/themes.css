@@ -1,0 +1,155 @@
+/* The looks of chains-app. Colours come from the themes of chains-qt (src/qt/theme.cpp),
+   given depth here: a page colour, a surface for panels, a raised colour for controls.
+   The classic Drivechain theme takes its colours from QDarkStyleSheet (MIT), as chains-qt does. */
+
+:root,
+:root[data-theme='light'] {
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --surface-2: #f5f7fa;
+  --raised: #e3e7ec;
+  --line: #d5dbe2;
+  --line-strong: #b9c2cc;
+  --text: #171a1f;
+  --text-muted: #5b6573;
+  --text-faint: #8a93a0;
+  --accent: #0a8f5e;
+  --accent-strong: #077a4f;
+  --accent-soft: #d8f2e7;
+  --on-accent: #ffffff;
+  --link: #0a7d53;
+  --positive: #0a8f5e;
+  --negative: #c4332b;
+  --warning: #a86200;
+  --warning-soft: #fff1d6;
+  --danger-soft: #fde4e2;
+  --focus: #2b7cff;
+  --shadow: 0 1px 2px rgb(23 26 31 / 6%), 0 8px 24px rgb(23 26 31 / 8%);
+  --overlay: rgb(16 20 26 / 45%);
+  --chain-link: #b9c2cc;
+  --font-ui: 'Inter Variable', 'Segoe UI', 'Noto Sans', system-ui, sans-serif;
+  --font-num: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'DejaVu Sans Mono', ui-monospace, monospace;
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 16px;
+}
+
+:root[data-theme='dark'] {
+  --bg: #111316;
+  --surface: #181b20;
+  --surface-2: #1d2127;
+  --raised: #262b32;
+  --line: #2b3038;
+  --line-strong: #3b424c;
+  --text: #e8eaed;
+  --text-muted: #a3abb7;
+  --text-faint: #6f7783;
+  --accent: #4d9fff;
+  --accent-strong: #7ab7ff;
+  --accent-soft: #15283f;
+  --on-accent: #051221;
+  --link: #7ab7ff;
+  --positive: #3ccf8e;
+  --negative: #ff6b61;
+  --warning: #f5b544;
+  --warning-soft: #332611;
+  --danger-soft: #3a1714;
+  --focus: #7ab7ff;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 10px 30px rgb(0 0 0 / 35%);
+  --overlay: rgb(0 0 0 / 60%);
+  --chain-link: #3b424c;
+}
+
+:root[data-theme='ocean'] {
+  --bg: #04202a;
+  --surface: #072a36;
+  --surface-2: #0a3240;
+  --raised: #123f4e;
+  --line: #164556;
+  --line-strong: #23596c;
+  --text: #d6f0f5;
+  --text-muted: #94bcc6;
+  --text-faint: #5f8b97;
+  --accent: #2ec4b6;
+  --accent-strong: #5fdcd0;
+  --accent-soft: #0d3f45;
+  --on-accent: #032027;
+  --link: #74d8f0;
+  --positive: #5fe0a6;
+  --negative: #ff8a7a;
+  --warning: #f3c969;
+  --warning-soft: #2e3215;
+  --danger-soft: #3b1f22;
+  --focus: #74d8f0;
+  --shadow: 0 1px 2px rgb(0 10 14 / 50%), 0 12px 30px rgb(0 10 14 / 40%);
+  --overlay: rgb(1 14 19 / 65%);
+  --chain-link: #23596c;
+  --font-ui: 'Nunito Variable', 'Ubuntu', 'Cantarell', system-ui, sans-serif;
+  --font-num: 'Nunito Variable', system-ui, sans-serif;
+  --radius-s: 8px;
+  --radius-m: 14px;
+  --radius-l: 20px;
+}
+
+:root[data-theme='matrix'] {
+  --bg: #000000;
+  --surface: #020c05;
+  --surface-2: #041509;
+  --raised: #061e0c;
+  --line: #0b3a18;
+  --line-strong: #12602a;
+  --text: #33ff66;
+  --text-muted: #22b84a;
+  --text-faint: #157a31;
+  --accent: #00ff41;
+  --accent-strong: #7dff9d;
+  --accent-soft: #04260f;
+  --on-accent: #000000;
+  --link: #7dff9d;
+  --positive: #00ff41;
+  --negative: #ff4d4d;
+  --warning: #e6ff4d;
+  --warning-soft: #1e2306;
+  --danger-soft: #2a0909;
+  --focus: #7dff9d;
+  --shadow: 0 0 0 1px #0b3a18, 0 0 24px rgb(0 255 65 / 8%);
+  --overlay: rgb(0 0 0 / 75%);
+  --chain-link: #12602a;
+  --font-ui: 'JetBrains Mono Variable', 'DejaVu Sans Mono', ui-monospace, monospace;
+  --font-num: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --radius-s: 2px;
+  --radius-m: 3px;
+  --radius-l: 4px;
+}
+
+:root[data-theme='qdarkstyle'] {
+  --bg: #19232d;
+  --surface: #1c2a36;
+  --surface-2: #213242;
+  --raised: #32414b;
+  --line: #32414b;
+  --line-strong: #455364;
+  --text: #f0f0f0;
+  --text-muted: #aab4be;
+  --text-faint: #788591;
+  --accent: #1464a0;
+  --accent-strong: #148cd2;
+  --accent-soft: #1a3a54;
+  --on-accent: #f0f0f0;
+  --link: #148cd2;
+  --positive: #4fc27b;
+  --negative: #ef6a5e;
+  --warning: #e8b54d;
+  --warning-soft: #3a3320;
+  --danger-soft: #3d2023;
+  --focus: #148cd2;
+  --shadow: 0 1px 3px rgb(0 0 0 / 40%);
+  --overlay: rgb(10 15 20 / 65%);
+  --chain-link: #455364;
+  --font-ui: system-ui, 'Segoe UI', 'Noto Sans', sans-serif;
+  --font-num: system-ui, 'Segoe UI', sans-serif;
+  --radius-s: 4px;
+  --radius-m: 4px;
+  --radius-l: 6px;
+}
