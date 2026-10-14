@@ -19,6 +19,13 @@
       <div class="grow">
         <strong>{t.title}</strong>
         {#if t.message}<p class="break">{t.message}</p>{/if}
+        {#if t.actions?.length}
+          <div class="acts">
+            {#each t.actions as a (a.label)}
+              <button type="button" class="btn small" onclick={() => { dismissToast(t.id); a.run(); }}>{a.label}</button>
+            {/each}
+          </div>
+        {/if}
       </div>
       <button type="button" class="btn ghost icon small" aria-label="Dismiss" onclick={() => dismissToast(t.id)}>✕</button>
     </div>
@@ -71,6 +78,12 @@
     line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  .acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.45rem;
   }
   .more {
     padding: 0.15rem 0.6rem;

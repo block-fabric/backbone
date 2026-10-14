@@ -211,6 +211,10 @@
     font-size: 0.65rem;
     min-width: 0.7rem;
   }
+  /* An amount column: the arrow goes before the label, so that the label ends where the values end. */
+  .cell.end button {
+    flex-direction: row-reverse;
+  }
   .body {
     position: relative;
     min-width: max-content;

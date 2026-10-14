@@ -11,8 +11,8 @@ export interface ProgressSample {
 
 const MAX_SAMPLES = 5000;
 
-/** Whether the overlay opened by itself, was opened by the user, or was closed by the user (once a session). */
-export const overlay = { shown: false, byUser: false, userClosed: false };
+/** Whether the overlay is open because it opened by itself, and whether the user closed it (once a session). */
+export const overlay = { shown: false, userClosed: false };
 
 /** Keep a sample, the newest first (ModalOverlay::tipUpdate). */
 export function addProgressSample(samples: ProgressSample[], sample: ProgressSample): void {

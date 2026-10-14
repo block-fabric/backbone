@@ -116,14 +116,16 @@ export interface Toast {
   kind: 'info' | 'success' | 'warning' | 'error';
   title: string;
   message?: string;
+  /** Buttons of the notice; each dismisses it. */
+  actions?: { label: string; run: () => void }[];
 }
 
 export const toasts = $state({ list: [] as Toast[] });
 let nextToast = 1;
 
-export function toast(kind: Toast['kind'], title: string, message?: string, timeoutMs = kind === 'error' ? 9000 : 4500): number {
+export function toast(kind: Toast['kind'], title: string, message?: string, timeoutMs = kind === 'error' ? 9000 : 4500, actions?: Toast['actions']): number {
   const id = nextToast++;
-  toasts.list.push({ id, kind, title, message });
+  toasts.list.push({ id, kind, title, message, actions });
   if (toasts.list.length > 5) toasts.list.splice(0, toasts.list.length - 5);
   if (timeoutMs > 0) setTimeout(() => dismissToast(id), timeoutMs);
   return id;

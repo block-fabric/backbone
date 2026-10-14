@@ -27,15 +27,17 @@
   async function addOwnKey() {
     const wallet = wallets.current;
     if (wallet === null) return warn(noWalletText());
+    // The name as it is at the click: what is typed while the wallet answers is for the next key.
+    const typed = keyName;
+    const name = typed.trim() || `Me (${walletDisplayName(wallet)})`;
     try {
       const address = await rpc.call('getnewaddress', ['multisig key', 'bech32'], { wallet });
       const info = await rpc.raw<{ desc: string }>('getaddressinfo', [address], { wallet });
       // The key with the path it has in the wallet, which is what lets the wallet find it again to sign.
       const key = keyOfDescriptor(info.desc);
       if (!key) return warn('The wallet did not give a key that can be used here.');
-      const name = keyName.trim() || `Me (${walletDisplayName(wallet)})`;
       savePrefs({ multisigKeys: [...prefs.multisigKeys, { name, value: key }] });
-      keyName = '';
+      if (keyName === typed) keyName = '';
     } catch (e) {
       return warn(errorText(e));
     }

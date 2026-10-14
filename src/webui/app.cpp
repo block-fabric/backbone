@@ -1228,8 +1228,16 @@ int App::Run()
     m_bridge = std::make_unique<Bridge>(
         [this](const std::string& id, int status, const std::string& json) { m_window->Reply(id, status, json); },
         [this](std::function<void()> fn) { m_window->Post(std::move(fn)); });
-    // The pages call the RPC methods they need, and no other (the console runs any command).
-    m_bridge->SetRpcPolicy(PageRpcPolicy);
+    // The pages call the RPC methods they need, and no other (the console runs any command). A test
+    // script (-webuitestscript, a debug option of the command line) drives the node itself, as the
+    // console would: with it, the other methods run too, apart from the quick calls.
+    if (m_test_script.empty()) {
+        m_bridge->SetRpcPolicy(PageRpcPolicy);
+    } else {
+        m_bridge->SetRpcPolicy([](const std::string& method) -> std::optional<Bridge::Thread> {
+            return PageRpcPolicy(method).value_or(Bridge::Thread::LONG);
+        });
+    }
     RegisterHostMethods();
 
     m_node_thread = std::thread([this] { NodeThread(); });

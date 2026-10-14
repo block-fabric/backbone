@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   // Overview: the balances of the wallet, and the chain as it grows (overviewpage.cpp, chainactivity.cpp).
   import Amount from '../components/Amount.svelte';
   import Icon from '../components/Icon.svelte';
@@ -20,6 +21,7 @@
   let recent: TxRecord[] = $state.raw([]);
   let recentOf: string | null = $state(null);
   let history: { time: number; balance: bigint }[] = $state.raw([]);
+  let historyOf: string | null = null;
   $effect(() => {
     void wallets.txVersion;
     void node.tip?.hash;
@@ -28,7 +30,7 @@
       recent = [];
       return;
     }
-    // At most a few times a second while blocks come fast (a sync).
+    // At once the first time; then at most a few times a second while blocks come fast (a sync).
     const t = setTimeout(() => {
       walletApi(name)
         .latest(NUM_ITEMS)
@@ -39,7 +41,7 @@
           }
         })
         .catch(() => undefined);
-    }, 150);
+    }, untrack(() => recentOf) === name ? 150 : 0);
     return () => clearTimeout(t);
   });
   $effect(() => {
@@ -49,14 +51,20 @@
       history = [];
       return;
     }
-    const t = setTimeout(() => {
-      walletApi(name)
-        .balanceHistory()
-        .then((h) => {
-          if (wallets.current === name) history = h;
-        })
-        .catch(() => undefined);
-    }, 300);
+    const t = setTimeout(
+      () => {
+        walletApi(name)
+          .balanceHistory()
+          .then((h) => {
+            if (wallets.current === name) {
+              history = h;
+              historyOf = name;
+            }
+          })
+          .catch(() => undefined);
+      },
+      historyOf === name ? 300 : 0,
+    );
     return () => clearTimeout(t);
   });
 

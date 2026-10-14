@@ -161,6 +161,10 @@
     const last = options;
     if (pendingCount(last) > 0) queueMicrotask(() => askOnLeave(last));
   });
+  // What waits is known outside the page too (the sidebar marks Settings).
+  $effect(() => {
+    noteBaseline(options);
+  });
 </script>
 
 <div class="page">

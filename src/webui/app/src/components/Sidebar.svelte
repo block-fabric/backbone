@@ -5,6 +5,7 @@
   import { app, prefs, savePrefs, selectWallet, wallets, walletsEnabled } from '../lib/state.svelte';
   import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
   import { narrowWindow } from '../lib/media.svelte';
+  import { pendingNow } from '../lib/settingsdraft.svelte';
 
   const sections: { title: string; pages: PageId[] }[] = [
     { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions'] },
@@ -68,6 +69,7 @@
         >
           <Icon name={page.icon} size={19} />
           {#if !compact}<span class="grow">{page.title}</span>{/if}
+          {#if id === 'settings' && pendingNow() > 0}<span class="pending" title="Changes of the settings wait for Apply" aria-label="Changes wait for Apply"></span>{/if}
         </button>
       {/each}
     </div>
@@ -184,6 +186,12 @@
   .entry:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+  .pending {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--warning);
   }
   .look {
     margin-top: auto;

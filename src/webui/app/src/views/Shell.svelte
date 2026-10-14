@@ -169,6 +169,9 @@
     <header class="appbar">
       <AppMenu {menus} />
     </header>
+    <div class="stage">
+    <!-- Before the pages: the dialogs a page opens come after it, above it. -->
+    <SyncOverlay />
     <main class="content" id="content" tabindex="-1">
       {#key nav.page}
         {#if nav.page === 'overview'}
@@ -214,11 +217,11 @@
         {/if}
       {/key}
     </main>
+    </div>
     <StatusBar />
   </div>
 </div>
 <TxNotifier />
-<SyncOverlay />
 
 <style>
   .shell {
@@ -239,6 +242,13 @@
     padding: 0.25rem 0.75rem;
     border-bottom: 1px solid var(--line);
     background: var(--surface);
+  }
+  .stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   .content {
     flex: 1;

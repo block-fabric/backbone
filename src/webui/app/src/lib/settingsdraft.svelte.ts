@@ -7,7 +7,7 @@
 // at once while they wait, and back as they were on Cancel.
 import { confirm, errorText, inform } from './dialogs.svelte';
 import { host, type NodeOptions } from './rpc';
-import { prefs, savePrefs } from './state.svelte';
+import { prefs, savePrefs, toast } from './state.svelte';
 
 export type Prefs = Omit<typeof prefs, 'loaded'>;
 
@@ -18,6 +18,8 @@ export const draft = $state({
   original: {} as Partial<Prefs>,
   /** The options of the node as they were when the changes began (what the risky ones are measured against). */
   baseline: null as NodeOptions | null,
+  /** Changes of the options of the node the host keeps for Apply, as last known (the sidebar shows them). */
+  hostPending: 0,
 });
 
 /** The number of changes waiting: the options the host keeps, and the preferences kept here. */
@@ -25,9 +27,15 @@ export function pendingCount(options: Pick<NodeOptions, 'pending'> | null): numb
   return (options?.pending ?? 0) + Object.keys(draft.prefs).length;
 }
 
+/** What waits for Apply, as last known, wherever the user is. */
+export function pendingNow(): number {
+  return draft.hostPending + Object.keys(draft.prefs).length;
+}
+
 /** The options of the node before the first change: kept once, until applied or cancelled. */
 export function noteBaseline(options: NodeOptions | null): void {
   if (options && (!draft.baseline || options.pending === 0)) draft.baseline = options;
+  if (options) draft.hostPending = options.pending ?? 0;
 }
 
 /** A preference of the app changed on the page: shown at once, saved when applied. */
@@ -94,6 +102,7 @@ export async function applyChanges(now: NodeOptions | null): Promise<NodeOptions
   if (Object.keys(draft.prefs).length > 0) savePrefs({ ...draft.prefs });
   clearPrefs();
   draft.baseline = options;
+  draft.hostPending = options?.pending ?? 0;
   return options;
 }
 
@@ -108,18 +117,32 @@ export async function cancelChanges(now: NodeOptions | null): Promise<NodeOption
     await inform('Settings', errorText(e), 'error');
   }
   draft.baseline = options;
+  draft.hostPending = options?.pending ?? 0;
   return options;
 }
 
-/** The user leaves the Settings page with changes waiting: apply them, or throw them away. */
-export async function askOnLeave(now: NodeOptions | null): Promise<void> {
-  if (pendingCount(now) === 0) return;
-  const apply = await confirm('Settings', 'Some changes of the settings are not applied yet.', {
-    yes: 'Apply',
-    no: 'Discard',
-    level: 'question',
-    informative: 'Apply them now, or discard them? Changes that are not applied are discarded when the app stops.',
-  });
-  if (apply && (await applyChanges(now)) !== null) return;
-  await cancelChanges(now);
+/**
+ * The user leaves the Settings page with changes waiting: a notice offers to apply or discard them (a
+ * notice, not a dialog: the page the user goes to stays usable). They wait meanwhile, and what is never
+ * applied is taken back when the app stops.
+ */
+export function askOnLeave(now: NodeOptions | null): void {
+  const count = pendingCount(now);
+  if (count === 0) return;
+  toast('warning', 'Settings not applied', `${count === 1 ? '1 change waits' : `${count} changes wait`} for Apply. Changes not applied never take effect: they are taken back at the next start.`, 0, [
+    {
+      label: 'Apply',
+      run: async () => {
+        const options = await host.options().catch(() => now);
+        await applyChanges(options);
+      },
+    },
+    {
+      label: 'Discard',
+      run: async () => {
+        const options = await host.options().catch(() => now);
+        await cancelChanges(options);
+      },
+    },
+  ]);
 }
