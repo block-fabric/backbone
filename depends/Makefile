@@ -40,6 +40,7 @@ NO_QR ?=
 NO_WALLET ?=
 NO_ZMQ ?=
 NO_USDT ?=
+NO_WEBUI ?=
 # Default NO_IPC value is 1 on Windows
 NO_IPC ?= $(if $(findstring mingw32,$(HOST)),1,)
 LTO ?=
@@ -163,8 +164,9 @@ wallet_packages_$(NO_WALLET) = $(sqlite_packages)
 zmq_packages_$(NO_ZMQ) = $(zmq_packages)
 ipc_packages_$(NO_IPC) = $(ipc_packages)
 usdt_packages_$(NO_USDT) = $(usdt_$(host_os)_packages)
+webui_packages_$(NO_WEBUI) = $(webui_$(host_os)_packages)
 
-packages += $($(host_arch)_$(host_os)_packages) $($(host_os)_packages) $(boost_packages_) $(qt_packages_) $(wallet_packages_) $(usdt_packages_)
+packages += $($(host_arch)_$(host_os)_packages) $($(host_os)_packages) $(boost_packages_) $(qt_packages_) $(wallet_packages_) $(usdt_packages_) $(webui_packages_)
 native_packages += $($(host_arch)_$(host_os)_native_packages) $($(host_os)_native_packages) $(qt_native_packages_)
 
 ifneq ($(zmq_packages_),)
