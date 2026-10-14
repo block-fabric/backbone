@@ -57,6 +57,14 @@ public:
      */
     UniValue UpdatePrefs(const std::string& network, const UniValue& changes) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
+    /**
+     * A value the app keeps for itself, apart from the preferences the page sets: the geometry
+     * of the window, where the programs of sidechains are. Null if none.
+     */
+    UniValue Value(const std::string& key) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** Keep a value of the app (null removes it). The keys of the file itself are refused. */
+    void SetValue(const std::string& key, const UniValue& value) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
     /** Forget the preferences of a network (-resetguisettings). */
     void ResetPrefs(const std::string& network) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 

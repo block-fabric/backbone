@@ -29,7 +29,10 @@
 #include <webui/appconfig.h>
 #include <webui/bridge.h>
 #include <webui/events.h>
+#include <webui/nodeapi.h>
 #include <webui/nodeevents.h>
+#include <webui/options.h>
+#include <webui/sidechainnodes.h>
 #include <webui/singleinstance.h>
 #ifdef ENABLE_WALLET
 #include <webui/walletapi.h>
@@ -238,6 +241,25 @@ void App::Fatal(const std::string& title, const std::string& message, const std:
     }
     m_window->Post([this] { m_window->Show(false); });
     SetPhase("fatal", std::move(data));
+}
+
+void App::CloseRequested()
+{
+    {
+        LOCK(m_mutex);
+        if (m_phase == "shutdown") return;
+    }
+    // As BitcoinGUI::closeEvent: minimized, if the user wants that, else the app stops.
+    bool ready;
+    {
+        LOCK(m_mutex);
+        ready = m_phase == "ready";
+    }
+    if (ready && PrefFlag("minimizeOnClose", false)) {
+        m_window->Minimize();
+        return;
+    }
+    RequestShutdown();
 }
 
 void App::RequestShutdown()
@@ -478,7 +500,19 @@ bool App::StartNode()
     data.pushKV("headerHeight", tip_info.header_height);
     data.pushKV("headerTime", tip_info.header_time);
     data.pushKV("progress", tip_info.verification_progress);
+    // A restart was what the options waited for (OptionsModel::Init).
+    {
+        UniValue change{UniValue::VOBJ};
+        change.pushKV("restartRequired", UniValue{});
+        std::string network;
+        {
+            LOCK(m_mutex);
+            network = m_network;
+        }
+        m_config->UpdatePrefs(network, change);
+    }
     SetPhase("ready", std::move(data));
+    m_window->Post([this] { UpdateTray(); });
 
     std::vector<std::string> waiting;
     {
@@ -537,6 +571,113 @@ void App::NodeThread()
         if (m_instance) m_instance->Stop();
     }
     m_window->Quit();
+}
+
+std::optional<std::string> App::Choose(const Window::FileDialog& dialog)
+{
+    std::optional<std::string> chosen;
+    bool from_test{false};
+    {
+        LOCK(m_mutex);
+        if (!m_test_files.empty()) {
+            const UniValue answer{m_test_files.front()};
+            m_test_files.pop_front();
+            if (answer.isStr()) chosen = answer.get_str();
+            from_test = true;
+        }
+    }
+    if (!from_test) {
+        auto done{std::make_shared<std::promise<std::optional<std::string>>>()};
+        m_window->Post([this, dialog, done] { m_window->ChooseFile(dialog, [done](std::optional<std::string> path) { done->set_value(std::move(path)); }); });
+        auto future{done->get_future()};
+        // The user takes the time needed; the app may stop meanwhile.
+        while (future.wait_for(200ms) != std::future_status::ready) {
+            LOCK(m_mutex);
+            if (m_shutdown_requested) return std::nullopt;
+        }
+        chosen = future.get();
+    }
+    if (!chosen) return std::nullopt;
+    if (!dialog.folder) {
+        LOCK(m_mutex);
+        (dialog.save ? m_writable : m_readable).insert(*chosen);
+    }
+    return chosen;
+}
+
+UniValue App::NetworkPrefs()
+{
+    std::string network;
+    {
+        LOCK(m_mutex);
+        network = m_network.empty() ? ChainTypeToString(m_args.GetChainType()) : m_network;
+    }
+    return m_config->Prefs(network);
+}
+
+bool App::PrefFlag(const std::string& key, bool fallback)
+{
+    const UniValue prefs{NetworkPrefs()};
+    const UniValue& value{prefs.find_value(key)};
+    return value.isBool() ? value.get_bool() : fallback;
+}
+
+void App::UpdateTray()
+{
+    std::string label;
+    bool ready;
+    {
+        LOCK(m_mutex);
+        label = NetworkLabel(m_network);
+        ready = m_phase == "ready";
+    }
+    Window::Tray tray;
+    // As BitcoinGUI: the icon shows unless the user turned it off (fHideTrayIcon).
+    tray.visible = ready && PrefFlag("showTray", true);
+    tray.tooltip = strprintf("%s client", CLIENT_NAME) + (label.empty() ? "" : " [" + label + "]");
+    tray.menu = {
+        {"toggle", "Show / Hide"},
+        {"", "", true, true},
+        {"send", "Send"},
+        {"receive", "Receive"},
+        {"", "", true, true},
+        {"sign", "Sign message…"},
+        {"verify", "Verify message…"},
+        {"", "", true, true},
+        {"options", "Options…"},
+        {"node", "Node window"},
+        {"", "", true, true},
+        {"quit", "Quit"},
+    };
+    m_window->SetTray(tray);
+}
+
+void App::OnTrayMenu(const std::string& id)
+{
+    if (id == "quit") {
+        RequestShutdown();
+        return;
+    }
+    if (id == "toggle") {
+        if (m_window->IsVisible()) m_window->Hide();
+        else m_window->Present();
+        return;
+    }
+    static const std::map<std::string, std::pair<std::string, std::string>> pages{
+        {"send", {"send", ""}},
+        {"receive", {"receive", ""}},
+        {"sign", {"messages", "sign"}},
+        {"verify", {"messages", "verify"}},
+        {"options", {"settings", "main"}},
+        {"node", {"node", "info"}},
+    };
+    const auto page{pages.find(id)};
+    if (page == pages.end()) return;
+    m_window->Present();
+    UniValue data{UniValue::VOBJ};
+    data.pushKV("page", page->second.first);
+    data.pushKV("tab", page->second.second);
+    m_hub->Emit("navigate", std::move(data));
 }
 
 void App::RegisterHostMethods()
@@ -648,11 +789,14 @@ void App::RegisterHostMethods()
             LOCK(m_mutex);
             network = m_network.empty() ? ChainTypeToString(m_args.GetChainType()) : m_network;
         }
+        UniValue prefs;
         try {
-            return m_config->UpdatePrefs(network, params);
+            prefs = m_config->UpdatePrefs(network, params);
         } catch (const std::runtime_error& e) {
             throw HostError(e.what());
         }
+        if (params.exists("showTray")) m_window->Post([this] { UpdateTray(); });
+        return prefs;
     });
 
     const auto need_node{[this]() -> interfaces::Node& {
@@ -702,6 +846,7 @@ void App::RegisterHostMethods()
     b.RegisterHost("file.choose", [this](const UniValue& params) {
         Window::FileDialog dialog;
         dialog.save = Param(params, "save").isBool() && Param(params, "save").get_bool();
+        dialog.folder = Param(params, "folder").isBool() && Param(params, "folder").get_bool();
         dialog.title = Param(params, "title").isStr() ? Param(params, "title").get_str() : (dialog.save ? "Save" : "Open");
         if (Param(params, "name").isStr()) dialog.suggested_name = Param(params, "name").get_str();
         if (const UniValue& filters{Param(params, "filters")}; filters.isArray()) {
@@ -715,34 +860,8 @@ void App::RegisterHostMethods()
                 dialog.filters.emplace_back(f.find_value("name").isStr() ? f.find_value("name").get_str() : "Files", std::move(patterns));
             }
         }
-        std::optional<std::string> chosen;
-        bool from_test{false};
-        {
-            LOCK(m_mutex);
-            if (!m_test_files.empty()) {
-                const UniValue answer{m_test_files.front()};
-                m_test_files.pop_front();
-                if (answer.isStr()) chosen = answer.get_str();
-                from_test = true;
-            }
-        }
-        if (!from_test) {
-            auto done{std::make_shared<std::promise<std::optional<std::string>>>()};
-            m_window->Post([this, dialog, done] { m_window->ChooseFile(dialog, [done](std::optional<std::string> path) { done->set_value(std::move(path)); }); });
-            auto future{done->get_future()};
-            // The user takes the time needed; the app may stop meanwhile.
-            while (future.wait_for(200ms) != std::future_status::ready) {
-                LOCK(m_mutex);
-                if (m_shutdown_requested) return UniValue{};
-            }
-            chosen = future.get();
-        }
-        if (!chosen) return UniValue{};
-        {
-            LOCK(m_mutex);
-            (dialog.save ? m_writable : m_readable).insert(*chosen);
-        }
-        return UniValue{*chosen};
+        const auto chosen{Choose(dialog)};
+        return chosen ? UniValue{*chosen} : UniValue{};
     });
     b.RegisterHost("file.read", [this](const UniValue& params) {
         const std::string path{ParamStr(params, "path")};
@@ -793,6 +912,152 @@ void App::RegisterHostMethods()
         return text ? UniValue{*text} : UniValue{};
     }, Bridge::Thread::UI);
 
+    // The node window and the tools of chains-qt.
+    m_node_api = std::make_unique<NodeApi>(need_node, [this](const std::string& path) {
+        LOCK(m_mutex);
+        return m_readable.contains(path);
+    });
+    m_node_api->Register(b);
+
+    // The nodes of sidechains run from here (the Sidechain Nodes window).
+    const auto sidechain_key{[this] {
+        LOCK(m_mutex);
+        return "sidechainNodes:" + (m_network.empty() ? ChainTypeToString(m_args.GetChainType()) : m_network);
+    }};
+    m_sidechain_nodes = std::make_unique<SidechainNodes>(
+        m_args,
+        [this, sidechain_key] {
+            UniValue value{m_config->Value(sidechain_key())};
+            return value.isObject() ? value : UniValue{UniValue::VOBJ};
+        },
+        [this, sidechain_key](const UniValue& value) { m_config->SetValue(sidechain_key(), value); },
+        [this](const std::string& title, const std::string& start) {
+            Window::FileDialog dialog;
+            dialog.folder = true;
+            dialog.title = title;
+            dialog.start_dir = start;
+            return Choose(dialog);
+        });
+    m_sidechain_nodes->Register(b);
+
+    // The options of the node (OptionsModel), in settings.json; the flag of a restart in the preferences.
+    const auto options{[this, need_node]() {
+        return NodeOptions{need_node(), m_args, [this](std::optional<bool> set) {
+            if (set) {
+                UniValue change{UniValue::VOBJ};
+                change.pushKV("restartRequired", *set);
+                std::string network;
+                {
+                    LOCK(m_mutex);
+                    network = m_network;
+                }
+                m_config->UpdatePrefs(network, change);
+                return *set;
+            }
+            return PrefFlag("restartRequired", false);
+        }};
+    }};
+    b.RegisterHost("options.get", [options](const UniValue&) { return options().Get(); });
+    b.RegisterHost("options.set", [options](const UniValue& params) {
+        try {
+            return options().Set(ParamStr(params, "name"), Param(params, "value"));
+        } catch (const std::runtime_error& e) {
+            throw HostError(BRIDGE_INVALID_REQUEST, e.what());
+        }
+    });
+    b.RegisterHost("options.validProxy", [](const UniValue& params) { return UniValue{NodeOptions::ValidProxyAddress(ParamStr(params, "address"))}; });
+    b.RegisterHost("options.reset", [this, need_node](const UniValue&) {
+        // As OptionsModel::Reset: settings.json backed up and reset, the settings of the app backed up and
+        // cleared (but for the data directory), the intro shown at the next start; then the app shuts down.
+        interfaces::Node& node{need_node()};
+        node.resetSettings();
+        std::string network;
+        {
+            LOCK(m_mutex);
+            network = m_network;
+        }
+        try {
+            const fs::path backup{m_args.GetDataDirNet() / "guisettings.json.bak"};
+            std::ofstream file{backup.std_path(), std::ios::trunc};
+            file << m_config->Prefs(network).write(2) << "\n";
+        } catch (const std::exception& e) {
+            LogWarning("webui: cannot back up the settings of the app: %s", e.what());
+        }
+        m_config->ResetPrefs(network);
+        m_config->SetResetPending(true);
+        if (NodeOptions::StartAtLogin(m_args)) NodeOptions::SetStartAtLogin(m_args, false);
+        RequestShutdown();
+        return UniValue{true};
+    });
+
+    b.RegisterHost("node.paths", [this, need_node](const UniValue&) {
+        need_node();
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("datadir", fs::PathToString(m_args.GetDataDirNet()));
+        out.pushKV("blocksdir", fs::PathToString(m_args.GetBlocksDirPath()));
+        out.pushKV("debuglog", fs::PathToString(LogInstance().m_file_path));
+        out.pushKV("config", fs::PathToString(m_args.GetConfigFilePath()));
+        return out;
+    });
+    // Open the debug log or the configuration file with the application of the desktop (GUIUtil::openDebugLogfile,
+    // openBitcoinConf), or a web page of a third-party explorer (http and https only).
+    b.RegisterHost("app.open", [this, need_node](const UniValue& params) {
+        const std::string what{ParamStr(params, "what")};
+        std::string uri;
+        if (what == "debuglog" || what == "config") {
+            need_node();
+            fs::path path{what == "debuglog" ? LogInstance().m_file_path : m_args.GetConfigFilePath()};
+            if (what == "config") {
+                // The file is made if it is not there.
+                std::ofstream file{path.std_path(), std::ios_base::app};
+                if (!file.good()) throw HostError("The configuration file could not be opened.");
+            } else if (!fs::exists(path)) {
+                throw HostError("There is no debug log file yet.");
+            }
+            uri = "file://";
+            for (const auto& part : util::SplitString(fs::PathToString(fs::absolute(path)), '/')) {
+                if (!part.empty()) uri += "/" + PercentEncode(part);
+            }
+        } else if (what == "url") {
+            uri = ParamStr(params, "url");
+            if (!uri.starts_with("https://") && !uri.starts_with("http://")) throw HostError(BRIDGE_INVALID_REQUEST, "Only web addresses (http, https) are opened");
+        } else {
+            throw HostError(BRIDGE_INVALID_REQUEST, "what: debuglog, config or url");
+        }
+        auto done{std::make_shared<std::promise<bool>>()};
+        m_window->Post([this, uri, done] { done->set_value(m_window->OpenExternal(uri)); });
+        auto future{done->get_future()};
+        if (future.wait_for(10s) != std::future_status::ready) return UniValue{false};
+        const bool ok{future.get()};
+        if (!ok && what == "config") throw HostError("The configuration file could not be opened.");
+        return UniValue{ok};
+    });
+
+    // Notifications of the desktop (Notificator) and the tray.
+    b.RegisterHost("app.notify", [this](const UniValue& params) {
+        const std::string title{ParamStr(params, "title")};
+        const std::string body{Param(params, "body").isStr() ? Param(params, "body").get_str() : ""};
+        const std::string level{Param(params, "level").isStr() ? Param(params, "level").get_str() : "info"};
+        {
+            LOCK(m_mutex);
+            UniValue sent{UniValue::VOBJ};
+            sent.pushKV("title", title);
+            sent.pushKV("body", body);
+            sent.pushKV("level", level);
+            m_notifications.push_back(std::move(sent));
+            if (m_notifications.size() > 100) m_notifications.erase(m_notifications.begin());
+        }
+        m_window->Post([this, title, body, level] { m_window->Notify(title, body, level); });
+        return UniValue{true};
+    });
+    b.RegisterHost("tray.state", [this](const UniValue&) {
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("available", m_window->TrayAvailable());
+        out.pushKV("visible", PrefFlag("showTray", true));
+        out.pushKV("windowVisible", m_window->IsVisible());
+        return out;
+    }, Bridge::Thread::UI);
+
 #ifdef ENABLE_WALLET
     // The wallet functions (the wallet pages of chains-qt).
     m_wallet_api = std::make_unique<WalletApi>(need_node, [this](const std::string& path, bool write) {
@@ -832,6 +1097,22 @@ void App::RegisterHostMethods()
             m_test_files.push_back(Param(params, "path"));
             return UniValue{true};
         });
+        b.RegisterHost("test.notifications", [this](const UniValue&) {
+            LOCK(m_mutex);
+            UniValue out{UniValue::VARR};
+            for (const auto& n : m_notifications) out.push_back(n);
+            return out;
+        });
+        // What the user does with the window and the tray, done by the tests.
+        b.RegisterHost("test.window", [this](const UniValue& params) {
+            const std::string action{ParamStr(params, "action")};
+            if (action == "trayMenu") m_window->Post([this, id = ParamStr(params, "id")] { OnTrayMenu(id); });
+            else if (action == "trayActivate") m_window->Post([this] { if (m_window->IsVisible()) m_window->Hide(); else m_window->Present(); });
+            else if (action == "minimize") m_window->Post([this] { m_window->Minimize(); });
+            else if (action == "close") m_window->Post([this] { CloseRequested(); });
+            else if (action == "present") m_window->Post([this] { m_window->Present(); });
+            return UniValue{true};
+        });
         b.RegisterHost("test.exit", [this](const UniValue& params) {
             const UniValue code{Param(params, "code")};
             {
@@ -854,14 +1135,29 @@ int App::Run()
     Window::Options options;
     options.title = CLIENT_NAME;
     options.devtools = m_args.GetBoolArg("-webuidevtools", false);
-    Window::Callbacks callbacks;
-    callbacks.close_requested = [this] {
-        {
-            LOCK(m_mutex);
-            if (m_phase == "shutdown") return;
+    // The size the window had last time (MainWindowGeometry).
+    if (const UniValue geometry{m_config->Value("window")}; geometry.isObject()) {
+        const UniValue& width{geometry.find_value("width")};
+        const UniValue& height{geometry.find_value("height")};
+        if (width.isNum() && height.isNum() && width.getInt<int>() >= 400 && height.getInt<int>() >= 300) {
+            options.width = std::min(width.getInt<int>(), 10000);
+            options.height = std::min(height.getInt<int>(), 10000);
         }
-        RequestShutdown();
+        options.maximized = geometry.find_value("maximized").isBool() && geometry.find_value("maximized").get_bool();
+    }
+    Window::Callbacks callbacks;
+    callbacks.close_requested = [this] { CloseRequested(); };
+    callbacks.minimized = [this] {
+        // As BitcoinGUI::changeEvent: minimized to the tray, if the user wants that and there is a tray.
+        if (PrefFlag("minimizeToTray", false) && PrefFlag("showTray", true) && m_window->TrayAvailable()) {
+            m_window->Post([this] { m_window->Hide(); });
+        }
     };
+    callbacks.tray_activated = [this] {
+        if (m_window->IsVisible()) m_window->Hide();
+        else m_window->Present();
+    };
+    callbacks.tray_menu = [this](const std::string& id) { OnTrayMenu(id); };
     callbacks.call = [this](const std::string& id, const std::string& args) { m_bridge->Handle(id, args); };
     m_window = Window::Create(options, std::move(callbacks));
 
@@ -881,6 +1177,13 @@ int App::Run()
 
     // The loop ends after the node stopped (Quit), or when the window went away without asking.
     RequestShutdown();
+    if (const Window::Geometry geometry{m_window->GetGeometry()}; geometry.width > 0 && geometry.height > 0) {
+        UniValue saved{UniValue::VOBJ};
+        saved.pushKV("width", geometry.width);
+        saved.pushKV("height", geometry.height);
+        saved.pushKV("maximized", geometry.maximized);
+        m_config->SetValue("window", saved);
+    }
     if (m_node_thread.joinable()) m_node_thread.join();
 
     m_bridge.reset();

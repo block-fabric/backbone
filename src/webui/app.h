@@ -8,6 +8,7 @@
 #include <sync.h>
 #include <univalue.h>
 #include <util/fs.h>
+#include <webui/window.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -31,11 +32,12 @@ namespace webui {
 
 class AppConfig;
 class Bridge;
+class NodeApi;
+class SidechainNodes;
 class EventHub;
 class NodeEvents;
 class SingleInstance;
 class WalletApi;
-class Window;
 
 /** The options of the app on top of the ones of the node (the GUI options of chains-qt, and the debug ones of chains-app). */
 void SetupUIArgs(ArgsManager& args);
@@ -63,6 +65,8 @@ public:
 
     /** Ask for the app to stop (from any thread). */
     void RequestShutdown() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** The user closes the window: the app stops, or the window is minimized (options). UI thread. */
+    void CloseRequested() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
 private:
     void RegisterHostMethods();
@@ -75,6 +79,18 @@ private:
     void PollShutdown() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void DeliverEvents(const std::string& batch_json);
     void OnInstanceMessage(const std::string& line) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** The preferences of the interface on the network of the node (or of the command line before it is known). */
+    UniValue NetworkPrefs() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    bool PrefFlag(const std::string& key, bool fallback) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** Show the icon in the tray as the preferences say (BitcoinGUI::setTrayIconVisible). UI thread. */
+    void UpdateTray() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** An item of the menu of the tray was chosen. UI thread. */
+    void OnTrayMenu(const std::string& id) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /**
+     * A file chooser of the desktop (not on the UI thread): the path chosen, or nothing. The tests
+     * answer it in place of the user. The page may use the file afterwards.
+     */
+    std::optional<std::string> Choose(const Window::FileDialog& dialog) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /**
      * Show a dialog in the page and wait for its answer (on a thread that is not the UI thread).
@@ -94,6 +110,10 @@ private:
     std::unique_ptr<SingleInstance> m_instance;
     //! The wallet functions of the page (null in a build without wallets).
     std::unique_ptr<WalletApi> m_wallet_api;
+    //! The node window and the tools (console, peers, bans, deposit addresses, hashes, stamps).
+    std::unique_ptr<NodeApi> m_node_api;
+    //! The nodes of sidechains run from here.
+    std::unique_ptr<SidechainNodes> m_sidechain_nodes;
     std::thread m_node_thread;
     //! Messages and questions of the node.
     std::vector<std::unique_ptr<interfaces::Handler>> m_node_handlers;
@@ -121,6 +141,8 @@ private:
     std::set<std::string> m_writable GUARDED_BY(m_mutex);
     //! Answers of the file choosers given by the tests (-webuitestscript), in place of the user.
     std::deque<UniValue> m_test_files GUARDED_BY(m_mutex);
+    //! The notifications sent to the desktop, for the tests.
+    std::vector<UniValue> m_notifications GUARDED_BY(m_mutex);
 };
 
 } // namespace webui

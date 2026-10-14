@@ -46,6 +46,8 @@ class EventHub;
  *   wallet.balance {name, trusted, untrusted_pending, immature, used, nonmempool}
  *   wallet.progress {name, title, progress}
  *   wallet.addressbook {name, address, label, mine, purpose, change}
+ *   traffic        {recv, sent, time}   (every second)
+ *   mempool        {size, usage, max}   (when it changes)
  *
  * Text that comes from the node or the chain is passed as data (JSON
  * strings); the page escapes it when it shows it.
@@ -96,6 +98,10 @@ private:
     std::atomic<bool> m_stop{false};
     std::atomic<bool> m_tip_changed{false};
     std::thread m_poller;
+    //! Polls so far, and the mempool last seen (only the poller thread uses them).
+    uint64_t m_polls{0};
+    int64_t m_mempool_size{-1};
+    int64_t m_mempool_usage{-1};
 };
 
 /** The name of a synchronization state for the page: "reindex", "download", "synced". */

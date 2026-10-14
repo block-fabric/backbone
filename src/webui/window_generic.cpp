@@ -57,6 +57,14 @@ public:
     void Show(bool) override {}
     void Present() override {}
     void Minimize() override {}
+    // TODO(windows/macos port): hiding, the tray (Shell_NotifyIcon, NSStatusItem) and notifications of the platform.
+    void Hide() override {}
+    bool IsVisible() override { return true; }
+    Geometry GetGeometry() override { return {}; }
+    void SetTray(const Tray&) override {}
+    bool TrayAvailable() override { return false; }
+    void Notify(const std::string&, const std::string&, const std::string&) override {}
+    bool OpenExternal(const std::string&) override { return false; }
     void SetClipboard(const std::string&) override { LogWarning("webui: no clipboard on this platform yet"); }
     std::optional<std::string> GetClipboard() override { return std::nullopt; }
     void Snapshot(const std::string&, std::function<void(bool ok)> done) override { done(false); }

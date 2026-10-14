@@ -31,12 +31,39 @@ public:
         int height{760};
         //! Web inspector and the context menu of the web view (-webuidevtools).
         bool devtools{false};
+        //! Start maximized (the geometry saved last time).
+        bool maximized{false};
+    };
+    //! The size of the window, and whether it is maximized (MainWindowGeometry of chains-qt).
+    struct Geometry {
+        int width{0};
+        int height{0};
+        bool maximized{false};
+    };
+    //! An item of the menu of the tray icon.
+    struct TrayItem {
+        std::string id;
+        std::string label;
+        bool enabled{true};
+        bool separator{false};
+    };
+    //! The icon in the system tray (notification area), with its menu.
+    struct Tray {
+        bool visible{false};
+        std::string tooltip;
+        std::vector<TrayItem> menu;
     };
     struct Callbacks {
         //! The user asks to close the window (the close button, Alt+F4). The window stays until Quit.
         std::function<void()> close_requested;
         //! The page calls the bridge: the id of the call, the JSON array of its arguments.
         std::function<void(const std::string& call_id, const std::string& args_json)> call;
+        //! The icon in the tray was clicked (BitcoinGUI::trayIconActivated: show or hide the window).
+        std::function<void()> tray_activated;
+        //! An item of the menu of the tray was chosen: its id.
+        std::function<void(const std::string& id)> tray_menu;
+        //! The window was minimized by the user (for "minimize to the tray").
+        std::function<void()> minimized;
     };
 
     /** The window of this platform. It is not shown until Show. */
@@ -63,6 +90,29 @@ public:
     /** Bring the window to the front (a second start of the app asks for it). */
     virtual void Present() = 0;
     virtual void Minimize() = 0;
+    /** Hide the window (to the tray), and whether it shows now. */
+    virtual void Hide() = 0;
+    virtual bool IsVisible() = 0;
+    /** The size of the window now. */
+    virtual Geometry GetGeometry() = 0;
+
+    /**
+     * Show, change or take away the icon in the tray. Desktops with a tray of the
+     * StatusNotifierItem kind (KDE, most others; GNOME with an extension) and the older
+     * kind (XEmbed) both have it.
+     */
+    virtual void SetTray(const Tray& tray) = 0;
+    /** Whether this desktop has a tray to show the icon in. */
+    virtual bool TrayAvailable() = 0;
+
+    /**
+     * A notification of the desktop (Notificator of chains-qt): a title, a text, and its kind:
+     * "info", "warning" or "critical". Shown by the notification service of the desktop.
+     */
+    virtual void Notify(const std::string& title, const std::string& body, const std::string& level) = 0;
+
+    /** Open a file, a folder or a web address with the application of the desktop for it. */
+    virtual bool OpenExternal(const std::string& uri) = 0;
 
     virtual void SetClipboard(const std::string& text) = 0;
     virtual std::optional<std::string> GetClipboard() = 0;
@@ -75,6 +125,10 @@ public:
         std::string suggested_name;
         //! Filters: a name and its patterns ("Wallet Data", {"*.dat"}). The first one is chosen.
         std::vector<std::pair<std::string, std::vector<std::string>>> filters;
+        //! Choose a folder, not a file.
+        bool folder{false};
+        //! The folder the chooser opens in.
+        std::string start_dir;
     };
     /**
      * Show a file chooser; `done` gets the path chosen, or nothing when it was cancelled. When

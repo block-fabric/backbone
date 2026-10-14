@@ -12,6 +12,7 @@
 #include <net.h>
 #include <node/context.h>
 #include <util/threadnames.h>
+#include <util/time.h>
 #include <util/ui_change_type.h>
 #include <util/translation.h>
 #include <validation.h>
@@ -278,6 +279,26 @@ void NodeEvents::Poll()
         UniValue data{UniValue::VOBJ};
         data.pushKV("name", e->name);
         m_hub.Emit("wallet.unloaded", std::move(data));
+    }
+    // The traffic of the network once a second, and the size of the mempool when it changes (as the
+    // timer of ClientModel: bytesChanged, mempoolSizeChanged).
+    if (++m_polls % (1000 / BALANCE_POLL_MS) == 0) {
+        UniValue traffic{UniValue::VOBJ};
+        traffic.pushKV("recv", m_node.getTotalBytesRecv());
+        traffic.pushKV("sent", m_node.getTotalBytesSent());
+        traffic.pushKV("time", TicksSinceEpoch<std::chrono::milliseconds>(SystemClock::now()));
+        m_hub.Emit("traffic", std::move(traffic), "traffic");
+        const int64_t size{static_cast<int64_t>(m_node.getMempoolSize())};
+        const int64_t usage{static_cast<int64_t>(m_node.getMempoolDynamicUsage())};
+        if (size != m_mempool_size || usage != m_mempool_usage) {
+            m_mempool_size = size;
+            m_mempool_usage = usage;
+            UniValue mempool{UniValue::VOBJ};
+            mempool.pushKV("size", size);
+            mempool.pushKV("usage", usage);
+            mempool.pushKV("max", static_cast<int64_t>(m_node.getMempoolMaxUsage()));
+            m_hub.Emit("mempool", std::move(mempool), "mempool");
+        }
     }
     const bool tip_changed{m_tip_changed.exchange(false)};
     for (auto& e : wallets) {

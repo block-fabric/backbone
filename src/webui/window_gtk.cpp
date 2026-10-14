@@ -7,6 +7,7 @@
 // scheme chains-app://, with its content security policy as a header.
 
 #include <webui/assets.h>
+#include <webui/tray_gtk.h>
 #include <webui/window.h>
 
 #include <logging.h>
@@ -73,7 +74,30 @@ public:
         m_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_set_title(GTK_WINDOW(m_window), options.title.c_str());
         gtk_window_set_default_size(GTK_WINDOW(m_window), options.width, options.height);
-        gtk_window_set_icon_name(GTK_WINDOW(m_window), "chains");
+        if (GdkPixbuf* icon{AppIcon(128)}) {
+            gtk_window_set_icon(GTK_WINDOW(m_window), icon);
+            g_object_unref(icon);
+        } else {
+            gtk_window_set_icon_name(GTK_WINDOW(m_window), "chains");
+        }
+        if (options.maximized) gtk_window_maximize(GTK_WINDOW(m_window));
+        g_signal_connect(m_window, "window-state-event", G_CALLBACK(+[](GtkWidget*, GdkEventWindowState* event, gpointer self) -> gboolean {
+                             auto* w{static_cast<GtkWindowImpl*>(self)};
+                             const bool iconified{(event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) != 0};
+                             w->m_maximized = (event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
+                             if (iconified && (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) && w->m_callbacks.minimized) w->m_callbacks.minimized();
+                             return FALSE;
+                         }),
+                         this);
+        g_signal_connect(m_window, "configure-event", G_CALLBACK(+[](GtkWidget* widget, GdkEvent*, gpointer self) -> gboolean {
+                             auto* w{static_cast<GtkWindowImpl*>(self)};
+                             // The size to keep is the one of the window when it is not maximized.
+                             if (!w->m_maximized) gtk_window_get_size(GTK_WINDOW(widget), &w->m_width, &w->m_height);
+                             return FALSE;
+                         }),
+                         this);
+        m_width = options.width;
+        m_height = options.height;
         g_signal_connect(m_window, "delete-event", G_CALLBACK(+[](GtkWidget*, GdkEvent*, gpointer self) -> gboolean {
                              auto* w{static_cast<GtkWindowImpl*>(self)};
                              if (w->m_callbacks.close_requested) w->m_callbacks.close_requested();
@@ -184,6 +208,37 @@ public:
 
     void Minimize() override { gtk_window_iconify(GTK_WINDOW(m_window)); }
 
+    void Hide() override { gtk_widget_hide(m_window); }
+    bool IsVisible() override { return gtk_widget_get_visible(m_window); }
+    Geometry GetGeometry() override { return {m_width, m_height, m_maximized}; }
+
+    void SetTray(const Tray& tray) override
+    {
+        if (!m_tray) {
+            m_tray = std::make_unique<GtkTray>([this] { if (m_callbacks.tray_activated) m_callbacks.tray_activated(); },
+                                               [this](const std::string& id) { if (m_callbacks.tray_menu) m_callbacks.tray_menu(id); });
+        }
+        m_tray->Set(tray);
+    }
+    bool TrayAvailable() override
+    {
+        if (!m_tray) SetTray({});
+        return m_tray->Available();
+    }
+
+    void Notify(const std::string& title, const std::string& body, const std::string& level) override { DesktopNotify(title, body, level); }
+
+    bool OpenExternal(const std::string& uri) override
+    {
+        GError* error{nullptr};
+        const bool ok{g_app_info_launch_default_for_uri(uri.c_str(), nullptr, &error) == TRUE};
+        if (error) {
+            LogWarning("webui: cannot open %s: %s", uri, error->message);
+            g_error_free(error);
+        }
+        return ok;
+    }
+
     void SetClipboard(const std::string& text) override
     {
         GtkClipboard* clipboard{gtk_clipboard_get(GDK_SELECTION_CLIPBOARD)};
@@ -230,10 +285,11 @@ public:
     void ChooseFile(const FileDialog& options, std::function<void(std::optional<std::string>)> done) override
     {
         GtkFileChooserNative* chooser{gtk_file_chooser_native_new(
-            options.title.c_str(), GTK_WINDOW(m_window), options.save ? GTK_FILE_CHOOSER_ACTION_SAVE : GTK_FILE_CHOOSER_ACTION_OPEN,
-            options.save ? "_Save" : "_Open", "_Cancel")};
+            options.title.c_str(), GTK_WINDOW(m_window), options.folder ? GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER : options.save ? GTK_FILE_CHOOSER_ACTION_SAVE : GTK_FILE_CHOOSER_ACTION_OPEN,
+            options.save ? "_Save" : options.folder ? "_Select" : "_Open", "_Cancel")};
         GtkFileChooser* fc{GTK_FILE_CHOOSER(chooser)};
         gtk_native_dialog_set_modal(GTK_NATIVE_DIALOG(chooser), TRUE);
+        if (!options.start_dir.empty()) gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(chooser), options.start_dir.c_str());
         std::string suffix;
         for (const auto& [name, patterns] : options.filters) {
             GtkFileFilter* filter{gtk_file_filter_new()};
@@ -288,6 +344,10 @@ private:
     GtkWidget* m_window{nullptr};
     std::unique_ptr<webview::webview> m_webview;
     WebKitWebView* m_view{nullptr};
+    std::unique_ptr<GtkTray> m_tray;
+    int m_width{0};
+    int m_height{0};
+    bool m_maximized{false};
 };
 
 } // namespace

@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <utility>
 
 #ifdef WIN32
@@ -172,6 +173,21 @@ UniValue AppConfig::UpdatePrefs(const std::string& network, const UniValue& chan
     m_root = ObjectWith(m_root, KEY_PREFS, ObjectWith(all, network, prefs));
     Save();
     return prefs;
+}
+
+UniValue AppConfig::Value(const std::string& key) const
+{
+    LOCK(m_mutex);
+    if (key == KEY_DATADIR || key == KEY_RESET || key == KEY_PREFS) return {};
+    return m_root.find_value(key);
+}
+
+void AppConfig::SetValue(const std::string& key, const UniValue& value)
+{
+    if (key.empty() || key == KEY_DATADIR || key == KEY_RESET || key == KEY_PREFS) throw std::runtime_error("This key is not for values of the app");
+    LOCK(m_mutex);
+    m_root = value.isNull() ? ObjectWithout(m_root, key) : ObjectWith(m_root, key, value);
+    Save();
 }
 
 void AppConfig::ResetPrefs(const std::string& network)

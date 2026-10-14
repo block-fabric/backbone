@@ -55,13 +55,18 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   appconfig.cpp
   assets.cpp
   bridge.cpp
+  console.cpp
   events.cpp
+  nodeapi.cpp
   nodeevents.cpp
+  options.cpp
+  sidechainnodes.cpp
   singleinstance.cpp
 )
 target_link_libraries(chains_webui_core
   PUBLIC
     core_interface
+    bitcoin_cli
     bitcoin_common
     bitcoin_util
     univalue
@@ -86,7 +91,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows|Darwin")
 else()
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(WEBKITGTK REQUIRED IMPORTED_TARGET gtk+-3.0 webkit2gtk-4.1)
-  set(webui_window window_gtk.cpp)
+  set(webui_window window_gtk.cpp tray_gtk.cpp)
 endif()
 
 add_executable(chains-app WIN32
