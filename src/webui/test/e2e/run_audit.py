@@ -14,7 +14,8 @@ Runs chains-app on regtest in a virtual display, several times:
      is gone, an applied one stays;
   3. audit_nowallet.js: -disablewallet;
   4. audit_narrow.js: windows 700 and 480 pixels wide;
-  5. audit_lang.js: -lang=fr.
+  5. audit_signer.js: a hardware wallet (the mock signer of the functional tests);
+  6. audit_lang.js: -lang=fr.
 
     run_audit.py --app build/bin/chains-app --tmp <dir> --shots <dir>
 """
@@ -32,6 +33,8 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parents[3] / "test" / "functional"))
 
 from run_smoke import App, check_shutdown, environment, script  # noqa: E402
+
+MOCK_SIGNER = HERE.parents[3] / "test" / "functional" / "mocks" / "signer.py"
 
 
 class Rpc:
@@ -68,10 +71,10 @@ def submit_bad_proposal(rpc):
     return rpc.submitblock(block.serialize().hex())
 
 
-def run(app_path, base, name, script_name, args, env, shots, failures, timeout=1200, on_event=None):
+def run(app_path, base, name, script_name, args, env, shots, failures, timeout=1200, on_event=None, prelude=""):
     print(f"== {name}", flush=True)
     path = base / f"{name}.js"
-    path.write_text(script(script_name))
+    path.write_text(script(script_name, prelude))
     app = App(app_path, args + [f"-webuitestscript={path}", f"-webuitestshots={shots.resolve()}"], env, base / f"{name}.log")
     if on_event:
         on_event(app)
@@ -149,7 +152,18 @@ def main():
         conf.write_text(json.dumps({"window": {"width": width, "height": 760, "maximized": False}}))
         run(args.app, base, f"audit-narrow{width}", "audit_narrow.js", common + [f"-port={port + 3}", f"-datadir={narrow}", f"-webuiconfig={conf}"], env, args.shots, failures)
 
-    # 5. In French.
+    # 5. A hardware wallet: the mock signer of the functional tests, run where it finds its answers.
+    signer_dir = base / "signer"
+    signer_dir.mkdir()
+    wrapper = signer_dir / "signer.sh"
+    wrapper.write_text(f"#!/bin/sh\ncd '{signer_dir}' && exec '{sys.executable}' '{MOCK_SIGNER}' \"$@\"\n")
+    wrapper.chmod(0o755)
+    hww = base / "hww"
+    hww.mkdir()
+    run(args.app, base, "audit-signer", "audit_signer.js", common + [f"-port={port + 5}", f"-datadir={hww}", f"-signer={wrapper}", "-keypool=10", f"-webuiconfig={base / 'hww.json'}"],
+        env, args.shots, failures, prelude=f"window.__SIGNER_DIR = {json.dumps(str(signer_dir))};\n")
+
+    # 6. In French.
     french = base / "french"
     french.mkdir()
     run(args.app, base, "audit-lang", "audit_lang.js", common + [f"-port={port + 4}", f"-datadir={french}", "-lang=fr", f"-webuiconfig={base / 'french.json'}"], env, args.shots, failures)
