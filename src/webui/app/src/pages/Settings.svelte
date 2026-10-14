@@ -7,6 +7,15 @@
   import { host } from '../lib/rpc';
   import { toast } from '../lib/state.svelte';
   import LayoutPicker from '../components/LayoutPicker.svelte';
+  import { frame, setTitleBar } from '../lib/windowframe.svelte';
+
+  async function changeTitleBar(system: boolean) {
+    try {
+      await setTitleBar(system ? 'system' : 'integrated');
+    } catch (e) {
+      toast('error', 'Title bar', e instanceof Error ? e.message : String(e));
+    }
+  }
 
   // Wallet options kept by the node in settings.json (OptionsModel): they apply after a restart.
   let spendZeroConf = $state(true);
@@ -84,6 +93,20 @@
           </select>
           <span class="hint">The default subdivision unit to show in the interface and when sending coins.</span>
         </div>
+
+        {#if frame.supported}
+          <label class="check">
+            <input type="checkbox" checked={frame.titleBar === 'system'} onchange={(e) => changeTitleBar((e.currentTarget as HTMLInputElement).checked)} />
+            <span>Use the title bar of the desktop</span>
+          </label>
+          <span class="hint" role="status">
+            {#if frame.restartNeeded}
+              Applies after a restart of Chains.
+            {:else}
+              Instead of the title bar of Chains, with its own minimize, maximize and close buttons.
+            {/if}
+          </span>
+        {/if}
 
         <label class="check">
           <input type="checkbox" checked={prefs.mask} onchange={(e) => savePrefs({ mask: (e.currentTarget as HTMLInputElement).checked })} />

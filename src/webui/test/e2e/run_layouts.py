@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--tmp", required=True, type=Path, help="folder for the data directory (made anew)")
     parser.add_argument("--shots", required=True, type=Path, help="folder for the pictures")
     parser.add_argument("--port", type=int, default=29490)
+    parser.add_argument("--script", default="layouts.js", help="the page script: layouts.js, or titlebar.js (the integrated title bar)")
     args = parser.parse_args()
 
     if shutil.which("xvfb-run") is None:
@@ -43,9 +44,9 @@ def main():
     datadir.mkdir()
     failures = []
 
-    print("== layouts", flush=True)
-    layouts_script = base / "layouts.js"
-    layouts_script.write_text(script("layouts.js"))
+    print(f"== {args.script}", flush=True)
+    layouts_script = base / args.script
+    layouts_script.write_text(script(args.script))
     cmd = ["-regtest", f"-port={args.port}", f"-rpcport={args.port + 1}", "-listen=0", "-dnsseed=0", "-fixedseeds=0",
            "-fallbackfee=0.0002", f"-datadir={datadir}",
            f"-webuiconfig={base / 'chains-app.json'}", f"-webuitestshots={args.shots.resolve()}", f"-webuitestscript={layouts_script}"]

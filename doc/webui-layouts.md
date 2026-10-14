@@ -35,6 +35,51 @@ Whatever the layout:
   buttons have names; the detail panel is a labelled `complementary` region, closed
   with Escape.
 
+## The integrated title bar
+
+**User request (2026-10-14):** "in the top bar of the UI, we should have a minimize, resize screen
+and X button". The window has no frame of the system by default: the page draws the title bar.
+
+- **Where**: at the very top in every layout. In the workspace it *is* the top bar (logo, areas,
+  wallet, palette, Menus, then the buttons). In the dashboard and the compact sidebar it is a slim
+  strip above the layout: the logo, "Chains" and the network badge, the page title and the wallet
+  shown. Before the node runs (the intro, the splash, the error screen) the same strip without a
+  page. In the dashboard, the sidebar's own logo goes (it is in the strip).
+- **Buttons** at the right: **Minimize**, **Maximize / Restore** (its picture and name follow the
+  state of the window, also when the desktop maximizes it), **Close** (red under the pointer or
+  focused). Close does what the close button of the system does: minimize if "Minimize on close" is
+  set, else the app stops (and stays in the tray when that is set, as before).
+- **Drag**: a press on the empty part of the bar (not on a button, link, field, menu or tab) moves
+  the window; a double click maximizes or restores it.
+- **Resize**: thin invisible handles along the four edges and at the four corners of the page (4 px
+  strips, 10 px corners), only when the window is not maximized.
+- **Keyboard**: the three buttons are a labelled group ("Window") of named buttons, in the tab order
+  after the bar's own controls; Ctrl+M still minimizes.
+- **Looks**: the colours of styles/themes.css only (all five looks and the desktop's); the red of
+  Close is the same everywhere.
+- **The title bar of the system**: Settings → Appearance → "Use the title bar of the desktop" (kept
+  in the app settings file as `titleBar`: `integrated`, the default, or `system`, for every network,
+  read when the window is made). On X11 it changes at once; on Wayland the setting says "Applies
+  after a restart of Chains". With it, the page draws no title bar or handles.
+
+The host side (src/webui/window.h, window_gtk.cpp, windowframe.h):
+
+| Bridge method / event | What |
+|---|---|
+| `window.state` | `{titleBar, supported, frameless, restartNeeded, maximized}` |
+| `window.minimize`, `window.toggleMaximize`, `window.isMaximized` | The buttons |
+| `window.close` | As the close button of the system (`close_requested` → `App::CloseRequested`) |
+| `window.startMove` | On the press in the bar: the window manager moves the window (`gtk_window_begin_move_drag` from the last press in the page) |
+| `window.startResize {edge}` | On the press on a handle: `top`, `bottom`, `left`, `right`, `top-left`, `top-right`, `bottom-left`, `bottom-right` (`gtk_window_begin_resize_drag`) |
+| `window.setTitleBar {mode}` | Keeps the choice, applies it when it can; returns the state |
+| event `window` `{maximized}` | The window was maximized or restored |
+
+Linux has it (GTK: `gtk_window_set_decorated(false)`). Windows and macOS (window_generic.cpp) keep
+the frame of the system for now (`supported: false`, the page hides its bar); the TODOs in window.h
+say how they will do it: on Windows a WebView2 window without caption whose WM_NCHITTEST uses
+`EdgeAt` (windowframe.h) for the borders; on macOS a hidden title bar keeping the native traffic
+lights at the left.
+
 ## Where things are in the code
 
 | File | What |
@@ -47,6 +92,7 @@ Whatever the layout:
 | src/webui/app/src/views/home/ | The dashboard's Home and its cards |
 | src/webui/app/src/views/PageView.svelte | The page shown, whatever the layout |
 | src/webui/app/src/components/CommandPalette.svelte, MenuButton.svelte, DetailPanel.svelte, Sidebar.svelte, LayoutPicker.svelte | Shared pieces |
+| src/webui/app/src/lib/windowframe.svelte.ts, components/TitleStrip.svelte, WindowControls.svelte, ResizeHandles.svelte | The integrated title bar: its state, the strip, the buttons, the handles at the edges |
 
 For the pages: a page with a selectable list publishes its selection with
 `showDetail(…)` when `detail.follow` is on (the workspace layout), and keeps its
@@ -140,3 +186,10 @@ amounts in …").
   light and dark themes — home, send, the history with the detail panel (or its
   dialog), the sidechains, the settings, the palette — plus the Menus, the
   expanded rail and the dashboard in the other looks.
+- `npm test`: test/titlebar.test.ts — the buttons call the bridge, the maximize button follows the
+  state (and its event), a press on the bar moves the window and a double click maximizes it (not
+  from its buttons), the handles, the bar in each layout and none with the title bar of the system.
+  `test_chains-app`: windowframe_tests.cpp — the names of the edges, the setting, `EdgeAt`.
+- `run_layouts.py … --script titlebar.js`: the title bar of each layout in the light and dark
+  themes (and the other looks), the red Close, then the title bar of the system chosen in the
+  settings and back (pictures `titlebar-*.png`).

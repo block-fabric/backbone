@@ -14,6 +14,7 @@
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { prefs, savePrefs, selectWallet, wallets } from '../lib/state.svelte';
   import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
+  import { frame } from '../lib/windowframe.svelte';
 
   let { rail = false, open = $bindable(false) }: { rail?: boolean; open?: boolean } = $props();
 
@@ -78,7 +79,8 @@
       label={prefs.sidebarExpanded ? 'Icons only' : 'Show the names of the pages'}
       onclick={() => savePrefs({ sidebarExpanded: !prefs.sidebarExpanded })}
     />
-  {:else}
+  {:else if rail || !frame.integrated}
+    <!-- The dashboard's name of the app is in the integrated title bar, when there is one. -->
     <Brand name={!collapsed} onclick={() => visit(rail ? 'overview' : 'home')} />
   {/if}
 

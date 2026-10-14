@@ -12,6 +12,8 @@ export function installMock(options: MockOptions = {}): void {
   const start = Math.floor(Date.now() / 1000);
   const prefs: Record<string, unknown> = {};
   const wallets = options.wallets ?? ['alice'];
+  // The browser preview shows the integrated title bar, as chains-app on Linux.
+  const frameState = { titleBar: 'integrated', supported: true, frameless: true, restartNeeded: false, maximized: false };
   const hash = (h: number) => h.toString(16).padStart(64, '0');
 
   const host: Record<string, (params: Record<string, unknown>) => unknown> = {
@@ -34,6 +36,21 @@ export function installMock(options: MockOptions = {}): void {
       wallets: wallets.map((name) => ({ name, encrypted: true, locked: true, privateKeysDisabled: false, hd: true })),
     }),
     'window.setWallet': () => true,
+    'window.state': () => ({ ...frameState }),
+    'window.minimize': () => true,
+    'window.toggleMaximize': () => {
+      frameState.maximized = !frameState.maximized;
+      queueMicrotask(() => dispatch([{ type: 'window', data: { maximized: frameState.maximized } }]));
+      return true;
+    },
+    'window.close': () => true,
+    'window.startMove': () => true,
+    'window.startResize': () => true,
+    'window.setTitleBar': (p) => {
+      frameState.titleBar = p.mode === 'system' ? 'system' : 'integrated';
+      frameState.frameless = frameState.titleBar === 'integrated';
+      return { ...frameState };
+    },
     'clipboard.write': () => true,
     'clipboard.read': () => '',
     'intro.space': () => ({ exists: true, isDirectory: true, free: 512e9 }),

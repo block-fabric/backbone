@@ -165,6 +165,15 @@ export interface NodeSnapshot {
   wallets: WalletSummary[];
 }
 
+/** The window and its title bar (window.state; doc/webui-layouts.md). */
+export interface WindowState {
+  titleBar: 'integrated' | 'system';
+  supported: boolean;
+  frameless: boolean;
+  restartNeeded: boolean;
+  maximized: boolean;
+}
+
 export const host = {
   hello: () => request<Hello>('host', 'app.hello', {}),
   info: () => request<AppInfo>('host', 'app.info', {}),
@@ -183,6 +192,12 @@ export const host = {
   setSetting: (name: string, value: unknown) => request<boolean>('host', 'node.setSetting', { name, value }),
   setWalletTitle: (name: string | null) => request<boolean>('host', 'window.setWallet', { name }),
   minimize: () => request<boolean>('host', 'window.minimize', {}),
+  windowState: () => request<WindowState>('host', 'window.state', {}),
+  toggleMaximize: () => request<boolean>('host', 'window.toggleMaximize', {}),
+  closeWindow: () => request<boolean>('host', 'window.close', {}),
+  startMove: () => request<boolean>('host', 'window.startMove', {}),
+  startResize: (edge: string) => request<boolean>('host', 'window.startResize', { edge }),
+  setTitleBar: (mode: 'integrated' | 'system') => request<WindowState>('host', 'window.setTitleBar', { mode }),
   copy: (text: string) => request<boolean>('host', 'clipboard.write', { text }),
   paste: () => request<string | null>('host', 'clipboard.read', {}),
 };

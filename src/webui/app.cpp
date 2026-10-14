@@ -38,6 +38,7 @@
 #include <webui/walletapi.h>
 #endif
 #include <webui/window.h>
+#include <webui/windowframe.h>
 
 #include <chrono>
 #include <cmath>
@@ -260,6 +261,21 @@ void App::CloseRequested()
         return;
     }
     RequestShutdown();
+}
+
+UniValue App::WindowState()
+{
+    const TitleBarMode mode{ParseTitleBarMode(m_config->Value("titleBar"))};
+    const bool supported{m_window->SupportsFrameless()};
+    const bool frameless{m_window->IsFrameless()};
+    UniValue state{UniValue::VOBJ};
+    //! The title bar chosen in the settings, and whether the window has it now (else after a restart).
+    state.pushKV("titleBar", std::string{TitleBarModeName(mode)});
+    state.pushKV("supported", supported);
+    state.pushKV("frameless", frameless);
+    state.pushKV("restartNeeded", supported && frameless != (mode == TitleBarMode::INTEGRATED));
+    state.pushKV("maximized", m_window->IsMaximized());
+    return state;
 }
 
 void App::RequestShutdown()
@@ -842,6 +858,36 @@ void App::RegisterHostMethods()
         m_window->Minimize();
         return UniValue{true};
     }, Bridge::Thread::UI);
+    // The integrated title bar of the page (doc/webui-layouts.md): its buttons, its drags, its setting.
+    b.RegisterHost("window.state", [this](const UniValue&) { return WindowState(); }, Bridge::Thread::UI);
+    b.RegisterHost("window.isMaximized", [this](const UniValue&) { return UniValue{m_window->IsMaximized()}; }, Bridge::Thread::UI);
+    b.RegisterHost("window.toggleMaximize", [this](const UniValue&) {
+        m_window->ToggleMaximize();
+        return UniValue{true};
+    }, Bridge::Thread::UI);
+    b.RegisterHost("window.close", [this](const UniValue&) {
+        // As the close button of the system: minimized or to the tray if the user wants that, else the app stops.
+        CloseRequested();
+        return UniValue{true};
+    }, Bridge::Thread::UI);
+    b.RegisterHost("window.startMove", [this](const UniValue&) {
+        m_window->StartMove();
+        return UniValue{true};
+    }, Bridge::Thread::UI);
+    b.RegisterHost("window.startResize", [this](const UniValue& params) {
+        const auto edge{ParseWindowEdge(ParamStr(params, "edge"))};
+        if (!edge) throw HostError(BRIDGE_INVALID_REQUEST, "edge: top, bottom, left, right, top-left, top-right, bottom-left or bottom-right");
+        m_window->StartResize(*edge);
+        return UniValue{true};
+    }, Bridge::Thread::UI);
+    b.RegisterHost("window.setTitleBar", [this](const UniValue& params) {
+        const UniValue mode{Param(params, "mode")};
+        if (!mode.isStr() || (mode.get_str() != "integrated" && mode.get_str() != "system")) throw HostError(BRIDGE_INVALID_REQUEST, "mode: integrated or system");
+        m_config->SetValue("titleBar", mode);
+        // At once where the platform can; otherwise at the next start (window.state says so).
+        if (m_window->SupportsFrameless()) m_window->SetFrameless(ParseTitleBarMode(mode) == TitleBarMode::INTEGRATED);
+        return WindowState();
+    }, Bridge::Thread::UI);
     // Files: the user chooses them in a file chooser of the desktop; the page reads and writes only those.
     b.RegisterHost("file.choose", [this](const UniValue& params) {
         Window::FileDialog dialog;
@@ -1145,6 +1191,8 @@ int App::Run()
         }
         options.maximized = geometry.find_value("maximized").isBool() && geometry.find_value("maximized").get_bool();
     }
+    // The integrated title bar unless the user chose the one of the system (Settings → Appearance).
+    options.frameless = ParseTitleBarMode(m_config->Value("titleBar")) == TitleBarMode::INTEGRATED;
     Window::Callbacks callbacks;
     callbacks.close_requested = [this] { CloseRequested(); };
     callbacks.minimized = [this] {
@@ -1152,6 +1200,11 @@ int App::Run()
         if (PrefFlag("minimizeToTray", false) && PrefFlag("showTray", true) && m_window->TrayAvailable()) {
             m_window->Post([this] { m_window->Hide(); });
         }
+    };
+    callbacks.maximized_changed = [this](bool maximized) {
+        UniValue data{UniValue::VOBJ};
+        data.pushKV("maximized", maximized);
+        if (m_hub) m_hub->Emit("window", std::move(data), "window");
     };
     callbacks.tray_activated = [this] {
         if (m_window->IsVisible()) m_window->Hide();

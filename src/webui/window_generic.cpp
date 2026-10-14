@@ -61,6 +61,15 @@ public:
     void Hide() override {}
     bool IsVisible() override { return true; }
     Geometry GetGeometry() override { return {}; }
+    // TODO(windows/macos port): the integrated title bar (see Window in window.h). Until then the
+    // window keeps the frame of the system, and the page its own title bar hidden.
+    bool SupportsFrameless() override { return false; }
+    bool IsFrameless() override { return false; }
+    bool SetFrameless(bool) override { return false; }
+    bool IsMaximized() override { return false; }
+    void ToggleMaximize() override {}
+    void StartMove() override {}
+    void StartResize(WindowEdge) override {}
     void SetTray(const Tray&) override {}
     bool TrayAvailable() override { return false; }
     void Notify(const std::string&, const std::string&, const std::string&) override {}

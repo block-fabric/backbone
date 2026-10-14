@@ -75,6 +75,8 @@ private:
     bool StartNode() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void SetPhase(const std::string& phase, UniValue data = UniValue{UniValue::VOBJ}) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     UniValue Info() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** The title bar and the state of the window, for the page (window.state). UI thread. */
+    UniValue WindowState();
     void UpdateTitle() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void PollShutdown() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void DeliverEvents(const std::string& batch_json);

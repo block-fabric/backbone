@@ -9,10 +9,16 @@
   import PaletteButton from '../../components/PaletteButton.svelte';
   import StatusBar from '../../components/StatusBar.svelte';
   import WalletPicker from '../../components/WalletPicker.svelte';
+  import WindowControls from '../../components/WindowControls.svelte';
   import { buildCommands, menuSections, pageAvailable, pageDisabled } from '../../lib/commands.svelte';
   import { AREAS, areaOf, isAt, placeLabel, type Area, type Place } from '../../lib/layout';
   import { go, nav, PAGES } from '../../lib/nav.svelte';
+  import { frame, titleBarDoubleClick, titleBarMouseDown } from '../../lib/windowframe.svelte';
   import PageView from '../PageView.svelte';
+
+  // The top bar is the integrated title bar too: its empty part moves the window, the buttons of
+  // the window at its right.
+  let top: HTMLElement | undefined = $state();
 
   const area = $derived(areaOf(nav.page));
   const tabs = $derived(area.tabs.filter((t) => pageAvailable(t.page)));
@@ -39,7 +45,14 @@
 </script>
 
 <div class="workspace">
-  <header class="top">
+  <!-- svelte-ignore a11y_no_static_element_interactions (the drag of the window; its buttons are the keyboard way) -->
+  <header
+    class="top"
+    class:titlebar={frame.integrated}
+    bind:this={top}
+    onmousedown={(e) => top && titleBarMouseDown(e, top)}
+    ondblclick={(e) => top && titleBarDoubleClick(e, top)}
+  >
     <Brand onclick={() => go('overview')} />
     <nav class="areas" aria-label="Areas">
       {#each AREAS as a, i (a.id)}
@@ -54,6 +67,7 @@
       <PaletteButton />
       <MenuButton label="Menus of chains-qt: wallet, banking, tools, window, node" text="Menus" icon="menu" {sections} />
     </div>
+    {#if frame.integrated}<WindowControls />{/if}
   </header>
 
   <nav class="subtabs" aria-label="{area.label} pages">
@@ -128,6 +142,14 @@
   .area[aria-current='true'] :global(svg) {
     color: var(--accent);
   }
+  .top.titlebar {
+    padding-right: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .top.titlebar > :global(.window-controls) {
+    margin: -0.3rem 0;
+  }
   .tools {
     display: flex;
     align-items: center;
@@ -186,6 +208,19 @@
   /* The node window's own tabs are the sub-tabs of the Node area here. */
   .content[data-page='node'] :global(.page > .tabs) {
     display: none;
+  }
+  .tools :global(.wallet) {
+    flex: none;
+  }
+  /* The buttons of the window take room: the palette field gives it first. */
+  @media (max-width: 1320px) {
+    .top.titlebar .tools :global(.palette-button) {
+      min-width: 0;
+    }
+    .top.titlebar .tools :global(.palette-button .grow),
+    .top.titlebar .tools :global(.palette-button kbd) {
+      display: none;
+    }
   }
   @media (max-width: 1100px) {
     .tools :global(.palette-button) {

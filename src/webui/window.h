@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+#include <webui/windowframe.h>
+
 namespace webui {
 
 /**
@@ -33,6 +35,9 @@ public:
         bool devtools{false};
         //! Start maximized (the geometry saved last time).
         bool maximized{false};
+        //! No title bar or borders of the system: the page draws its own title bar (the
+        //! integrated title bar), where the platform can (SupportsFrameless).
+        bool frameless{false};
     };
     //! The size of the window, and whether it is maximized (MainWindowGeometry of chains-qt).
     struct Geometry {
@@ -64,6 +69,8 @@ public:
         std::function<void(const std::string& id)> tray_menu;
         //! The window was minimized by the user (for "minimize to the tray").
         std::function<void()> minimized;
+        //! The window was maximized or restored (by the page, the desktop or a shortcut).
+        std::function<void(bool maximized)> maximized_changed;
     };
 
     /** The window of this platform. It is not shown until Show. */
@@ -95,6 +102,37 @@ public:
     virtual bool IsVisible() = 0;
     /** The size of the window now. */
     virtual Geometry GetGeometry() = 0;
+
+    /**
+     * The integrated title bar: a window without the frame of the system, whose page draws the
+     * title bar with the minimize, maximize and close buttons, moves the window when its empty
+     * part is dragged and resizes it from handles at its edges.
+     *
+     *  - Linux (GTK): an undecorated window; the page's drags start the moves and resizes of
+     *    the window manager (begin_move_drag, begin_resize_drag).
+     *  - TODO(windows port): WebView2 in a window without a caption (WS_THICKFRAME kept, the
+     *    client area extended over the frame in WM_NCCALCSIZE, DwmExtendFrameIntoClientArea for
+     *    the shadow), WM_NCHITTEST answering HTLEFT... with EdgeAt for the borders; StartMove:
+     *    ReleaseCapture + WM_NCLBUTTONDOWN/HTCAPTION, StartResize: WM_NCLBUTTONDOWN with the HT of
+     *    the edge; the snap layouts of Windows 11 want HTMAXBUTTON over the page's maximize button.
+     *  - TODO(macos port): a hidden title bar (titlebarAppearsTransparent, titleVisibility hidden,
+     *    NSWindowStyleMaskFullSizeContentView), the traffic lights of macOS kept at the left (the
+     *    page then hides its own buttons and leaves room for them: "controls" of window.state);
+     *    StartMove: performWindowDragWithEvent, resizing stays native.
+     */
+    //! Whether this platform can do without the frame of the system.
+    virtual bool SupportsFrameless() = 0;
+    //! Whether the window is without the frame of the system now.
+    virtual bool IsFrameless() = 0;
+    //! Take away or give back the frame of the system. False when it cannot change while the window is open (then at the next start).
+    virtual bool SetFrameless(bool frameless) = 0;
+    virtual bool IsMaximized() = 0;
+    //! Maximize the window, or restore it when it is maximized.
+    virtual void ToggleMaximize() = 0;
+    //! Move the window with the pointer: called while the button pressed in the page's title bar is held.
+    virtual void StartMove() = 0;
+    //! Resize the window from an edge with the pointer, as StartMove.
+    virtual void StartResize(WindowEdge edge) = 0;
 
     /**
      * Show, change or take away the icon in the tray. Desktops with a tray of the

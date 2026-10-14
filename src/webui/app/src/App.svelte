@@ -4,6 +4,8 @@
   import AppDialogs from './components/AppDialogs.svelte';
   import DialogHost from './components/DialogHost.svelte';
   import NodeDialogs from './components/NodeDialogs.svelte';
+  import ResizeHandles from './components/ResizeHandles.svelte';
+  import TitleStrip from './components/TitleStrip.svelte';
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
   import { handleShortcut } from './lib/keyboard';
@@ -12,6 +14,7 @@
   import { app, applySnapshot, loadPrefs, prefs, subscribe, toast } from './lib/state.svelte';
   import { applyTheme } from './lib/themes';
   import { parsePaymentUri } from './lib/uri';
+  import { watchWindow } from './lib/windowframe.svelte';
   import Fatal from './views/Fatal.svelte';
   import Intro from './views/Intro.svelte';
   import Shell from './views/Shell.svelte';
@@ -39,6 +42,7 @@
     media.addEventListener('change', onScheme);
 
     installEventSink();
+    let offWindow: (() => void) | undefined;
     subscribe();
     const offPhase = on<{ phase: string }>('phase', ({ phase }) => {
       if (phase === 'ready') refreshNode();
@@ -75,6 +79,7 @@
           const walletdata = await import('./lib/walletdata.svelte');
           (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current };
         }
+        offWindow = watchWindow();
         await loadPrefs();
         if (hello.phase === 'ready') await refreshNode();
       } catch (e) {
@@ -86,6 +91,7 @@
       media.removeEventListener('change', onScheme);
       offPhase();
       offUri();
+      offWindow?.();
     };
   });
 
@@ -97,22 +103,31 @@
 
 <svelte:window {onkeydown} />
 
-{#if connectError}
-  <main class="lost">
-    <h1>No connection to the node</h1>
-    <p class="muted">{connectError}</p>
-  </main>
-{:else if app.phase === 'intro'}
-  <Intro />
-{:else if app.phase === 'ready'}
-  <Shell />
-{:else if app.phase === 'fatal'}
-  <Fatal />
-{:else if app.phase === 'shutdown'}
-  <Splash stopping />
+{#if connectError || app.phase !== 'ready'}
+  <!-- Before the node runs: the integrated title bar alone (the layouts have theirs). -->
+  <div class="frame">
+    <TitleStrip />
+    <div class="phase">
+      {#if connectError}
+        <main class="lost">
+          <h1>No connection to the node</h1>
+          <p class="muted">{connectError}</p>
+        </main>
+      {:else if app.phase === 'intro'}
+        <Intro />
+      {:else if app.phase === 'fatal'}
+        <Fatal />
+      {:else if app.phase === 'shutdown'}
+        <Splash stopping />
+      {:else}
+        <Splash />
+      {/if}
+    </div>
+  </div>
 {:else}
-  <Splash />
+  <Shell />
 {/if}
+<ResizeHandles />
 
 <NodeDialogs />
 <AppDialogs />
@@ -120,6 +135,15 @@
 <Toasts />
 
 <style>
+  .frame {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .phase {
+    flex: 1 1 0;
+    min-height: 0;
+  }
   .lost {
     display: grid;
     place-content: center;

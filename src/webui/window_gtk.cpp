@@ -14,6 +14,10 @@
 
 #include <webview.h>
 
+#ifdef GDK_WINDOWING_X11
+#include <gdk/gdkx.h>
+#endif
+
 #include <atomic>
 #include <cstring>
 #include <utility>
@@ -81,10 +85,16 @@ public:
             gtk_window_set_icon_name(GTK_WINDOW(m_window), "chains");
         }
         if (options.maximized) gtk_window_maximize(GTK_WINDOW(m_window));
+        // The integrated title bar: the page draws the title bar and the handles at the edges.
+        m_frameless = options.frameless;
+        if (m_frameless) gtk_window_set_decorated(GTK_WINDOW(m_window), FALSE);
         g_signal_connect(m_window, "window-state-event", G_CALLBACK(+[](GtkWidget*, GdkEventWindowState* event, gpointer self) -> gboolean {
                              auto* w{static_cast<GtkWindowImpl*>(self)};
                              const bool iconified{(event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) != 0};
-                             w->m_maximized = (event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
+                             const bool maximized{(event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0};
+                             const bool changed{maximized != w->m_maximized};
+                             w->m_maximized = maximized;
+                             if (changed && w->m_callbacks.maximized_changed) w->m_callbacks.maximized_changed(maximized);
                              if (iconified && (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) && w->m_callbacks.minimized) w->m_callbacks.minimized();
                              return FALSE;
                          }),
@@ -150,6 +160,15 @@ public:
                          }),
                          nullptr);
 
+        // The last press of a button in the page: the moves and resizes the page starts begin there.
+        g_signal_connect(m_view, "button-press-event", G_CALLBACK(+[](GtkWidget*, GdkEventButton* event, gpointer self) -> gboolean {
+                             auto* w{static_cast<GtkWindowImpl*>(self)};
+                             if (w->m_last_press) gdk_event_free(w->m_last_press);
+                             w->m_last_press = gdk_event_copy(reinterpret_cast<GdkEvent*>(event));
+                             return FALSE;
+                         }),
+                         this);
+
         m_webview->bind("__chains", [this](std::string id, std::string args, void*) {
             if (m_callbacks.call) m_callbacks.call(id, args);
         }, nullptr);
@@ -159,6 +178,7 @@ public:
     ~GtkWindowImpl() override
     {
         m_webview.reset();
+        if (m_last_press) gdk_event_free(m_last_press);
         if (m_window) gtk_widget_destroy(m_window);
     }
 
@@ -211,6 +231,60 @@ public:
     void Hide() override { gtk_widget_hide(m_window); }
     bool IsVisible() override { return gtk_widget_get_visible(m_window); }
     Geometry GetGeometry() override { return {m_width, m_height, m_maximized}; }
+
+    bool SupportsFrameless() override { return true; }
+    bool IsFrameless() override { return m_frameless; }
+
+    bool SetFrameless(bool frameless) override
+    {
+        if (frameless == m_frameless) return true;
+        // An X11 window manager draws the frame, and takes it away or gives it back at once. On
+        // Wayland GTK draws it itself, and only decides that when the window is made.
+        bool live{!gtk_widget_get_realized(m_window)};
+#ifdef GDK_WINDOWING_X11
+        if (GDK_IS_X11_DISPLAY(gtk_widget_get_display(m_window))) live = true;
+#endif
+        if (!live) return false;
+        gtk_window_set_decorated(GTK_WINDOW(m_window), frameless ? FALSE : TRUE);
+        m_frameless = frameless;
+        return true;
+    }
+
+    bool IsMaximized() override { return m_maximized; }
+
+    void ToggleMaximize() override
+    {
+        if (m_maximized) gtk_window_unmaximize(GTK_WINDOW(m_window));
+        else gtk_window_maximize(GTK_WINDOW(m_window));
+    }
+
+    void StartMove() override
+    {
+        int button, x, y;
+        guint32 time;
+        if (!Press(button, x, y, time)) return;
+        gtk_window_begin_move_drag(GTK_WINDOW(m_window), button, x, y, time);
+    }
+
+    void StartResize(WindowEdge edge) override
+    {
+        if (m_maximized) return;
+        int button, x, y;
+        guint32 time;
+        if (!Press(button, x, y, time)) return;
+        GdkWindowEdge gdk_edge{GDK_WINDOW_EDGE_SOUTH_EAST};
+        switch (edge) {
+        case WindowEdge::TOP: gdk_edge = GDK_WINDOW_EDGE_NORTH; break;
+        case WindowEdge::BOTTOM: gdk_edge = GDK_WINDOW_EDGE_SOUTH; break;
+        case WindowEdge::LEFT: gdk_edge = GDK_WINDOW_EDGE_WEST; break;
+        case WindowEdge::RIGHT: gdk_edge = GDK_WINDOW_EDGE_EAST; break;
+        case WindowEdge::TOP_LEFT: gdk_edge = GDK_WINDOW_EDGE_NORTH_WEST; break;
+        case WindowEdge::TOP_RIGHT: gdk_edge = GDK_WINDOW_EDGE_NORTH_EAST; break;
+        case WindowEdge::BOTTOM_LEFT: gdk_edge = GDK_WINDOW_EDGE_SOUTH_WEST; break;
+        case WindowEdge::BOTTOM_RIGHT: gdk_edge = GDK_WINDOW_EDGE_SOUTH_EAST; break;
+        }
+        gtk_window_begin_resize_drag(GTK_WINDOW(m_window), gdk_edge, button, x, y, time);
+    }
 
     void SetTray(const Tray& tray) override
     {
@@ -339,6 +413,29 @@ public:
     }
 
 private:
+    /**
+     * Where and when the button that starts a move or a resize was pressed: the last press in the
+     * page (the page asks right after it, the button still down), else the pointer now.
+     */
+    bool Press(int& button, int& x, int& y, guint32& time)
+    {
+        if (m_last_press && m_last_press->type == GDK_BUTTON_PRESS) {
+            const GdkEventButton& press{m_last_press->button};
+            button = static_cast<int>(press.button);
+            x = static_cast<int>(press.x_root);
+            y = static_cast<int>(press.y_root);
+            time = press.time;
+            return true;
+        }
+        GdkSeat* seat{gdk_display_get_default_seat(gtk_widget_get_display(m_window))};
+        GdkDevice* pointer{seat ? gdk_seat_get_pointer(seat) : nullptr};
+        if (!pointer) return false;
+        gdk_device_get_position(pointer, nullptr, &x, &y);
+        button = 1;
+        time = gtk_get_current_event_time();
+        return true;
+    }
+
     Callbacks m_callbacks;
     const bool m_devtools;
     GtkWidget* m_window{nullptr};
@@ -348,6 +445,8 @@ private:
     int m_width{0};
     int m_height{0};
     bool m_maximized{false};
+    bool m_frameless{false};
+    GdkEvent* m_last_press{nullptr};
 };
 
 } // namespace

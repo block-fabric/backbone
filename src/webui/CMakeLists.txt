@@ -62,6 +62,7 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   options.cpp
   sidechainnodes.cpp
   singleinstance.cpp
+  windowframe.cpp
 )
 target_link_libraries(chains_webui_core
   PUBLIC
