@@ -207,27 +207,28 @@
     cursor: pointer;
   }
   .txs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
     margin: 0;
     padding: 0;
     list-style: none;
   }
+  /* Each transaction a rounded row-card. */
   .tx {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 0.7rem;
     align-items: center;
     width: 100%;
-    padding: 0.5rem 0.3rem;
-    border: 0;
-    border-bottom: 1px solid var(--line);
-    background: none;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-l);
+    background: var(--surface-2);
     color: var(--text);
     font: inherit;
     text-align: left;
     cursor: pointer;
-  }
-  li:last-child .tx {
-    border-bottom: 0;
   }
   .tx:hover:not(:disabled) {
     background: var(--raised);

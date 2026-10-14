@@ -137,7 +137,7 @@
     min-height: 2.4rem;
     padding: 0 0.6rem 0 0.9rem;
     border-top: 1px solid var(--line);
-    background: var(--surface);
+    background: color-mix(in srgb, var(--bg) 75%, transparent);
     color: var(--text-muted);
     font-size: 0.86rem;
   }

@@ -3,7 +3,7 @@
 import { on } from './bridge';
 import { host, type AppInfo, type Dialog, type NodeSnapshot, type Phase, type WalletSummary } from './rpc';
 import { isUnit, type Unit } from './units';
-import { clampFontAdjust, isTheme, type ThemeId } from './themes';
+import { clampFontAdjust, DEFAULT_THEME, isTheme, type ThemeId } from './themes';
 import { DEFAULT_LAYOUT, isLayout, type LayoutId } from './layout';
 
 export interface Tip {
@@ -61,7 +61,7 @@ export const wallets = $state({
 });
 
 export const prefs = $state({
-  theme: 'system' as ThemeId,
+  theme: DEFAULT_THEME as ThemeId,
   fontAdjust: 0,
   unit: 'CHN' as Unit,
   mask: false,

@@ -54,6 +54,34 @@ export function installMock(options: MockOptions = {}): void {
     'clipboard.write': () => true,
     'clipboard.read': () => '',
     'intro.space': () => ({ exists: true, isDirectory: true, free: 512e9 }),
+    // A wallet with a history, for the pages and the dashboard of the preview.
+    'wallet.info': (p) => ({ name: p.wallet ?? '', encrypted: true, locked: true, privateKeysDisabled: false, externalSigner: false, hd: true, canGetAddresses: true, taproot: true, defaultAddressType: 'bech32', confirmTarget: 6, requiredFeePerK: 1000, maxTxFee: 10_000_000, multiwallet: wallets.length > 1, balance: 12.5, unconfirmed: 0.25, immature: 50 }),
+    'wallet.transactions': () => ({ height, hash: hash(height), records: history() }),
+    'wallet.transaction': (p) => ({ txid: p.txid, coinbase: false, rows: [{ k: 'Status', text: '6 confirmations' }], notes: [], ids: [{ k: 'Transaction ID', text: String(p.txid) }], messages: [] }),
+    'wallet.txActions': () => ({ canAbandon: false, canBump: true, hex: '' }),
+    'wallet.addresses': () => [],
+    'wallet.requests': () => [],
+    'wallet.fee': () => ({ feePerK: 1000, fallback: false, target: 6, requiredFeePerK: 1000 }),
+  };
+
+  /** Records as the host sends them (RecordJson): a salary, some spending, mined coins. */
+  const history = () => {
+    const rows: unknown[][] = [];
+    const items: [string, string, string, number, number][] = [
+      ['recv', 'Salary', 'rchn1qsalary', 40, 1_250_000_000],
+      ['send', 'Coffee shop', 'rchn1qcoffee', 34, -42_002_820],
+      ['mined', '', '', 30, 5_000_000_000],
+      ['send', 'Rent', 'rchn1qrent', 24, -400_002_820],
+      ['recv', 'Refund', 'rchn1qrefund', 16, 75_000_000],
+      ['send', 'Savings', 'rchn1qsavings', 9, -300_002_820],
+      ['recv', 'Bookshop', 'rchn1qbook', 3, 15_000_000],
+      ['send', 'Bookshop', 'rchn1qbook2', 0, -15_002_820],
+    ];
+    items.forEach(([type, label, address, ago, amount], i) => {
+      const depth = ago === 0 ? 0 : ago * 6;
+      rows.push([(i + 10).toString(16).padStart(64, 'a'), 0, type, address, label, start - ago * 86400, amount > 0 ? amount : 0, amount < 0 ? amount : 0, depth === 0 ? 'unconfirmed' : type === 'mined' && depth < 100 ? 'immature' : 'confirmed', depth, 0, depth > 0, `k${i}`]);
+    });
+    return rows;
   };
 
   const rpc: Record<string, (params: unknown[]) => unknown> = {
@@ -67,6 +95,16 @@ export function installMock(options: MockOptions = {}): void {
     getmempoolinfo: () => ({ size: 3, usage: 4096 }),
     uptime: () => 3600,
     validateaddress: (p) => ({ isvalid: String(p[0]).startsWith('rchn1') }),
+    getpeerinfo: () =>
+      [1, 2, 3, 4].map((id) => ({ id, addr: `203.0.113.${id * 11}:38333`, inbound: id === 3, pingtime: 0.02 * id, synced_blocks: height, network: 'ipv4', connection_type: 'outbound-full-relay', subver: '/Chains:32.0.0/', version: 70016, startingheight: 1, synced_headers: height, bytessent: 1, bytesrecv: 2, conntime: start, lastsend: start, lastrecv: start })),
+    getmininginfo: () => ({ blocks: height, difficulty: 4.6565e-10, networkhashps: 12.4, pooledtx: 3 }),
+    getdrivechaininfo: () => ({ activesidechains: 2, proposals: 1, pendingbundles: 1, escrowtotal: 7.25, withdrawalperiod: 100 }),
+    listactivesidechains: () => [
+      { slot: 2, title: 'Thunder', description: 'Fast payments', escrow: { txid: 'aa', n: 0, amount: 5.25 }, pendingbundles: 1 },
+      { slot: 5, title: 'BitNames', description: 'Names and their records', escrow: { txid: 'bb', n: 0, amount: 2 }, pendingbundles: 0 },
+    ],
+    listwithdrawalbundles: () => [{ slot: 2, hash: 'cd'.repeat(32), score: 14, blocksleft: 86, payable: false }],
+    getsidechainevents: (p) => Array.from({ length: Number(p[2]) }, (_, i) => ({ height: Number(p[1]) + i, bmm: (i * (Number(p[0]) + 3)) % 4 !== 0 ? 'ab' : undefined })),
   };
 
   setTransport(async (request: BridgeRequest) => {

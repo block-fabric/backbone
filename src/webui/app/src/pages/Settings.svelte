@@ -197,15 +197,18 @@
     flex: 1;
   }
   /* The colours of each look, shown whatever the look of the app. */
-  [data-swatch='system'] .swatch span:nth-child(1) { background: #eef1f5; }
-  [data-swatch='system'] .swatch span:nth-child(2) { background: #181b20; }
-  [data-swatch='system'] .swatch span:nth-child(3) { background: #4d9fff; }
-  [data-swatch='light'] .swatch span:nth-child(1) { background: #eef1f5; }
+  [data-swatch='system'] .swatch span:nth-child(1) { background: #eef1f4; }
+  [data-swatch='system'] .swatch span:nth-child(2) { background: #1b1e22; }
+  [data-swatch='system'] .swatch span:nth-child(3) { background: #5aa6ff; }
+  [data-swatch='midnight'] .swatch span:nth-child(1) { background: #111413; }
+  [data-swatch='midnight'] .swatch span:nth-child(2) { background: #272d29; }
+  [data-swatch='midnight'] .swatch span:nth-child(3) { background: #b5f27e; }
+  [data-swatch='light'] .swatch span:nth-child(1) { background: #eef1f4; }
   [data-swatch='light'] .swatch span:nth-child(2) { background: #ffffff; }
-  [data-swatch='light'] .swatch span:nth-child(3) { background: #0a8f5e; }
-  [data-swatch='dark'] .swatch span:nth-child(1) { background: #111316; }
-  [data-swatch='dark'] .swatch span:nth-child(2) { background: #262b32; }
-  [data-swatch='dark'] .swatch span:nth-child(3) { background: #4d9fff; }
+  [data-swatch='light'] .swatch span:nth-child(3) { background: #087a52; }
+  [data-swatch='dark'] .swatch span:nth-child(1) { background: #141619; }
+  [data-swatch='dark'] .swatch span:nth-child(2) { background: #292d33; }
+  [data-swatch='dark'] .swatch span:nth-child(3) { background: #5aa6ff; }
   [data-swatch='ocean'] .swatch span:nth-child(1) { background: #04202a; }
   [data-swatch='ocean'] .swatch span:nth-child(2) { background: #123f4e; }
   [data-swatch='ocean'] .swatch span:nth-child(3) { background: #2ec4b6; }
@@ -214,7 +217,7 @@
   [data-swatch='matrix'] .swatch span:nth-child(3) { background: #00ff41; }
   [data-swatch='qdarkstyle'] .swatch span:nth-child(1) { background: #19232d; }
   [data-swatch='qdarkstyle'] .swatch span:nth-child(2) { background: #32414b; }
-  [data-swatch='qdarkstyle'] .swatch span:nth-child(3) { background: #148cd2; }
+  [data-swatch='qdarkstyle'] .swatch span:nth-child(3) { background: #1464a0; }
   input[type='range'] {
     width: 18rem;
     accent-color: var(--accent);

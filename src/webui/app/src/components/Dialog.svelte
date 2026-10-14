@@ -60,8 +60,8 @@
     max-height: calc(100vh - 3rem);
     padding: 0;
     border: 1px solid var(--line-strong);
-    border-radius: var(--radius-l);
-    background: var(--surface);
+    border-radius: var(--radius-xl);
+    background: linear-gradient(180deg, var(--card-top), transparent 10rem), var(--surface);
     color: var(--text);
     box-shadow: var(--shadow);
     overflow: hidden;

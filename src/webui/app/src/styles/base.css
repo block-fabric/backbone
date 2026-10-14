@@ -19,7 +19,12 @@ body {
 }
 
 body {
-  background: var(--bg);
+  /* The ambient light of the accent behind the page: still (no motion), under everything. */
+  background:
+    radial-gradient(60rem 36rem at 12% -12%, var(--glow), transparent 70%),
+    radial-gradient(48rem 30rem at 105% 112%, var(--glow-2), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 1rem;
@@ -44,7 +49,9 @@ h4 {
 }
 
 h1 {
-  font-size: 1.6rem;
+  font-size: 1.7rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 h2 {
   font-size: 1.2rem;
@@ -104,13 +111,18 @@ code,
   min-height: 2.3rem;
   padding: 0 0.95rem;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-s);
-  background: var(--surface);
+  border-radius: var(--radius-m);
+  background: var(--surface-2);
   color: var(--text);
   font: inherit;
   font-weight: 550;
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 120ms,
+    border-color 120ms,
+    box-shadow 160ms,
+    filter 120ms;
 }
 
 .btn:hover:not(:disabled) {
@@ -126,11 +138,114 @@ code,
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
+  box-shadow: 0 6px 18px -8px var(--accent);
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  filter: brightness(1.08) saturate(1.05);
+  box-shadow: 0 8px 24px -8px var(--accent);
+}
+
+/* The one big action of a panel: full width, the accent, an arrow at its end. */
+.btn.cta {
+  width: 100%;
+  min-height: 3.6rem;
+  justify-content: space-between;
+  padding: 0 1.4rem;
+  border: 0;
+  border-radius: var(--radius-l);
+  background: linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 86%, white));
+  color: var(--on-accent);
+  font-size: 1.2rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  box-shadow: 0 10px 30px -12px var(--accent);
+}
+
+.btn.cta:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 12px 34px -10px var(--accent);
+}
+
+/* Round icon buttons of the top bars. */
+.btn.round {
+  position: relative;
+  width: 2.35rem;
+  min-height: 2.35rem;
+  padding: 0;
+  border-radius: 999px;
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+/* A pill: a choice shown in a top bar or a card head. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+select.pill {
+  width: auto;
+  min-height: 2rem;
+  padding: 0 1.9rem 0 0.8rem;
+  border-radius: 999px;
+}
+
+/* The state of something: confirmed, pending, failed; a vote for or against. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--raised);
+  color: var(--text-muted);
+}
+
+.status::before {
+  content: '';
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status.ok {
+  background: var(--accent-soft);
+  color: var(--positive);
+}
+
+.status.wait {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.status.bad {
+  background: var(--danger-soft);
+  color: var(--negative);
+}
+
+/* The small names of the groups of a sidebar or a card. */
+.caps {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .btn.danger {
@@ -194,12 +309,23 @@ select,
 textarea {
   width: 100%;
   min-height: 2.3rem;
-  padding: 0.4rem 0.65rem;
+  padding: 0.4rem 0.7rem;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-s);
-  background: var(--surface);
+  border-radius: var(--radius-m);
+  background: var(--surface-2);
   color: var(--text);
   font: inherit;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 textarea {
@@ -231,11 +357,12 @@ input[type='radio'] {
   cursor: pointer;
 }
 
-/* Panels */
+/* Panels and cards: big soft surfaces, lit from above. */
 .panel {
-  background: var(--surface);
+  background: linear-gradient(180deg, var(--card-top), transparent 9rem), var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-m);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
 }
 
 .panel-head {
@@ -243,11 +370,11 @@ input[type='radio'] {
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.9rem 1.1rem 0.6rem;
+  padding: 1.05rem 1.3rem 0.65rem;
 }
 
 .panel-body {
-  padding: 0 1.1rem 1.1rem;
+  padding: 0 1.3rem 1.2rem;
 }
 
 .row {
@@ -292,6 +419,11 @@ input[type='radio'] {
   color: var(--accent-strong);
 }
 
+.badge.danger {
+  background: var(--danger-soft);
+  color: var(--negative);
+}
+
 kbd {
   font-family: var(--font-mono);
   font-size: 0.8em;
@@ -307,8 +439,16 @@ kbd {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+}
+
+/* Thin scroll bars in the colours of the look. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 :root[data-theme='matrix'] body {
@@ -331,16 +471,21 @@ kbd {
 
 .tabs {
   display: flex;
+  width: fit-content;
+  max-width: 100%;
   gap: 0.2rem;
   margin: 0.8rem 0 1rem;
-  border-bottom: 1px solid var(--line);
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  background: var(--surface-2);
   overflow-x: auto;
 }
 
 .tabs button {
-  padding: 0.55rem 0.9rem;
+  padding: 0.4rem 0.95rem;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-m);
   background: none;
   color: var(--text-muted);
   font: inherit;
@@ -351,7 +496,8 @@ kbd {
 
 .tabs button[aria-selected='true'] {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  background: var(--raised);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .tabs button:hover {
