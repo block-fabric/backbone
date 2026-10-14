@@ -22,7 +22,7 @@ describe('bridge requests', () => {
     setTransport(async () => {
       throw { code: -8, message: 'bad parameter' };
     });
-    const error = await request('rpc', 'x').catch((e) => e);
+    const error = (await request('rpc', 'x').catch((e) => e)) as BridgeError;
     expect(error).toBeInstanceOf(BridgeError);
     expect(error.code).toBe(-8);
     expect(error.message).toBe('bad parameter');
@@ -37,7 +37,7 @@ describe('bridge requests', () => {
     const controller = new AbortController();
     const pending = request('rpc', 'waitfornewblock', [], { signal: controller.signal });
     controller.abort();
-    const error = await pending.catch((e) => e);
+    const error = (await pending.catch((e) => e)) as BridgeError;
     expect(error.code).toBe(ErrorCode.CANCELLED);
     expect(sent[1]).toEqual({ kind: 'cancel', rid: sent[0].rid });
     // Already aborted: nothing is sent.

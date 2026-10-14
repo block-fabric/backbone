@@ -52,7 +52,7 @@ describe('the code of the interface', () => {
       else if (/\.(svelte|ts)$/.test(name) && !name.endsWith('.test.ts')) files.push(path);
     }
   };
-  walk(join(__dirname, '..'));
+  walk(join(import.meta.dirname, '..'));
 
   it('never renders text as HTML, never evaluates text as code', () => {
     expect(files.length).toBeGreaterThan(20);

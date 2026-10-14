@@ -27,6 +27,7 @@ add_test(NAME webui_tests COMMAND test_chains-app)
 # display (it also saves pictures of every page in e2e-shots).
 if(NPM_EXECUTABLE)
   add_test(NAME webui_frontend_tests COMMAND ${NPM_EXECUTABLE} test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../app)
+  add_test(NAME webui_frontend_types COMMAND ${NPM_EXECUTABLE} run check WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../app)
 endif()
 find_program(XVFB_RUN_EXECUTABLE xvfb-run)
 find_package(Python3 COMPONENTS Interpreter)

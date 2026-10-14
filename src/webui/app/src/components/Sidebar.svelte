@@ -126,9 +126,6 @@
     font-size: 0.8rem;
     font-weight: 600;
   }
-  .wallet .caption {
-    padding: 0;
-  }
   .section {
     display: flex;
     flex-direction: column;
