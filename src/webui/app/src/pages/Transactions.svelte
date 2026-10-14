@@ -98,7 +98,7 @@
 
   const columns: Column<TxRecord>[] = $derived([
     { key: 'status', label: '', value: (r) => r.sortKey, width: '2.6rem', align: 'center', noFilter: true },
-    { key: 'date', label: 'Date', value: (r) => r.time, width: '10.5rem' },
+    { key: 'date', label: 'Date', value: (r) => r.time, width: '11.5rem' },
     { key: 'type', label: 'Type', value: (r) => typeText(r.type), width: '10rem' },
     { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(14rem, 1fr)' },
     { key: 'amount', label: `Amount (${prefs.unit})`, value: (r) => r.amount, width: '12rem', align: 'end' },
