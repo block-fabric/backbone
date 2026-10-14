@@ -4,7 +4,7 @@ import { setTransport, type BridgeRequest } from '../lib/bridge';
 import { buildCommands, MENU_GROUPS, palette, searchCommands, setLayout } from '../lib/commands.svelte';
 import { closeDetail, detail } from '../lib/detail.svelte';
 import { handleShortcut } from '../lib/keyboard';
-import { AREAS, LAYOUTS, NAV_SECTIONS } from '../lib/layout';
+import { AREAS, DEFAULT_LAYOUT, LAYOUTS, NAV_SECTIONS } from '../lib/layout';
 import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
 import { app, applyPrefs, node, prefs, wallets } from '../lib/state.svelte';
 import { resetWalletData } from '../lib/walletdata.svelte';
@@ -122,12 +122,15 @@ afterEach(() => {
 
 describe('the commands', () => {
   it('keep every item of the old menu bar, in its menu', () => {
-    const all = buildCommands();
+    // Every item of the old menus is still in a menu (the menus were regrouped: chain before tools).
+    const all = buildCommands().filter((c) => (MENU_GROUPS as readonly string[]).includes(c.group));
     for (const [menu, labels] of Object.entries(OLD_MENUS)) {
-      const inMenu = all.filter((c) => c.group === menu).map((c) => c.label);
-      for (const label of labels) expect(inMenu, `${menu} → ${label}`).toContain(label);
+      for (const label of labels) expect(all.map((c) => c.label), `${menu} → ${label}`).toContain(label);
     }
-    expect(Object.keys(OLD_MENUS)).toEqual([...MENU_GROUPS]);
+    const groups = [...MENU_GROUPS] as string[];
+    expect(groups.indexOf('Chains')).toBeLessThan(groups.indexOf('Tools'));
+    const chains = all.filter((c) => c.group === 'Chains').map((c) => c.label);
+    for (const label of ['Sidechains', 'Sidechain nodes', 'Solo mine', 'Block explorer']) expect(chains).toContain(label);
   });
 
   it('reach every page, and every page is in each layout', () => {
@@ -182,7 +185,7 @@ describe('the layouts', () => {
     prefs.layout = 'workspace';
     render(Shell);
     const areas = screen.getByRole('navigation', { name: 'Areas' });
-    expect(within(areas).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Wallet', 'Chain', 'Sidechains', 'Node']);
+    expect(within(areas).getAllByRole('button').map((b) => b.textContent?.trim())).toEqual(['Wallet', 'Chain', 'Sidechains', 'Tools', 'Node']);
     const subtabs = screen.getByRole('navigation', { name: 'Wallet pages' });
     expect(within(subtabs).getByRole('button', { name: 'Overview' }).getAttribute('aria-current')).toBe('page');
     await fireEvent.click(within(areas).getByRole('button', { name: 'Node' }));
@@ -230,10 +233,43 @@ describe('the layouts', () => {
     const rail = screen.getByRole('navigation', { name: 'Pages' });
     const send = within(rail).getByRole('button', { name: 'Send' });
     expect(send.textContent?.trim()).toBe('');
-    await fireEvent.click(within(rail).getByRole('button', { name: 'Show the names of the pages' }));
+    // The toggle at the foot of the rail (the logo does the same: see below).
+    const toggles = within(rail).getAllByRole('button', { name: 'Show the names of the pages' });
+    expect(toggles.length).toBe(2);
+    await fireEvent.click(toggles[toggles.length - 1]);
     expect(prefs.sidebarExpanded).toBe(true);
     expect(within(rail).getByRole('button', { name: 'Send' }).textContent).toContain('Send');
     expect(screen.queryByRole('menubar')).toBeNull();
+  });
+
+  it('compact: the logo grows the sidebar, and shrinks it again', async () => {
+    prefs.layout = 'sidebar';
+    prefs.sidebarExpanded = false;
+    render(Shell);
+    const rail = screen.getByRole('navigation', { name: 'Pages' });
+    const logo = rail.querySelector('button.brand') as HTMLButtonElement;
+    expect(logo).not.toBeNull();
+    expect(logo.getAttribute('aria-expanded')).toBe('false');
+    await fireEvent.click(logo);
+    expect(prefs.sidebarExpanded).toBe(true);
+    expect(within(rail).getByRole('button', { name: 'Send' }).textContent).toContain('Send');
+    // The page did not change: the logo of the rail is the sidebar's switch, not a link.
+    const page = nav.page;
+    await fireEvent.click(rail.querySelector('button.brand') as HTMLButtonElement);
+    expect(prefs.sidebarExpanded).toBe(false);
+    expect(nav.page).toBe(page);
+  });
+
+  it('chain before tools, in the sidebars and the workspace', () => {
+    const titles = NAV_SECTIONS.map((s) => s.title);
+    expect(titles.indexOf('Chain')).toBeLessThan(titles.indexOf('Tools'));
+    const areas = AREAS.map((a) => a.id);
+    expect(areas.indexOf('chain')).toBeLessThan(areas.indexOf('tools'));
+    expect(areas.indexOf('sidechains')).toBeLessThan(areas.indexOf('tools'));
+  });
+
+  it('the dashboard is the default layout', () => {
+    expect(DEFAULT_LAYOUT).toBe('dashboard');
   });
 
   it('palette: type, Enter runs the first match', async () => {

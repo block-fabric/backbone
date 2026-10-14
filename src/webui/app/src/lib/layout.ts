@@ -19,7 +19,7 @@ export const LAYOUTS: readonly LayoutInfo[] = [
 ];
 
 /** The layout of a first start: the one closest to the window of chains-qt. */
-export const DEFAULT_LAYOUT: LayoutId = 'sidebar';
+export const DEFAULT_LAYOUT: LayoutId = 'dashboard';
 
 export function isLayout(value: unknown): value is LayoutId {
   return typeof value === 'string' && LAYOUTS.some((l) => l.id === value);
@@ -57,13 +57,16 @@ export function isAt(place: Place, page: PageId, tab: string): boolean {
 }
 
 export interface Area {
-  id: 'wallet' | 'chain' | 'sidechains' | 'node';
+  id: 'wallet' | 'chain' | 'sidechains' | 'tools' | 'node';
   label: string;
   icon: IconName;
   tabs: Place[];
 }
 
-/** The workspace layout: four areas, each with its sub-tabs. Every page is in one. */
+/**
+ * The workspace layout: five areas, each with its sub-tabs. Every page is in one. What concerns the
+ * chain (its explorer, mining, the sidechains) comes before the tools.
+ */
 export const AREAS: readonly Area[] = [
   {
     id: 'wallet',
@@ -75,24 +78,33 @@ export const AREAS: readonly Area[] = [
       { page: 'receive' },
       { page: 'transactions', label: 'History' },
       { page: 'addresses' },
-      { page: 'messages', label: 'Messages' },
-      { page: 'psbt', label: 'PSBT' },
       { page: 'wallets' },
-      { page: 'proof' },
-      { page: 'multisig', label: 'Multisig' },
     ],
   },
   {
     id: 'chain',
     label: 'Chain',
     icon: 'block',
-    tabs: [{ page: 'explorer', label: 'Explorer' }, { page: 'mine' }, { page: 'timestamp', label: 'Timestamp' }, { page: 'crypto' }],
+    tabs: [{ page: 'explorer', label: 'Explorer' }, { page: 'mine' }],
   },
   {
     id: 'sidechains',
     label: 'Sidechains',
     icon: 'sidechains',
     tabs: [{ page: 'sidechains' }, { page: 'sidechain-nodes' }],
+  },
+  {
+    id: 'tools',
+    label: 'Tools',
+    icon: 'hash',
+    tabs: [
+      { page: 'messages', label: 'Messages' },
+      { page: 'psbt', label: 'PSBT' },
+      { page: 'proof' },
+      { page: 'multisig', label: 'Multisig' },
+      { page: 'timestamp', label: 'Timestamp' },
+      { page: 'crypto' },
+    ],
   },
   {
     id: 'node',
@@ -127,7 +139,8 @@ export interface NavSection {
 /** The sidebars (dashboard, compact): every page, in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
   { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'addresses', 'wallets'] },
-  { title: 'Tools', pages: ['messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto'] },
+  // What concerns the chain before the tools.
   { title: 'Chain', pages: ['sidechains', 'sidechain-nodes', 'mine', 'explorer'] },
+  { title: 'Tools', pages: ['messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto'] },
   { title: 'Node', pages: ['node', 'settings', 'kit'] },
 ];

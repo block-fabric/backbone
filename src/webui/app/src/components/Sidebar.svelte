@@ -70,7 +70,17 @@
 />
 
 <nav class="sidebar" class:rail class:collapsed class:open aria-label="Pages">
-  <Brand name={!collapsed} onclick={() => visit(rail ? 'overview' : 'home')} />
+  {#if rail && !narrow}
+    <!-- In the compact layout's rail, the logo grows the sidebar (the page names), and shrinks it again. -->
+    <Brand
+      name={!collapsed}
+      expanded={prefs.sidebarExpanded}
+      label={prefs.sidebarExpanded ? 'Icons only' : 'Show the names of the pages'}
+      onclick={() => savePrefs({ sidebarExpanded: !prefs.sidebarExpanded })}
+    />
+  {:else}
+    <Brand name={!collapsed} onclick={() => visit(rail ? 'overview' : 'home')} />
+  {/if}
 
   {#if !collapsed}
     <WalletPicker />

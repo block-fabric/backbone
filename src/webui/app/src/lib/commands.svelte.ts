@@ -11,7 +11,8 @@ import { clampFontAdjust, THEMES } from './themes';
 import { UNITS } from './units';
 
 /** The menus of chains-qt, in their order, then the groups of the app. */
-export const MENU_GROUPS = ['Your wallet', 'Banking', 'Use Chains', 'Chains', 'Crypto tools', 'Window', 'This node'] as const;
+// The menus: what concerns the chain (sidechains, mining, the explorer) before the tools.
+export const MENU_GROUPS = ['Your wallet', 'Banking', 'Chains', 'Tools', 'Window', 'This node'] as const;
 export type MenuGroup = (typeof MENU_GROUPS)[number];
 export type CommandGroup = 'Go to' | MenuGroup | 'Layout' | 'Display' | 'Network';
 
@@ -106,20 +107,19 @@ export function buildCommands(): Command[] {
     { id: 'banking.multisig', group: 'Banking', label: 'Multisig lounge', run: to('multisig'), disabled: noWallet },
     { id: 'banking.psbtFile', group: 'Banking', label: 'Load PSBT from file…', run: to('psbt', 'file'), disabled: noWallet, separator: true, keywords: 'partially signed' },
     { id: 'banking.psbtClipboard', group: 'Banking', label: 'Load PSBT from clipboard…', run: to('psbt', 'clipboard'), disabled: noWallet, keywords: 'partially signed paste' },
-    // Use Chains
-    { id: 'use.timestamp', group: 'Use Chains', label: 'Timestamp file', run: to('timestamp'), keywords: 'proof of existence' },
-    { id: 'use.sign', group: 'Use Chains', label: 'Sign message…', run: to('messages', 'sign'), disabled: noWallet, separator: true },
-    { id: 'use.verify', group: 'Use Chains', label: 'Verify message…', run: to('messages', 'verify'), disabled: noWallet },
-    { id: 'use.sidechains', group: 'Use Chains', label: 'Sidechains', run: to('sidechains'), shortcut: 'Alt+5', disabled: noWallet, separator: true, keywords: 'deposit' },
-    // Chains
+    // Chains: what concerns the chain, before the tools
+    { id: 'use.sidechains', group: 'Chains', label: 'Sidechains', run: to('sidechains'), shortcut: 'Alt+5', disabled: noWallet, keywords: 'deposit' },
     { id: 'chains.nodes', group: 'Chains', label: 'Sidechain nodes', run: to('sidechain-nodes'), keywords: 'bmm merged mining start' },
     { id: 'chains.mine', group: 'Chains', label: 'Solo mine', run: to('mine') },
     { id: 'chains.proposals', group: 'Chains', label: 'Sidechain proposals and votes', run: to('sidechains', 'proposals'), disabled: noWallet, keywords: 'ack withdrawal bundle vote' },
-    // Crypto tools
-    { id: 'tools.explorer', group: 'Crypto tools', label: 'Block explorer', run: to('explorer'), keywords: 'blocks search' },
-    { id: 'tools.hash', group: 'Crypto tools', label: 'Hash calculator', run: to('crypto', 'hash'), keywords: 'sha256' },
-    { id: 'tools.merkle', group: 'Crypto tools', label: 'Merkle tree', run: to('crypto', 'merkle') },
-    { id: 'tools.address', group: 'Crypto tools', label: 'Address decoder', run: to('crypto', 'address') },
+    { id: 'tools.explorer', group: 'Chains', label: 'Block explorer', run: to('explorer'), keywords: 'blocks search' },
+    // Tools
+    { id: 'use.timestamp', group: 'Tools', label: 'Timestamp file', run: to('timestamp'), keywords: 'proof of existence' },
+    { id: 'use.sign', group: 'Tools', label: 'Sign message…', run: to('messages', 'sign'), disabled: noWallet, separator: true },
+    { id: 'use.verify', group: 'Tools', label: 'Verify message…', run: to('messages', 'verify'), disabled: noWallet },
+    { id: 'tools.hash', group: 'Tools', label: 'Hash calculator', run: to('crypto', 'hash'), keywords: 'sha256' },
+    { id: 'tools.merkle', group: 'Tools', label: 'Merkle tree', run: to('crypto', 'merkle') },
+    { id: 'tools.address', group: 'Tools', label: 'Address decoder', run: to('crypto', 'address') },
     // Window
     { id: 'window.minimize', group: 'Window', label: 'Minimize', run: () => void host.minimize().catch(() => undefined), shortcut: 'Ctrl+M' },
     { id: 'window.info', group: 'Window', label: 'Information', run: to('node', 'info'), shortcut: 'Ctrl+I', separator: true, keywords: 'node window' },

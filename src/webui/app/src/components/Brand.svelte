@@ -2,7 +2,12 @@
   // The mark of Chains, its name and the network (testnet, signet, regtest).
   import { app } from '../lib/state.svelte';
 
-  let { name = true, onclick }: { name?: boolean; onclick?: () => void } = $props();
+  let {
+    name = true,
+    onclick,
+    label = 'Chains: home',
+    expanded,
+  }: { name?: boolean; onclick?: () => void; label?: string; expanded?: boolean } = $props();
 </script>
 
 {#snippet content()}
@@ -18,7 +23,7 @@
 {/snippet}
 
 {#if onclick}
-  <button type="button" class="brand" {onclick} aria-label="Chains: home">{@render content()}</button>
+  <button type="button" class="brand" {onclick} aria-label={label} title={label} aria-expanded={expanded}>{@render content()}</button>
 {:else}
   <div class="brand">{@render content()}</div>
 {/if}

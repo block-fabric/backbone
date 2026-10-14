@@ -8,9 +8,9 @@ three: only the navigation, the menus and the frame around the page change.
 
 | Layout | Id | What it looks like |
 |--------|----|--------------------|
-| Workspace tabs | `workspace` | Four areas across the top — **Wallet**, **Chain**, **Sidechains**, **Node** — each with a strip of sub-tabs (Wallet: Overview, Send, Receive, History, Addresses, Messages, PSBT, Wallets, Proof of funds, Multisig; Chain: Explorer, Mine, Timestamp, Crypto tools; Sidechains: Sidechains, Sidechain nodes; Node: Console, Peers, Info, Traffic, Settings). The wallet selector, the palette field and a **Menus** button sit at the right of the top bar. A **detail panel** opens at the right of the page when a row is selected (a transaction in the history; blocks, peers and sidechains as their pages publish them). The status bar stays. |
-| Dashboard | `dashboard` | A **Home** of live cards: Balance (with Send / Receive), Sync and peers, Sidechains and pending bundles, Blind merged mining (blocks of the last 24 that committed to each sidechain), Mining, Recent activity, Latest blocks; a row of quick actions above them. Each card's "Open →" opens its full page; a row of a card (a transaction, a peer, a sidechain, a block) opens the detail panel. The sidebar lists every page (Home first) with the theme, the text size and the **Menus** at its foot; a light bar above the page shows where you are and the palette. On a narrow window the sidebar is a drawer. |
-| Compact sidebar | `sidebar` (default) | The window of chains-qt, refined: an icon rail with tooltips that shows the names on demand (the toggle at its foot, kept in `prefs.sidebarExpanded`); no menu bar — its items are in the pages, the rail's **Menus** button and the palette; denser pages and tables (29 px rows); the status bar. |
+| Workspace tabs | `workspace` | Five areas across the top — **Wallet**, **Chain**, **Sidechains**, **Tools**, **Node** — each with a strip of sub-tabs (Wallet: Overview, Send, Receive, History, Addresses, Wallets; Chain: Explorer, Mine; Sidechains: Sidechains, Sidechain nodes; Tools: Messages, PSBT, Proof of funds, Multisig, Timestamp, Crypto tools; Node: Console, Peers, Info, Traffic, Settings). What concerns the chain comes before the tools, here as in the sidebars and the menus. The wallet selector, the palette field and a **Menus** button sit at the right of the top bar. A **detail panel** opens at the right of the page when a row is selected (a transaction in the history; blocks, peers and sidechains as their pages publish them). The status bar stays. |
+| Dashboard | `dashboard` (default) | A **Home** of live cards: Balance (with Send / Receive), Sync and peers, Sidechains and pending bundles, Blind merged mining (blocks of the last 24 that committed to each sidechain), Mining, Recent activity, Latest blocks; a row of quick actions above them. Each card's "Open →" opens its full page; a row of a card (a transaction, a peer, a sidechain, a block) opens the detail panel. The sidebar lists every page (Home first) with the theme, the text size and the **Menus** at its foot; a light bar above the page shows where you are and the palette. On a narrow window the sidebar is a drawer. |
+| Compact sidebar | `sidebar` | The window of chains-qt, refined: an icon rail with tooltips that shows the names on demand (clicking the logo, or the toggle at its foot, grows and shrinks it; kept in `prefs.sidebarExpanded`); no menu bar — its items are in the pages, the rail's **Menus** button and the palette; denser pages and tables (29 px rows); the status bar. |
 
 Whatever the layout:
 
@@ -62,6 +62,13 @@ Every item is also in the **Menus** button of each layout (the workspace's top
 bar, the foot of each sidebar), under the name of its old menu, and in the
 **palette** (Ctrl+K) under the same name. The table says where else it lives.
 `test/layouts.test.ts` checks that each item below is a command of its menu.
+
+**Menus (user decision, 2026-10-14):** the menus are regrouped so that what concerns the chain comes
+before the tools: *Your wallet*, *Banking*, **Chains** (Sidechains, Sidechain nodes, Solo mine,
+Sidechain proposals and votes, Block explorer), **Tools** (Timestamp file, Sign message, Verify
+message, Hash calculator, Merkle tree, Address decoder), *Window*, *This node*. The table below keeps
+the menus of chains-qt as they were (first column); every item is still in a menu.
+
 
 | Old menu | Item | Command id | Workspace tabs | Dashboard | Compact sidebar |
 |---|---|---|---|---|---|
