@@ -420,6 +420,8 @@ bool App::StartNode()
     }
     // The language option is in settings.json: the page and the node follow it from now on.
     UpdateLanguage();
+    // The icon of the window in the colours of the network (NetworkStyle).
+    m_window->Post([this, network = ChainTypeToString(m_args.GetChainType())] { m_window->SetNetwork(network); });
 
     // The debug options come from the command line alone: what chains.conf says of them is ignored.
     const std::vector<std::pair<std::string, std::string>> command_line{{"-webuitestscript", m_test_script}, {"-webuitestshots", m_test_shots}, {"-webuiconfig", m_config_path}};
@@ -1337,6 +1339,20 @@ int App::Run()
     m_bridge = std::make_unique<Bridge>(
         [this](const std::string& id, int status, const std::string& json) { m_window->Reply(id, status, json); },
         [this](std::function<void()> fn) { m_window->Post(std::move(fn)); });
+    // An exception a host method did not expect: the internal error dialog of chains-qt (handleNonFatalException).
+    m_bridge->SetInternalError([this](const std::string& method, const std::string& what) {
+        LogWarning("webui: internal error in %s: %s", method, what);
+        UniValue dialog{UniValue::VOBJ};
+        dialog.pushKV("kind", "message");
+        dialog.pushKV("level", "error");
+        dialog.pushKV("title", "Internal error");
+        dialog.pushKV("message", strprintf("An internal error occurred. %s will attempt to continue safely. This is an unexpected bug which can be reported as described below.", CLIENT_NAME));
+        UniValue details{UniValue::VARR};
+        details.push_back(strprintf("%s: %s", method, what));
+        details.push_back(CLIENT_BUGREPORT);
+        dialog.pushKV("details", std::move(details));
+        m_hub->Emit("dialog", std::move(dialog));
+    });
     // The pages call the RPC methods they need, and no other (the console runs any command). A test
     // script (-webuitestscript, a debug option of the command line) drives the node itself, as the
     // console would: with it, the other methods run too, apart from the quick calls.

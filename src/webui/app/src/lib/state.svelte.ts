@@ -123,6 +123,9 @@ export interface Toast {
 }
 
 export const toasts = $state({ list: [] as Toast[] });
+
+/** The status tip of the menu item or the entry under the pointer (QAction::statusTip), shown in the status bar. */
+export const statusTip = $state({ text: '' });
 let nextToast = 1;
 
 export function toast(kind: Toast['kind'], title: string, message?: string, timeoutMs = kind === 'error' ? 9000 : 4500, actions?: Toast['actions']): number {

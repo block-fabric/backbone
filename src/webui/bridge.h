@@ -115,6 +115,13 @@ public:
     /** Where RPC calls go. Until it is set, they are answered with BRIDGE_NOT_READY. */
     void SetRpc(RpcFn rpc) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
+    /**
+     * Told of an exception a host method did not expect (not a HostError): the app shows the internal
+     * error dialog of chains-qt (handleNonFatalException). The call is answered with the error anyway.
+     */
+    using InternalErrorFn = std::function<void(const std::string& method, const std::string& what)>;
+    void SetInternalError(InternalErrorFn fn) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
     /** Set the RPC methods the page may call (RpcPolicy). */
     void SetRpcPolicy(RpcPolicy policy) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
@@ -157,6 +164,7 @@ private:
     mutable Mutex m_mutex;
     RpcFn m_rpc GUARDED_BY(m_mutex);
     RpcPolicy m_rpc_policy GUARDED_BY(m_mutex);
+    InternalErrorFn m_internal_error GUARDED_BY(m_mutex);
     struct Host {
         HostFn fn;
         Thread thread;

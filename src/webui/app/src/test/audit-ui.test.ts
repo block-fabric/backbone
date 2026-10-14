@@ -304,3 +304,16 @@ describe('the smaller findings (L2 to L10)', () => {
     toasts.list.splice(0);
   });
 });
+
+describe('the parity items finished with the audit', () => {
+  it('shows the status tip of a menu item in the status bar (C14)', async () => {
+    host({ 'tray.state': () => ({ available: false, visible: false, windowVisible: true }) });
+    render(Shell);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Your wallet' }));
+    const item = await waitFor(() => screen.getByRole('menuitem', { name: /Backup wallet/ }));
+    await fireEvent.mouseEnter(item);
+    await waitFor(() => expect(document.querySelector('.statusbar .tip')?.textContent).toBe('Backup wallet to another location'));
+    await fireEvent.mouseLeave(item);
+    await waitFor(() => expect(document.querySelector('.statusbar .tip')).toBeNull());
+  });
+});

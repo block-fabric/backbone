@@ -4,7 +4,7 @@
   import { css } from '../lib/actions';
   import { formatCount, formatTime, shortHash } from '../lib/format';
   import { host, rpc } from '../lib/rpc';
-  import { app, node, prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
+  import { app, node, prefs, savePrefs, statusTip, toast, wallets } from '../lib/state.svelte';
   import { syncStatus } from '../lib/sync';
   import { UNITS, type Unit } from '../lib/units';
   import { go, nav } from '../lib/nav.svelte';
@@ -66,7 +66,10 @@
 <footer class="statusbar">
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="sync" title={status?.detail} onclick={() => { if (status && !status.upToDate) nav.dialog = 'sync'; }}>
-    {#if busy}
+    {#if statusTip.text}
+      <!-- The status tip of the menu item under the pointer (QStatusBar::showMessage of a status tip). -->
+      <span class="label tip" role="status">{statusTip.text}</span>
+    {:else if busy}
       <span class="label">{busy.title}</span>
       <progress max="100" value={busy.progress} aria-label={busy.title}></progress>
     {:else if status && !status.upToDate}

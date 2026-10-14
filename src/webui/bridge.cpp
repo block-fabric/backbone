@@ -142,6 +142,12 @@ void Bridge::SetRpc(RpcFn rpc)
     m_rpc = std::move(rpc);
 }
 
+void Bridge::SetInternalError(InternalErrorFn fn)
+{
+    LOCK(m_mutex);
+    m_internal_error = std::move(fn);
+}
+
 void Bridge::SetRpcPolicy(RpcPolicy policy)
 {
     LOCK(m_mutex);
@@ -321,7 +327,7 @@ void Bridge::Run(const std::shared_ptr<Request>& request, const UniValue& body)
             return;
         }
         thread = host.thread;
-        work = [this, request, host, params] {
+        work = [this, request, host, params, method] {
             try {
                 const UniValue result{host.fn(*params)};
                 Reply(*request, 0, result.write());
@@ -331,6 +337,12 @@ void Bridge::Run(const std::shared_ptr<Request>& request, const UniValue& body)
                 ReplyError(*request, BRIDGE_HOST_ERROR, error.write());
             } catch (const std::exception& e) {
                 ReplyError(*request, BRIDGE_HOST_ERROR, e.what());
+                InternalErrorFn internal;
+                {
+                    LOCK(m_mutex);
+                    internal = m_internal_error;
+                }
+                if (internal) internal(method, e.what());
             }
         };
         if (host.thread == Thread::UI) {

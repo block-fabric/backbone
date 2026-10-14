@@ -202,6 +202,15 @@ public:
 
     void SetTitle(const std::string& title) override { gtk_window_set_title(GTK_WINDOW(m_window), title.c_str()); }
 
+    void SetNetwork(const std::string& network) override
+    {
+        SetIconTint(TintOf(network));
+        if (GdkPixbuf* icon{AppIcon(128)}) {
+            gtk_window_set_icon(GTK_WINDOW(m_window), icon);
+            g_object_unref(icon);
+        }
+    }
+
     void Show(bool minimized) override
     {
         gtk_widget_show_all(m_window);

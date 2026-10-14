@@ -6,6 +6,7 @@
 // QSystemTrayIcon and Notificator of chains-qt do them.
 
 #include <webui/tray_gtk.h>
+#include <webui/icontint.h>
 
 #include <logging.h>
 #include <webui/assets.h>
@@ -13,6 +14,8 @@
 #include <gtk/gtk.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -104,6 +107,17 @@ GVariant* Pixmaps()
 }
 } // namespace
 
+namespace {
+std::atomic<int> g_hue_shift{0};
+std::atomic<int> g_saturation_reduction{0};
+} // namespace
+
+void SetIconTint(IconTint tint)
+{
+    g_hue_shift = tint.hue_shift;
+    g_saturation_reduction = tint.saturation_reduction;
+}
+
 GdkPixbuf* AppIcon(int size)
 {
     const Asset* asset{FindAsset(BuiltinAssets(), "/icon-256.png")};
@@ -111,6 +125,14 @@ GdkPixbuf* AppIcon(int size)
     GInputStream* stream{g_memory_input_stream_new_from_data(asset->data.data(), asset->data.size(), nullptr)};
     GdkPixbuf* icon{gdk_pixbuf_new_from_stream_at_scale(stream, size, size, TRUE, nullptr, nullptr)};
     g_object_unref(stream);
+    // The icon of the network (NetworkStyle): testnet, signet and regtest have colours of their own.
+    const IconTint tint{g_hue_shift.load(), g_saturation_reduction.load()};
+    if (icon && !tint.None() && gdk_pixbuf_get_bits_per_sample(icon) == 8) {
+        guint length{0};
+        guchar* pixels{gdk_pixbuf_get_pixels_with_length(icon, &length)};
+        TintPixels(std::span<unsigned char>{pixels, length}, static_cast<size_t>(gdk_pixbuf_get_n_channels(icon)), static_cast<size_t>(gdk_pixbuf_get_width(icon)),
+                   static_cast<size_t>(gdk_pixbuf_get_height(icon)), static_cast<size_t>(gdk_pixbuf_get_rowstride(icon)), tint);
+    }
     return icon;
 }
 

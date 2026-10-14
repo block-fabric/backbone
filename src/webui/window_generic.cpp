@@ -57,6 +57,8 @@ public:
     void Reply(const std::string& call_id, int status, const std::string& json) override { m_webview->resolve(call_id, status, json); }
     void Eval(const std::string& script) override { m_webview->eval(script); }
     void SetTitle(const std::string& title) override { m_webview->set_title(title); }
+    // TODO(windows/macos port): the icon of the network (the window has no icon of the app yet there).
+    void SetNetwork(const std::string&) override {}
     void Show(bool) override {}
     void Present() override {}
     void Minimize() override {}

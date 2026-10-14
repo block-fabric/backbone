@@ -580,15 +580,16 @@ export interface TxFilter {
 }
 
 /** TransactionFilterProxy::filterAcceptsRow. The search looks in the address, the label and the txid. */
-const haystacks = new WeakMap<TxRecord, string>();
+// What the search looks in, lower case, made once per record: kept by the key of the record, as a new
+// block makes new record objects (their status) but not new text.
+const haystacks = new Map<string, { label: string; text: string }>();
 
-/** What the search looks in, lower case, made once per record. */
 function haystack(r: TxRecord): string {
-  let text = haystacks.get(r);
-  if (text === undefined) {
-    text = `${r.address}\n${r.label}\n${r.txid}`.toLowerCase();
-    haystacks.set(r, text);
-  }
+  const kept = haystacks.get(r.key);
+  if (kept && kept.label === r.label) return kept.text;
+  const text = `${r.address}\n${r.label}\n${r.txid}`.toLowerCase();
+  if (haystacks.size > 500_000) haystacks.clear();
+  haystacks.set(r.key, { label: r.label, text });
   return text;
 }
 

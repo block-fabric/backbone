@@ -10,6 +10,7 @@
 #include <test/util/setup_common.h>
 #include <webui/bridge.h>
 #include <webui/events.h>
+#include <webui/icontint.h>
 #include <webui/rpcpolicy.h>
 
 #include <boost/test/unit_test.hpp>
@@ -22,6 +23,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -262,6 +264,49 @@ BOOST_AUTO_TEST_CASE(secrets_are_wiped)
     BOOST_CHECK_EQUAL(answers.Wait("k").first, 0);
     BOOST_CHECK_EQUAL(seen_value, "hunter2");
     bridge.Stop();
+}
+
+BOOST_AUTO_TEST_CASE(internal_errors)
+{
+    // A17: an exception a host method did not expect shows the internal error dialog; a HostError does not.
+    Answers answers;
+    webui::Bridge bridge{answers.Fn(), NoUi, 2};
+    std::mutex mutex;
+    std::vector<std::string> internal;
+    bridge.SetInternalError([&](const std::string& method, const std::string& what) {
+        std::lock_guard lock{mutex};
+        internal.push_back(method + ": " + what);
+    });
+    bridge.RegisterHost("expected", [](const UniValue&) -> UniValue { throw webui::HostError("an error the page shows"); });
+    bridge.RegisterHost("unexpected", [](const UniValue&) -> UniValue { throw std::runtime_error("a bug"); });
+    bridge.Handle("e", Call("host", "expected", UniValue{UniValue::VOBJ}));
+    bridge.Handle("u", Call("host", "unexpected", UniValue{UniValue::VOBJ}));
+    BOOST_CHECK_EQUAL(answers.Wait("e").first, 1);
+    BOOST_CHECK_EQUAL(answers.Wait("u").first, 1);
+    bridge.Stop();
+    std::lock_guard lock{mutex};
+    BOOST_REQUIRE_EQUAL(internal.size(), 1U);
+    BOOST_CHECK_EQUAL(internal[0], "unexpected: a bug");
+}
+
+BOOST_AUTO_TEST_CASE(network_icon)
+{
+    // A08: the icon of the app in the colours of the network, as NetworkStyle tints it.
+    BOOST_CHECK(webui::TintOf("main").None());
+    BOOST_CHECK_EQUAL(webui::TintOf("regtest").hue_shift, 160);
+    BOOST_CHECK_EQUAL(webui::TintOf("test").saturation_reduction, 30);
+    BOOST_CHECK_EQUAL(webui::TintOf("signet").hue_shift, 35);
+    // A red pixel, a grey one, a transparent green one (RGBA).
+    std::vector<unsigned char> pixels{255, 0, 0, 255, 128, 128, 128, 200, 0, 255, 0, 0};
+    webui::TintPixels(pixels, 4, 3, 1, 12, webui::TintOf("main"));
+    BOOST_CHECK(pixels[0] == 255 && pixels[1] == 0);
+    webui::TintPixels(pixels, 4, 3, 1, 12, webui::TintOf("regtest"));
+    // Red turned by 160 degrees: a green-cyan, less saturated; the lightness and the alpha kept.
+    BOOST_CHECK(pixels[0] < 60 && pixels[1] > 200 && pixels[2] > 100 && pixels[2] < 200);
+    BOOST_CHECK_EQUAL(pixels[3], 255);
+    // Grey stays grey.
+    BOOST_CHECK(pixels[4] == 128 && pixels[5] == 128 && pixels[6] == 128 && pixels[7] == 200);
+    BOOST_CHECK_EQUAL(pixels[11], 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

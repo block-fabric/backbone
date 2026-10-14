@@ -2,7 +2,7 @@
   // The navigation on the left, in the sections of chains-qt: the wallet, the chain, the node, the look.
   import Icon from './Icon.svelte';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
-  import { app, prefs, savePrefs, selectWallet, wallets, walletsEnabled } from '../lib/state.svelte';
+  import { app, prefs, savePrefs, selectWallet, statusTip, wallets, walletsEnabled } from '../lib/state.svelte';
   import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
   import { narrowWindow } from '../lib/media.svelte';
   import { pendingNow } from '../lib/settingsdraft.svelte';
@@ -65,6 +65,8 @@
           aria-current={nav.page === id ? 'page' : undefined}
           disabled={page.wallet && noWallet}
           title={page.shortcut ? `${page.summary} (${page.shortcut})` : page.summary}
+          onmouseenter={() => (statusTip.text = page.summary)}
+          onmouseleave={() => (statusTip.text = '')}
           onclick={() => go(id)}
         >
           <Icon name={page.icon} size={19} />

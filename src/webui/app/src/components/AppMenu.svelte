@@ -20,6 +20,8 @@
 
 <script lang="ts">
   // The menu bar, with the menus of chains-qt. Keyboard: arrows move, Enter runs, Escape closes.
+  // The status tip of the item under the pointer, or with the focus, shows in the status bar.
+  import { statusTip } from '../lib/state.svelte';
   // The menus that do not fit in the width of the window go in a last one, "More", as groups.
   let { menus: all }: { menus: Menu[] } = $props();
 
@@ -106,6 +108,7 @@
   }
 
   function close(refocus = true) {
+    statusTip.text = '';
     const was = open;
     open = -1;
     if (refocus && was >= 0) bar?.querySelectorAll<HTMLElement>('.top')[was]?.focus();
@@ -166,6 +169,10 @@
         aria-checked={entry.checked === undefined ? undefined : entry.checked}
         disabled={entry.disabled}
         title={entry.tip}
+        onmouseenter={() => (statusTip.text = entry.tip ?? '')}
+        onmouseleave={() => (statusTip.text = '')}
+        onfocus={() => (statusTip.text = entry.tip ?? '')}
+        onblur={() => (statusTip.text = '')}
         style={depth > 0 ? `padding-left: ${0.3 + depth * 0.6}rem` : undefined}
         onclick={() => run(entry)}
       >
