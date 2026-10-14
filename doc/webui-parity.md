@@ -19,7 +19,16 @@ end-to-end wallet test (src/webui/test/e2e/wallet.js: E01–E04, E06–E10, F02,
 G07, G08, H01–H03, I01–I06, J01, J02, K01–K03, N02). The wallet functions of the
 host are tested in `test_chains-app` (walletapi_tests: the same calls as chains-qt,
 its rules and messages), the pages in `npm test` (wallet, dialogs, send page,
-transactions page).
+transactions page). The node window, the options, the tools and the sidechain nodes of
+the host are tested in `test_chains-app` (nodeapi_tests: the console with the cases of
+rpcnestedtests.cpp, the options with the rules of OptionsModel, hashes, merkle trees,
+deposit addresses, stamps, sidechain nodes with pretend programs), their pages in
+`npm test` (node-tools.test.ts, node-pages.test.ts), and all of it end to end in
+src/webui/test/e2e/node.js (run_node.py): a sidechain proposed, acked and activated,
+deposits, a withdrawal bundle voted on, the explorer, solo mining, a stamp, a proof of
+funds, a multisig spend, the crypto tools, the console, peers banned and unbanned, the
+settings and their reset, the tray and the notifications of a pretend desktop, the
+sidechain nodes.
 
 ## A. Start-up, shutdown, process
 
@@ -55,8 +64,8 @@ transactions page).
 | B05 | `chains://` rejected with "use chains: instead" | paymentserver.cpp | [x] |
 | B06 | Open URI dialog (Banking > Open URI…) | openuridialog.cpp | [x] Send page, "Open URI…" (pages/Send.svelte) |
 | B07 | URI fills the Send page, after checking the address is valid for this network | paymentserver.cpp `handleURIOrFile`, bitcoingui.cpp `handlePaymentRequest` | [x] pages/Send.svelte `pasteUri` (fills the first empty entry, checks the network) |
-| B08 | Drag and drop a URI onto the window | bitcoingui.cpp `dropEvent` | [ ] |
-| B09 | Register as the handler of `chains:` (desktop file / registry) | share/, paymentserver.cpp | [ ] |
+| B08 | Drag and drop a URI onto the window | bitcoingui.cpp `dropEvent` | [x] App.svelte `ondrop`: `chains:` links dropped on the window go to the send page (text dropped into a field stays there) |
+| B09 | Register as the handler of `chains:` (desktop file / registry) | share/, paymentserver.cpp | [~] share/chains-app.desktop (installed on Linux with `MimeType=x-scheme-handler/chains`); the registry of Windows and Info.plist of macOS come with those ports |
 | B10 | A second start without URI brings the running window to the front (Qt fails on the datadir lock) | (improvement) | [x] |
 
 ## C. Main window, navigation, menus, shortcuts
@@ -64,18 +73,18 @@ transactions page).
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
 | C01 | Sidebar: Wallet (Overview, Send, Receive, Transactions), Chain (Sidechains, Sidechain Nodes, Mine, Block Explorer), Node (Node Window, Settings), Theme | bitcoingui.cpp `createToolBars` | [x] shell; pages land in later phases |
-| C02 | Shortcuts Alt+1..5 for the pages, Ctrl+Q quit, Ctrl+Shift+C console, Ctrl+Shift+D node window, Ctrl+Shift+M mask values, Ctrl+M minimize, Ctrl+W closes a dialog, Ctrl+/Ctrl- font size | bitcoingui.cpp, guiutil.cpp | [~] page, quit, console, mask, font, Esc closes dialogs; Ctrl+M later |
+| C02 | Shortcuts Alt+1..5 for the pages, Ctrl+Q quit, Ctrl+Shift+C console, Ctrl+Shift+D node window, Ctrl+Shift+M mask values, Ctrl+M minimize, Ctrl+W closes a dialog, Ctrl+/Ctrl- font size | bitcoingui.cpp, guiutil.cpp | [x] pages, quit, console, node window and its tabs (Ctrl+I/T/N/P), mask, Ctrl+M, font size, Esc closes dialogs (lib/keyboard.ts) |
 | C03 | Menu "Your Wallet": create, open (list of wallets on disk), close, close all, migrate (list + restore-and-migrate a file), sending addresses, receiving addresses, backup, restore, export watch-only, encrypt, change passphrase, mask values | bitcoingui.cpp `createMenuBar`, `createActions` | [x] views/Shell.svelte menu → pages/Wallets.svelte, pages/Addresses.svelte |
-| C04 | Menu "Banking": send, receive, transactions, open URI, proof of funds, multisig lounge, load PSBT from file, from clipboard | bitcoingui.cpp | [~] send, receive, transactions, open URI, PSBT from file/clipboard done (pages/Psbt.svelte); proof of funds and multisig lounge later |
-| C05 | Menu "Use Chains": timestamp file, sign message, verify message, sidechains | bitcoingui.cpp | [~] sign and verify message done (pages/Messages.svelte); timestamp and sidechains later |
-| C06 | Menu "Chains": sidechain nodes, solo mine, sidechain proposals and votes | bitcoingui.cpp | [~] menu present |
-| C07 | Menu "Crypto Tools": block explorer, hash calculator, merkle tree, address decoder | bitcoingui.cpp | [~] menu present |
-| C08 | Menu "Window": minimize, (macOS zoom, main window), node window tabs with their shortcuts | bitcoingui.cpp | [~] |
-| C09 | Menu "This Node": node window, options, theme (looks + custom…), font size +/-, command-line options, about, quit | bitcoingui.cpp | [~] about/help/quit/theme/font done |
+| C04 | Menu "Banking": send, receive, transactions, open URI, proof of funds, multisig lounge, load PSBT from file, from clipboard | bitcoingui.cpp | [x] send, receive, transactions, open URI, PSBT from file/clipboard (pages/Psbt.svelte), proof of funds (pages/Proof.svelte), multisig lounge (pages/Multisig.svelte) |
+| C05 | Menu "Use Chains": timestamp file, sign message, verify message, sidechains | bitcoingui.cpp | [x] timestamp file (pages/Timestamp.svelte), sign and verify message (pages/Messages.svelte), sidechains (pages/Sidechains.svelte) |
+| C06 | Menu "Chains": sidechain nodes, solo mine, sidechain proposals and votes | bitcoingui.cpp | [x] sidechain nodes (pages/SidechainNodes.svelte), solo mine (pages/Mine.svelte), proposals and withdrawal votes (pages/Sidechains.svelte) |
+| C07 | Menu "Crypto Tools": block explorer, hash calculator, merkle tree, address decoder | bitcoingui.cpp | [x] block explorer (pages/Explorer.svelte), hash calculator, merkle tree, address decoder (pages/Crypto.svelte) |
+| C08 | Menu "Window": minimize, (macOS zoom, main window), node window tabs with their shortcuts | bitcoingui.cpp | [x] minimize, the node window tabs with their shortcuts; the zoom and main-window items of macOS come with that port |
+| C09 | Menu "This Node": node window, options, theme (looks + custom…), font size +/-, command-line options, about, quit | bitcoingui.cpp | [x] node window, options, sync status, theme, font size, command-line options, about, quit |
 | C10 | Wallet selector when more than one wallet is loaded | bitcoingui.cpp `m_wallet_selector` | [x] |
 | C11 | Window title: client name, network, current wallet | bitcoingui.cpp `updateWindowTitle` | [x] |
-| C12 | Actions enabled only with a wallet loaded; history disabled in privacy mode | bitcoingui.cpp `setWalletActionsEnabled`, `enableHistoryAction` | [~] |
-| C13 | Remember the window geometry | bitcoingui.cpp `MainWindowGeometry` | [ ] |
+| C12 | Actions enabled only with a wallet loaded; history disabled in privacy mode | bitcoingui.cpp `setWalletActionsEnabled`, `enableHistoryAction` | [x] wallet actions disabled without a wallet, transactions disabled in privacy mode (views/Shell.svelte) |
+| C13 | Remember the window geometry | bitcoingui.cpp `MainWindowGeometry` | [x] size and maximized state kept in chains-app.json (`window`), restored at the next start (app.cpp, window_gtk.cpp) |
 | C14 | Status tips of every action (shown in the status bar on hover) | bitcoingui.cpp | [~] titles/tooltips |
 | C15 | About dialog (version, licence) and command-line options dialog | utilitydialog.cpp `HelpMessageDialog` | [x] |
 | C16 | Themed window frame with the menus in the title bar | themedframe.cpp | [ ] (webview window keeps the desktop frame; menus are in the app bar) |
@@ -85,16 +94,16 @@ transactions page).
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
 | D01 | Unit selector in the status bar (click to choose CHN, mCHN, µCHN, sat) | bitcoingui.cpp `UnitDisplayStatusBarControl` | [x] |
-| D02 | HD and encryption status icons of the current wallet (locked / unlocked) | bitcoingui.cpp `setHDStatus`, `setEncryptionStatus` | [~] encryption in the status bar; HD and lock state on pages/Wallets.svelte |
-| D03 | Proxy icon when a proxy is used | bitcoingui.cpp `updateProxyIcon` | [ ] |
+| D02 | HD and encryption status icons of the current wallet (locked / unlocked) | bitcoingui.cpp `setHDStatus`, `setEncryptionStatus` | [x] components/StatusBar.svelte: HD (on / off) and the lock of an encrypted wallet (locked / unlocked), watch-only |
+| D03 | Proxy icon when a proxy is used | bitcoingui.cpp `updateProxyIcon` | [x] components/StatusBar.svelte: an icon with "Proxy is enabled: <ip:port>" when IPv4 peers are reached through a proxy (getnetworkinfo) |
 | D04 | Connections icon with peer count; menu: show peers tab, enable/disable network activity | bitcoingui.cpp `updateNetworkState`, `setNetworkActive` | [x] |
 | D05 | Sync icon and label: connecting, syncing headers (%), pre-syncing headers, processing blocks on disk, reindexing, "x behind", up to date | bitcoingui.cpp `setNumBlocks`, `updateHeadersSyncProgressLabel` | [x] |
 | D06 | Progress bar for long operations (rescan, wallet load) via `showProgress` | bitcoingui.cpp `showProgress` | [x] |
-| D07 | Modal sync overlay: blocks left, last block time, progress, progress per hour, estimated time; hide; opened from the out-of-sync warning | modaloverlay.cpp | [~] sync label, progress and "behind" in the status bar; the overlay with its estimate later |
+| D07 | Modal sync overlay: blocks left, last block time, progress, progress per hour, estimated time; hide; opened from the out-of-sync warning | modaloverlay.cpp | [x] components/SyncOverlay.svelte (lib/syncoverlay.ts: blocks left, last block time, progress, per hour, time left), from the out-of-sync warning, the sync label and This node → Sync status |
 | D08 | Message boxes from the node (`ThreadSafeMessageBox`, `ThreadSafeQuestion`), errors, warnings | bitcoingui.cpp `message`, `ThreadSafeMessageBox` | [x] |
-| D09 | Desktop notification for incoming and sent transactions (date, amount, wallet, type, label, address) | bitcoingui.cpp `incomingTransaction`, notificator.cpp | [~] notices in the window for new transactions (components/TxNotifier.svelte: date, amount, type, wallet, label/address; many make one); desktop notifications with the tray |
+| D09 | Desktop notification for incoming and sent transactions (date, amount, wallet, type, label, address) | bitcoingui.cpp `incomingTransaction`, notificator.cpp | [x] components/TxNotifier.svelte → `app.notify` → org.freedesktop.Notifications over D-Bus (tray_gtk.cpp `DesktopNotify`, with the icon and the urgency of Notificator); none during IBD; many make one; tested with a pretend desktop (e2e/fake_desktop.py) |
 | D10 | Alerts / warnings from the node (`getWarnings`) | clientmodel.cpp | [x] |
-| D11 | Tray icon with menu (show/hide, send, receive, sign, verify, options, node window, quit); minimize to tray; click toggles | bitcoingui.cpp `createTrayIcon`, `createTrayIconMenu` | [ ] |
+| D11 | Tray icon with menu (show/hide, send, receive, sign, verify, options, node window, quit); minimize to tray; click toggles | bitcoingui.cpp `createTrayIcon`, `createTrayIconMenu` | [x] tray_gtk.cpp: StatusNotifierItem with a com.canonical.dbusmenu menu (show/hide, send, receive, sign, verify, options, node window, quit), the XEmbed tray of GTK where there is no StatusNotifierWatcher; a click shows or hides the window; minimize to the tray, minimize on close (Settings → Window); tested with a pretend desktop |
 | D12 | Out-of-sync warning labels on overview and send | overviewpage.cpp, walletview.cpp | [x] pages/Overview.svelte, pages/Send.svelte |
 
 ## E. Wallet management
@@ -120,7 +129,7 @@ transactions page).
 |----|----------|-----------|--------|
 | F01 | Balances: available, pending, immature, total | overviewpage.cpp, forms/overviewpage.ui | [x] |
 | F02 | Recent transactions of the wallet, click opens transactions | overviewpage.cpp, transactionoverviewwidget.cpp | [x] pages/Overview.svelte (5 latest; a click opens the transactions with it selected); and a balance chart (components/BalanceChart.svelte) |
-| F03 | Latest blocks and latest mempool transactions of the chain; double click opens the block explorer | chainactivity.cpp | [~] latest blocks; mempool transactions and the explorer link later |
+| F03 | Latest blocks and latest mempool transactions of the chain; double click opens the block explorer | chainactivity.cpp | [x] pages/Overview.svelte: latest blocks and latest mempool transactions (only new ones looked up, as ChainActivity); a click opens the block explorer |
 | F04 | Out-of-sync warning, click shows the sync overlay | overviewpage.cpp | [x] pages/Overview.svelte (opens the node window until the sync overlay comes) |
 | F05 | Privacy mode masks the amounts | overviewpage.cpp `setPrivacy` | [x] |
 
@@ -151,7 +160,7 @@ transactions page).
 |----|----------|-----------|--------|
 | I01 | Table: status, date, type, label/address, amount; sortable; large histories | transactionview.cpp, transactiontablemodel.cpp | [x] pages/Transactions.svelte (records decomposed as TransactionRecord, src/webui/walletapi.cpp `wallet.transactions`; status ring, brackets for amounts that do not count yet) |
 | I02 | Filters: date (today, week, month, last month, year, range), type, search (address, txid, label), min amount | transactionview.cpp, transactionfilterproxy.cpp | [x] pages/Transactions.svelte, lib/wallet.ts `dateRange`/`filterRecords`; plus totals of what is shown |
-| I03 | Context menu: copy address, label, amount, txid, raw tx, full details; edit label; details; bump fee; abandon; show in third-party explorer | transactionview.cpp | [~] pages/Transactions.svelte context menu (all copies, details, bump, abandon, edit label); the third-party explorer links come with the options |
+| I03 | Context menu: copy address, label, amount, txid, raw tx, full details; edit label; details; bump fee; abandon; show in third-party explorer | transactionview.cpp | [x] pages/Transactions.svelte context menu (all copies, details, bump, abandon, edit label, show in the block explorer, third-party explorer links of Settings → Display) |
 | I04 | Transaction details dialog (status, date, from/to, credit/debit, fee, sizes, inputs, debug) | transactiondesc.cpp, transactiondescdialog.cpp | [x] components/TxDetailsDialog.svelte, src/webui/walletapi.cpp `Describe` (TransactionDesc, debug section when logging) |
 | I05 | Export to CSV | transactionview.cpp `exportClicked` | [x] pages/Transactions.svelte, lib/wallet.ts `transactionsCsv` (columns and quoting of CSVModelWriter) |
 | I06 | Increase fee (bumpfee, PSBT for watch-only) | walletmodel.cpp `bumpFee` | [x] lib/txactions.ts `bumpFee` (confirmation, unsigned PSBT copied), src/webui/walletapi.cpp `wallet.bump.*` |
@@ -175,37 +184,37 @@ transactions page).
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| L01 | Sidechains tab: active sidechains (slot, title, description, escrow, active since); deposit to a sidechain with deposit address validation (slot, checksum, sidechain match) | sidechainpage.cpp | [ ] |
-| L02 | Proposals tab: proposals in the chain (score, age, acks, acked by this node); ack / stop acking / remove; propose a sidechain (slot, title, description, hashes, replaces) | sidechainpage.cpp | [ ] |
-| L03 | Withdrawals tab: pending bundles (slot, hash, score, blocks left, payable, failures); vote upvote / downvote / abstain / default | sidechainpage.cpp | [ ] |
-| L04 | Sidechain Nodes window: built-in and added sidechains; locate programs, download a release with hash check, add/remove; start/stop node, start wallet window; auto mining on/off; mine one block with a fee; log | sidechainnodes.cpp | [ ] |
-| L05 | Solo mine: address (new from wallet), threads, start/stop, status, hash rate, network stats; remembered address and threads | miningdialog.cpp | [ ] |
-| L06 | Block explorer: search by height/hash/txid, blocks list, block details, transaction details, waiting transactions (mempool) | blockexplorer.cpp | [ ] |
-| L07 | Timestamp file: fingerprint, stamp (publish), find the stamp in the last N blocks | timestampdialog.cpp | [ ] |
-| L08 | Proof of funds: create (statement, sign with every funded address), copy, check (valid / partly / not) against the chain | proofoffundsdialog.cpp | [ ] |
-| L09 | Multisig lounge: keys (partners, own keys), shared addresses (create, import descriptor, balances, copy), spend (prepare, sign, pass PSBT, broadcast) | multisigdialog.cpp | [ ] |
-| L10 | Crypto tools: hash calculator, merkle tree (from txids or a block), address decoder | cryptotoolsdialog.cpp | [ ] |
+| L01 | Sidechains tab: active sidechains (slot, title, description, escrow, active since); deposit to a sidechain with deposit address validation (slot, checksum, sidechain match) | sidechainpage.cpp | [x] pages/Sidechains.svelte: the slots (an overview of the 256), the active sidechains with their escrow and their latest deposits, the deposit form with the checks of a deposit address (`drivechain.depositAddress`: slot, checksum, a plain destination questioned), confirmation, unlock for the call |
+| L02 | Proposals tab: proposals in the chain (score, age, acks, acked by this node); ack / stop acking / remove; propose a sidechain (slot, title, description, hashes, replaces) | sidechainpage.cpp | [x] pages/Sidechains.svelte "Proposals": proposals in the chain with a bar of their acks, failures, blocks left, replacement, ack of this node; ack / stop acking; queued proposals and remove; the propose form with its checks |
+| L03 | Withdrawals tab: pending bundles (slot, hash, score, blocks left, payable, failures); vote upvote / downvote / abstain / default | sidechainpage.cpp | [x] pages/Sidechains.svelte "Withdrawals": bundles with a bar of their score out of the minimum (red when they cannot make it), blocks left, payable, known, vote of this node, payouts and fee; upvote / downvote / abstain / default; the default vote of this node |
+| L04 | Sidechain Nodes window: built-in and added sidechains; locate programs, download a release with hash check, add/remove; start/stop node, start wallet window; auto mining on/off; mine one block with a fee; log | sidechainnodes.cpp | [x] src/webui/sidechainnodes.cpp + pages/SidechainNodes.svelte: built-in and added sidechains, locate (folder chooser), download with a hash check (curl, tar; https/http only), add/remove, start node (detached, sharing no descriptors) / wallet window / stop, status (blocks, follows this node, mining), auto mining on/off, mine one block for a fee, the end of the log |
+| L05 | Solo mine: address (new from wallet), threads, start/stop, status, hash rate, network stats; remembered address and threads | miningdialog.cpp | [x] pages/Mine.svelte: address (new from the wallet), threads, start/stop, status, hash rate, expected time per block, blocks found (and not accepted), network figures; address and threads remembered |
+| L06 | Block explorer: search by height/hash/txid, blocks list, block details, transaction details, waiting transactions (mempool) | blockexplorer.cpp | [x] pages/Explorer.svelte: search by height, block hash or transaction id; the latest N blocks; waiting transactions; a block (facts, previous/next, its transactions) and a transaction (inputs, outputs, status), with their raw JSON |
+| L07 | Timestamp file: fingerprint, stamp (publish), find the stamp in the last N blocks | timestampdialog.cpp | [x] pages/Timestamp.svelte + `timestamp.hashFile`/`timestamp.search`: fingerprint of a chosen file, stamp (send with an OP_RETURN "STAMP"+hash), the oldest stamp found in the last N blocks, with progress and Stop |
+| L08 | Proof of funds: create (statement, sign with every funded address), copy, check (valid / partly / not) against the chain | proofoffundsdialog.cpp | [x] pages/Proof.svelte: create (statement signed by every funded address, the wallet unlocked once), copy, check (valid / partly / not, coins on the addresses now with scantxoutset) |
+| L09 | Multisig lounge: keys (partners, own keys), shared addresses (create, import descriptor, balances, copy), spend (prepare, sign, pass PSBT, broadcast) | multisigdialog.cpp | [x] pages/Multisig.svelte: keys (own keys with their paths, partners), shared addresses (sortedmulti, from a descriptor, balances, copy), spend (prepare in exact satoshis, sign, pass the PSBT, broadcast) |
+| L10 | Crypto tools: hash calculator, merkle tree (from txids or a block), address decoder | cryptotoolsdialog.cpp | [x] pages/Crypto.svelte + `tools.*` (src/webui/nodeapi.cpp: the hashes, merkle levels and Base58Check/Bech32 decoding of CryptoToolsDialog) |
 
 ## M. Node window
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| M01 | Information: client version, user agent, datadir, blocksdir, startup time, network, connections, chain, blocks, last block time, mempool, wallet, debug log open | rpcconsole.cpp, forms/debugwindow.ui | [~] all but blocksdir and opening the debug log |
-| M02 | Console: commands with history, wallet selector, help-console, nested commands and parentheses syntax, font size, clear, sensitive command filtering in history | rpcconsole.cpp `RPCExecutor`, `RPCParseCommandLine` | [ ] (bridge ready) |
-| M03 | Network traffic graph with time ranges and totals | trafficgraphwidget.cpp | [ ] |
-| M04 | Peers table and detail panel (all fields of the Qt view); context menu copy address, disconnect, ban 1h/1d/1w/1y | rpcconsole.cpp, peertablemodel.cpp | [ ] |
-| M05 | Banned peers table: copy, unban | rpcconsole.cpp, bantablemodel.cpp | [ ] |
+| M01 | Information: client version, user agent, datadir, blocksdir, startup time, network, connections, chain, blocks, last block time, mempool, wallet, debug log open | rpcconsole.cpp, forms/debugwindow.ui | [x] pages/NodeWindow.svelte: also blocksdir, the mempool from its events, alerts, and the debug log opened with the application of the desktop (`app.open`) |
+| M02 | Console: commands with history, wallet selector, help-console, nested commands and parentheses syntax, font size, clear, sensitive command filtering in history | rpcconsole.cpp `RPCExecutor`, `RPCParseCommandLine` | [x] components/ConsoleView.svelte + src/webui/console.cpp (RPCParseCommandLine and RPCExecutor without Qt): history (arrows, sensitive commands filtered), completion of command names (Tab), wallet selector, help-console, nested commands and queries, font size, clear (Ctrl+L), `stop` while a command runs |
+| M03 | Network traffic graph with time ranges and totals | trafficgraphwidget.cpp | [x] components/TrafficGraph.svelte, lib/traffic.svelte.ts: rates in and out from the `traffic` events (1 s), range 5 min to 24 h, totals, Clear |
+| M04 | Peers table and detail panel (all fields of the Qt view); context menu copy address, disconnect, ban 1h/1d/1w/1y | rpcconsole.cpp, peertablemodel.cpp | [x] components/PeersView.svelte: the peers (getpeerinfo) with every field of the detail panel of Qt; menu copy address, disconnect, ban 1 h / 1 d / 1 w / 1 y (`peers.ban`: the address of the peer, as banSelectedNode) |
+| M05 | Banned peers table: copy, unban | rpcconsole.cpp, bantablemodel.cpp | [x] components/PeersView.svelte: banned peers (listbanned), copy, unban (`bans.unban`) |
 
 ## N. Options
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| N01 | Main: start on system login, prune and size, database cache, script verification threads, open configuration file, overridden-by-command-line list | optionsdialog.cpp, optionsmodel.cpp | [ ] |
+| N01 | Main: start on system login, prune and size, database cache, script verification threads, open configuration file, overridden-by-command-line list | optionsdialog.cpp, optionsmodel.cpp | [x] pages/Settings.svelte "Main" + src/webui/options.cpp (rules of OptionsModel): start on login (autostart entry), prune and size (prune-prev), dbcache, par, RPC server, open the configuration file, the options overridden on the command line |
 | N02 | Wallet: coin control, spend unconfirmed change, PSBT controls, subtract fee by default, external signer path | optionsdialog.cpp | [x] pages/Settings.svelte "Wallet" (coin control, spend unconfirmed change and signer path in settings.json, PSBT controls, subtract fee by default) |
-| N03 | Network: map port (PCP/NAT-PMP), listen, RPC server, SOCKS5 proxy, separate Tor proxy, reachable networks | optionsdialog.cpp | [ ] |
-| N04 | Window: show tray icon, minimize to tray, minimize on close | optionsdialog.cpp | [ ] |
-| N05 | Display: language, unit, third-party tx URLs, money font, colours, font, size, themed frame | optionsdialog.cpp, theme.cpp | [~] unit, colours, font size done |
-| N06 | Reset options (restarts), restart-required notice, settings in settings.json as Qt does | optionsdialog.cpp, optionsmodel.cpp | [ ] (host settings API ready) |
+| N03 | Network: map port (PCP/NAT-PMP), listen, RPC server, SOCKS5 proxy, separate Tor proxy, reachable networks | optionsdialog.cpp | [x] pages/Settings.svelte "Network": map port (natpmp, at once), listen, SOCKS5 proxy and separate Tor proxy (proxy-prev, onion-prev, addresses checked as ProxyAddressValidator), the networks the proxy is used for |
+| N04 | Window: show tray icon, minimize to tray, minimize on close | optionsdialog.cpp | [x] pages/Settings.svelte "Window": show tray icon, minimize to the tray, minimize on close (kept in the preferences of the app, used by the host) |
+| N05 | Display: language, unit, third-party tx URLs, money font, colours, font, size, themed frame | optionsdialog.cpp, theme.cpp | [~] pages/Settings.svelte "Display": unit, third-party transaction URLs, font of amounts (embedded or the monospaced one of the system), colours, a font apart from them, size; the language is kept in settings.json as Qt does, but the interface is English only; the themed frame with C16 |
+| N06 | Reset options (restarts), restart-required notice, settings in settings.json as Qt does | optionsdialog.cpp, optionsmodel.cpp | [x] Reset Options (settings.json backed up and reset, the settings of the app backed up to guisettings.json.bak and cleared, the intro next time, the app shuts down); the restart-required notice, and "Restart now" (the app starts again with its options) |
 
 ## T. Themes and look
 
@@ -214,4 +223,4 @@ transactions page).
 | T01 | Looks: system, Light, Dark, Ocean Teal, Matrix Green, Dark (classic Drivechain) | theme.cpp `THEMES` | [x] |
 | T02 | Look selector in the sidebar and the menu; saved and applied at once | bitcoingui.cpp, theme.cpp | [x] |
 | T03 | Font family per look and a size adjustment (-6..+12) | theme.cpp `SaveFont` | [x] |
-| T04 | Custom combination of colours and font | optionsdialog.cpp | [ ] |
+| T04 | Custom combination of colours and font | optionsdialog.cpp | [x] Settings → Display: any colours with any font (Inter, Nunito, JetBrains Mono, the font of the desktop), lib/themes.ts `FONTS` |

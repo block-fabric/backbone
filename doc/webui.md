@@ -44,6 +44,24 @@ App, on a thread of its own: intro, configuration, init, then shutdown
   locked again after it (UnlockContext); the page asks for the passphrase when
   a call answers -13. Files (backups, PSBTs, CSV exports, QR pictures) are
   only the ones the user chose in the file chooser of the desktop.
+* **The node window, the options and the tools** (nodeapi.cpp, console.cpp,
+  options.cpp): the console runs RPCParseCommandLine and RPCExecutor of
+  chains-qt without Qt (nesting, queries, the history filter of sensitive
+  commands); peers are banned and unbanned as RPCConsole does; the options of
+  the node follow OptionsModel (settings.json, `proxy-prev`/`prune-prev`, the
+  numbers written as strings, the restart flag, the options overridden on the
+  command line, the autostart entry); the hash calculator, merkle trees,
+  Base58Check/Bech32 decoding, deposit addresses and file stamps are host
+  methods. `app.restart` stops the app and starts it again with its options.
+* **Sidechain nodes** (sidechainnodes.cpp): the window of chains-qt that runs the
+  nodes of sidechains. Only programs in a folder the user chose (or a download
+  checked by its SHA-256) are run, and only `<stem>d`, `<stem>-cli`, `<stem>-qt`;
+  nodes start detached, sharing no descriptors with the app.
+* **Tray and notifications** (tray_gtk.cpp): a StatusNotifierItem with a
+  com.canonical.dbusmenu menu on the session bus, registered with the
+  StatusNotifierWatcher of the desktop (the XEmbed tray of GTK where there is
+  none); notifications go to org.freedesktop.Notifications. The window keeps its
+  size, minimizes to the tray and on close as the options say.
 * **The interface** (src/webui/app): Svelte 5, TypeScript, Vite. Built by
   CMake through npm, embedded in the binary (cmake/embed.cmake) and served
   from `chains-app://app/` with a content security policy that allows nothing
@@ -93,11 +111,24 @@ Debug options: `-webuidevtools` (web inspector), `-webuiconfig=<file>`,
   messages, the address book, backups and a restore, coin control; pictures of
   every wallet page.
 
+* `src/webui/test/e2e/run_node.py` (same arguments; needs dbus-daemon, Python
+  with GObject introspection, and chainsd next to chains-app): the node and Chains
+  pages on regtest, on a private session bus where a pretend desktop
+  (fake_desktop.py) has a tray and a notification service, with a second node
+  as a peer: a sidechain proposed, acked and activated, deposits, a withdrawal
+  bundle voted on, the block explorer, solo mining, a stamped file, a proof of
+  funds, a multisig spend, the crypto tools, the console, peers banned and
+  unbanned, the traffic, the settings, the tray menu and notifications, the
+  sidechain nodes (with pretend programs), and at the end the reset of the
+  options; pictures of every page in light and dark.
+
 All are CTest tests (`webui_tests`, `webui_frontend_tests`,
-`webui_frontend_types`, `webui_e2e_smoke`, `webui_e2e_wallet`).
+`webui_frontend_types`, `webui_e2e_smoke`, `webui_e2e_wallet`, `webui_e2e_node`).
 
 ## Credits
 
-The menus and pages follow chains-qt. The classic dark theme takes its colours
+The menus and pages follow chains-qt. The tray speaks the StatusNotifierItem
+and dbusmenu protocols, and the notifications the Desktop Notifications
+specification (freedesktop.org); no code of other projects is in them. The classic dark theme takes its colours
 from QDarkStyleSheet (MIT), as chains-qt does. Fonts: Inter, Nunito, JetBrains
 Mono (SIL Open Font License 1.1). webview/webview: MIT.

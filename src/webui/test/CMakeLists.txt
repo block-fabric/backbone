@@ -51,5 +51,17 @@ if(XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
         --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
     )
     set_tests_properties(webui_e2e_wallet PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+    # The node and Chains pages, with a pretend desktop (tray, notifications) on a private session
+    # bus and a second node as a peer (also saves pictures of these pages in e2e-shots).
+    find_program(DBUS_DAEMON_EXECUTABLE dbus-daemon)
+    if(DBUS_DAEMON_EXECUTABLE)
+      add_test(NAME webui_e2e_node
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_node.py
+          --app $<TARGET_FILE:chains-app>
+          --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-node
+          --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+      )
+      set_tests_properties(webui_e2e_node PROPERTIES TIMEOUT 2000 RUN_SERIAL TRUE)
+    endif()
   endif()
 endif()
