@@ -20,6 +20,7 @@
     onactivate,
     oncontext,
     cell,
+    fit = false,
   }: {
     rows: readonly T[];
     columns: readonly Column<T>[];
@@ -34,6 +35,8 @@
     onactivate?: (row: T) => void;
     oncontext?: (row: T, event: MouseEvent) => void;
     cell?: Snippet<[T, Column<T>]>;
+    /** The columns share the width of the table (a narrow window): no scrolling sideways, long text cut. */
+    fit?: boolean;
   } = $props();
 
   let scroller: HTMLDivElement | undefined = $state();
@@ -106,6 +109,7 @@
 
 <div
   class="table"
+  class:fit
   role="grid"
   aria-label={label}
   aria-rowcount={shown.length + 1}
@@ -260,6 +264,14 @@
   .cell.mono {
     font-family: var(--font-mono);
     font-size: 0.88rem;
+  }
+  .fit .head,
+  .fit .body,
+  .fit .dt-row {
+    min-width: 0;
+  }
+  .fit {
+    overflow-x: hidden;
   }
   .empty {
     padding: 2rem 1rem;

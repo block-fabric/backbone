@@ -125,8 +125,8 @@
       ? [
           { key: 'status', label: '', value: (r) => r.sortKey, width: '2.2rem', align: 'center', noFilter: true },
           { key: 'date', label: 'Date', value: (r) => r.time, width: '8.6rem' },
-          { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(6rem, 1fr)' },
-          { key: 'amount', label: `Amount (${prefs.unit})`, value: (r) => r.amount, width: 'minmax(7.5rem, auto)', align: 'end' },
+          { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(0, 1fr)' },
+          { key: 'amount', label: `Amount (${prefs.unit})`, value: (r) => r.amount, width: '9.5rem', align: 'end' },
         ]
       : [
           { key: 'status', label: '', value: (r) => r.sortKey, width: '2.6rem', align: 'center', noFilter: true },
@@ -263,6 +263,7 @@
           bind:sortKey
           bind:sortDir
           label="Transactions"
+          fit={narrow}
           empty={current.recordsLoaded ? 'No transactions yet' : 'Loading…'}
           onactivate={(r) => (details = r)}
           oncontext={(r, e) => openMenu(r, e)}

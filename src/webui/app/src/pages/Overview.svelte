@@ -234,7 +234,7 @@
                     <span class="addr" class:muted={!r.label} translate="no">{addressText(r)}</span>
                     <span class="faint small">{typeText(r.type) || 'Other'} · {formatTime(r.time)}</span>
                   </span>
-                  <span class:pending={!r.countsForBalance}><Amount sats={r.amount} colored plus /></span>
+                  <span class:pending={!r.countsForBalance} title={r.countsForBalance ? undefined : 'Not counted in the balance yet'}><Amount sats={r.amount} colored plus /></span>
                 </button>
               </li>
             {/each}
@@ -362,8 +362,9 @@
   .small {
     font-size: 0.82rem;
   }
+  /* Not counted in the balance yet: in italics (a faded amount was too faint to read). */
   .pending {
-    opacity: 0.6;
+    font-style: italic;
   }
   .figures {
     display: flex;
