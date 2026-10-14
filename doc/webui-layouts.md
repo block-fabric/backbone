@@ -9,7 +9,7 @@ three: only the navigation, the menus and the frame around the page change.
 | Layout | Id | What it looks like |
 |--------|----|--------------------|
 | Workspace tabs | `workspace` | Five areas across the top — **Wallet**, **Chain**, **Sidechains**, **Tools**, **Node** — each with a strip of sub-tabs (Wallet: Overview, Send, Receive, History, Addresses, Wallets; Chain: Explorer, Mine; Sidechains: Sidechains, Sidechain nodes; Tools: Messages, PSBT, Proof of funds, Multisig, Timestamp, Crypto tools; Node: Console, Peers, Info, Traffic, Settings). What concerns the chain comes before the tools, here as in the sidebars and the menus. The wallet selector, the palette field and a **Menus** button sit at the right of the top bar. A **detail panel** opens at the right of the page when a row is selected (a transaction in the history; blocks, peers and sidechains as their pages publish them). The status bar stays. |
-| Dashboard | `dashboard` (default) | A **Home** of live cards: Balance (with Send / Receive), Sync and peers, Sidechains and pending bundles, Blind merged mining (blocks of the last 24 that committed to each sidechain), Mining, Recent activity, Latest blocks; a row of quick actions above them. Each card's "Open →" opens its full page; a row of a card (a transaction, a peer, a sidechain, a block) opens the detail panel. The sidebar lists every page (Home first) with the theme, the text size and the **Menus** at its foot; a light bar above the page shows where you are and the palette. On a narrow window the sidebar is a drawer. |
+| Dashboard | `dashboard` (default) | A **Home**: a row of quick actions; four summary cards — **Balance** (available, pending, immature; Send, Receive), **Network** (sync, height, peers, mempool; Peers, Console, network on/off), **Sidechains** (active, pending bundles, escrow, proposals; Deposit, Votes), **Mining** (hash rate, difficulty, last block, BMM; Solo mine, Timestamp); the **Wallet balance** chart (timeframes 1D 7D 1M 1Y All, its change, axes); **Blind merged mining** (blocks of the last 24 that committed to each sidechain); then tables in tabs — **Transactions** (Details, Bump fee, Copy), **Sidechains** (Deposit, Withdrawals, View), **Blocks** (View, Copy), **Peers** (View) — with sortable headers, status pills and small trends. Each card's arrow opens its full page; the name of a row opens the detail panel. **Send** and **Receive** open a side panel at the right of the home (one recipient and a big Send button; a new address with its QR code); the Send and Receive pages stay for the rest (several recipients, coin control, PSBT, the requests). The sidebar: a card of the wallet shown (its name, its lock, the unit) at the top, every page (Home first) in groups, the theme, the text size and the **Menus** at its foot, then Close wallet and Quit apart. The bar above the page: where you are, the palette, the wallet, the notifications, the light/dark switch. On a narrow window the sidebar is a drawer. |
 | Compact sidebar | `sidebar` | The window of chains-qt, refined: an icon rail with tooltips that shows the names on demand (clicking the logo, or the toggle at its foot, grows and shrinks it; kept in `prefs.sidebarExpanded`); no menu bar — its items are in the pages, the rail's **Menus** button and the palette; denser pages and tables (29 px rows); the status bar. |
 
 Whatever the layout:
@@ -22,8 +22,13 @@ Whatever the layout:
 - **Keyboard shortcuts** of chains-qt: Alt+1…5 pages, Ctrl+Shift+D node window,
   Ctrl+Shift+C console, Ctrl+I / Ctrl+T / Ctrl+N / Ctrl+P the node window tabs,
   Ctrl+Shift+M mask values, Ctrl+M minimize, Ctrl+Q quit, Ctrl+ / Ctrl− text size.
-- All the looks (Light, Dark, Ocean Teal, Matrix Green, classic Drivechain, and the
-  desktop's) — the layouts use only the colour variables of styles/themes.css.
+- All the looks (Midnight, Light, Dark, Ocean Teal, Matrix Green, classic Drivechain, and the
+  desktop's) — the layouts use only the colour variables of styles/themes.css (see "The looks").
+- **Top bar buttons**: the notifications (a bell with a dot while some are new: the transactions
+  that came since the app started; one of the wallet shown opens in the detail panel) and the
+  light/dark switch (sun, moon: a dark look goes Light, Light goes back to the dark look last
+  used, Midnight at first). In the dashboard and the workspace they are in the top bar; in the
+  compact sidebar in the title strip (or at the foot of the rail with the title bar of the system).
 - **Narrow windows** (phone width, ≤ 760 px): the workspace areas become a row of
   icons under the top bar and the sub-tabs scroll; the dashboard sidebar becomes a
   drawer (☰ in the top bar); the compact rail stays icons only; the detail panel
@@ -80,6 +85,31 @@ say how they will do it: on Windows a WebView2 window without caption whose WM_N
 `EdgeAt` (windowframe.h) for the borders; on macOS a hidden title bar keeping the native traffic
 lights at the left.
 
+## The looks
+
+**User decision (2026-10-14):** a visual refresh, and a new default look, **Midnight**: a charcoal
+base (not black), soft depth, an ambient glow of the accent behind the page, a lime accent. It is
+the look of a first start (`prefs.theme` absent); a look chosen before is kept. The five looks of
+chains-qt (Light, Dark, Ocean Teal, Matrix Green, classic Drivechain) and the desktop's stay, with
+the same effects in their own colours.
+
+- **Depth**: the page has a still glow of the accent (two soft radial lights, `--glow`,
+  `--glow-2`); cards and panels are big soft surfaces (`--radius-xl`, 20–24 px; small in Matrix and
+  classic), lit from above (`--card-top`) with a soft shadow (`--shadow-card`).
+- **Amounts**: the decimals are dimmed (in the muted colour, never a transparency):
+  **5 050**.00000000 CHN, everywhere (components/Amount.svelte).
+- **Chart**: the balance as a line over a gradient, the balance now a lit point; with its axes on
+  the home.
+- **Pills**: the current page of the dashboard is a filled pill of the accent; the rail's has a
+  bar of the accent at its left, its groups in cards; the workspace's areas are pills; the state
+  of a row is a coloured pill (`.status.ok`, `.wait`, `.bad`); the wallet and the unit are pills.
+- **Contrast**: every text colour of every look passes WCAG AA (4.5:1) on the backgrounds it is
+  drawn on; `--accent` is a fill, `--accent-fg` the accent drawn as text or icons
+  (test/contrast.test.ts reads styles/themes.css).
+- **Motion**: only answers to an action (hover, a panel opening); none with
+  `prefers-reduced-motion`. No remote fonts or images (the fonts are bundled; CSP unchanged). The
+  long tables stay virtual (components/DataTable.svelte).
+
 ## Where things are in the code
 
 | File | What |
@@ -93,6 +123,10 @@ lights at the left.
 | src/webui/app/src/views/PageView.svelte | The page shown, whatever the layout |
 | src/webui/app/src/components/CommandPalette.svelte, MenuButton.svelte, DetailPanel.svelte, Sidebar.svelte, LayoutPicker.svelte | Shared pieces |
 | src/webui/app/src/lib/windowframe.svelte.ts, components/TitleStrip.svelte, WindowControls.svelte, ResizeHandles.svelte | The integrated title bar: its state, the strip, the buttons, the handles at the edges |
+| src/webui/app/src/views/home/Home.svelte, Card.svelte, HomeTables.svelte | The dashboard's home: the summary cards, the chart, the tables in tabs |
+| src/webui/app/src/lib/quick.svelte.ts, components/QuickPanel.svelte | Send and Receive in the side panel of the home (the confirmation of the Send page) |
+| src/webui/app/src/components/TopActions.svelte, NotificationBell.svelte, ThemeToggle.svelte, lib/notices.svelte.ts | The round buttons of the top bars |
+| src/webui/app/src/styles/themes.css, styles/base.css, lib/themes.ts, lib/contrast.ts | The looks, Midnight the default; the shared pieces (cards, pills, the big button) |
 
 For the pages: a page with a selectable list publishes its selection with
 `showDetail(…)` when `detail.follow` is on (the workspace layout), and keeps its
@@ -118,7 +152,7 @@ the menus of chains-qt as they were (first column); every item is still in a men
 
 | Old menu | Item | Command id | Workspace tabs | Dashboard | Compact sidebar |
 |---|---|---|---|---|---|
-| Your wallet | Create wallet… | `wallet.create` | Wallet ▸ Wallets (Create) | Sidebar Wallets; Home: Balance card "Wallets" | Rail Wallets |
+| Your wallet | Create wallet… | `wallet.create` | Wallet ▸ Wallets (Create) | Sidebar Wallets (and its wallet card) | Rail Wallets |
 | Your wallet | Open wallet… | `wallet.open` | Wallet ▸ Wallets (Open) | Sidebar Wallets | Rail Wallets |
 | Your wallet | Close wallet… | `wallet.close` | Wallet ▸ Wallets (Close) | Sidebar Wallets | Rail Wallets |
 | Your wallet | Close all wallets… | `wallet.closeAll` | Wallet ▸ Wallets (Close all) | Sidebar Wallets | Rail Wallets |
@@ -133,33 +167,33 @@ the menus of chains-qt as they were (first column); every item is still in a men
 | Your wallet | Change passphrase… | `wallet.passphrase` | Wallet ▸ Wallets | Sidebar Wallets | Rail Wallets |
 | Your wallet | Unlock wallet for a while… | `wallet.unlock` | Wallet ▸ Wallets | Sidebar Wallets | Rail Wallets |
 | Your wallet | Mask values (Ctrl+Shift+M) | `wallet.mask` | Wallet ▸ Overview button; Settings ▸ Appearance | Overview button; Settings ▸ Appearance | Overview button; Settings ▸ Appearance |
-| Banking | Send (Alt+2) | `banking.send` | Wallet ▸ Send | Sidebar Send; Home: quick action, Balance card | Rail Send |
-| Banking | Receive (Alt+3) | `banking.receive` | Wallet ▸ Receive | Sidebar Receive; Home: quick action, Balance card | Rail Receive |
-| Banking | Transactions (Alt+4) | `banking.transactions` | Wallet ▸ History | Sidebar Transactions; Home: Recent activity card | Rail Transactions |
+| Banking | Send (Alt+2) | `banking.send` | Wallet ▸ Send | Sidebar Send; Home: quick action and Balance card (side panel, which links the page) | Rail Send |
+| Banking | Receive (Alt+3) | `banking.receive` | Wallet ▸ Receive | Sidebar Receive; Home: quick action and Balance card (side panel, which links the page) | Rail Receive |
+| Banking | Transactions (Alt+4) | `banking.transactions` | Wallet ▸ History | Sidebar Transactions; Home: Transactions tab "All transactions" | Rail Transactions |
 | Banking | Open URI… | `banking.openUri` | Wallet ▸ Send ("Open URI…") | Send page button | Send page button |
 | Banking | Proof of funds | `banking.proof` | Wallet ▸ Proof of funds | Sidebar Proof of funds | Rail Proof of funds |
 | Banking | Multisig lounge | `banking.multisig` | Wallet ▸ Multisig | Sidebar Multisig lounge | Rail Multisig lounge |
 | Banking | Load PSBT from file… | `banking.psbtFile` | Wallet ▸ PSBT (From file) | Sidebar PSBT; Home: "Load PSBT" | Rail PSBT |
 | Banking | Load PSBT from clipboard… | `banking.psbtClipboard` | Wallet ▸ PSBT (From clipboard) | Sidebar PSBT; Home: "Load PSBT" | Rail PSBT |
-| Use Chains | Timestamp file | `use.timestamp` | Chain ▸ Timestamp | Sidebar Timestamp a file; Mining card | Rail Timestamp a file |
+| Use Chains | Timestamp file | `use.timestamp` | Chain ▸ Timestamp | Sidebar Timestamp a file; Mining card "Timestamp" | Rail Timestamp a file |
 | Use Chains | Sign message… | `use.sign` | Wallet ▸ Messages (Sign) | Sidebar Sign and verify; Home: "Sign message" | Rail Sign and verify |
 | Use Chains | Verify message… | `use.verify` | Wallet ▸ Messages (Verify) | Sidebar Sign and verify | Rail Sign and verify |
-| Use Chains | Sidechains (Alt+5) | `use.sidechains` | Sidechains ▸ Sidechains | Sidebar Sidechains; Sidechains card; Home: "Deposit" | Rail Sidechains |
+| Use Chains | Sidechains (Alt+5) | `use.sidechains` | Sidechains ▸ Sidechains | Sidebar Sidechains; Sidechains card; Home: "Deposit", Sidechains tab (Deposit, Withdrawals) | Rail Sidechains |
 | Chains | Sidechain nodes | `chains.nodes` | Sidechains ▸ Sidechain nodes | Sidebar Sidechain nodes; BMM card | Rail Sidechain nodes |
 | Chains | Solo mine | `chains.mine` | Chain ▸ Mine | Sidebar Mine; Mining card; Home: "Mine" | Rail Mine |
-| Chains | Sidechain proposals and votes | `chains.proposals` | Sidechains ▸ Sidechains (Proposals tab); sidechain panel "Vote on bundles" | Sidechains card "Proposals and votes" | Sidechains page (Proposals tab) |
-| Crypto tools | Block explorer | `tools.explorer` | Chain ▸ Explorer | Sidebar Block explorer; Latest blocks card; Home quick action | Rail Block explorer; Overview "Block explorer" |
+| Chains | Sidechain proposals and votes | `chains.proposals` | Sidechains ▸ Sidechains (Proposals tab); sidechain panel "Vote on bundles" | Sidechains card "Votes" | Sidechains page (Proposals tab) |
+| Crypto tools | Block explorer | `tools.explorer` | Chain ▸ Explorer | Sidebar Block explorer; Blocks tab "Block explorer"; Home quick action | Rail Block explorer; Overview "Block explorer" |
 | Crypto tools | Hash calculator | `tools.hash` | Chain ▸ Crypto tools (Hash) | Sidebar Crypto tools | Rail Crypto tools |
 | Crypto tools | Merkle tree | `tools.merkle` | Chain ▸ Crypto tools (Merkle) | Sidebar Crypto tools | Rail Crypto tools |
 | Crypto tools | Address decoder | `tools.address` | Chain ▸ Crypto tools (Address) | Sidebar Crypto tools | Rail Crypto tools |
 | Window | Minimize (Ctrl+M) | `window.minimize` | Menus; Ctrl+M | Menus; Ctrl+M | Menus; Ctrl+M |
-| Window | Information (Ctrl+I) | `window.info` | Node ▸ Info | Sidebar Node window; Sync card "Open" | Rail Node window |
-| Window | Console (Ctrl+T) | `window.console` | Node ▸ Console | Sync card "Console"; Node window tab | Node window tab |
+| Window | Information (Ctrl+I) | `window.info` | Node ▸ Info | Sidebar Node window; Network card arrow | Rail Node window |
+| Window | Console (Ctrl+T) | `window.console` | Node ▸ Console | Network card "Console"; Node window tab | Node window tab |
 | Window | Network traffic (Ctrl+N) | `window.traffic` | Node ▸ Traffic | Node window tab | Node window tab |
-| Window | Peers (Ctrl+P) | `window.peers` | Node ▸ Peers; status bar peers menu | Sync card "Peers" (and a peer row → panel); status bar | Node window tab; status bar peers menu |
+| Window | Peers (Ctrl+P) | `window.peers` | Node ▸ Peers; status bar peers menu | Network card "Peers"; Peers tab (a row → panel); status bar | Node window tab; status bar peers menu |
 | This node | Node window (Ctrl+Shift+D) | `node.window` | Node area | Sidebar Node window | Rail Node window |
 | This node | Options… | `node.options` | Node ▸ Settings | Sidebar Settings | Rail Settings |
-| This node | Theme ▸ (each look) | `node.theme.*` | Node ▸ Settings ▸ Appearance; Menus | Sidebar theme selector; Settings | Rail theme button (sun); Settings |
+| This node | Theme ▸ (each look) | `node.theme.*` | Node ▸ Settings ▸ Appearance; Menus; sun/moon of the top bar | Sidebar theme selector; Settings; sun/moon | Rail theme button (sun); Settings; sun/moon |
 | This node | Theme ▸ Custom… | `node.themeCustom` | Node ▸ Settings ▸ Appearance | Settings ▸ Appearance | Settings ▸ Appearance |
 | This node | Increase font size (Ctrl++) | `node.fontUp` | Settings ▸ Appearance; Ctrl++ | Sidebar A+; Ctrl++ | Rail A+; Ctrl++ |
 | This node | Decrease font size (Ctrl+−) | `node.fontDown` | Settings ▸ Appearance; Ctrl+− | Sidebar A−; Ctrl+− | Rail A−; Ctrl+− |
@@ -186,6 +220,13 @@ amounts in …").
   light and dark themes — home, send, the history with the detail panel (or its
   dialog), the sidechains, the settings, the palette — plus the Menus, the
   expanded rail and the dashboard in the other looks.
+- `npm test`: test/contrast.test.ts — every look has its colours, Midnight is the default, and each
+  text colour passes WCAG AA on its backgrounds. test/layouts.test.ts also: the home's cards, tabs
+  and row actions, Send and Receive in the side panel, the bell and the sun/moon in each layout,
+  the sidebar's wallet card with Close wallet and Quit.
+- `run_layouts.py … --script refresh.js`: the pictures of the refresh — each layout in Midnight
+  (home, overview, Send, transactions, sidechains, settings; the dashboard's Receive, tables,
+  sidechain panel and notifications; the expanded rail), the dashboard in every other look.
 - `npm test`: test/titlebar.test.ts — the buttons call the bridge, the maximize button follows the
   state (and its event), a press on the bar moves the window and a double click maximizes it (not
   from its buttons), the handles, the bar in each layout and none with the title bar of the system.

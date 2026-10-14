@@ -70,11 +70,14 @@
         await shot(`${layout}-sidechains-${theme}`);
         if (layout === 'dashboard') {
           T().go('home');
-          const thunder = await waitFor('the Thunder row', () => [...document.querySelectorAll('.home .row-btn')].find((b) => b.textContent.includes('Thunder')));
+          const tab = (name) => [...document.querySelectorAll('.home [role="tab"]')].find((b) => b.textContent.includes(name));
+          (await waitFor('the Sidechains tab', () => tab('Sidechains'))).click();
+          const thunder = await waitFor('the Thunder row', () => [...document.querySelectorAll('.home .row-name')].find((b) => b.textContent.includes('Thunder')));
           thunder.click();
           await waitFor('the sidechain panel', () => $('.detail-panel') && text('.detail-panel').includes('Release hash'));
           await shot(`${layout}-sidechain-panel-${theme}`);
-          const block = [...document.querySelectorAll('.home .row-btn')].find((b) => /\d tx/.test(b.textContent));
+          tab('Blocks').click();
+          const block = await waitFor('a block row', () => $('.home table[aria-label="Latest blocks"] .row-name'));
           block.click();
           await waitFor('the block panel', () => text('.detail-panel').includes('Confirmations'));
           await shot(`${layout}-block-panel-${theme}`);
@@ -116,7 +119,7 @@
     await shot('sidebar-menus-dark');
     document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     // Every other theme, on the dashboard.
-    for (const theme of ['ocean', 'matrix', 'qdarkstyle']) {
+    for (const theme of ['midnight', 'ocean', 'matrix', 'qdarkstyle']) {
       T().savePrefs({ theme, layout: 'dashboard' });
       T().go('home');
       await sleep(300);
