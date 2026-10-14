@@ -4,6 +4,33 @@
   import { prefs, savePrefs } from '../lib/state.svelte';
   import { clampFontAdjust, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type ThemeId } from '../lib/themes';
   import { UNITS, type Unit } from '../lib/units';
+  import { host } from '../lib/rpc';
+  import { toast } from '../lib/state.svelte';
+
+  // Wallet options kept by the node in settings.json (OptionsModel): they apply after a restart.
+  let spendZeroConf = $state(true);
+  let signer = $state('');
+  let nodeSettings = $state({ loaded: false, changed: false, signerIgnored: false, zeroConfIgnored: false });
+
+  $effect(() => {
+    if (tab !== 'wallet' || nodeSettings.loaded) return;
+    Promise.all([host.getSetting('spendzeroconfchange'), host.getSetting('signer')])
+      .then(([z, sg]) => {
+        spendZeroConf = typeof z.value === 'boolean' ? z.value : z.value === null || z.value === undefined ? true : Boolean(Number(z.value));
+        signer = typeof sg.value === 'string' ? sg.value : '';
+        nodeSettings = { loaded: true, changed: false, signerIgnored: sg.ignored, zeroConfIgnored: z.ignored };
+      })
+      .catch(() => (nodeSettings.loaded = true));
+  });
+
+  async function setNode(name: string, value: unknown) {
+    try {
+      await host.setSetting(name, value);
+      nodeSettings.changed = true;
+    } catch (e) {
+      toast('error', 'Settings', e instanceof Error ? e.message : String(e));
+    }
+  }
 
   const TABS = [
     { id: 'display', label: 'Display' },
@@ -60,6 +87,36 @@
           <input type="checkbox" checked={prefs.mask} onchange={(e) => savePrefs({ mask: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Mask values (privacy mode)</span>
         </label>
+      </div>
+    </section>
+  {:else if tab === 'wallet'}
+    <section class="panel">
+      <div class="panel-body form">
+        <label class="check">
+          <input type="checkbox" checked={prefs.coinControl} onchange={(e) => savePrefs({ coinControl: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Enable coin control features</span>
+        </label>
+        <p class="hint">Show the coin control section of the send page: choose the coins a transaction spends, and a custom change address.</p>
+        <label class="check" title={nodeSettings.zeroConfIgnored ? 'Set on the command line or in chains.conf: that setting wins' : undefined}>
+          <input type="checkbox" checked={spendZeroConf} disabled={!nodeSettings.loaded || nodeSettings.zeroConfIgnored} onchange={(e) => setNode('spendzeroconfchange', (spendZeroConf = (e.currentTarget as HTMLInputElement).checked))} />
+          <span>Spend unconfirmed change</span>
+        </label>
+        <p class="hint">If you disable the spending of unconfirmed change, the change from a transaction cannot be used until that transaction has at least one confirmation. This also affects how your balance is computed.</p>
+        <label class="check">
+          <input type="checkbox" checked={prefs.psbtControls} onchange={(e) => savePrefs({ psbtControls: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Enable PSBT controls</span>
+        </label>
+        <p class="hint">Whether to show PSBT controls (create unsigned transactions).</p>
+        <label class="check">
+          <input type="checkbox" checked={prefs.subtractFeeDefault} onchange={(e) => savePrefs({ subtractFeeDefault: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Subtract fee from amount by default</span>
+        </label>
+        <div class="field">
+          <label for="signer-path">External signer script path</label>
+          <input id="signer-path" type="text" class="mono" placeholder="Path to an HWI compatible script, e.g. /usr/local/bin/hwi" disabled={!nodeSettings.loaded || nodeSettings.signerIgnored} bind:value={signer} onchange={() => setNode('signer', signer || null)} />
+          <span class="hint">Full path to a Bitcoin Core compatible script (e.g. C:\Downloads\hwi.exe or /Users/you/Downloads/hwi.py). Beware: malware can steal your coins!</span>
+        </div>
+        {#if nodeSettings.changed}<p class="restart" role="status">Client restart required to activate changes.</p>{/if}
       </div>
     </section>
   {:else}
@@ -136,6 +193,18 @@
   input[type='range'] {
     width: 18rem;
     accent-color: var(--accent);
+  }
+  .hint {
+    margin: -1rem 0 0 1.6rem;
+    color: var(--text-muted);
+    font-size: 0.86rem;
+  }
+  .field .hint {
+    margin: 0;
+  }
+  .restart {
+    color: var(--warning);
+    font-weight: 600;
   }
   .planned {
     padding: 1.5rem;

@@ -2,6 +2,7 @@
   // The page of chains-app: what it shows follows the phase of the app.
   import { onMount } from 'svelte';
   import AppDialogs from './components/AppDialogs.svelte';
+  import DialogHost from './components/DialogHost.svelte';
   import NodeDialogs from './components/NodeDialogs.svelte';
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
@@ -50,6 +51,7 @@
         return;
       }
       nav.pendingUri = uri;
+      nav.uriSeq++;
       go('send');
       toast('info', 'Payment request', `Pay to ${parsed.request.address}`);
     });
@@ -69,7 +71,9 @@
           // The tests of the app drive the page through this (only with -webuitestscript).
           const state = await import('./lib/state.svelte');
           const navigation = await import('./lib/nav.svelte');
-          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation };
+          const dialogs = await import('./lib/dialogs.svelte');
+          const walletdata = await import('./lib/walletdata.svelte');
+          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current };
         }
         await loadPrefs();
         if (hello.phase === 'ready') await refreshNode();
@@ -112,6 +116,7 @@
 
 <NodeDialogs />
 <AppDialogs />
+<DialogHost />
 <Toasts />
 
 <style>

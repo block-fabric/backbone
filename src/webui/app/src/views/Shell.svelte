@@ -8,12 +8,23 @@
   import Overview from '../pages/Overview.svelte';
   import Planned from '../pages/Planned.svelte';
   import Settings from '../pages/Settings.svelte';
+  import Addresses from '../pages/Addresses.svelte';
+  import Messages from '../pages/Messages.svelte';
+  import Psbt from '../pages/Psbt.svelte';
+  import Receive from '../pages/Receive.svelte';
+  import Send from '../pages/Send.svelte';
+  import Transactions from '../pages/Transactions.svelte';
+  import Wallets from '../pages/Wallets.svelte';
+  import TxNotifier from '../components/TxNotifier.svelte';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
   import { app, prefs, savePrefs, wallets } from '../lib/state.svelte';
   import { clampFontAdjust, THEMES } from '../lib/themes';
 
   const noWallet = $derived(wallets.list.length === 0);
+  const currentWallet = $derived(wallets.list.find((w) => w.name === wallets.current) ?? null);
+  const currentEncrypted = $derived(!!currentWallet?.encrypted);
+  const currentWatchOnly = $derived(!!currentWallet?.privateKeysDisabled);
   const page = $derived(PAGES[nav.page]);
 
   function to(id: PageId, tab = '') {
@@ -29,16 +40,18 @@
         { label: 'Close wallet…', action: to('wallets', 'close'), disabled: noWallet },
         { label: 'Close all wallets…', action: to('wallets', 'close-all'), disabled: noWallet },
         { label: 'Migrate wallet…', action: to('wallets', 'migrate') },
+        { label: 'Restore and migrate wallet file…', action: to('wallets', 'restore-migrate') },
         'separator',
         { label: 'Sending addresses', action: to('addresses', 'send'), disabled: noWallet },
         { label: 'Receiving addresses', action: to('addresses', 'receive'), disabled: noWallet },
         'separator',
         { label: 'Backup wallet…', action: to('wallets', 'backup'), disabled: noWallet },
         { label: 'Restore wallet…', action: to('wallets', 'restore') },
-        { label: 'Export watch-only wallet…', action: to('wallets', 'export'), disabled: noWallet },
+        { label: 'Export watch-only wallet…', action: to('wallets', 'export'), disabled: noWallet || currentWatchOnly },
         'separator',
-        { label: 'Encrypt wallet…', action: to('wallets', 'encrypt'), disabled: noWallet },
-        { label: 'Change passphrase…', action: to('wallets', 'passphrase'), disabled: noWallet },
+        { label: 'Encrypt wallet…', action: to('wallets', 'encrypt'), disabled: noWallet || currentEncrypted || currentWatchOnly },
+        { label: 'Change passphrase…', action: to('wallets', 'passphrase'), disabled: noWallet || !currentEncrypted },
+        { label: 'Unlock wallet for a while…', action: to('wallets', 'unlock'), disabled: noWallet || !currentEncrypted },
         { label: 'Mask values', action: () => savePrefs({ mask: !prefs.mask }), checked: prefs.mask, shortcut: 'Ctrl+Shift+M' },
       ],
     },
@@ -47,7 +60,7 @@
       items: [
         { label: 'Send', action: to('send'), shortcut: 'Alt+2', disabled: noWallet },
         { label: 'Receive', action: to('receive'), shortcut: 'Alt+3', disabled: noWallet },
-        { label: 'Transactions', action: to('transactions'), shortcut: 'Alt+4', disabled: noWallet },
+        { label: 'Transactions', action: to('transactions'), shortcut: 'Alt+4', disabled: noWallet || prefs.mask },
         { label: 'Open URI…', action: to('send', 'uri'), disabled: noWallet },
         'separator',
         { label: 'Proof of funds', action: to('proof'), disabled: noWallet },
@@ -137,6 +150,22 @@
           <Settings />
         {:else if nav.page === 'kit'}
           <Kit />
+        {:else if page.wallet && noWallet}
+          <Planned {page} note="open or create a wallet first" />
+        {:else if nav.page === 'send'}
+          <Send />
+        {:else if nav.page === 'receive'}
+          <Receive />
+        {:else if nav.page === 'transactions'}
+          <Transactions />
+        {:else if nav.page === 'addresses'}
+          <Addresses />
+        {:else if nav.page === 'messages'}
+          <Messages />
+        {:else if nav.page === 'psbt'}
+          <Psbt />
+        {:else if nav.page === 'wallets'}
+          <Wallets />
         {:else}
           <Planned {page} />
         {/if}
@@ -145,6 +174,7 @@
     <StatusBar />
   </div>
 </div>
+<TxNotifier />
 
 <style>
   .shell {

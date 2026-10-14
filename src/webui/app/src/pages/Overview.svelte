@@ -7,6 +7,27 @@
   import { rpc } from '../lib/rpc';
   import { node, prefs, savePrefs, wallets } from '../lib/state.svelte';
   import { coinsToSats } from '../lib/units';
+  import BalanceChart from '../components/BalanceChart.svelte';
+  import TxStatusIcon from '../components/TxStatusIcon.svelte';
+  import { nav } from '../lib/nav.svelte';
+  import { addressText, balanceHistory, typeText } from '../lib/wallet';
+  import { current, refreshRecords } from '../lib/walletdata.svelte';
+
+  /** The number of transactions shown (NUM_ITEMS of the overview of chains-qt). */
+  const NUM_ITEMS = 5;
+
+  $effect(() => {
+    void wallets.txVersion;
+    void node.tip?.hash;
+    if (wallets.current !== null) refreshRecords();
+  });
+  const recent = $derived([...current.records].sort((a, b) => b.time - a.time || b.sortKey.localeCompare(a.sortKey)).slice(0, NUM_ITEMS));
+  const history = $derived(balanceHistory(current.records));
+
+  function openTx(txid: string) {
+    nav.highlightTx = txid;
+    go('transactions');
+  }
 
   const balances = $derived(wallets.current !== null ? wallets.balances[wallets.current] : undefined);
   const total = $derived(balances ? balances.trusted + balances.untrustedPending + balances.immature : null);
@@ -66,6 +87,12 @@
     </button>
   </header>
 
+  {#if node.tip?.ibd}
+    <button type="button" class="out-of-sync" title="The displayed information may be out of date. Your wallet automatically synchronizes with the network after a connection is established, but this process has not completed yet." onclick={() => go('node', 'info')}>
+      <Icon name="alert" size={16} /> Out of sync: the balances and transactions shown may be out of date until the node has caught up with the network.
+    </button>
+  {/if}
+
   <section class="balances panel" aria-labelledby="balances-title">
     <div class="panel-head">
       <h2 id="balances-title">Balances</h2>
@@ -96,9 +123,39 @@
             <dd><Amount sats={balances?.immature} /></dd>
           </div>
         </dl>
+        {#if !prefs.mask}<BalanceChart points={history} />{/if}
       </div>
     {/if}
   </section>
+
+  {#if wallets.current !== null}
+    <section class="recent panel" aria-labelledby="recent-title">
+      <div class="panel-head">
+        <h2 id="recent-title">Recent transactions</h2>
+        <button type="button" class="btn ghost small" disabled={prefs.mask} onclick={() => go('transactions')}>All transactions</button>
+      </div>
+      <div class="panel-body">
+        {#if recent.length === 0}
+          <p class="muted">{current.recordsLoaded ? 'No transactions yet.' : 'Loading…'}</p>
+        {:else}
+          <ul class="txs-list">
+            {#each recent as r (r.key)}
+              <li>
+                <button type="button" class="tx" disabled={prefs.mask} title={prefs.mask ? 'Hidden: privacy mode' : 'Show in the transactions'} onclick={() => openTx(r.txid)}>
+                  <TxStatusIcon record={r} />
+                  <span class="what">
+                    <span class="addr" class:muted={!r.label}>{addressText(r)}</span>
+                    <span class="faint small">{typeText(r.type) || 'Other'} · {formatTime(r.time)}</span>
+                  </span>
+                  <span class:pending={!r.countsForBalance}><Amount sats={r.amount} colored plus /></span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    </section>
+  {/if}
 
   <section class="chain panel" aria-labelledby="chain-title">
     <div class="panel-head">
@@ -132,8 +189,67 @@
     align-content: start;
     align-items: start;
   }
-  .page-head {
+  .page-head,
+  .out-of-sync {
     grid-column: 1 / -1;
+  }
+  .out-of-sync {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-m);
+    background: var(--warning-soft);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .txs-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .tx {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.7rem;
+    align-items: center;
+    width: 100%;
+    padding: 0.5rem 0.3rem;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  li:last-child .tx {
+    border-bottom: 0;
+  }
+  .tx:hover:not(:disabled) {
+    background: var(--raised);
+  }
+  .tx:disabled {
+    cursor: default;
+  }
+  .what {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .addr {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .small {
+    font-size: 0.82rem;
+  }
+  .pending {
+    opacity: 0.6;
   }
   .figures {
     display: flex;
