@@ -415,6 +415,10 @@ if(BUILD_GUI)
   add_subdirectory(qt)
 endif()
 
+if(BUILD_WEBUI)
+  add_subdirectory(webui)
+endif()
+
 
 if(BUILD_KERNEL_LIB)
   add_subdirectory(kernel)

@@ -1,0 +1,245 @@
+// Copyright (c) 2026 The Chains developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+// The window on Linux and the BSDs: GTK 3 with WebKitGTK 4.1, through webview/webview.
+// The interface is served from the files built into the program, under the
+// scheme chains-app://, with its content security policy as a header.
+
+#include <webui/assets.h>
+#include <webui/window.h>
+
+#include <logging.h>
+
+#include <webview.h>
+
+#include <atomic>
+#include <cstring>
+#include <utility>
+
+namespace webui {
+namespace {
+
+void ServeAsset(WebKitURISchemeRequest* request, gpointer)
+{
+    const char* path{webkit_uri_scheme_request_get_path(request)};
+    const char* uri{webkit_uri_scheme_request_get_uri(request)};
+    // Only the files of the app itself, from its own origin.
+    const Asset* asset{nullptr};
+    if (uri && std::string_view{uri}.starts_with(std::string{ORIGIN} + "/")) {
+        asset = FindAsset(BuiltinAssets(), path ? path : "/");
+    }
+    if (!asset) {
+        GError* error{g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found")};
+        webkit_uri_scheme_request_finish_error(request, error);
+        g_error_free(error);
+        return;
+    }
+    // The bytes are static: the stream does not copy or free them.
+    GInputStream* stream{g_memory_input_stream_new_from_data(asset->data.data(), asset->data.size(), nullptr)};
+    WebKitURISchemeResponse* response{webkit_uri_scheme_response_new(stream, asset->data.size())};
+    const std::string_view mime{MimeType(asset->path)};
+    const std::string content_type{mime.substr(0, mime.find(';'))};
+    webkit_uri_scheme_response_set_content_type(response, content_type.c_str());
+    SoupMessageHeaders* headers{soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE)};
+    // The headers replace the ones of the response: the type goes in them too.
+    soup_message_headers_append(headers, "Content-Type", std::string{mime}.c_str());
+    soup_message_headers_append(headers, "Content-Security-Policy", ContentSecurityPolicy().c_str());
+    soup_message_headers_append(headers, "X-Content-Type-Options", "nosniff");
+    soup_message_headers_append(headers, "Cache-Control", "no-store");
+    webkit_uri_scheme_response_set_http_headers(response, headers);
+    webkit_uri_scheme_request_finish_with_response(request, response);
+    g_object_unref(response);
+    g_object_unref(stream);
+}
+
+class GtkWindowImpl final : public Window
+{
+public:
+    GtkWindowImpl(const Options& options, Callbacks callbacks) : m_callbacks(std::move(callbacks)), m_devtools(options.devtools)
+    {
+        if (!gtk_init_check(nullptr, nullptr)) throw std::runtime_error("Cannot open the display (GTK init failed)");
+
+        WebKitWebContext* context{webkit_web_context_get_default()};
+        static std::atomic<bool> registered{false};
+        if (!registered.exchange(true)) {
+            const std::string scheme{SCHEME};
+            webkit_web_context_register_uri_scheme(context, scheme.c_str(), ServeAsset, nullptr, nullptr);
+            WebKitSecurityManager* security{webkit_web_context_get_security_manager(context)};
+            webkit_security_manager_register_uri_scheme_as_secure(security, scheme.c_str());
+            webkit_security_manager_register_uri_scheme_as_cors_enabled(security, scheme.c_str());
+        }
+
+        m_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+        gtk_window_set_title(GTK_WINDOW(m_window), options.title.c_str());
+        gtk_window_set_default_size(GTK_WINDOW(m_window), options.width, options.height);
+        gtk_window_set_icon_name(GTK_WINDOW(m_window), "chains");
+        g_signal_connect(m_window, "delete-event", G_CALLBACK(+[](GtkWidget*, GdkEvent*, gpointer self) -> gboolean {
+                             auto* w{static_cast<GtkWindowImpl*>(self)};
+                             if (w->m_callbacks.close_requested) w->m_callbacks.close_requested();
+                             // The window stays until the app quits.
+                             return TRUE;
+                         }),
+                         this);
+
+        m_webview = std::make_unique<webview::webview>(options.devtools, m_window);
+        m_view = WEBKIT_WEB_VIEW(m_webview->browser_controller().value());
+
+        WebKitSettings* settings{webkit_web_view_get_settings(m_view)};
+        webkit_settings_set_enable_developer_extras(settings, options.devtools);
+        webkit_settings_set_enable_write_console_messages_to_stdout(settings, options.devtools);
+        webkit_settings_set_javascript_can_open_windows_automatically(settings, FALSE);
+        webkit_settings_set_enable_back_forward_navigation_gestures(settings, FALSE);
+        webkit_settings_set_enable_webaudio(settings, FALSE);
+        webkit_settings_set_enable_webgl(settings, FALSE);
+        webkit_settings_set_enable_media(settings, FALSE);
+
+        // The page stays the app: no navigation away from it, no new windows.
+        g_signal_connect(m_view, "decide-policy", G_CALLBACK(+[](WebKitWebView*, WebKitPolicyDecision* decision, WebKitPolicyDecisionType type, gpointer) -> gboolean {
+                             if (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION || type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) {
+                                 auto* navigation{WEBKIT_NAVIGATION_POLICY_DECISION(decision)};
+                                 WebKitNavigationAction* action{webkit_navigation_policy_decision_get_navigation_action(navigation)};
+                                 const char* uri{webkit_uri_request_get_uri(webkit_navigation_action_get_request(action))};
+                                 const bool own{uri && std::string_view{uri}.starts_with(std::string{ORIGIN} + "/")};
+                                 if (type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION || !own) {
+                                     LogDebug(BCLog::RPC, "webui: navigation to %s refused\n", uri ? uri : "(none)");
+                                     webkit_policy_decision_ignore(decision);
+                                     return TRUE;
+                                 }
+                             }
+                             return FALSE;
+                         }),
+                         nullptr);
+        g_signal_connect(m_view, "context-menu", G_CALLBACK(+[](WebKitWebView*, WebKitContextMenu*, GdkEvent*, WebKitHitTestResult*, gpointer self) -> gboolean {
+                             // The page has menus of its own; the one of the browser only with the developer tools.
+                             return static_cast<GtkWindowImpl*>(self)->m_devtools ? FALSE : TRUE;
+                         }),
+                         this);
+        g_signal_connect(m_view, "permission-request", G_CALLBACK(+[](WebKitWebView*, WebKitPermissionRequest* request, gpointer) -> gboolean {
+                             webkit_permission_request_deny(request);
+                             return TRUE;
+                         }),
+                         nullptr);
+        g_signal_connect(m_view, "web-process-terminated", G_CALLBACK(+[](WebKitWebView* view, WebKitWebProcessTerminationReason reason, gpointer) {
+                             LogWarning("webui: the web process ended (reason %d); reloading the interface", int(reason));
+                             webkit_web_view_reload(view);
+                         }),
+                         nullptr);
+
+        m_webview->bind("__chains", [this](std::string id, std::string args, void*) {
+            if (m_callbacks.call) m_callbacks.call(id, args);
+        }, nullptr);
+        m_webview->navigate(std::string{ORIGIN} + "/index.html");
+    }
+
+    ~GtkWindowImpl() override
+    {
+        m_webview.reset();
+        if (m_window) gtk_widget_destroy(m_window);
+    }
+
+    void Run() override { m_webview->run(); }
+    void Quit() override { m_webview->terminate(); }
+
+    void Post(std::function<void()> fn) override
+    {
+        m_webview->dispatch(std::move(fn));
+    }
+
+    void PostDelayed(std::chrono::milliseconds delay, std::function<void()> fn) override
+    {
+        auto* heap{new std::function<void()>(std::move(fn))};
+        // g_timeout_add_full is thread-safe: it adds to the default main context, which the UI thread runs.
+        g_timeout_add_full(
+            G_PRIORITY_DEFAULT, static_cast<guint>(delay.count()),
+            +[](gpointer data) -> gboolean {
+                (*static_cast<std::function<void()>*>(data))();
+                return G_SOURCE_REMOVE;
+            },
+            heap, +[](gpointer data) { delete static_cast<std::function<void()>*>(data); });
+    }
+
+    void Reply(const std::string& call_id, int status, const std::string& json) override
+    {
+        // resolve() posts to the UI thread itself.
+        m_webview->resolve(call_id, status, json);
+    }
+
+    void Eval(const std::string& script) override { m_webview->eval(script); }
+
+    void SetTitle(const std::string& title) override { gtk_window_set_title(GTK_WINDOW(m_window), title.c_str()); }
+
+    void Show(bool minimized) override
+    {
+        gtk_widget_show_all(m_window);
+        if (minimized) gtk_window_iconify(GTK_WINDOW(m_window));
+        gtk_widget_grab_focus(GTK_WIDGET(m_view));
+    }
+
+    void Present() override
+    {
+        gtk_window_deiconify(GTK_WINDOW(m_window));
+        gtk_window_present(GTK_WINDOW(m_window));
+    }
+
+    void Minimize() override { gtk_window_iconify(GTK_WINDOW(m_window)); }
+
+    void SetClipboard(const std::string& text) override
+    {
+        GtkClipboard* clipboard{gtk_clipboard_get(GDK_SELECTION_CLIPBOARD)};
+        gtk_clipboard_set_text(clipboard, text.c_str(), static_cast<gint>(text.size()));
+        gtk_clipboard_store(clipboard);
+    }
+
+    std::optional<std::string> GetClipboard() override
+    {
+        GtkClipboard* clipboard{gtk_clipboard_get(GDK_SELECTION_CLIPBOARD)};
+        gchar* text{gtk_clipboard_wait_for_text(clipboard)};
+        if (!text) return std::nullopt;
+        std::string out{text};
+        g_free(text);
+        return out;
+    }
+
+    void Snapshot(const std::string& png_path, std::function<void(bool ok)> done) override
+    {
+        struct Job {
+            std::string path;
+            std::function<void(bool)> done;
+        };
+        auto* job{new Job{png_path, std::move(done)}};
+        webkit_web_view_get_snapshot(
+            m_view, WEBKIT_SNAPSHOT_REGION_VISIBLE, WEBKIT_SNAPSHOT_OPTIONS_NONE, nullptr,
+            +[](GObject* source, GAsyncResult* result, gpointer data) {
+                std::unique_ptr<Job> job{static_cast<Job*>(data)};
+                GError* error{nullptr};
+                cairo_surface_t* surface{webkit_web_view_get_snapshot_finish(WEBKIT_WEB_VIEW(source), result, &error)};
+                bool ok{false};
+                if (surface) {
+                    ok = cairo_surface_write_to_png(surface, job->path.c_str()) == CAIRO_STATUS_SUCCESS;
+                    cairo_surface_destroy(surface);
+                } else if (error) {
+                    LogWarning("webui: snapshot failed: %s", error->message);
+                    g_error_free(error);
+                }
+                job->done(ok);
+            },
+            job);
+    }
+
+private:
+    Callbacks m_callbacks;
+    const bool m_devtools;
+    GtkWidget* m_window{nullptr};
+    std::unique_ptr<webview::webview> m_webview;
+    WebKitWebView* m_view{nullptr};
+};
+
+} // namespace
+
+std::unique_ptr<Window> Window::Create(const Options& options, Callbacks callbacks)
+{
+    return std::make_unique<GtkWindowImpl>(options, std::move(callbacks));
+}
+
+} // namespace webui

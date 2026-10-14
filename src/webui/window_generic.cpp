@@ -1,0 +1,76 @@
+// Copyright (c) 2026 The Chains developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+// The window on Windows (WebView2) and macOS (WKWebView), through webview/webview.
+//
+// Not built or tested on this branch yet (the Linux window is window_gtk.cpp).
+// The interface is loaded as one self-contained document (InlineDocument), as
+// webview/webview offers no way to serve a scheme of the app on these
+// platforms. Closing the window ends the event loop; the app then shuts the
+// node down as it does after Quit.
+
+#include <webui/assets.h>
+#include <webui/window.h>
+
+#include <logging.h>
+
+#include <webview.h>
+
+#include <stdexcept>
+#include <thread>
+#include <utility>
+
+namespace webui {
+namespace {
+
+class GenericWindow final : public Window
+{
+public:
+    GenericWindow(const Options& options, Callbacks callbacks) : m_callbacks(std::move(callbacks))
+    {
+        m_webview = std::make_unique<webview::webview>(options.devtools, nullptr);
+        m_webview->set_title(options.title);
+        m_webview->set_size(options.width, options.height, WEBVIEW_HINT_NONE);
+        m_webview->bind("__chains", [this](std::string id, std::string args, void*) {
+            if (m_callbacks.call) m_callbacks.call(id, args);
+        }, nullptr);
+        const auto document{InlineDocument(BuiltinAssets())};
+        if (!document) throw std::runtime_error("The interface is missing from this build");
+        m_webview->set_html(*document);
+    }
+
+    void Run() override { m_webview->run(); }
+    void Quit() override { m_webview->terminate(); }
+    void Post(std::function<void()> fn) override { m_webview->dispatch(std::move(fn)); }
+    void PostDelayed(std::chrono::milliseconds delay, std::function<void()> fn) override
+    {
+        // TODO(windows/macos port): a timer of the platform. A thread is enough for the few uses.
+        std::thread([this, delay, fn = std::move(fn)]() mutable {
+            std::this_thread::sleep_for(delay);
+            Post(std::move(fn));
+        }).detach();
+    }
+    void Reply(const std::string& call_id, int status, const std::string& json) override { m_webview->resolve(call_id, status, json); }
+    void Eval(const std::string& script) override { m_webview->eval(script); }
+    void SetTitle(const std::string& title) override { m_webview->set_title(title); }
+    void Show(bool) override {}
+    void Present() override {}
+    void Minimize() override {}
+    void SetClipboard(const std::string&) override { LogWarning("webui: no clipboard on this platform yet"); }
+    std::optional<std::string> GetClipboard() override { return std::nullopt; }
+    void Snapshot(const std::string&, std::function<void(bool ok)> done) override { done(false); }
+
+private:
+    Callbacks m_callbacks;
+    std::unique_ptr<webview::webview> m_webview;
+};
+
+} // namespace
+
+std::unique_ptr<Window> Window::Create(const Options& options, Callbacks callbacks)
+{
+    return std::make_unique<GenericWindow>(options, std::move(callbacks));
+}
+
+} // namespace webui
