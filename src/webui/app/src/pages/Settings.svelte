@@ -6,6 +6,7 @@
   import { UNITS, type Unit } from '../lib/units';
   import { host } from '../lib/rpc';
   import { toast } from '../lib/state.svelte';
+  import LayoutPicker from '../components/LayoutPicker.svelte';
 
   // Wallet options kept by the node in settings.json (OptionsModel): they apply after a restart.
   let spendZeroConf = $state(true);
@@ -33,7 +34,7 @@
   }
 
   const TABS = [
-    { id: 'display', label: 'Display' },
+    { id: 'display', label: 'Appearance' },
     { id: 'main', label: 'Main' },
     { id: 'wallet', label: 'Wallet' },
     { id: 'network', label: 'Network' },
@@ -53,6 +54,7 @@
   {#if tab === 'display'}
     <section class="panel">
       <div class="panel-body form">
+        <LayoutPicker />
         <fieldset class="field">
           <legend class="label">Theme</legend>
           <div class="themes">

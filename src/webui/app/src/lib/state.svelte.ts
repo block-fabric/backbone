@@ -4,6 +4,7 @@ import { on } from './bridge';
 import { host, type AppInfo, type Dialog, type NodeSnapshot, type Phase, type WalletSummary } from './rpc';
 import { isUnit, type Unit } from './units';
 import { clampFontAdjust, isTheme, type ThemeId } from './themes';
+import { DEFAULT_LAYOUT, isLayout, type LayoutId } from './layout';
 
 export interface Tip {
   height: number;
@@ -64,8 +65,10 @@ export const prefs = $state({
   fontAdjust: 0,
   unit: 'CHN' as Unit,
   mask: false,
-  /** The navigation bar shows icons only. */
-  compactNav: false,
+  /** How the window is laid out: workspace tabs, dashboard, compact sidebar (lib/layout.ts). */
+  layout: DEFAULT_LAYOUT as LayoutId,
+  /** The compact sidebar shows the names of the pages, not only their icons. */
+  sidebarExpanded: false,
   lastWallet: null as string | null,
   /** Wallet options (OptionsModel): coin control features, PSBT controls, subtract the fee by default. */
   coinControl: false,
@@ -232,9 +235,9 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (typeof raw.fontAdjust === 'number') prefs.fontAdjust = clampFontAdjust(raw.fontAdjust);
   if (isUnit(raw.unit)) prefs.unit = raw.unit;
   if (typeof raw.mask === 'boolean') prefs.mask = raw.mask;
-  if (typeof raw.compactNav === 'boolean') prefs.compactNav = raw.compactNav;
+  if (isLayout(raw.layout)) prefs.layout = raw.layout;
   if (typeof raw.lastWallet === 'string') prefs.lastWallet = raw.lastWallet;
-  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree'] as const) {
+  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'sidebarExpanded'] as const) {
     if (typeof raw[key] === 'boolean') prefs[key] = raw[key];
   }
   if (raw.feeMode === 'smart' || raw.feeMode === 'custom') prefs.feeMode = raw.feeMode;

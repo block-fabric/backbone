@@ -1,6 +1,6 @@
 // The main smoke test: chains-app on regtest, driven through its page.
 (async () => {
-  const { host, rpc, sleep, log, T, waitFor, check, snapshot, text, buttonByText, finish } = E2E;
+  const { host, rpc, sleep, log, T, waitFor, check, snapshot, text, finish } = E2E;
   const set = (input, value) => {
     input.value = value;
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -54,7 +54,8 @@
     const evil = '<img src=x onerror=alert(1)>w';
     await rpc('createwallet', [evil]);
     await waitFor('the second wallet', () => T().wallets.list.length === 2);
-    const select = document.querySelector('.sidebar .wallet select');
+    T().savePrefs({ sidebarExpanded: true });
+    const select = await waitFor('the wallet selector', () => document.querySelector('.sidebar .wallet select'));
     await check('markup in a name stays text', select && !select.querySelector('img') && [...select.options].some((o) => o.textContent === evil), select ? select.innerHTML.slice(0, 120) : 'no selector');
     T().selectWallet('smoke');
     await rpc('unloadwallet', [evil]);
@@ -93,10 +94,15 @@
         await snapshot(`${page}-${theme}`);
       }
       T().go('overview');
-      buttonByText('This node').click();
+      // The menus of chains-qt: in the sidebar's Menus, and the command palette.
+      document.querySelector('.sidebar button[aria-label^="Menus of chains-qt"]').click();
+      await waitFor('the menus', () => document.querySelector('[role="menu"]'));
       await snapshot(`menu-${theme}`);
-      document.querySelector('.menubar .top').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      document.body.click();
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+      await waitFor('the palette', () => document.querySelector('dialog.palette[open]'));
+      await snapshot(`palette-${theme}`);
+      document.querySelector('dialog.palette').dispatchEvent(new Event('cancel', { cancelable: true }));
       T().nav.dialog = 'about';
       await snapshot(`about-${theme}`);
       T().nav.dialog = 'help';

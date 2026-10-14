@@ -20,7 +20,8 @@ export type PageId =
   | 'timestamp'
   | 'crypto'
   | 'wallets'
-  | 'kit';
+  | 'kit'
+  | 'home';
 
 export interface PageInfo {
   id: PageId;
@@ -58,6 +59,7 @@ export const PAGES: Record<PageId, PageInfo> = {
   crypto: { id: 'crypto', title: 'Crypto tools', icon: 'qr', summary: 'Hash calculator, Merkle tree and address decoder', parity: ['L10'] },
   wallets: { id: 'wallets', title: 'Wallets', icon: 'wallet', summary: 'Create, open, close, back up, restore, migrate and encrypt wallets', parity: ['E01', 'E02', 'E03', 'E04', 'E05', 'E06', 'E07', 'E08', 'E09', 'E10'], ready: true },
   kit: { id: 'kit', title: 'Interface kit', icon: 'overview', summary: 'The shared components of the interface, for testing them', parity: [], ready: true },
+  home: { id: 'home', title: 'Home', icon: 'home', summary: 'Live cards of the wallet, the chain, the sidechains and the node (the dashboard layout)', parity: [], ready: true },
 };
 
 export type DialogId = 'about' | 'help' | 'uri' | null;

@@ -1,205 +1,63 @@
 <script lang="ts">
-  // The main window once the node runs: menus, navigation, the page, the status bar.
-  import AppMenu, { type Menu } from '../components/AppMenu.svelte';
-  import Sidebar from '../components/Sidebar.svelte';
-  import StatusBar from '../components/StatusBar.svelte';
-  import Kit from '../pages/Kit.svelte';
-  import NodeWindow from '../pages/NodeWindow.svelte';
-  import Overview from '../pages/Overview.svelte';
-  import Planned from '../pages/Planned.svelte';
-  import Settings from '../pages/Settings.svelte';
-  import Addresses from '../pages/Addresses.svelte';
-  import Messages from '../pages/Messages.svelte';
-  import Psbt from '../pages/Psbt.svelte';
-  import Receive from '../pages/Receive.svelte';
-  import Send from '../pages/Send.svelte';
-  import Transactions from '../pages/Transactions.svelte';
-  import Wallets from '../pages/Wallets.svelte';
+  // The main window once the node runs, in the layout chosen in Settings → Appearance:
+  // workspace tabs, dashboard, or compact sidebar (doc/webui-layouts.md). Whatever the
+  // layout: the same pages, the command palette (Ctrl+K), the notices of new transactions.
+  import { untrack } from 'svelte';
+  import CommandPalette from '../components/CommandPalette.svelte';
   import TxNotifier from '../components/TxNotifier.svelte';
-  import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
-  import { host } from '../lib/rpc';
-  import { app, prefs, savePrefs, wallets } from '../lib/state.svelte';
-  import { clampFontAdjust, THEMES } from '../lib/themes';
+  import { closeDetail, detail } from '../lib/detail.svelte';
+  import { go, nav } from '../lib/nav.svelte';
+  import { prefs } from '../lib/state.svelte';
+  import Compact from './layouts/Compact.svelte';
+  import Dashboard from './layouts/Dashboard.svelte';
+  import Workspace from './layouts/Workspace.svelte';
 
-  const noWallet = $derived(wallets.list.length === 0);
-  const currentWallet = $derived(wallets.list.find((w) => w.name === wallets.current) ?? null);
-  const currentEncrypted = $derived(!!currentWallet?.encrypted);
-  const currentWatchOnly = $derived(!!currentWallet?.privateKeysDisabled);
-  const page = $derived(PAGES[nav.page]);
+  $effect(() => {
+    detail.follow = prefs.layout === 'workspace';
+  });
 
-  function to(id: PageId, tab = '') {
-    return () => go(id, tab);
-  }
+  // A new page: what was selected on the last one goes.
+  $effect(() => {
+    void nav.page;
+    untrack(closeDetail);
+  });
 
-  const menus: Menu[] = $derived([
-    {
-      label: 'Your wallet',
-      items: [
-        { label: 'Create wallet…', action: to('wallets', 'create') },
-        { label: 'Open wallet…', action: to('wallets', 'open') },
-        { label: 'Close wallet…', action: to('wallets', 'close'), disabled: noWallet },
-        { label: 'Close all wallets…', action: to('wallets', 'close-all'), disabled: noWallet },
-        { label: 'Migrate wallet…', action: to('wallets', 'migrate') },
-        { label: 'Restore and migrate wallet file…', action: to('wallets', 'restore-migrate') },
-        'separator',
-        { label: 'Sending addresses', action: to('addresses', 'send'), disabled: noWallet },
-        { label: 'Receiving addresses', action: to('addresses', 'receive'), disabled: noWallet },
-        'separator',
-        { label: 'Backup wallet…', action: to('wallets', 'backup'), disabled: noWallet },
-        { label: 'Restore wallet…', action: to('wallets', 'restore') },
-        { label: 'Export watch-only wallet…', action: to('wallets', 'export'), disabled: noWallet || currentWatchOnly },
-        'separator',
-        { label: 'Encrypt wallet…', action: to('wallets', 'encrypt'), disabled: noWallet || currentEncrypted || currentWatchOnly },
-        { label: 'Change passphrase…', action: to('wallets', 'passphrase'), disabled: noWallet || !currentEncrypted },
-        { label: 'Unlock wallet for a while…', action: to('wallets', 'unlock'), disabled: noWallet || !currentEncrypted },
-        { label: 'Mask values', action: () => savePrefs({ mask: !prefs.mask }), checked: prefs.mask, shortcut: 'Ctrl+Shift+M' },
-      ],
-    },
-    {
-      label: 'Banking',
-      items: [
-        { label: 'Send', action: to('send'), shortcut: 'Alt+2', disabled: noWallet },
-        { label: 'Receive', action: to('receive'), shortcut: 'Alt+3', disabled: noWallet },
-        { label: 'Transactions', action: to('transactions'), shortcut: 'Alt+4', disabled: noWallet || prefs.mask },
-        { label: 'Open URI…', action: to('send', 'uri'), disabled: noWallet },
-        'separator',
-        { label: 'Proof of funds', action: to('proof'), disabled: noWallet },
-        { label: 'Multisig lounge', action: to('multisig'), disabled: noWallet },
-        'separator',
-        { label: 'Load PSBT from file…', action: to('psbt', 'file'), disabled: noWallet },
-        { label: 'Load PSBT from clipboard…', action: to('psbt', 'clipboard'), disabled: noWallet },
-      ],
-    },
-    {
-      label: 'Use Chains',
-      items: [
-        { label: 'Timestamp file', action: to('timestamp') },
-        'separator',
-        { label: 'Sign message…', action: to('messages', 'sign'), disabled: noWallet },
-        { label: 'Verify message…', action: to('messages', 'verify'), disabled: noWallet },
-        'separator',
-        { label: 'Sidechains', action: to('sidechains'), shortcut: 'Alt+5', disabled: noWallet },
-      ],
-    },
-    {
-      label: 'Chains',
-      items: [
-        { label: 'Sidechain nodes', action: to('sidechain-nodes') },
-        { label: 'Solo mine', action: to('mine') },
-        { label: 'Sidechain proposals and votes', action: to('sidechains', 'proposals'), disabled: noWallet },
-      ],
-    },
-    {
-      label: 'Crypto tools',
-      items: [
-        { label: 'Block explorer', action: to('explorer') },
-        { label: 'Hash calculator', action: to('crypto', 'hash') },
-        { label: 'Merkle tree', action: to('crypto', 'merkle') },
-        { label: 'Address decoder', action: to('crypto', 'address') },
-      ],
-    },
-    {
-      label: 'Window',
-      items: [
-        { label: 'Minimize', action: () => host.minimize(), shortcut: 'Ctrl+M' },
-        'separator',
-        { label: 'Information', action: to('node', 'info'), shortcut: 'Ctrl+I' },
-        { label: 'Console', action: to('node', 'console'), shortcut: 'Ctrl+T' },
-        { label: 'Network traffic', action: to('node', 'traffic'), shortcut: 'Ctrl+N' },
-        { label: 'Peers', action: to('node', 'peers'), shortcut: 'Ctrl+P' },
-      ],
-    },
-    {
-      label: 'This node',
-      items: [
-        { label: 'Node window', action: to('node'), shortcut: 'Ctrl+Shift+D' },
-        { label: 'Options…', action: to('settings', 'main') },
-        {
-          label: 'Theme',
-          items: [
-            ...THEMES.map((t) => ({ label: t.name, checked: prefs.theme === t.id, action: () => savePrefs({ theme: t.id }) })),
-            { label: 'Custom…', action: to('settings', 'display') },
-          ],
-        },
-        { label: 'Increase font size', action: () => savePrefs({ fontAdjust: clampFontAdjust(prefs.fontAdjust + 1) }), shortcut: 'Ctrl++' },
-        { label: 'Decrease font size', action: () => savePrefs({ fontAdjust: clampFontAdjust(prefs.fontAdjust - 1) }), shortcut: 'Ctrl+−' },
-        { label: 'Command-line options', action: () => (nav.dialog = 'help') },
-        'separator',
-        { label: `About ${app.info?.name ?? 'Chains'}`, action: () => (nav.dialog = 'about') },
-        ...(app.info?.test || app.info?.devtools ? [{ label: 'Interface kit', action: to('kit') }] : []),
-        'separator',
-        { label: 'Exit', action: () => host.quit(), shortcut: 'Ctrl+Q' },
-      ],
-    },
-  ]);
+  // Home belongs to the dashboard, which starts on it.
+  let started = false;
+  $effect(() => {
+    const layout = prefs.layout;
+    const page = nav.page;
+    untrack(() => {
+      if (layout !== 'dashboard' && page === 'home') go('overview');
+      else if (layout === 'dashboard' && page === 'overview' && !started && prefs.loaded) go('home');
+      if (prefs.loaded) started = true;
+    });
+  });
 </script>
 
-<div class="shell">
-  <Sidebar />
-  <div class="main">
-    <header class="appbar">
-      <AppMenu {menus} />
-    </header>
-    <main class="content" id="content" tabindex="-1">
-      {#key nav.page}
-        {#if nav.page === 'overview'}
-          <Overview />
-        {:else if nav.page === 'node'}
-          <NodeWindow />
-        {:else if nav.page === 'settings'}
-          <Settings />
-        {:else if nav.page === 'kit'}
-          <Kit />
-        {:else if page.wallet && noWallet}
-          <Planned {page} note="open or create a wallet first" />
-        {:else if nav.page === 'send'}
-          <Send />
-        {:else if nav.page === 'receive'}
-          <Receive />
-        {:else if nav.page === 'transactions'}
-          <Transactions />
-        {:else if nav.page === 'addresses'}
-          <Addresses />
-        {:else if nav.page === 'messages'}
-          <Messages />
-        {:else if nav.page === 'psbt'}
-          <Psbt />
-        {:else if nav.page === 'wallets'}
-          <Wallets />
-        {:else}
-          <Planned {page} />
-        {/if}
-      {/key}
-    </main>
-    <StatusBar />
-  </div>
-</div>
+<a class="skip" href="#content">Skip to the page</a>
+{#if prefs.layout === 'workspace'}
+  <Workspace />
+{:else if prefs.layout === 'dashboard'}
+  <Dashboard />
+{:else}
+  <Compact />
+{/if}
+<CommandPalette />
 <TxNotifier />
 
 <style>
-  .shell {
-    display: flex;
-    height: 100%;
+  .skip {
+    position: fixed;
+    z-index: 60;
+    top: -3rem;
+    left: 0.5rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-s);
+    background: var(--accent);
+    color: var(--on-accent);
   }
-  .main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .appbar {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    min-height: 2.6rem;
-    padding: 0.25rem 0.75rem;
-    border-bottom: 1px solid var(--line);
-    background: var(--surface);
-  }
-  .content {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    outline: none;
+  .skip:focus {
+    top: 0.5rem;
   }
 </style>

@@ -1,9 +1,12 @@
 // The keyboard shortcuts of the main window (as chains-qt).
+import { openPalette } from './commands.svelte';
 import { go, nav, type PageId } from './nav.svelte';
 import { host } from './rpc';
 import { prefs, savePrefs, wallets } from './state.svelte';
 import { clampFontAdjust } from './themes';
 
+/** Ctrl+letter: the tabs of the node window (the Window menu of chains-qt). */
+const NODE_TABS: Record<string, string> = { i: 'info', t: 'console', n: 'traffic', p: 'peers' };
 const PAGE_KEYS: Record<string, PageId> = { '1': 'overview', '2': 'send', '3': 'receive', '4': 'transactions', '5': 'sidechains' };
 const WALLET_PAGES = new Set<PageId>(['send', 'receive', 'transactions', 'sidechains']);
 
@@ -31,6 +34,14 @@ export function handleShortcut(e: KeyboardEvent): boolean {
     return true;
   }
   if (e.shiftKey) return false;
+  if (key === 'k') {
+    openPalette();
+    return true;
+  }
+  if (NODE_TABS[key]) {
+    go('node', NODE_TABS[key]);
+    return true;
+  }
   if (key === 'q') {
     host.quit();
     return true;

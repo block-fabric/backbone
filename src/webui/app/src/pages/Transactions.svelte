@@ -35,6 +35,8 @@
   } from '../lib/wallet';
   import { current, refreshAddresses, refreshRecords } from '../lib/walletdata.svelte';
   import { node } from '../lib/state.svelte';
+  import { detail, showDetail } from '../lib/detail.svelte';
+  import { untrack } from 'svelte';
 
   const wallet = $derived(wallets.current);
 
@@ -94,6 +96,15 @@
       selected = r.key;
       nav.highlightTx = null;
     }
+  });
+
+  // The workspace layout shows the selected transaction in its detail panel.
+  function inPanel(r: Pick<TxRecord, 'txid' | 'idx' | 'address'>) {
+    if (wallet !== null) showDetail({ kind: 'tx', wallet, txid: r.txid, idx: r.idx, address: r.address });
+  }
+  const chosenKey = $derived(chosen?.key ?? null);
+  $effect(() => {
+    if (chosenKey !== null && detail.follow) untrack(() => chosen && inPanel(chosen));
   });
 
   const columns: Column<TxRecord>[] = $derived([
@@ -229,7 +240,7 @@
           bind:sortDir
           label="Transactions"
           empty={current.recordsLoaded ? 'No transactions yet' : 'Loading…'}
-          onactivate={(r) => (details = r)}
+          onactivate={(r) => (detail.follow ? inPanel(r) : (details = r))}
           oncontext={(r, e) => openMenu(r, e)}
         >
           {#snippet cell(row, column)}
