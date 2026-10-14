@@ -41,4 +41,14 @@ if(XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
       --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
   )
   set_tests_properties(webui_e2e_smoke PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+  if(ENABLE_WALLET)
+    # The wallet pages, driven as a user would (also saves pictures of them in e2e-shots).
+    add_test(NAME webui_e2e_wallet
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_wallet.py
+        --app $<TARGET_FILE:chains-app>
+        --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-wallet
+        --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+    )
+    set_tests_properties(webui_e2e_wallet PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+  endif()
 endif()

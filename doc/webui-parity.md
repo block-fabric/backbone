@@ -14,7 +14,12 @@ unit tests of the host (`test_chains-app`: bridge, events, app settings, assets,
 single instance, node events), of the interface (`npm test` in src/webui/app:
 units, addresses, URIs, sync label, tables, bridge, state, components) and the
 end-to-end smoke test (src/webui/test/e2e: A05, A12, B01, D01, D04, D05, E11,
-E12, F01, F05, T01–T03, the bridge and the escaping of chain text).
+E12, F01, F05, T01–T03, the bridge and the escaping of chain text), and the
+end-to-end wallet test (src/webui/test/e2e/wallet.js: E01–E04, E06–E10, F02, G01–G05,
+G07, G08, H01–H03, I01–I06, J01, J02, K01–K03, N02). The wallet functions of the
+host are tested in `test_chains-app` (walletapi_tests: the same calls as chains-qt,
+its rules and messages), the pages in `npm test` (wallet, dialogs, send page,
+transactions page).
 
 ## A. Start-up, shutdown, process
 
@@ -48,8 +53,8 @@ E12, F01, F05, T01–T03, the bridge and the escaping of chain text).
 | B03 | URIs given at start are kept until the UI is ready, then handled | paymentserver.cpp `uiReady`, `savedPaymentRequests` | [x] |
 | B04 | Parse BIP21 `chains:` URIs (address, amount, label, message, unknown `req-` params rejected) | guiutil.cpp `parseBitcoinURI` | [x] |
 | B05 | `chains://` rejected with "use chains: instead" | paymentserver.cpp | [x] |
-| B06 | Open URI dialog (Banking > Open URI…) | openuridialog.cpp | [ ] |
-| B07 | URI fills the Send page, after checking the address is valid for this network | paymentserver.cpp `handleURIOrFile`, bitcoingui.cpp `handlePaymentRequest` | [ ] (needs the Send page) |
+| B06 | Open URI dialog (Banking > Open URI…) | openuridialog.cpp | [x] Send page, "Open URI…" (pages/Send.svelte) |
+| B07 | URI fills the Send page, after checking the address is valid for this network | paymentserver.cpp `handleURIOrFile`, bitcoingui.cpp `handlePaymentRequest` | [x] pages/Send.svelte `pasteUri` (fills the first empty entry, checks the network) |
 | B08 | Drag and drop a URI onto the window | bitcoingui.cpp `dropEvent` | [ ] |
 | B09 | Register as the handler of `chains:` (desktop file / registry) | share/, paymentserver.cpp | [ ] |
 | B10 | A second start without URI brings the running window to the front (Qt fails on the datadir lock) | (improvement) | [x] |
@@ -60,9 +65,9 @@ E12, F01, F05, T01–T03, the bridge and the escaping of chain text).
 |----|----------|-----------|--------|
 | C01 | Sidebar: Wallet (Overview, Send, Receive, Transactions), Chain (Sidechains, Sidechain Nodes, Mine, Block Explorer), Node (Node Window, Settings), Theme | bitcoingui.cpp `createToolBars` | [x] shell; pages land in later phases |
 | C02 | Shortcuts Alt+1..5 for the pages, Ctrl+Q quit, Ctrl+Shift+C console, Ctrl+Shift+D node window, Ctrl+Shift+M mask values, Ctrl+M minimize, Ctrl+W closes a dialog, Ctrl+/Ctrl- font size | bitcoingui.cpp, guiutil.cpp | [~] page, quit, console, mask, font, Esc closes dialogs; Ctrl+M later |
-| C03 | Menu "Your Wallet": create, open (list of wallets on disk), close, close all, migrate (list + restore-and-migrate a file), sending addresses, receiving addresses, backup, restore, export watch-only, encrypt, change passphrase, mask values | bitcoingui.cpp `createMenuBar`, `createActions` | [~] menu present; actions land with the wallet phase |
-| C04 | Menu "Banking": send, receive, transactions, open URI, proof of funds, multisig lounge, load PSBT from file, from clipboard | bitcoingui.cpp | [~] menu present |
-| C05 | Menu "Use Chains": timestamp file, sign message, verify message, sidechains | bitcoingui.cpp | [~] menu present |
+| C03 | Menu "Your Wallet": create, open (list of wallets on disk), close, close all, migrate (list + restore-and-migrate a file), sending addresses, receiving addresses, backup, restore, export watch-only, encrypt, change passphrase, mask values | bitcoingui.cpp `createMenuBar`, `createActions` | [x] views/Shell.svelte menu → pages/Wallets.svelte, pages/Addresses.svelte |
+| C04 | Menu "Banking": send, receive, transactions, open URI, proof of funds, multisig lounge, load PSBT from file, from clipboard | bitcoingui.cpp | [~] send, receive, transactions, open URI, PSBT from file/clipboard done (pages/Psbt.svelte); proof of funds and multisig lounge later |
+| C05 | Menu "Use Chains": timestamp file, sign message, verify message, sidechains | bitcoingui.cpp | [~] sign and verify message done (pages/Messages.svelte); timestamp and sidechains later |
 | C06 | Menu "Chains": sidechain nodes, solo mine, sidechain proposals and votes | bitcoingui.cpp | [~] menu present |
 | C07 | Menu "Crypto Tools": block explorer, hash calculator, merkle tree, address decoder | bitcoingui.cpp | [~] menu present |
 | C08 | Menu "Window": minimize, (macOS zoom, main window), node window tabs with their shortcuts | bitcoingui.cpp | [~] |
@@ -80,32 +85,32 @@ E12, F01, F05, T01–T03, the bridge and the escaping of chain text).
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
 | D01 | Unit selector in the status bar (click to choose CHN, mCHN, µCHN, sat) | bitcoingui.cpp `UnitDisplayStatusBarControl` | [x] |
-| D02 | HD and encryption status icons of the current wallet (locked / unlocked) | bitcoingui.cpp `setHDStatus`, `setEncryptionStatus` | [~] encryption done; HD later |
+| D02 | HD and encryption status icons of the current wallet (locked / unlocked) | bitcoingui.cpp `setHDStatus`, `setEncryptionStatus` | [~] encryption in the status bar; HD and lock state on pages/Wallets.svelte |
 | D03 | Proxy icon when a proxy is used | bitcoingui.cpp `updateProxyIcon` | [ ] |
 | D04 | Connections icon with peer count; menu: show peers tab, enable/disable network activity | bitcoingui.cpp `updateNetworkState`, `setNetworkActive` | [x] |
 | D05 | Sync icon and label: connecting, syncing headers (%), pre-syncing headers, processing blocks on disk, reindexing, "x behind", up to date | bitcoingui.cpp `setNumBlocks`, `updateHeadersSyncProgressLabel` | [x] |
 | D06 | Progress bar for long operations (rescan, wallet load) via `showProgress` | bitcoingui.cpp `showProgress` | [x] |
 | D07 | Modal sync overlay: blocks left, last block time, progress, progress per hour, estimated time; hide; opened from the out-of-sync warning | modaloverlay.cpp | [~] sync label, progress and "behind" in the status bar; the overlay with its estimate later |
 | D08 | Message boxes from the node (`ThreadSafeMessageBox`, `ThreadSafeQuestion`), errors, warnings | bitcoingui.cpp `message`, `ThreadSafeMessageBox` | [x] |
-| D09 | Desktop notification for incoming and sent transactions (date, amount, wallet, type, label, address) | bitcoingui.cpp `incomingTransaction`, notificator.cpp | [ ] (the wallet.tx events are there; notices come with the transactions page) |
+| D09 | Desktop notification for incoming and sent transactions (date, amount, wallet, type, label, address) | bitcoingui.cpp `incomingTransaction`, notificator.cpp | [~] notices in the window for new transactions (components/TxNotifier.svelte: date, amount, type, wallet, label/address; many make one); desktop notifications with the tray |
 | D10 | Alerts / warnings from the node (`getWarnings`) | clientmodel.cpp | [x] |
 | D11 | Tray icon with menu (show/hide, send, receive, sign, verify, options, node window, quit); minimize to tray; click toggles | bitcoingui.cpp `createTrayIcon`, `createTrayIconMenu` | [ ] |
-| D12 | Out-of-sync warning labels on overview and send | overviewpage.cpp, walletview.cpp | [ ] |
+| D12 | Out-of-sync warning labels on overview and send | overviewpage.cpp, walletview.cpp | [x] pages/Overview.svelte, pages/Send.svelte |
 
 ## E. Wallet management
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| E01 | Create wallet: name, encrypt, disable private keys, blank, external signer | createwalletdialog.cpp, walletcontroller.cpp `CreateWalletActivity` | [ ] |
-| E02 | Open wallet from the list of wallets in the data directory | walletcontroller.cpp `OpenWalletActivity` | [ ] |
-| E03 | Close wallet / close all wallets (with the pruning warning) | walletcontroller.cpp `closeWallet`, `closeAllWallets` | [ ] |
-| E04 | Restore wallet from a backup file | walletcontroller.cpp `RestoreWalletActivity` | [ ] |
-| E05 | Migrate a legacy wallet; restore-and-migrate a file; watch-only/solvable wallets reported | walletcontroller.cpp `MigrateWalletActivity` | [ ] |
-| E06 | Backup wallet to a file | walletview.cpp `backupWallet` | [ ] |
-| E07 | Export a watch-only wallet | bitcoingui.cpp `m_export_watchonly_action` | [ ] |
-| E08 | Encrypt wallet (passphrase twice, strength hint, caps-lock warning, final warning) | askpassphrasedialog.cpp | [ ] |
-| E09 | Change passphrase | askpassphrasedialog.cpp | [ ] |
-| E10 | Unlock on demand for an operation that needs the keys | askpassphrasedialog.cpp, walletmodel.cpp `requestUnlock` | [ ] |
+| E01 | Create wallet: name, encrypt, disable private keys, blank, external signer | createwalletdialog.cpp, walletcontroller.cpp `CreateWalletActivity` | [x] pages/Wallets.svelte (options and their rules of CreateWalletDialog), src/webui/walletapi.cpp `wallets.create` |
+| E02 | Open wallet from the list of wallets in the data directory | walletcontroller.cpp `OpenWalletActivity` | [x] pages/Wallets.svelte list, src/webui/walletapi.cpp `wallets.list`/`wallets.open` |
+| E03 | Close wallet / close all wallets (with the pruning warning) | walletcontroller.cpp `closeWallet`, `closeAllWallets` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallets.close` (as WalletController: not loaded at start any more) |
+| E04 | Restore wallet from a backup file | walletcontroller.cpp `RestoreWalletActivity` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallets.restore` |
+| E05 | Migrate a legacy wallet; restore-and-migrate a file; watch-only/solvable wallets reported | walletcontroller.cpp `MigrateWalletActivity` | [~] pages/Wallets.svelte, src/webui/walletapi.cpp `wallets.migrate`/`wallets.restoreMigrate` (load option, passphrase, watch-only/solvables reported); no test: v32 cannot make a legacy wallet to migrate |
+| E06 | Backup wallet to a file | walletview.cpp `backupWallet` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallet.backup` |
+| E07 | Export a watch-only wallet | bitcoingui.cpp `m_export_watchonly_action` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallet.exportWatchOnly` |
+| E08 | Encrypt wallet (passphrase twice, strength hint, caps-lock warning, final warning) | askpassphrasedialog.cpp | [x] components/DialogHost.svelte (twice, caps lock, show) and pages/Wallets.svelte (the warnings); no strength meter, as Qt has none |
+| E09 | Change passphrase | askpassphrasedialog.cpp | [x] pages/Wallets.svelte `changePassphrase` |
+| E10 | Unlock on demand for an operation that needs the keys | askpassphrasedialog.cpp, walletmodel.cpp `requestUnlock` | [x] lib/dialogs.svelte.ts `withUnlock`: unlocked for the call and locked again (UnlockContext); also "Unlock for a while" (walletpassphrase with a timeout) and "Lock now" |
 | E11 | Mask values (privacy mode) | bitcoingui.cpp `m_mask_values_action`, overviewpage.cpp | [x] |
 | E12 | Wallet list follows wallets loaded/unloaded by RPC | walletcontroller.cpp | [x] |
 
@@ -114,57 +119,57 @@ E12, F01, F05, T01–T03, the bridge and the escaping of chain text).
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
 | F01 | Balances: available, pending, immature, total | overviewpage.cpp, forms/overviewpage.ui | [x] |
-| F02 | Recent transactions of the wallet, click opens transactions | overviewpage.cpp, transactionoverviewwidget.cpp | [ ] |
+| F02 | Recent transactions of the wallet, click opens transactions | overviewpage.cpp, transactionoverviewwidget.cpp | [x] pages/Overview.svelte (5 latest; a click opens the transactions with it selected); and a balance chart (components/BalanceChart.svelte) |
 | F03 | Latest blocks and latest mempool transactions of the chain; double click opens the block explorer | chainactivity.cpp | [~] latest blocks; mempool transactions and the explorer link later |
-| F04 | Out-of-sync warning, click shows the sync overlay | overviewpage.cpp | [ ] |
+| F04 | Out-of-sync warning, click shows the sync overlay | overviewpage.cpp | [x] pages/Overview.svelte (opens the node window until the sync overlay comes) |
 | F05 | Privacy mode masks the amounts | overviewpage.cpp `setPrivacy` | [x] |
 
 ## G. Send page
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| G01 | Several recipients: address (validated, paste, address book), label, amount, subtract fee, use available balance, remove entry | sendcoinsentry.cpp, sendcoinsdialog.cpp | [ ] |
-| G02 | Fee: recommended with confirmation target, custom fee per kvB, minimum fee warning, fee section collapsible | sendcoinsdialog.cpp | [ ] |
-| G03 | Coin control: inputs dialog (tree/list, lock/unlock, copy), custom change address, quantity/bytes/amount/fee/after fee/change labels with copy | coincontroldialog.cpp, sendcoinsdialog.cpp | [ ] |
-| G04 | Confirmation dialog with total, fee and a send delay | sendcoinsdialog.cpp `SendConfirmationDialog` | [ ] |
-| G05 | Create unsigned (PSBT): copy or save | sendcoinsdialog.cpp | [ ] |
-| G06 | External signer (hardware wallet) sign on device | sendcoinsdialog.cpp | [ ] |
-| G07 | Errors: invalid address, duplicate, amount exceeds balance, absurd fee, creation failed | sendcoinsdialog.cpp `processSendCoinsReturn` | [ ] |
-| G08 | Clear all; balance display | sendcoinsdialog.cpp | [ ] |
+| G01 | Several recipients: address (validated, paste, address book), label, amount, subtract fee, use available balance, remove entry | sendcoinsentry.cpp, sendcoinsdialog.cpp | [x] pages/Send.svelte (address book, paste, label, unit, subtract fee, use available balance, remove; URI message shown) |
+| G02 | Fee: recommended with confirmation target, custom fee per kvB, minimum fee warning, fee section collapsible | sendcoinsdialog.cpp | [x] pages/Send.svelte (folding fee section, targets 2–1008 blocks, smart fee and its fallback warning, custom fee per kvB not below the required fee), src/webui/walletapi.cpp `wallet.fee` |
+| G03 | Coin control: inputs dialog (tree/list, lock/unlock, copy), custom change address, quantity/bytes/amount/fee/after fee/change labels with copy | coincontroldialog.cpp, sendcoinsdialog.cpp | [x] components/CoinControlDialog.svelte (tree/list, sort, (un)select all, lock/unlock, copy), components/CoinSummary.svelte, custom change address with its checks, src/webui/walletapi.cpp `wallet.coins`/`wallet.coinControl.summary` |
+| G04 | Confirmation dialog with total, fee and a send delay | sendcoinsdialog.cpp `SendConfirmationDialog` | [x] pages/Send.svelte → components/DialogHost.svelte (fee, kvB, total in every unit, recipients, 3 s delay) |
+| G05 | Create unsigned (PSBT): copy or save | sendcoinsdialog.cpp | [x] pages/Send.svelte `presentPsbt` (copied, save as binary .psbt), src/webui/walletapi.cpp `wallet.send.psbt` |
+| G06 | External signer (hardware wallet) sign on device | sendcoinsdialog.cpp | [~] src/webui/walletapi.cpp `wallet.send.commit` signs on the device as Qt (fill, sign, finalize; partial → PSBT), "Sign on device" button; no device to test with |
+| G07 | Errors: invalid address, duplicate, amount exceeds balance, absurd fee, creation failed | sendcoinsdialog.cpp `processSendCoinsReturn` | [x] src/webui/walletapi.cpp `wallet.send.prepare` (same checks and messages as prepareTransaction) |
+| G08 | Clear all; balance display | sendcoinsdialog.cpp | [x] pages/Send.svelte (clear all, balance or "External balance") |
 
 ## H. Receive page
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| H01 | Request form: label, amount, message, address type (bech32, bech32m, p2sh-segwit, legacy) | receivecoinsdialog.cpp | [ ] |
-| H02 | Request dialog: QR code, URI, address, amount, label, message, copy, save image | receiverequestdialog.cpp, qrimagewidget.cpp | [ ] |
-| H03 | Requested payments history: show, remove, copy URI/address/label/message/amount | receivecoinsdialog.cpp, recentrequeststablemodel.cpp | [ ] |
+| H01 | Request form: label, amount, message, address type (bech32, bech32m, p2sh-segwit, legacy) | receivecoinsdialog.cpp | [x] pages/Receive.svelte (address types as Qt, taproot when enabled), src/webui/walletapi.cpp `wallet.newAddress` |
+| H02 | Request dialog: QR code, URI, address, amount, label, message, copy, save image | receiverequestdialog.cpp, qrimagewidget.cpp | [x] components/RequestDialog.svelte (QR, URI, address, copy, save PNG with the address, verify on device) |
+| H03 | Requested payments history: show, remove, copy URI/address/label/message/amount | receivecoinsdialog.cpp, recentrequeststablemodel.cpp | [x] pages/Receive.svelte, stored in the wallet in the format of chains-qt (src/webui/walletapi.cpp `EncodeReceiveRequest`) |
 
 ## I. Transactions page
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| I01 | Table: status, date, type, label/address, amount; sortable; large histories | transactionview.cpp, transactiontablemodel.cpp | [ ] (table component ready) |
-| I02 | Filters: date (today, week, month, last month, year, range), type, search (address, txid, label), min amount | transactionview.cpp, transactionfilterproxy.cpp | [ ] |
-| I03 | Context menu: copy address, label, amount, txid, raw tx, full details; edit label; details; bump fee; abandon; show in third-party explorer | transactionview.cpp | [ ] |
-| I04 | Transaction details dialog (status, date, from/to, credit/debit, fee, sizes, inputs, debug) | transactiondesc.cpp, transactiondescdialog.cpp | [ ] |
-| I05 | Export to CSV | transactionview.cpp `exportClicked` | [ ] |
-| I06 | Increase fee (bumpfee, PSBT for watch-only) | walletmodel.cpp `bumpFee` | [ ] |
+| I01 | Table: status, date, type, label/address, amount; sortable; large histories | transactionview.cpp, transactiontablemodel.cpp | [x] pages/Transactions.svelte (records decomposed as TransactionRecord, src/webui/walletapi.cpp `wallet.transactions`; status ring, brackets for amounts that do not count yet) |
+| I02 | Filters: date (today, week, month, last month, year, range), type, search (address, txid, label), min amount | transactionview.cpp, transactionfilterproxy.cpp | [x] pages/Transactions.svelte, lib/wallet.ts `dateRange`/`filterRecords`; plus totals of what is shown |
+| I03 | Context menu: copy address, label, amount, txid, raw tx, full details; edit label; details; bump fee; abandon; show in third-party explorer | transactionview.cpp | [~] pages/Transactions.svelte context menu (all copies, details, bump, abandon, edit label); the third-party explorer links come with the options |
+| I04 | Transaction details dialog (status, date, from/to, credit/debit, fee, sizes, inputs, debug) | transactiondesc.cpp, transactiondescdialog.cpp | [x] components/TxDetailsDialog.svelte, src/webui/walletapi.cpp `Describe` (TransactionDesc, debug section when logging) |
+| I05 | Export to CSV | transactionview.cpp `exportClicked` | [x] pages/Transactions.svelte, lib/wallet.ts `transactionsCsv` (columns and quoting of CSVModelWriter) |
+| I06 | Increase fee (bumpfee, PSBT for watch-only) | walletmodel.cpp `bumpFee` | [x] lib/txactions.ts `bumpFee` (confirmation, unsigned PSBT copied), src/webui/walletapi.cpp `wallet.bump.*` |
 
 ## J. Address book
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| J01 | Sending addresses: list, new, edit, delete, copy, choose (for the send page), export CSV | addressbookpage.cpp, editaddressdialog.cpp | [ ] |
-| J02 | Receiving addresses: list, edit label, copy, export CSV | addressbookpage.cpp | [ ] |
+| J01 | Sending addresses: list, new, edit, delete, copy, choose (for the send page), export CSV | addressbookpage.cpp, editaddressdialog.cpp | [x] pages/Addresses.svelte, components/EditAddressDialog.svelte, components/AddressPicker.svelte, src/webui/walletapi.cpp `wallet.addressBook.*` (rules and messages of EditAddressDialog) |
+| J02 | Receiving addresses: list, edit label, copy, export CSV | addressbookpage.cpp | [x] pages/Addresses.svelte (receiving: label only) |
 
 ## K. Messages, PSBT
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| K01 | Sign message (address, message, signature, copy) | signverifymessagedialog.cpp | [ ] |
-| K02 | Verify message | signverifymessagedialog.cpp | [ ] |
-| K03 | Load PSBT from file / clipboard; PSBT operations dialog: sign, broadcast, copy, save, status and amounts | psbtoperationsdialog.cpp, walletframe.cpp `gotoLoadPSBT` | [ ] |
+| K01 | Sign message (address, message, signature, copy) | signverifymessagedialog.cpp | [x] pages/Messages.svelte, src/webui/walletapi.cpp `wallet.signMessage` (P2PKH and P2WPKH, as chains-qt) |
+| K02 | Verify message | signverifymessagedialog.cpp | [x] pages/Messages.svelte, src/webui/walletapi.cpp `message.verify` |
+| K03 | Load PSBT from file / clipboard; PSBT operations dialog: sign, broadcast, copy, save, status and amounts | psbtoperationsdialog.cpp, walletframe.cpp `gotoLoadPSBT` | [x] pages/Psbt.svelte, src/webui/walletapi.cpp `psbt.decode`/`wallet.psbt.open`/`wallet.psbt.sign`/`psbt.broadcast` |
 
 ## L. Drivechain (Chains-specific)
 
@@ -196,7 +201,7 @@ E12, F01, F05, T01–T03, the bridge and the escaping of chain text).
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
 | N01 | Main: start on system login, prune and size, database cache, script verification threads, open configuration file, overridden-by-command-line list | optionsdialog.cpp, optionsmodel.cpp | [ ] |
-| N02 | Wallet: coin control, spend unconfirmed change, PSBT controls, subtract fee by default, external signer path | optionsdialog.cpp | [ ] |
+| N02 | Wallet: coin control, spend unconfirmed change, PSBT controls, subtract fee by default, external signer path | optionsdialog.cpp | [x] pages/Settings.svelte "Wallet" (coin control, spend unconfirmed change and signer path in settings.json, PSBT controls, subtract fee by default) |
 | N03 | Network: map port (PCP/NAT-PMP), listen, RPC server, SOCKS5 proxy, separate Tor proxy, reachable networks | optionsdialog.cpp | [ ] |
 | N04 | Window: show tray icon, minimize to tray, minimize on close | optionsdialog.cpp | [ ] |
 | N05 | Display: language, unit, third-party tx URLs, money font, colours, font, size, themed frame | optionsdialog.cpp, theme.cpp | [~] unit, colours, font size done |

@@ -33,6 +33,17 @@ App, on a thread of its own: intro, configuration, init, then shutdown
   their status, transactions, balances (polled as WalletModel does), address
   book. The page gets them in batches; the block tip during a sync is
   coalesced (the newest one every 250 ms).
+* **Wallets** (walletapi.cpp): the wallet pages call host methods
+  (`wallets.*`, `wallet.*`, `psbt.*`) that do what WalletModel,
+  WalletController and the wallet dialogs of chains-qt do, with the same
+  interfaces::Wallet and WalletLoader calls, rules and messages (sending as
+  prepareTransaction/sendCoins, the history as TransactionRecord, the details
+  as TransactionDesc, receive requests in the format of chains-qt, coin
+  control, PSBTs, messages, create/open/close/restore/migrate, encryption).
+  Keys of an encrypted wallet are unlocked for one call with its passphrase and
+  locked again after it (UnlockContext); the page asks for the passphrase when
+  a call answers -13. Files (backups, PSBTs, CSV exports, QR pictures) are
+  only the ones the user chose in the file chooser of the desktop.
 * **The interface** (src/webui/app): Svelte 5, TypeScript, Vite. Built by
   CMake through npm, embedded in the binary (cmake/embed.cmake) and served
   from `chains-app://app/` with a content security policy that allows nothing
@@ -64,17 +75,26 @@ Debug options: `-webuidevtools` (web inspector), `-webuiconfig=<file>`,
 
 * `test_chains-app`: the host (bridge, also in front of a real node; events;
   app settings; assets and the inline document; the single-instance socket;
-  node events).
+  node events; the wallet functions on a regtest chain).
 * `npm test` in src/webui/app (vitest): amounts and units, addresses, payment
-  URIs, the sync label, tables, the bridge client, the state, components, and
+  URIs, the sync label, tables, the bridge client, the state, components, the
+  wallet helpers (history texts, filters, CSV), unlocking on demand, the
+  passphrase and confirmation dialogs, the send and transactions pages, and
   checks that no code renders HTML from text or loads anything from elsewhere.
   `npm run check`: types (svelte-check).
 * `src/webui/test/e2e/run_smoke.py --app build/bin/chains-app --tmp <dir>
   --shots <dir>`: chains-app on regtest in a virtual display (xvfb-run), driven
   through its page; also saves pictures of every page in each theme.
 
-All three are CTest tests (`webui_tests`, `webui_frontend_tests`,
-`webui_e2e_smoke`).
+* `src/webui/test/e2e/run_wallet.py` (same arguments): the wallet pages driven
+  as a user would on regtest: an encrypted wallet created, a payment request,
+  a payment sent with the passphrase, details, a fee bump, a PSBT saved,
+  loaded, signed and broadcast, encryption, a timed unlock, a new passphrase,
+  messages, the address book, backups and a restore, coin control; pictures of
+  every wallet page.
+
+All are CTest tests (`webui_tests`, `webui_frontend_tests`,
+`webui_frontend_types`, `webui_e2e_smoke`, `webui_e2e_wallet`).
 
 ## Credits
 
