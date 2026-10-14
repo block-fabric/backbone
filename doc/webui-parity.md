@@ -9,6 +9,13 @@ list is worked through.
 Legend: `[x]` done in chains-app, `[~]` partly done (the note says what is left),
 `[ ]` not done yet. IDs are stable: later commits and tests refer to them.
 
+How chains-app is built and tested: doc/webui.md. Tests that cover an item:
+unit tests of the host (`test_chains-app`: bridge, events, app settings, assets,
+single instance, node events), of the interface (`npm test` in src/webui/app:
+units, addresses, URIs, sync label, tables, bridge, state, components) and the
+end-to-end smoke test (src/webui/test/e2e: A05, A12, B01, D01, D04, D05, E11,
+E12, F01, F05, T01–T03, the bridge and the escaping of chain text).
+
 ## A. Start-up, shutdown, process
 
 | ID | Function | Qt source | Status |
@@ -78,9 +85,9 @@ Legend: `[x]` done in chains-app, `[~]` partly done (the note says what is left)
 | D04 | Connections icon with peer count; menu: show peers tab, enable/disable network activity | bitcoingui.cpp `updateNetworkState`, `setNetworkActive` | [x] |
 | D05 | Sync icon and label: connecting, syncing headers (%), pre-syncing headers, processing blocks on disk, reindexing, "x behind", up to date | bitcoingui.cpp `setNumBlocks`, `updateHeadersSyncProgressLabel` | [x] |
 | D06 | Progress bar for long operations (rescan, wallet load) via `showProgress` | bitcoingui.cpp `showProgress` | [x] |
-| D07 | Modal sync overlay: blocks left, last block time, progress, progress per hour, estimated time; hide; opened from the out-of-sync warning | modaloverlay.cpp | [~] summary card; full overlay with estimate later |
+| D07 | Modal sync overlay: blocks left, last block time, progress, progress per hour, estimated time; hide; opened from the out-of-sync warning | modaloverlay.cpp | [~] sync label, progress and "behind" in the status bar; the overlay with its estimate later |
 | D08 | Message boxes from the node (`ThreadSafeMessageBox`, `ThreadSafeQuestion`), errors, warnings | bitcoingui.cpp `message`, `ThreadSafeMessageBox` | [x] |
-| D09 | Desktop notification for incoming and sent transactions (date, amount, wallet, type, label, address) | bitcoingui.cpp `incomingTransaction`, notificator.cpp | [~] in-app toast; desktop notification later |
+| D09 | Desktop notification for incoming and sent transactions (date, amount, wallet, type, label, address) | bitcoingui.cpp `incomingTransaction`, notificator.cpp | [ ] (the wallet.tx events are there; notices come with the transactions page) |
 | D10 | Alerts / warnings from the node (`getWarnings`) | clientmodel.cpp | [x] |
 | D11 | Tray icon with menu (show/hide, send, receive, sign, verify, options, node window, quit); minimize to tray; click toggles | bitcoingui.cpp `createTrayIcon`, `createTrayIconMenu` | [ ] |
 | D12 | Out-of-sync warning labels on overview and send | overviewpage.cpp, walletview.cpp | [ ] |
@@ -108,7 +115,7 @@ Legend: `[x]` done in chains-app, `[~]` partly done (the note says what is left)
 |----|----------|-----------|--------|
 | F01 | Balances: available, pending, immature, total | overviewpage.cpp, forms/overviewpage.ui | [x] |
 | F02 | Recent transactions of the wallet, click opens transactions | overviewpage.cpp, transactionoverviewwidget.cpp | [ ] |
-| F03 | Latest blocks and latest mempool transactions of the chain; double click opens the block explorer | chainactivity.cpp | [ ] |
+| F03 | Latest blocks and latest mempool transactions of the chain; double click opens the block explorer | chainactivity.cpp | [~] latest blocks; mempool transactions and the explorer link later |
 | F04 | Out-of-sync warning, click shows the sync overlay | overviewpage.cpp | [ ] |
 | F05 | Privacy mode masks the amounts | overviewpage.cpp `setPrivacy` | [x] |
 
@@ -178,7 +185,7 @@ Legend: `[x]` done in chains-app, `[~]` partly done (the note says what is left)
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| M01 | Information: client version, user agent, datadir, blocksdir, startup time, network, connections, chain, blocks, last block time, mempool, wallet, debug log open | rpcconsole.cpp, forms/debugwindow.ui | [ ] |
+| M01 | Information: client version, user agent, datadir, blocksdir, startup time, network, connections, chain, blocks, last block time, mempool, wallet, debug log open | rpcconsole.cpp, forms/debugwindow.ui | [~] all but blocksdir and opening the debug log |
 | M02 | Console: commands with history, wallet selector, help-console, nested commands and parentheses syntax, font size, clear, sensitive command filtering in history | rpcconsole.cpp `RPCExecutor`, `RPCParseCommandLine` | [ ] (bridge ready) |
 | M03 | Network traffic graph with time ranges and totals | trafficgraphwidget.cpp | [ ] |
 | M04 | Peers table and detail panel (all fields of the Qt view); context menu copy address, disconnect, ban 1h/1d/1w/1y | rpcconsole.cpp, peertablemodel.cpp | [ ] |

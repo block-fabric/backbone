@@ -22,3 +22,20 @@ target_link_libraries(test_chains-app
   Boost::headers
 )
 add_test(NAME webui_tests COMMAND test_chains-app)
+
+# The tests of the interface (vitest), and the end-to-end smoke test of chains-app in a virtual
+# display (it also saves pictures of every page in e2e-shots).
+if(NPM_EXECUTABLE)
+  add_test(NAME webui_frontend_tests COMMAND ${NPM_EXECUTABLE} test WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../app)
+endif()
+find_program(XVFB_RUN_EXECUTABLE xvfb-run)
+find_package(Python3 COMPONENTS Interpreter)
+if(XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
+  add_test(NAME webui_e2e_smoke
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_smoke.py
+      --app $<TARGET_FILE:chains-app>
+      --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e
+      --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+  )
+  set_tests_properties(webui_e2e_smoke PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+endif()

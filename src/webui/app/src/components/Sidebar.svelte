@@ -29,8 +29,8 @@
 
   {#if wallets.list.length > 0 && !prefs.compactNav}
     <label class="wallet">
-      <span class="caption">Wallet</span>
-      <select value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
+      <span class="sr-only">Wallet</span>
+      <select title="The wallet shown" value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
         {#each wallets.list as w (w.name)}
           <option value={w.name}>{w.name === '' ? 'default wallet' : w.name}</option>
         {/each}

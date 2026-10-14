@@ -190,6 +190,7 @@
     font-weight: 650;
   }
   .hash {
+    white-space: nowrap;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;

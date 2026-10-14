@@ -35,7 +35,7 @@
   });
   const columns: Column<Row>[] = [
     { key: 'n', label: '#', value: (r) => r.n, width: '6rem', align: 'end' },
-    { key: 'time', label: 'Date', value: (r) => r.time, width: '10rem' },
+    { key: 'time', label: 'Date', value: (r) => r.time, width: '12rem' },
     { key: 'label', label: 'Label', value: (r) => r.label, width: 'minmax(12rem, 1fr)' },
     { key: 'amount', label: 'Amount', value: (r) => r.amount, width: '12rem', align: 'end' },
   ];
