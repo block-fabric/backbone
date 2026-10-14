@@ -6,7 +6,7 @@
   import { confirm, errorText, inform, prompt, walletRpc } from '../lib/dialogs.svelte';
   import { nav } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
-  import { prefs, savePrefs, wallets } from '../lib/state.svelte';
+  import { noWalletText, prefs, savePrefs, wallets } from '../lib/state.svelte';
   import { bareDescriptor, coinsToUnits, jsonCoinsToUnits, keyOfDescriptor, psbtStatus, sharedDescriptor, signersText, unitsToCoins } from '../lib/tools';
   import { walletDisplayName } from '../lib/wallet';
 
@@ -26,7 +26,7 @@
 
   async function addOwnKey() {
     const wallet = wallets.current;
-    if (wallet === null) return warn('Open or create a wallet first.');
+    if (wallet === null) return warn(noWalletText());
     try {
       const address = await rpc.call('getnewaddress', ['multisig key', 'bech32'], { wallet });
       const info = await rpc.raw<{ desc: string }>('getaddressinfo', [address], { wallet });

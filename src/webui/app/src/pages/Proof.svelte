@@ -5,7 +5,7 @@
   import { errorText, inform, withKeys } from '../lib/dialogs.svelte';
   import { nav } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
-  import { wallets } from '../lib/state.svelte';
+  import { noWalletText, wallets } from '../lib/state.svelte';
   import { formatProof, parseProof, proofVerdict, simplified } from '../lib/tools';
 
   const tab = $derived(nav.tab === 'verify' ? 'verify' : 'prove');
@@ -27,7 +27,7 @@
     }
     const wallet = wallets.current;
     if (wallet === null) {
-      await inform('Proof of Funds', 'Open or create a wallet first.');
+      await inform('Proof of Funds', noWalletText());
       return;
     }
     proving = true;

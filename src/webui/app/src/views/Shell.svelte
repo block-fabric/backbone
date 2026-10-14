@@ -6,7 +6,7 @@
   import Kit from '../pages/Kit.svelte';
   import NodeWindow from '../pages/NodeWindow.svelte';
   import Overview from '../pages/Overview.svelte';
-  import Planned from '../pages/Planned.svelte';
+  import NoWallet from '../components/NoWallet.svelte';
   import Settings from '../pages/Settings.svelte';
   import Addresses from '../pages/Addresses.svelte';
   import Messages from '../pages/Messages.svelte';
@@ -27,10 +27,12 @@
   import Timestamp from '../pages/Timestamp.svelte';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
-  import { app, prefs, savePrefs, wallets } from '../lib/state.svelte';
+  import { app, prefs, savePrefs, wallets, walletsEnabled } from '../lib/state.svelte';
   import { clampFontAdjust, THEMES } from '../lib/themes';
 
   const noWallet = $derived(wallets.list.length === 0);
+  // With -disablewallet there are no wallet menus nor wallet pages (chains-qt builds no wallet UI then).
+  const walletsOn = $derived(walletsEnabled());
   const currentWallet = $derived(wallets.list.find((w) => w.name === wallets.current) ?? null);
   const currentEncrypted = $derived(!!currentWallet?.encrypted);
   const currentWatchOnly = $derived(!!currentWallet?.privateKeysDisabled);
@@ -41,6 +43,12 @@
   }
 
   const menus: Menu[] = $derived([
+    ...(walletsOn ? walletMenus() : []),
+    ...otherMenus(),
+  ]);
+
+  function walletMenus(): Menu[] {
+    return [
     {
       label: 'Your wallet',
       items: [
@@ -79,14 +87,23 @@
         { label: 'Load PSBT from clipboard…', action: to('psbt', 'clipboard'), disabled: noWallet },
       ],
     },
+    ];
+  }
+
+  function otherMenus(): Menu[] {
+    return [
     {
       label: 'Use Chains',
       items: [
         { label: 'Timestamp file', action: to('timestamp') },
         'separator',
-        { label: 'Sign message…', action: to('messages', 'sign'), disabled: noWallet },
-        { label: 'Verify message…', action: to('messages', 'verify'), disabled: noWallet },
-        'separator',
+        ...(walletsOn
+          ? ([
+              { label: 'Sign message…', action: to('messages', 'sign'), disabled: noWallet },
+              { label: 'Verify message…', action: to('messages', 'verify'), disabled: noWallet },
+              'separator',
+            ] as Menu['items'])
+          : []),
         { label: 'Sidechains', action: to('sidechains'), shortcut: 'Alt+5' },
       ],
     },
@@ -142,7 +159,8 @@
         { label: 'Exit', action: () => host.quit(), shortcut: 'Ctrl+Q' },
       ],
     },
-  ]);
+    ];
+  }
 </script>
 
 <div class="shell">
@@ -173,8 +191,8 @@
           <Timestamp />
         {:else if nav.page === 'crypto'}
           <Crypto />
-        {:else if page.wallet && noWallet}
-          <Planned {page} note="open or create a wallet first" />
+        {:else if (page.wallet && noWallet) || (!walletsOn && nav.page === 'wallets')}
+          <NoWallet {page} />
         {:else if nav.page === 'send'}
           <Send />
         {:else if nav.page === 'receive'}
@@ -193,8 +211,6 @@
           <Proof />
         {:else if nav.page === 'multisig'}
           <Multisig />
-        {:else}
-          <Planned {page} />
         {/if}
       {/key}
     </main>

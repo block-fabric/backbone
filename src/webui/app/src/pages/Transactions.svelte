@@ -72,7 +72,18 @@
   });
   const minInvalid = $derived(minText.trim() !== '' && !parseAmount(minText, prefs.unit).ok);
   const range = $derived(dateRange(dateFilter, new Date(), rangeFrom ? new Date(`${rangeFrom}T00:00`) : undefined, rangeTo ? new Date(`${rangeTo}T00:00`) : undefined));
-  const shown = $derived(filterRecords(current.records, { ...range, type: typeFilter, search, minAmount, showInactive: true }));
+  // The search waits for a pause in the typing when the history is long (TransactionView waits too).
+  let searchApplied = $state('');
+  $effect(() => {
+    const text = search;
+    if (current.records.length < 2000) {
+      searchApplied = text;
+      return;
+    }
+    const t = setTimeout(() => (searchApplied = text), 250);
+    return () => clearTimeout(t);
+  });
+  const shown = $derived(filterRecords(current.records, { ...range, type: typeFilter, search: searchApplied, minAmount, showInactive: true }));
   const chosen = $derived(shown.find((r) => r.key === selected) ?? current.records.find((r) => r.key === selected) ?? null);
 
   // Totals of what the filters show (an addition to chains-qt).

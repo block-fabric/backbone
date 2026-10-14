@@ -2,7 +2,7 @@
   // The navigation on the left, in the sections of chains-qt: the wallet, the chain, the node, the look.
   import Icon from './Icon.svelte';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
-  import { app, prefs, savePrefs, selectWallet, wallets } from '../lib/state.svelte';
+  import { app, prefs, savePrefs, selectWallet, wallets, walletsEnabled } from '../lib/state.svelte';
   import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
 
   const sections: { title: string; pages: PageId[] }[] = [
@@ -41,7 +41,7 @@
   {#each sections as section (section.title)}
     <div class="section">
       {#if !prefs.compactNav}<div class="caption">{section.title}</div>{/if}
-      {#each section.pages as id (id)}
+      {#each section.pages.filter((id) => walletsEnabled() || !PAGES[id].wallet) as id (id)}
         {@const page = PAGES[id]}
         <button
           type="button"

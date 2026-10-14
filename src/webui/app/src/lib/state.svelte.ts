@@ -152,6 +152,17 @@ function sats(n: unknown): bigint {
   return typeof n === 'number' ? BigInt(Math.round(n)) : 0n;
 }
 
+/** Whether the node has wallets at all (not with -disablewallet). */
+export function walletsEnabled(): boolean {
+  return app.info?.walletEnabled !== false;
+}
+
+/** What to tell the user who needs a wallet and has none open. */
+export function noWalletText(why = ''): string {
+  if (!walletsEnabled()) return 'This node runs without wallets (-disablewallet).';
+  return `Open or create a wallet first${why ? `: ${why}` : '.'}`;
+}
+
 export function selectWallet(name: string | null): void {
   wallets.current = name;
   host.setWalletTitle(wallets.list.length > 1 ? name : null).catch(() => undefined);

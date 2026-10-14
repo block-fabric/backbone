@@ -6,7 +6,7 @@
   import { formatTime } from '../lib/format';
   import { formatAmount } from '../lib/units';
   import { addressText, typeText, walletDisplayName } from '../lib/wallet';
-  import { current, refreshRecords } from '../lib/walletdata.svelte';
+  import { recordsOf } from '../lib/walletdata.svelte';
 
   const MAX_NOTICES = 3;
   let seen = 0;
@@ -29,14 +29,20 @@
         if (desktop) host.notify(`${count} new transactions`, 'See the transactions page.').catch(() => undefined);
         return;
       }
+      // The records of the new transactions of the current wallet, asked for in one call.
+      let fresh: Awaited<ReturnType<typeof recordsOf>> = [];
+      try {
+        fresh = await recordsOf([...new Set(batch.filter((b) => b.wallet === wallets.current).map((b) => b.txid))]);
+      } catch {
+        // The wallet went away meanwhile.
+      }
       for (const { wallet, txid } of batch) {
         if (wallet !== wallets.current) {
           toast('info', 'New transaction', `In wallet ${walletDisplayName(wallet)}`);
           if (desktop) host.notify('New transaction', `In wallet ${walletDisplayName(wallet)}`).catch(() => undefined);
           continue;
         }
-        await refreshRecords(true);
-        for (const r of current.records.filter((x) => x.txid === txid)) {
+        for (const r of fresh.filter((x) => x.txid === txid)) {
           const incoming = r.amount >= 0n;
           const amount = prefs.mask ? '••••••' : formatAmount(r.amount, prefs.unit, { withUnit: true, plus: true });
           const lines = [`Date: ${formatTime(r.time)}`, `Amount: ${amount}`, `Type: ${typeText(r.type) || 'Other'}`];

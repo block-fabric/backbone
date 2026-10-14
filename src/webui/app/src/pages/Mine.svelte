@@ -5,7 +5,7 @@
   import { errorText, inform } from '../lib/dialogs.svelte';
   import { formatCount, niceTimeOffset } from '../lib/format';
   import { rpc } from '../lib/rpc';
-  import { prefs, savePrefs, wallets } from '../lib/state.svelte';
+  import { prefs, savePrefs, wallets, walletsEnabled } from '../lib/state.svelte';
 
   interface Generate {
     generate: boolean;
@@ -54,7 +54,7 @@
   async function newAddress(): Promise<boolean> {
     const wallet = wallets.current;
     if (wallet === null) {
-      await inform('Solo Mine', 'Open or create a wallet first, or enter an address.');
+      await inform('Solo Mine', walletsEnabled() ? 'Open or create a wallet first, or enter an address.' : 'Enter an address: this node runs without wallets (-disablewallet).');
       return false;
     }
     try {

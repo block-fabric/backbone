@@ -5,24 +5,60 @@
   import { formatCount, formatTime, niceTimeOffset, shortHash } from '../lib/format';
   import { go } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
-  import { node, prefs, savePrefs, wallets } from '../lib/state.svelte';
+  import { node, prefs, savePrefs, wallets, walletsEnabled } from '../lib/state.svelte';
   import { coinsToSats } from '../lib/units';
   import BalanceChart from '../components/BalanceChart.svelte';
   import TxStatusIcon from '../components/TxStatusIcon.svelte';
   import { nav } from '../lib/nav.svelte';
-  import { addressText, balanceHistory, typeText } from '../lib/wallet';
-  import { current, refreshRecords } from '../lib/walletdata.svelte';
+  import { addressText, typeText, walletApi, type TxRecord } from '../lib/wallet';
 
   /** The number of transactions shown (NUM_ITEMS of the overview of chains-qt). */
   const NUM_ITEMS = 5;
 
+  // The newest transactions and the balance chart, asked of the host: the overview never loads the
+  // whole history (a large wallet would stall it, and every block would send it again).
+  let recent: TxRecord[] = $state.raw([]);
+  let recentOf: string | null = $state(null);
+  let history: { time: number; balance: bigint }[] = $state.raw([]);
   $effect(() => {
     void wallets.txVersion;
     void node.tip?.hash;
-    if (wallets.current !== null) refreshRecords();
+    const name = wallets.current;
+    if (name === null) {
+      recent = [];
+      return;
+    }
+    // At most a few times a second while blocks come fast (a sync).
+    const t = setTimeout(() => {
+      walletApi(name)
+        .latest(NUM_ITEMS)
+        .then((r) => {
+          if (wallets.current === name) {
+            recent = r;
+            recentOf = name;
+          }
+        })
+        .catch(() => undefined);
+    }, 150);
+    return () => clearTimeout(t);
   });
-  const recent = $derived([...current.records].sort((a, b) => b.time - a.time || b.sortKey.localeCompare(a.sortKey)).slice(0, NUM_ITEMS));
-  const history = $derived(balanceHistory(current.records));
+  $effect(() => {
+    void wallets.txVersion;
+    const name = wallets.current;
+    if (name === null) {
+      history = [];
+      return;
+    }
+    const t = setTimeout(() => {
+      walletApi(name)
+        .balanceHistory()
+        .then((h) => {
+          if (wallets.current === name) history = h;
+        })
+        .catch(() => undefined);
+    }, 300);
+    return () => clearTimeout(t);
+  });
 
   function openTx(txid: string) {
     nav.highlightTx = txid;
@@ -137,7 +173,11 @@
       <h2 id="balances-title">Balances</h2>
       {#if wallets.current !== null}<span class="muted">{wallets.current === '' ? 'default wallet' : wallets.current}</span>{/if}
     </div>
-    {#if wallets.current === null}
+    {#if !walletsEnabled()}
+      <div class="panel-body empty">
+        <p>This node runs without wallets (the option -disablewallet is set).</p>
+      </div>
+    {:else if wallets.current === null}
       <div class="panel-body empty">
         <p>No wallet is loaded. Create one, or open one of the wallets of this node.</p>
         <button type="button" class="btn primary" onclick={() => go('wallets', 'create')}>Create or open a wallet</button>
@@ -175,7 +215,7 @@
       </div>
       <div class="panel-body">
         {#if recent.length === 0}
-          <p class="muted">{current.recordsLoaded ? 'No transactions yet.' : 'Loading…'}</p>
+          <p class="muted">{recentOf === wallets.current ? 'No transactions yet.' : 'Loading…'}</p>
         {:else}
           <ul class="txs-list">
             {#each recent as r (r.key)}

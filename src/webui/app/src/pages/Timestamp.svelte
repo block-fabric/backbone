@@ -7,7 +7,7 @@
   import { chooseFile, FILTERS } from '../lib/files';
   import { formatBytes, formatCount, formatTime } from '../lib/format';
   import { host, rpc, type Stamp } from '../lib/rpc';
-  import { wallets } from '../lib/state.svelte';
+  import { noWalletText, wallets } from '../lib/state.svelte';
   import { stampPayload } from '../lib/tools';
 
   /** Blocks looked at per call: the progress shows, and Stop is quick. */
@@ -45,7 +45,7 @@
     }
     const wallet = wallets.current;
     if (wallet === null) {
-      await inform('Timestamp File', 'Open or create a wallet first; stamping costs a transaction fee.');
+      await inform('Timestamp File', noWalletText('stamping costs a transaction fee.'));
       return;
     }
     if (!(await confirm('Timestamp File', 'Publish the fingerprint of this file on the chain?'))) return;

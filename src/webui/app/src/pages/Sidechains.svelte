@@ -27,7 +27,7 @@
   import { formatCount, formatTime, shortHash } from '../lib/format';
   import { nav } from '../lib/nav.svelte';
   import { host, rpc } from '../lib/rpc';
-  import { node, prefs, toast, wallets } from '../lib/state.svelte';
+  import { node, noWalletText, prefs, toast, wallets } from '../lib/state.svelte';
   import { coinsToSats, formatAmount, satsToCoins, unitInfo } from '../lib/units';
 
   const TABS = [
@@ -115,7 +115,7 @@
     const wallet = wallets.current;
     if (!selected || depositing) return;
     if (wallet === null) {
-      await inform('Sidechains', 'Open or create a wallet first: the deposit is paid from it.');
+      await inform('Sidechains', noWalletText('the deposit is paid from it.'));
       return;
     }
     const dest = destination.trim();
