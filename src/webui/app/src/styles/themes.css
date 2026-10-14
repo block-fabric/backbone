@@ -153,3 +153,25 @@
   --radius-m: 4px;
   --radius-l: 6px;
 }
+
+/* A font chosen apart from the colours (Settings, Display: the custom look of chains-qt). */
+:root[data-theme][data-font='inter'] {
+  --font-ui: 'Inter Variable', 'Segoe UI', 'Noto Sans', system-ui, sans-serif;
+  --font-num: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+}
+:root[data-theme][data-font='nunito'] {
+  --font-ui: 'Nunito Variable', 'Ubuntu', 'Cantarell', system-ui, sans-serif;
+  --font-num: 'Nunito Variable', system-ui, sans-serif;
+}
+:root[data-theme][data-font='mono'] {
+  --font-ui: 'JetBrains Mono Variable', 'DejaVu Sans Mono', ui-monospace, monospace;
+  --font-num: 'JetBrains Mono Variable', ui-monospace, monospace;
+}
+:root[data-theme][data-font='system'] {
+  --font-ui: system-ui, 'Segoe UI', 'Noto Sans', sans-serif;
+  --font-num: system-ui, 'Segoe UI', sans-serif;
+}
+/* The font of amounts: the monospaced font of the desktop (FontForMoney "best system"). */
+:root[data-theme][data-money-font='system'] {
+  --font-num: ui-monospace, 'DejaVu Sans Mono', monospace;
+}

@@ -5,7 +5,7 @@ import { prefs, savePrefs, wallets } from './state.svelte';
 import { clampFontAdjust } from './themes';
 
 const PAGE_KEYS: Record<string, PageId> = { '1': 'overview', '2': 'send', '3': 'receive', '4': 'transactions', '5': 'sidechains' };
-const WALLET_PAGES = new Set<PageId>(['send', 'receive', 'transactions', 'sidechains']);
+const WALLET_PAGES = new Set<PageId>(['send', 'receive', 'transactions']);
 
 /** Handle a key press; true if it was a shortcut. */
 export function handleShortcut(e: KeyboardEvent): boolean {
@@ -31,6 +31,12 @@ export function handleShortcut(e: KeyboardEvent): boolean {
     return true;
   }
   if (e.shiftKey) return false;
+  // The tabs of the node window, while it shows (RPCConsole::setTabFocus shortcuts).
+  const NODE_TABS: Record<string, string> = { i: 'info', t: 'console', n: 'traffic', p: 'peers' };
+  if (nav.page === 'node' && NODE_TABS[key]) {
+    nav.tab = NODE_TABS[key];
+    return true;
+  }
   if (key === 'q') {
     host.quit();
     return true;

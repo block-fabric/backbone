@@ -38,8 +38,19 @@ export function clampFontAdjust(n: number): number {
   return Math.max(MIN_FONT_ADJUST, Math.min(MAX_FONT_ADJUST, Math.round(n)));
 }
 
-/** Put a look on the document. */
-export function applyTheme(doc: Document, id: ThemeId, fontAdjust: number, prefersDark: boolean): void {
+export type FontChoice = '' | 'inter' | 'nunito' | 'mono' | 'system';
+
+/** The fonts that can go with any colours (the custom look of chains-qt: any colours with any font). */
+export const FONTS: readonly { id: FontChoice; name: string }[] = [
+  { id: '', name: 'The font of the theme' },
+  { id: 'inter', name: 'Inter' },
+  { id: 'nunito', name: 'Nunito' },
+  { id: 'mono', name: 'JetBrains Mono' },
+  { id: 'system', name: 'The font of the desktop' },
+];
+
+/** Put a look on the document: colours, a font apart from them, the font of amounts, the size. */
+export function applyTheme(doc: Document, id: ThemeId, fontAdjust: number, prefersDark: boolean, font: FontChoice = '', moneyFont: 'embedded' | 'system' = 'embedded'): void {
   const resolved = resolveTheme(id, prefersDark);
   const root = doc.documentElement;
   root.dataset.theme = resolved;
@@ -47,4 +58,7 @@ export function applyTheme(doc: Document, id: ThemeId, fontAdjust: number, prefe
   const theme = THEMES.find((t) => t.id === resolved);
   root.style.colorScheme = theme?.dark ? 'dark' : 'light';
   root.style.fontSize = `${BASE_FONT_PX + clampFontAdjust(fontAdjust)}px`;
+  if (font) root.dataset.font = font;
+  else delete root.dataset.font;
+  root.dataset.moneyFont = moneyFont;
 }

@@ -16,6 +16,15 @@
   import Transactions from '../pages/Transactions.svelte';
   import Wallets from '../pages/Wallets.svelte';
   import TxNotifier from '../components/TxNotifier.svelte';
+  import SyncOverlay from '../components/SyncOverlay.svelte';
+  import Crypto from '../pages/Crypto.svelte';
+  import Explorer from '../pages/Explorer.svelte';
+  import Mine from '../pages/Mine.svelte';
+  import Multisig from '../pages/Multisig.svelte';
+  import Proof from '../pages/Proof.svelte';
+  import SidechainNodes from '../pages/SidechainNodes.svelte';
+  import Sidechains from '../pages/Sidechains.svelte';
+  import Timestamp from '../pages/Timestamp.svelte';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
   import { app, prefs, savePrefs, wallets } from '../lib/state.svelte';
@@ -78,7 +87,7 @@
         { label: 'Sign message…', action: to('messages', 'sign'), disabled: noWallet },
         { label: 'Verify message…', action: to('messages', 'verify'), disabled: noWallet },
         'separator',
-        { label: 'Sidechains', action: to('sidechains'), shortcut: 'Alt+5', disabled: noWallet },
+        { label: 'Sidechains', action: to('sidechains'), shortcut: 'Alt+5' },
       ],
     },
     {
@@ -86,7 +95,8 @@
       items: [
         { label: 'Sidechain nodes', action: to('sidechain-nodes') },
         { label: 'Solo mine', action: to('mine') },
-        { label: 'Sidechain proposals and votes', action: to('sidechains', 'proposals'), disabled: noWallet },
+        { label: 'Sidechain proposals', action: to('sidechains', 'proposals') },
+        { label: 'Withdrawal votes', action: to('sidechains', 'withdrawals') },
       ],
     },
     {
@@ -114,6 +124,7 @@
       items: [
         { label: 'Node window', action: to('node'), shortcut: 'Ctrl+Shift+D' },
         { label: 'Options…', action: to('settings', 'main') },
+        { label: 'Sync status…', action: () => (nav.dialog = 'sync') },
         {
           label: 'Theme',
           items: [
@@ -150,6 +161,18 @@
           <Settings />
         {:else if nav.page === 'kit'}
           <Kit />
+        {:else if nav.page === 'sidechains'}
+          <Sidechains />
+        {:else if nav.page === 'sidechain-nodes'}
+          <SidechainNodes />
+        {:else if nav.page === 'mine'}
+          <Mine />
+        {:else if nav.page === 'explorer'}
+          <Explorer />
+        {:else if nav.page === 'timestamp'}
+          <Timestamp />
+        {:else if nav.page === 'crypto'}
+          <Crypto />
         {:else if page.wallet && noWallet}
           <Planned {page} note="open or create a wallet first" />
         {:else if nav.page === 'send'}
@@ -166,6 +189,10 @@
           <Psbt />
         {:else if nav.page === 'wallets'}
           <Wallets />
+        {:else if nav.page === 'proof'}
+          <Proof />
+        {:else if nav.page === 'multisig'}
+          <Multisig />
         {:else}
           <Planned {page} />
         {/if}
@@ -175,6 +202,7 @@
   </div>
 </div>
 <TxNotifier />
+<SyncOverlay />
 
 <style>
   .shell {

@@ -1,45 +1,130 @@
 <script lang="ts">
-  // Settings (optionsdialog.cpp). The look is here now; the options of the node come next.
+  // Settings (OptionsDialog and OptionsModel of chains-qt): the options of the node, kept in
+  // settings.json as chains-qt keeps them; the window; the look. A change that only takes effect
+  // after a restart says so, and the app can restart at once.
+  import Icon from '../components/Icon.svelte';
+  import { confirm, errorText, inform } from '../lib/dialogs.svelte';
   import { nav } from '../lib/nav.svelte';
-  import { prefs, savePrefs } from '../lib/state.svelte';
-  import { clampFontAdjust, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type ThemeId } from '../lib/themes';
+  import { host, type NodeOptions, type NodeOptionValues } from '../lib/rpc';
+  import { app, prefs, savePrefs, toast } from '../lib/state.svelte';
+  import { clampFontAdjust, FONTS, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type FontChoice, type ThemeId } from '../lib/themes';
   import { UNITS, type Unit } from '../lib/units';
-  import { host } from '../lib/rpc';
-  import { toast } from '../lib/state.svelte';
-
-  // Wallet options kept by the node in settings.json (OptionsModel): they apply after a restart.
-  let spendZeroConf = $state(true);
-  let signer = $state('');
-  let nodeSettings = $state({ loaded: false, changed: false, signerIgnored: false, zeroConfIgnored: false });
-
-  $effect(() => {
-    if (tab !== 'wallet' || nodeSettings.loaded) return;
-    Promise.all([host.getSetting('spendzeroconfchange'), host.getSetting('signer')])
-      .then(([z, sg]) => {
-        spendZeroConf = typeof z.value === 'boolean' ? z.value : z.value === null || z.value === undefined ? true : Boolean(Number(z.value));
-        signer = typeof sg.value === 'string' ? sg.value : '';
-        nodeSettings = { loaded: true, changed: false, signerIgnored: sg.ignored, zeroConfIgnored: z.ignored };
-      })
-      .catch(() => (nodeSettings.loaded = true));
-  });
-
-  async function setNode(name: string, value: unknown) {
-    try {
-      await host.setSetting(name, value);
-      nodeSettings.changed = true;
-    } catch (e) {
-      toast('error', 'Settings', e instanceof Error ? e.message : String(e));
-    }
-  }
 
   const TABS = [
-    { id: 'display', label: 'Display' },
     { id: 'main', label: 'Main' },
     { id: 'wallet', label: 'Wallet' },
     { id: 'network', label: 'Network' },
     { id: 'window', label: 'Window' },
+    { id: 'display', label: 'Display' },
   ];
-  const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'display');
+  const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'main');
+
+  let options = $state<NodeOptions | null>(null);
+  let loadError = $state('');
+  let tray = $state<{ available: boolean } | null>(null);
+  /** A change in this visit that needs a restart (the temporary message of OptionsDialog). */
+  let changedNow = $state(false);
+
+  async function load() {
+    try {
+      options = await host.options();
+      loadError = '';
+    } catch (e) {
+      loadError = errorText(e);
+    }
+  }
+  $effect(() => {
+    load();
+    host.trayState().then((t) => (tray = t)).catch(() => (tray = { available: false }));
+  });
+
+  // Fields typed in: kept here until they are valid, then set.
+  let proxyIp = $state('');
+  let torIp = $state('');
+  let proxyPort = $state('');
+  let torPort = $state('');
+  let signer = $state('');
+  let thirdParty = $state(prefs.thirdPartyTxUrls);
+  $effect(() => {
+    if (!options) return;
+    proxyIp = options.proxyIp;
+    proxyPort = options.proxyPort;
+    torIp = options.torIp;
+    torPort = options.torPort;
+    signer = options.signer;
+  });
+
+  async function set<K extends keyof NodeOptionValues>(name: K, value: NodeOptionValues[K]) {
+    if (!options) return;
+    const before = options.restartRequired;
+    try {
+      options = await host.setOption(name, value);
+      if (options.restartRequired && !before) changedNow = true;
+      if (options.restartRequired) changedNow = true;
+    } catch (e) {
+      toast('error', 'Settings', errorText(e));
+      await load();
+    }
+  }
+
+  let proxyError = $state('');
+  async function setProxy(tor: boolean) {
+    const ip = (tor ? torIp : proxyIp).trim();
+    const port = Number(tor ? torPort : proxyPort);
+    if (!(await host.validProxy(ip).catch(() => false)) || !Number.isInteger(port) || port < 1 || port > 65535) {
+      proxyError = 'The supplied proxy address is invalid.';
+      return;
+    }
+    proxyError = '';
+    await set(tor ? 'torIp' : 'proxyIp', ip);
+    await set(tor ? 'torPort' : 'proxyPort', String(port));
+  }
+
+  const ignored = (setting: string) => !!options?.ignored[setting];
+  const overriddenTip = 'Set on the command line or in chains.conf: that value is used, and this one is kept for when it is not.';
+
+  async function openConfig() {
+    const r = await confirm(
+      'Configuration options',
+      'The configuration file is used to specify advanced user options which override GUI settings. Additionally, any command-line options will override this configuration file.',
+      { yes: 'Continue', level: 'info' },
+    );
+    if (!r) return;
+    try {
+      await host.open('config');
+    } catch (e) {
+      await inform('Error', errorText(e) || 'The configuration file could not be opened.', 'error');
+    }
+  }
+
+  async function reset() {
+    const ok = await confirm(
+      'Confirm options reset',
+      `Client restart required to activate changes.\n\nCurrent settings will be backed up at "${app.info?.datadir ?? ''}".\n\nClient will be shut down. Do you want to proceed?`,
+      { yes: 'Reset and shut down', danger: true, level: 'warning' },
+    );
+    if (!ok) return;
+    try {
+      await host.resetOptions();
+    } catch (e) {
+      await inform('Error', errorText(e), 'error');
+    }
+  }
+
+  async function restart() {
+    if (!(await confirm('Restart', `${app.info?.name ?? 'Chains'} will stop and start again with the new settings. Restart now?`, { yes: 'Restart' }))) return;
+    try {
+      await host.restart();
+    } catch (e) {
+      await inform('Restart', errorText(e), 'warning');
+    }
+  }
+
+  function saveThirdParty() {
+    if (thirdParty === prefs.thirdPartyTxUrls) return;
+    savePrefs({ thirdPartyTxUrls: thirdParty.trim() });
+    toast('info', 'Third-party transaction URLs', 'Saved. They show in the context menu of the transactions.');
+  }
 </script>
 
 <div class="page">
@@ -50,7 +135,165 @@
     {/each}
   </div>
 
-  {#if tab === 'display'}
+  {#if options?.restartRequired}
+    <div class="restart" role="status">
+      <Icon name="alert" size={16} />
+      <span>{changedNow ? 'This change would require a client restart.' : 'Client restart required to activate changes.'}</span>
+      {#if !app.info?.test}<button type="button" class="btn small" onclick={restart}>Restart now</button>{/if}
+    </div>
+  {/if}
+  {#if loadError}<p class="error">{loadError}</p>{/if}
+
+  {#if tab === 'main' && options}
+    <section class="panel">
+      <div class="panel-body form">
+        {#if app.info?.platform !== 'macos'}
+          <label class="check">
+            <input type="checkbox" checked={options.startAtLogin} onchange={(e) => set('startAtLogin', (e.currentTarget as HTMLInputElement).checked)} />
+            <span>Start {app.info?.name ?? 'Chains'} on system login</span>
+          </label>
+          <p class="hint">Automatically start {app.info?.name ?? 'Chains'} after logging in to the system.</p>
+        {/if}
+
+        <div class="field-row" title={ignored('prune') ? overriddenTip : undefined}>
+          <label class="check">
+            <input id="opt-prune" type="checkbox" checked={options.prune} disabled={ignored('prune')} onchange={(e) => set('prune', (e.currentTarget as HTMLInputElement).checked)} />
+            <span>Prune block storage to</span>
+          </label>
+          <input id="opt-prune-size" class="small-num" type="number" min={options.limits.pruneMinGB} value={options.pruneSize} disabled={!options.prune || ignored('prune')} onchange={(e) => set('pruneSize', Number((e.currentTarget as HTMLInputElement).value))} aria-label="Prune size" />
+          <span>GB</span>
+        </div>
+        {#if options.prune}<p class="hint warn">Reverting this setting requires re-downloading the entire blockchain.</p>{/if}
+        <p class="hint">Disables some advanced features but all blocks will still be fully validated. Reverting this setting requires re-downloading the entire blockchain. Actual disk usage may be somewhat higher.</p>
+
+        <div class="field-row" title={ignored('dbcache') ? overriddenTip : undefined}>
+          <label for="opt-dbcache">Size of database cache</label>
+          <input id="opt-dbcache" class="small-num" type="number" min={options.limits.dbcacheMin} value={options.dbcache} disabled={ignored('dbcache')} onchange={(e) => set('dbcache', Number((e.currentTarget as HTMLInputElement).value))} />
+          <span>MiB</span>
+        </div>
+        <p class="hint">Maximum database cache size. A larger cache can contribute to faster sync, after which the benefit is less pronounced for most use cases. Lowering the cache size will reduce memory usage. Unused mempool memory is shared for this cache.</p>
+
+        <div class="field-row" title={ignored('par') ? overriddenTip : undefined}>
+          <label for="opt-par">Number of script verification threads</label>
+          <input id="opt-par" class="small-num" type="number" min={options.limits.parMin} max={options.limits.parMax} value={options.par} disabled={ignored('par')} onchange={(e) => set('par', Number((e.currentTarget as HTMLInputElement).value))} />
+          <span class="muted">(0 = auto, &lt;0 = leave that many cores free)</span>
+        </div>
+
+        <label class="check" title={ignored('server') ? overriddenTip : undefined}>
+          <input id="opt-server" type="checkbox" checked={options.server} disabled={ignored('server')} onchange={(e) => set('server', (e.currentTarget as HTMLInputElement).checked)} />
+          <span>Enable RPC server</span>
+        </label>
+        <p class="hint">Enabling the RPC server allows you to control the node and the wallet with command-line tools or JSON-RPC requests. Sidechain nodes run from here need it to follow this node.</p>
+
+        <div class="field">
+          <span class="label">Options set in this dialog are overridden by the command line or in the configuration file:</span>
+          <code id="opt-overridden" class="overridden">{options.overridden.trim() || 'none'}</code>
+        </div>
+        <div class="row">
+          <button type="button" class="btn" onclick={openConfig}><Icon name="text" size={15} /> Open Configuration File</button>
+          <span class="grow"></span>
+          <button type="button" class="btn danger" onclick={reset}>Reset Options</button>
+        </div>
+      </div>
+    </section>
+  {:else if tab === 'wallet' && options}
+    <section class="panel">
+      <div class="panel-body form">
+        <label class="check">
+          <input type="checkbox" checked={prefs.coinControl} onchange={(e) => savePrefs({ coinControl: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Enable coin control features</span>
+        </label>
+        <p class="hint">Show the coin control section of the send page: choose the coins a transaction spends, and a custom change address.</p>
+        <label class="check" title={ignored('spendzeroconfchange') ? overriddenTip : undefined}>
+          <input type="checkbox" checked={options.spendZeroConf} disabled={ignored('spendzeroconfchange')} onchange={(e) => set('spendZeroConf', (e.currentTarget as HTMLInputElement).checked)} />
+          <span>Spend unconfirmed change</span>
+        </label>
+        <p class="hint">If you disable the spending of unconfirmed change, the change from a transaction cannot be used until that transaction has at least one confirmation. This also affects how your balance is computed.</p>
+        <label class="check">
+          <input type="checkbox" checked={prefs.psbtControls} onchange={(e) => savePrefs({ psbtControls: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Enable PSBT controls</span>
+        </label>
+        <p class="hint">Whether to show PSBT controls (create unsigned transactions).</p>
+        <label class="check">
+          <input type="checkbox" checked={prefs.subtractFeeDefault} onchange={(e) => savePrefs({ subtractFeeDefault: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Subtract fee from amount by default</span>
+        </label>
+        <div class="field">
+          <label for="signer-path">External signer script path</label>
+          <input id="signer-path" type="text" class="mono" placeholder="Path to an HWI compatible script, e.g. /usr/local/bin/hwi" disabled={!options.externalSigner || ignored('signer')} bind:value={signer} onchange={() => set('signer', signer.trim())} />
+          <span class="hint">{options.externalSigner ? 'Full path to a Bitcoin Core compatible script (e.g. C:\\Downloads\\hwi.exe or /Users/you/Downloads/hwi.py). Beware: malware can steal your coins!' : 'Compiled without external signing support (required for external signing)'}</span>
+        </div>
+      </div>
+    </section>
+  {:else if tab === 'network' && options}
+    <section class="panel">
+      <div class="panel-body form">
+        <label class="check" title={ignored('natpmp') ? overriddenTip : undefined}>
+          <input id="opt-natpmp" type="checkbox" checked={options.natpmp} disabled={ignored('natpmp')} onchange={(e) => set('natpmp', (e.currentTarget as HTMLInputElement).checked)} />
+          <span>Map port using PCP or NAT-PMP</span>
+        </label>
+        <p class="hint">Automatically open the client port on the router. This only works when your router supports PCP or NAT-PMP and it is enabled. The external port could be random.</p>
+        <label class="check" title={ignored('listen') ? overriddenTip : undefined}>
+          <input id="opt-listen" type="checkbox" checked={options.listen} disabled={ignored('listen')} onchange={(e) => set('listen', (e.currentTarget as HTMLInputElement).checked)} />
+          <span>Allow incoming connections</span>
+        </label>
+        <p class="hint">Accept connections from outside.</p>
+
+        <fieldset class="proxy" title={ignored('proxy') ? overriddenTip : undefined}>
+          <label class="check">
+            <input id="opt-proxy" type="checkbox" checked={options.proxyUse} disabled={ignored('proxy')} onchange={(e) => set('proxyUse', (e.currentTarget as HTMLInputElement).checked)} />
+            <span>Connect through SOCKS5 proxy (default proxy)</span>
+          </label>
+          <div class="field-row">
+            <label for="opt-proxy-ip">Proxy IP</label>
+            <input id="opt-proxy-ip" type="text" class="mono" disabled={!options.proxyUse || ignored('proxy')} bind:value={proxyIp} onchange={() => setProxy(false)} />
+            <label for="opt-proxy-port">Port</label>
+            <input id="opt-proxy-port" type="text" class="small-num mono" disabled={!options.proxyUse || ignored('proxy')} bind:value={proxyPort} onchange={() => setProxy(false)} />
+          </div>
+          <div class="reach">
+            <span class="muted">Used for reaching peers via:</span>
+            <span class="badge" class:accent={options.proxyReach.ipv4}>IPv4</span>
+            <span class="badge" class:accent={options.proxyReach.ipv6}>IPv6</span>
+            <span class="badge" class:accent={options.proxyReach.tor}>Tor</span>
+          </div>
+        </fieldset>
+        <fieldset class="proxy" title={ignored('onion') ? overriddenTip : undefined}>
+          <label class="check">
+            <input id="opt-tor" type="checkbox" checked={options.torUse} disabled={ignored('onion')} onchange={(e) => set('torUse', (e.currentTarget as HTMLInputElement).checked)} />
+            <span>Use separate SOCKS5 proxy to reach peers via Tor onion services</span>
+          </label>
+          <div class="field-row">
+            <label for="opt-tor-ip">Proxy IP</label>
+            <input id="opt-tor-ip" type="text" class="mono" disabled={!options.torUse || ignored('onion')} bind:value={torIp} onchange={() => setProxy(true)} />
+            <label for="opt-tor-port">Port</label>
+            <input id="opt-tor-port" type="text" class="small-num mono" disabled={!options.torUse || ignored('onion')} bind:value={torPort} onchange={() => setProxy(true)} />
+          </div>
+        </fieldset>
+        {#if proxyError}<p class="error" role="alert">{proxyError}</p>{/if}
+      </div>
+    </section>
+  {:else if tab === 'window'}
+    <section class="panel">
+      <div class="panel-body form">
+        {#if tray && !tray.available}<p class="hint warn">This desktop shows no tray icon now: the options of the tray take effect where it has one.</p>{/if}
+        <label class="check">
+          <input id="opt-show-tray" type="checkbox" checked={prefs.showTray} onchange={(e) => { const on = (e.currentTarget as HTMLInputElement).checked; savePrefs(on ? { showTray: true } : { showTray: false, minimizeToTray: false }); }} />
+          <span>Show tray icon</span>
+        </label>
+        <p class="hint">Show an icon in the tray, with a menu to show the window, send, receive, sign, the options and the node window.</p>
+        <label class="check">
+          <input id="opt-minimize-tray" type="checkbox" checked={prefs.minimizeToTray} disabled={!prefs.showTray} onchange={(e) => savePrefs({ minimizeToTray: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Minimize to the tray instead of the taskbar</span>
+        </label>
+        <p class="hint">Show only a tray icon after minimizing the window.</p>
+        <label class="check">
+          <input id="opt-minimize-close" type="checkbox" checked={prefs.minimizeOnClose} onchange={(e) => savePrefs({ minimizeOnClose: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Minimize on close</span>
+        </label>
+        <p class="hint">Minimize instead of exit the application when the window is closed. When this option is enabled, the application will be closed only after selecting Exit in the menu.</p>
+      </div>
+    </section>
+  {:else if tab === 'display'}
     <section class="panel">
       <div class="panel-body form">
         <fieldset class="field">
@@ -66,22 +309,58 @@
           </div>
         </fieldset>
 
-        <div class="field">
-          <label for="font-adjust">Text size</label>
-          <div class="row">
-            <input id="font-adjust" type="range" min={MIN_FONT_ADJUST} max={MAX_FONT_ADJUST} step="1" value={prefs.fontAdjust} oninput={(e) => savePrefs({ fontAdjust: clampFontAdjust(Number((e.currentTarget as HTMLInputElement).value)) })} />
-            <span class="num">{prefs.fontAdjust > 0 ? '+' : ''}{prefs.fontAdjust} pt</span>
+        <div class="cols">
+          <div class="field">
+            <label for="opt-font">Font</label>
+            <select id="opt-font" value={prefs.fontFamily} onchange={(e) => savePrefs({ fontFamily: (e.currentTarget as HTMLSelectElement).value as FontChoice })}>
+              {#each FONTS as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
+            </select>
+            <span class="hint">Any font goes with any colours.</span>
           </div>
-          <span class="hint">How much larger, or smaller, than the default. Also Ctrl+ and Ctrl− anywhere.</span>
+          <div class="field">
+            <label for="font-adjust">Text size</label>
+            <div class="row">
+              <input id="font-adjust" type="range" min={MIN_FONT_ADJUST} max={MAX_FONT_ADJUST} step="1" value={prefs.fontAdjust} oninput={(e) => savePrefs({ fontAdjust: clampFontAdjust(Number((e.currentTarget as HTMLInputElement).value)) })} />
+              <span class="num">{prefs.fontAdjust > 0 ? '+' : ''}{prefs.fontAdjust} pt</span>
+            </div>
+            <span class="hint">How much larger, or smaller, than the default. Also Ctrl+ and Ctrl− anywhere.</span>
+          </div>
+        </div>
+
+        <div class="cols">
+          <div class="field">
+            <label for="unit">Unit to show amounts in</label>
+            <select id="unit" value={prefs.unit} onchange={(e) => savePrefs({ unit: (e.currentTarget as HTMLSelectElement).value as Unit })}>
+              {#each UNITS as u (u.id)}<option value={u.id}>{u.short} — {u.long}</option>{/each}
+            </select>
+            <span class="hint">The default subdivision unit to show in the interface and when sending coins.</span>
+          </div>
+          <div class="field">
+            <label for="money-font">Font in the Overview tab and the amounts</label>
+            <select id="money-font" value={prefs.moneyFont} onchange={(e) => savePrefs({ moneyFont: (e.currentTarget as HTMLSelectElement).value as 'embedded' | 'system' })}>
+              <option value="embedded">Embedded (the font of the theme)</option>
+              <option value="system">Default system monospaced font</option>
+            </select>
+            <span class="hint">Sample: <span class="num sample">21 000 000.00000000 CHN</span></span>
+          </div>
         </div>
 
         <div class="field">
-          <label for="unit">Unit to show amounts in</label>
-          <select id="unit" value={prefs.unit} onchange={(e) => savePrefs({ unit: (e.currentTarget as HTMLSelectElement).value as Unit })}>
-            {#each UNITS as u (u.id)}<option value={u.id}>{u.short} — {u.long}</option>{/each}
+          <label for="opt-lang">User Interface language</label>
+          <select id="opt-lang" value={options?.lang ?? ''} disabled={!options || ignored('lang')} onchange={(e) => set('lang', (e.currentTarget as HTMLSelectElement).value)}>
+            <option value="">(default)</option>
+            <option value="en">English (en)</option>
           </select>
-          <span class="hint">The default subdivision unit to show in the interface and when sending coins.</span>
+          <span class="hint">The user interface language can be set here. This setting will take effect after restarting {app.info?.name ?? 'Chains'}. The interface of chains-app is in English only for now.</span>
         </div>
+
+        {#if app.info?.walletEnabled}
+          <div class="field">
+            <label for="opt-third-party">Third-party transaction URLs</label>
+            <input id="opt-third-party" type="text" placeholder="The address of a block explorer, with %s for the transaction id" bind:value={thirdParty} onchange={saveThirdParty} />
+            <span class="hint">Third-party URLs (e.g. a block explorer) that appear in the transactions tab as context menu items. %s in the URL is replaced by transaction hash. Multiple URLs are separated by vertical bar |.</span>
+          </div>
+        {/if}
 
         <label class="check">
           <input type="checkbox" checked={prefs.mask} onchange={(e) => savePrefs({ mask: (e.currentTarget as HTMLInputElement).checked })} />
@@ -89,40 +368,6 @@
         </label>
       </div>
     </section>
-  {:else if tab === 'wallet'}
-    <section class="panel">
-      <div class="panel-body form">
-        <label class="check">
-          <input type="checkbox" checked={prefs.coinControl} onchange={(e) => savePrefs({ coinControl: (e.currentTarget as HTMLInputElement).checked })} />
-          <span>Enable coin control features</span>
-        </label>
-        <p class="hint">Show the coin control section of the send page: choose the coins a transaction spends, and a custom change address.</p>
-        <label class="check" title={nodeSettings.zeroConfIgnored ? 'Set on the command line or in chains.conf: that setting wins' : undefined}>
-          <input type="checkbox" checked={spendZeroConf} disabled={!nodeSettings.loaded || nodeSettings.zeroConfIgnored} onchange={(e) => setNode('spendzeroconfchange', (spendZeroConf = (e.currentTarget as HTMLInputElement).checked))} />
-          <span>Spend unconfirmed change</span>
-        </label>
-        <p class="hint">If you disable the spending of unconfirmed change, the change from a transaction cannot be used until that transaction has at least one confirmation. This also affects how your balance is computed.</p>
-        <label class="check">
-          <input type="checkbox" checked={prefs.psbtControls} onchange={(e) => savePrefs({ psbtControls: (e.currentTarget as HTMLInputElement).checked })} />
-          <span>Enable PSBT controls</span>
-        </label>
-        <p class="hint">Whether to show PSBT controls (create unsigned transactions).</p>
-        <label class="check">
-          <input type="checkbox" checked={prefs.subtractFeeDefault} onchange={(e) => savePrefs({ subtractFeeDefault: (e.currentTarget as HTMLInputElement).checked })} />
-          <span>Subtract fee from amount by default</span>
-        </label>
-        <div class="field">
-          <label for="signer-path">External signer script path</label>
-          <input id="signer-path" type="text" class="mono" placeholder="Path to an HWI compatible script, e.g. /usr/local/bin/hwi" disabled={!nodeSettings.loaded || nodeSettings.signerIgnored} bind:value={signer} onchange={() => setNode('signer', signer || null)} />
-          <span class="hint">Full path to a Bitcoin Core compatible script (e.g. C:\Downloads\hwi.exe or /Users/you/Downloads/hwi.py). Beware: malware can steal your coins!</span>
-        </div>
-        {#if nodeSettings.changed}<p class="restart" role="status">Client restart required to activate changes.</p>{/if}
-      </div>
-    </section>
-  {:else}
-    <div class="panel planned">
-      <p>The {TABS.find((t) => t.id === tab)?.label.toLowerCase()} options of chains-qt come here next (parity items N01–N06).</p>
-    </div>
   {/if}
 </div>
 
@@ -130,14 +375,50 @@
   .form {
     display: flex;
     flex-direction: column;
-    gap: 1.4rem;
+    gap: 1.1rem;
     padding-top: 1.1rem;
-    max-width: 52rem;
+    max-width: 56rem;
   }
   fieldset {
     margin: 0;
     padding: 0;
     border: 0;
+  }
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .small-num {
+    width: 7rem;
+  }
+  .overridden {
+    padding: 0.4rem 0.6rem;
+    border-radius: var(--radius-s);
+    background: var(--bg);
+  }
+  .proxy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+  }
+  .proxy .field-row input[type='text']:not(.small-num) {
+    width: 16rem;
+  }
+  .reach {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: 1.1rem 1.5rem;
   }
   .themes {
     display: grid;
@@ -195,19 +476,32 @@
     accent-color: var(--accent);
   }
   .hint {
-    margin: -1rem 0 0 1.6rem;
+    margin: -0.8rem 0 0 1.6rem;
     color: var(--text-muted);
     font-size: 0.86rem;
   }
   .field .hint {
     margin: 0;
   }
+  .hint.warn,
+  .warn {
+    color: var(--warning);
+  }
+  .sample {
+    font-weight: 600;
+  }
   .restart {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: var(--radius-s);
+    background: var(--warning-soft);
     color: var(--warning);
     font-weight: 600;
   }
-  .planned {
-    padding: 1.5rem;
-    color: var(--text-muted);
+  .error {
+    color: var(--negative);
   }
 </style>

@@ -7,7 +7,7 @@
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
   import { handleShortcut } from './lib/keyboard';
-  import { go, nav } from './lib/nav.svelte';
+  import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
   import { app, applySnapshot, loadPrefs, prefs, subscribe, toast } from './lib/state.svelte';
   import { applyTheme } from './lib/themes';
@@ -21,7 +21,7 @@
   let connectError = $state('');
 
   $effect(() => {
-    applyTheme(document, prefs.theme, prefs.fontAdjust, prefersDark);
+    applyTheme(document, prefs.theme, prefs.fontAdjust, prefersDark, prefs.fontFamily, prefs.moneyFont);
   });
 
   async function refreshNode() {
@@ -44,16 +44,10 @@
       if (phase === 'ready') refreshNode();
       if (phase === 'init' || phase === 'ready') loadPrefs();
     });
-    const offUri = on<{ uri: string }>('uri', ({ uri }) => {
-      const parsed = parsePaymentUri(uri);
-      if (!parsed.ok) {
-        toast('error', 'Payment request error', parsed.error);
-        return;
-      }
-      nav.pendingUri = uri;
-      nav.uriSeq++;
-      go('send');
-      toast('info', 'Payment request', `Pay to ${parsed.request.address}`);
+    const offUri = on<{ uri: string }>('uri', ({ uri }) => handleUri(uri));
+    // The tray menu, or another part of the app, asks for a page.
+    const offNavigate = on<{ page: PageId; tab: string }>('navigate', ({ page, tab }) => {
+      if (page in PAGES) go(page, tab);
     });
 
     (async () => {
@@ -86,8 +80,48 @@
       media.removeEventListener('change', onScheme);
       offPhase();
       offUri();
+      offNavigate();
     };
   });
+
+  /** A payment URI: from another start of the app, or dropped on the window (BitcoinGUI::dropEvent). */
+  function handleUri(uri: string) {
+    const parsed = parsePaymentUri(uri);
+    if (!parsed.ok) {
+      toast('error', 'Payment request error', parsed.error);
+      return;
+    }
+    nav.pendingUri = uri;
+    nav.uriSeq++;
+    go('send');
+    toast('info', 'Payment request', `Pay to ${parsed.request.address}`);
+  }
+
+  function droppedUris(e: DragEvent): string[] {
+    const data = e.dataTransfer;
+    if (!data) return [];
+    const text = data.getData('text/uri-list') || data.getData('text/plain') || '';
+    return text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#') && /^chains:/i.test(l));
+  }
+
+  function ondragover(e: DragEvent) {
+    if (app.phase !== 'ready' || !e.dataTransfer) return;
+    // A link dropped on the window would load in it: the app takes payment links, and nothing else.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = [...e.dataTransfer.types].some((t) => t === 'text/uri-list' || t === 'text/plain') ? 'copy' : 'none';
+  }
+
+  function ondrop(e: DragEvent) {
+    if (app.phase !== 'ready') return;
+    const target = e.target as HTMLElement | null;
+    // Text dropped into a field stays the business of the field.
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+    e.preventDefault();
+    for (const uri of droppedUris(e)) handleUri(uri);
+  }
 
   function onkeydown(e: KeyboardEvent) {
     if (app.phase !== 'ready' || e.defaultPrevented) return;
@@ -95,7 +129,7 @@
   }
 </script>
 
-<svelte:window {onkeydown} />
+<svelte:window {onkeydown} {ondragover} {ondrop} />
 
 {#if connectError}
   <main class="lost">

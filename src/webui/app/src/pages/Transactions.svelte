@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thirdPartyLinks } from '../lib/tools';
   // The history of the wallet (TransactionView, TransactionTableModel, TransactionFilterProxy):
   // filters, a long sortable table, details, fee bumps, abandoning, copying, the CSV export.
   import Amount from '../components/Amount.svelte';
@@ -11,7 +12,7 @@
   import { errorText, inform } from '../lib/dialogs.svelte';
   import { FILTERS, saveTextAs } from '../lib/files';
   import { formatTime } from '../lib/format';
-  import { nav } from '../lib/nav.svelte';
+  import { go, nav } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
   import { prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
   import type { Column } from '../lib/table';
@@ -148,6 +149,8 @@
           { label: 'Increase transaction fee', action: () => wallet !== null && bump(chosen.txid), disabled: !actions.canBump, separator: true },
           { label: 'Abandon transaction', action: () => wallet !== null && abandon(wallet, chosen.txid), disabled: !actions.canAbandon, danger: true },
           { label: 'Edit address label', action: () => editLabel(chosen), disabled: !chosen.address, separator: true },
+          { label: 'Show in block explorer', action: () => go('explorer', `search:${chosen.txid}`), separator: true },
+          ...thirdPartyLinks(prefs.thirdPartyTxUrls, chosen.txid).map((l) => ({ label: l.label, action: () => host.open('url', l.url).catch(() => undefined) })),
         ]
       : [],
   );

@@ -76,6 +76,45 @@
     })().catch(() => undefined);
     return () => controller.abort();
   });
+
+  // The latest transactions waiting in the mempool (ChainActivity): what is known of one is kept until
+  // it leaves, and only new ones are looked up.
+  interface MempoolRow {
+    txid: string;
+    time: number;
+    fee: number;
+    vsize: number;
+  }
+  const MAX_LOOKUPS = 100;
+  let mempoolRows = $state<MempoolRow[]>([]);
+  const known = new Map<string, MempoolRow>();
+  $effect(() => {
+    void node.mempool.size;
+    void node.tip?.height;
+    const controller = new AbortController();
+    (async () => {
+      const ids = await rpc.raw<string[]>('getrawmempool', [], { signal: controller.signal });
+      const present = new Set(ids);
+      for (const id of [...known.keys()]) if (!present.has(id)) known.delete(id);
+      const unknown = ids.filter((id) => !known.has(id));
+      if (unknown.length > MAX_LOOKUPS) {
+        const all = await rpc.raw<Record<string, { time: number; fees: { base: number }; vsize: number }>>('getrawmempool', [true], { signal: controller.signal });
+        known.clear();
+        for (const [txid, e] of Object.entries(all)) known.set(txid, { txid, time: e.time, fee: e.fees.base, vsize: e.vsize });
+      } else {
+        for (const txid of unknown) {
+          try {
+            const e = await rpc.raw<{ time: number; fees: { base: number }; vsize: number }>('getmempoolentry', [txid], { signal: controller.signal });
+            known.set(txid, { txid, time: e.time, fee: e.fees.base, vsize: e.vsize });
+          } catch {
+            // Gone from the mempool meanwhile.
+          }
+        }
+      }
+      mempoolRows = [...known.values()].sort((a, b) => b.time - a.time).slice(0, 8);
+    })().catch(() => undefined);
+    return () => controller.abort();
+  });
 </script>
 
 <div class="page overview">
@@ -88,7 +127,7 @@
   </header>
 
   {#if node.tip?.ibd}
-    <button type="button" class="out-of-sync" title="The displayed information may be out of date. Your wallet automatically synchronizes with the network after a connection is established, but this process has not completed yet." onclick={() => go('node', 'info')}>
+    <button type="button" class="out-of-sync" title="The displayed information may be out of date. Your wallet automatically synchronizes with the network after a connection is established, but this process has not completed yet." onclick={() => (nav.dialog = 'sync')}>
       <Icon name="alert" size={16} /> Out of sync: the balances and transactions shown may be out of date until the node has caught up with the network.
     </button>
   {/if}
@@ -169,10 +208,37 @@
         <ol class="blocks">
           {#each blocks as b (b.hash)}
             <li>
-              <span class="height num">{formatCount(b.height)}</span>
-              <span class="mono hash" title={b.hash}>{shortHash(b.hash, 6)}</span>
-              <span class="num txs">{b.txs} tx{b.txs === 1 ? '' : 's'}</span>
-              <time class="muted" datetime={new Date(b.time * 1000).toISOString()} title={formatTime(b.time)}>{niceTimeOffset(now - b.time)} ago</time>
+              <button type="button" class="block-row" title="Show block {b.height} in the block explorer" onclick={() => go('explorer', `search:${b.hash}`)}>
+                <span class="height num">{formatCount(b.height)}</span>
+                <span class="mono hash" title={b.hash}>{shortHash(b.hash, 6)}</span>
+                <span class="num txs">{b.txs} tx{b.txs === 1 ? '' : 's'}</span>
+                <time class="muted" datetime={new Date(b.time * 1000).toISOString()} title={formatTime(b.time)}>{niceTimeOffset(now - b.time)} ago</time>
+              </button>
+            </li>
+          {/each}
+        </ol>
+      {/if}
+    </div>
+  </section>
+
+  <section class="chain panel" aria-labelledby="mempool-title">
+    <div class="panel-head">
+      <h2 id="mempool-title">Latest transactions</h2>
+      <span class="muted">{formatCount(node.mempool.size)} waiting</span>
+    </div>
+    <div class="panel-body">
+      {#if mempoolRows.length === 0}
+        <p class="muted">No transaction is waiting to be mined.</p>
+      {:else}
+        <ol class="blocks">
+          {#each mempoolRows as t (t.txid)}
+            <li>
+              <button type="button" class="block-row" title="Show the transaction in the block explorer" onclick={() => go('explorer', `search:${t.txid}`)}>
+                <span class="mono hash" title={t.txid}>{shortHash(t.txid, 6)}</span>
+                <span class="num txs">{formatCount(t.vsize)} vB</span>
+                <span class="num txs">fee <Amount sats={coinsToSats(t.fee)} masked={false} /></span>
+                <time class="muted" datetime={new Date(t.time * 1000).toISOString()} title={formatTime(t.time)}>{niceTimeOffset(now - t.time)} ago</time>
+              </button>
             </li>
           {/each}
         </ol>
@@ -292,12 +358,27 @@
     list-style: none;
   }
   .blocks li {
+    border-bottom: 1px solid var(--line);
+  }
+  .block-row {
     display: grid;
     grid-template-columns: 5.5rem minmax(0, 1fr) 4.5rem 8.5rem;
     gap: 0.6rem;
     align-items: center;
-    padding: 0.45rem 0;
-    border-bottom: 1px solid var(--line);
+    width: 100%;
+    padding: 0.45rem 0.2rem;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .block-row:hover {
+    background: var(--raised);
+  }
+  [aria-labelledby='mempool-title'] .block-row {
+    grid-template-columns: minmax(0, 1fr) 5rem 9.5rem 7.5rem;
   }
   .blocks li:last-child {
     border-bottom: 0;

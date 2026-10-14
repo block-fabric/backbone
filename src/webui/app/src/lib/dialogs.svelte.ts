@@ -2,6 +2,7 @@
 // (QInputDialog), a passphrase (AskPassphraseDialog). One shows at a time; DialogHost.svelte draws it.
 import { BridgeError } from './bridge';
 import { WalletError } from './wallet';
+import { rpc } from './rpc';
 
 export interface Choice {
   id: string;
@@ -146,4 +147,25 @@ export async function withUnlock<T>(wallet: string, fn: (passphrase?: string) =>
 /** The message of an error, for a dialog. */
 export function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * Run something that needs the keys of a wallet: if the wallet is locked (an error -13), ask for the
+ * passphrase, unlock it (walletpassphrase) for the work, run it again and lock the wallet right after
+ * (as the UnlockContext of chains-qt). Resolves with null when the user cancels.
+ */
+export async function withWalletKeys<T>(wallet: string, fn: () => Promise<T>): Promise<T | null> {
+  return withUnlock(wallet, async (passphrase) => {
+    if (passphrase) await rpc.raw('walletpassphrase', [passphrase, 600], { wallet });
+    try {
+      return await fn();
+    } finally {
+      if (passphrase) await rpc.raw('walletlock', [], { wallet }).catch(() => undefined);
+    }
+  });
+}
+
+/** An RPC method of a wallet that may need its keys (withWalletKeys). */
+export function walletRpc<T>(wallet: string, method: string, params: unknown[] | Record<string, unknown>): Promise<T | null> {
+  return withWalletKeys(wallet, () => rpc.raw<T>(method, params, { wallet }));
 }

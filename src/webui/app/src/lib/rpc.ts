@@ -169,6 +169,7 @@ export const host = {
   hello: () => request<Hello>('host', 'app.hello', {}),
   info: () => request<AppInfo>('host', 'app.info', {}),
   quit: () => request<boolean>('host', 'app.quit', {}),
+  restart: () => request<boolean>('host', 'app.restart', {}),
   help: () => request<{ usage: string; options: string }>('host', 'app.help', {}),
   about: () => request<{ name: string; version: string; license: string }>('host', 'app.about', {}),
   introSpace: (dir: string) => request<Space>('host', 'intro.space', { dir }),
@@ -185,4 +186,116 @@ export const host = {
   minimize: () => request<boolean>('host', 'window.minimize', {}),
   copy: (text: string) => request<boolean>('host', 'clipboard.write', { text }),
   paste: () => request<string | null>('host', 'clipboard.read', {}),
+  // The node window (src/webui/nodeapi.cpp).
+  consoleCheck: (line: string) => request<{ ok: boolean; filtered?: string; error?: string }>('host', 'console.check', { line }),
+  consoleRun: (line: string, wallet: string | null, options?: CallOptions) =>
+    request<{ ok: boolean; result?: string; error?: string }>('host', 'console.run', wallet === null ? { line } : { line, wallet }, options),
+  disconnectPeer: (id: number) => request<boolean>('host', 'peers.disconnect', { id }),
+  banPeer: (id: number, seconds: number) => request<boolean>('host', 'peers.ban', { id, seconds }),
+  unban: (address: string) => request<boolean>('host', 'bans.unban', { address }),
+  paths: () => request<{ datadir: string; blocksdir: string; debuglog: string; config: string }>('host', 'node.paths', {}),
+  open: (what: 'debuglog' | 'config' | 'url', url?: string) => request<boolean>('host', 'app.open', url === undefined ? { what } : { what, url }),
+  notify: (title: string, body: string, level: 'info' | 'warning' | 'critical' = 'info') => request<boolean>('host', 'app.notify', { title, body, level }),
+  trayState: () => request<{ available: boolean; visible: boolean; windowVisible: boolean }>('host', 'tray.state', {}),
+  // Options of the node (src/webui/options.cpp).
+  options: () => request<NodeOptions>('host', 'options.get', {}),
+  setOption: (name: keyof NodeOptionValues, value: unknown) => request<NodeOptions>('host', 'options.set', { name, value }),
+  validProxy: (address: string) => request<boolean>('host', 'options.validProxy', { address }),
+  resetOptions: () => request<boolean>('host', 'options.reset', {}),
+  // Tools.
+  depositAddress: (text: string) => request<{ kind: 'plain' | 'valid' | 'invalid'; slot?: number; address?: string }>('host', 'drivechain.depositAddress', { text }),
+  hashes: (text: string, hex: boolean) => request<Hashes>('host', 'tools.hashes', { text, hex }),
+  merkle: (txids: string[]) => request<{ levels?: string[][]; error?: string }>('host', 'tools.merkle', { txids }),
+  decode: (text: string) => request<Decoded>('host', 'tools.decode', { text }),
+  hashFile: (path: string) => request<{ sha256: string; size: number }>('host', 'timestamp.hashFile', { path }),
+  searchStamp: (payload: string, from: string, count: number, options?: CallOptions) =>
+    request<{ searched: number; next: string | null; found: Stamp[] }>('host', 'timestamp.search', { payload, from, count }, options),
+  // Sidechain nodes (src/webui/sidechainnodes.cpp).
+  sidechainNodes: () => request<SidechainNodeList>('host', 'sidechainNodes.list', {}),
+  sidechainNode: (method: SidechainNodeMethod, params: Record<string, unknown>) => request<{ log?: string[]; error?: string } | null>('host', `sidechainNodes.${method}`, params),
+  sidechainStatus: (stem: string) => request<SidechainNodeStatus>('host', 'sidechainNodes.status', { stem }),
 };
+
+export interface NodeOptionValues {
+  dbcache: number;
+  par: number;
+  prune: boolean;
+  pruneSize: number;
+  spendZeroConf: boolean;
+  signer: string;
+  natpmp: boolean;
+  listen: boolean;
+  server: boolean;
+  proxyUse: boolean;
+  proxyIp: string;
+  proxyPort: string;
+  torUse: boolean;
+  torIp: string;
+  torPort: string;
+  lang: string;
+  startAtLogin: boolean;
+}
+
+export interface NodeOptions extends NodeOptionValues {
+  /** Settings set on the command line or in chains.conf, by their name in settings.json. */
+  ignored: Record<string, boolean>;
+  overridden: string;
+  limits: { dbcacheMin: number; parMin: number; parMax: number; pruneMinGB: number };
+  proxyReach: { ipv4: boolean; ipv6: boolean; tor: boolean };
+  externalSigner: boolean;
+  restartRequired: boolean;
+}
+
+export interface Hashes {
+  sha256: string;
+  sha256d: string;
+  sha256dId: string;
+  ripemd160: string;
+  hash160: string;
+  sha512: string;
+  sha1: string;
+  bytes: number;
+  error?: string;
+}
+
+export interface Decoded {
+  base58?: { version: number; payload: string };
+  bech32?: { encoding: 'bech32' | 'bech32m'; prefix: string; witnessVersion?: number; witnessProgram?: string };
+}
+
+export interface Stamp {
+  height: number;
+  time: number;
+  txid: string;
+  block: string;
+}
+
+export interface SidechainNodeEntry {
+  name: string;
+  stem: string;
+  slot: number;
+  description: string;
+  builtin: boolean;
+  dir: string;
+  installed: boolean;
+  programs: string;
+  dataDir: string;
+}
+
+export interface SidechainNodeList {
+  server: boolean;
+  network: string;
+  sidechains: SidechainNodeEntry[];
+}
+
+export interface SidechainNodeStatus {
+  stem: string;
+  installed: boolean;
+  running: boolean;
+  blocks?: number;
+  mainchain?: string;
+  mining?: boolean;
+  miningText?: string;
+}
+
+export type SidechainNodeMethod = 'locate' | 'download' | 'add' | 'remove' | 'start' | 'startWallet' | 'stop' | 'mineOnce' | 'mining' | 'log';
