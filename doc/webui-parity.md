@@ -28,7 +28,10 @@ src/webui/test/e2e/node.js (run_node.py): a sidechain proposed, acked and activa
 deposits, a withdrawal bundle voted on, the explorer, solo mining, a stamp, a proof of
 funds, a multisig spend, the crypto tools, the console, peers banned and unbanned, the
 settings and their reset, the tray and the notifications of a pretend desktop, the
-sidechain nodes.
+sidechain nodes. The fixes of the audit (doc/webui-audit.md) are tested end to end in
+src/webui/test/e2e/run_audit.py (audit.js and the other audit_*.js scripts), their parts
+in `test_chains-app` (hardening_tests, i18n_tests, the audit suite of walletapi_tests, the
+options journal) and `npm test` (audit-ui, history, rpcpolicy, contrast, i18n).
 
 ## A. Start-up, shutdown, process
 
@@ -37,20 +40,20 @@ sidechain nodes.
 | A01 | Parse the command line like chainsd; errors shown and exit 1 | bitcoin.cpp `GuiMain` | [x] |
 | A02 | `-help` / `-version` print the help and exit (Qt shows a dialog; chains-app prints to stdout) | bitcoin.cpp, utilitydialog.cpp `HelpMessageDialog::showOrPrint` | [x] |
 | A03 | Reject unexpected tokens on the command line, and options after a payment URI | bitcoin.cpp `GuiMain` | [x] |
-| A04 | GUI options `-choosedatadir`, `-lang`, `-min`, `-resetguisettings`, `-splash` (`-uiplatform` is Qt only) | bitcoin.cpp `SetupUIArgs` | [~] `-lang` accepted, the UI is English only for now |
+| A04 | GUI options `-choosedatadir`, `-lang`, `-min`, `-resetguisettings`, `-splash` (`-uiplatform` is Qt only) | bitcoin.cpp `SetupUIArgs` | [x] `-lang` and the language option choose the catalog (src/webui/i18n.cpp), made from the catalogs of chains-qt (scripts/i18n.mjs); the page and the messages of the node are translated (e2e: run_audit.py `-lang=fr`) |
 | A05 | Intro: choose the data directory on first start or with `-choosedatadir`; default or custom dir; size estimate; prune choice; create dir and `wallets/` | intro.cpp `Intro::showIfNeeded` | [x] |
 | A06 | Remember the chosen data directory (Qt: QSettings `strDataDir`, `fReset`) | intro.cpp | [x] (app config file, see design) |
 | A07 | Read chains.conf and settings.json (`InitConfig`); on a corrupt settings file ask to reset or abort; on a write failure say so | bitcoin.cpp `ErrorSettingsRead`, `ErrorSettingsWrite` | [x] |
-| A08 | Network style: window title and app name per network (`[testnet]`, `[signet]`, `[regtest]`), icon tint | networkstyle.cpp | [~] title and badge done; per-network icon later |
+| A08 | Network style: window title and app name per network (`[testnet]`, `[signet]`, `[regtest]`), icon tint | networkstyle.cpp | [x] title and badge; the icon of the window and of the tray tinted as NetworkStyle tints it (src/webui/icontint.cpp) |
 | A09 | Splash / init progress: init messages, wallet loading progress, "press q to shut down" | splashscreen.cpp | [x] (init view; Esc/q asks to shut down) |
 | A10 | Node init in-process on its own thread (`baseInitialize`, `appInitMain`), runaway exception dialog | bitcoin.cpp, initexecutor.cpp | [x] |
 | A11 | Load the wallets at start (`LoadWalletsActivity`), `-min` keeps it minimized | walletcontroller.cpp | [x] |
 | A12 | Clean shutdown: hide windows, show "shutting down, do not shut down the computer", `appShutdown` on a thread, exit status of the node | bitcoin.cpp `requestShutdown`, utilitydialog.cpp `ShutdownWindow` | [x] |
 | A13 | Poll for a shutdown requested from elsewhere (RPC `stop`, signal) | bitcoin.cpp `pollShutdownTimer`, bitcoingui.cpp `detectShutdown` | [x] |
-| A14 | Windows: block the session end until the node has stopped | winshutdownmonitor.cpp | [ ] (Windows port) |
-| A15 | macOS: App Nap off while syncing, dock icon click shows the window | macos_appnap.mm, macdockiconhandler.mm | [ ] (macOS port) |
+| A14 | Windows: block the session end until the node has stopped | winshutdownmonitor.cpp | [ ] Windows port (the next phase: WebView2 build, WM_QUERYENDSESSION with ShutdownBlockReasonCreate) |
+| A15 | macOS: App Nap off while syncing, dock icon click shows the window | macos_appnap.mm, macdockiconhandler.mm | [ ] macOS port (the next phase: NSProcessInfo beginActivity while syncing, applicationShouldHandleReopen) |
 | A16 | Prune setting chosen in the intro applied (`InitPruneSetting`) | bitcoin.cpp | [x] |
-| A17 | Fatal error / non-fatal internal error dialogs with the bug report link | bitcoin.cpp `handleRunawayException`, `handleNonFatalException` | [~] fatal error view done; non-fatal toast |
+| A17 | Fatal error / non-fatal internal error dialogs with the bug report link | bitcoin.cpp `handleRunawayException`, `handleNonFatalException` | [x] fatal error view; an exception a host method did not expect shows the internal error dialog with the bug report address (Bridge::SetInternalError) |
 | A18 | `-resetguisettings` resets the GUI settings (and shows the intro again) | optionsmodel.cpp `Reset`, intro.cpp | [x] |
 
 ## B. Single instance, URIs, files
@@ -65,7 +68,7 @@ sidechain nodes.
 | B06 | Open URI dialog (Banking > Open URI…) | openuridialog.cpp | [x] Send page, "Open URI…" (pages/Send.svelte) |
 | B07 | URI fills the Send page, after checking the address is valid for this network | paymentserver.cpp `handleURIOrFile`, bitcoingui.cpp `handlePaymentRequest` | [x] pages/Send.svelte `pasteUri` (fills the first empty entry, checks the network) |
 | B08 | Drag and drop a URI onto the window | bitcoingui.cpp `dropEvent` | [x] App.svelte `ondrop`: `chains:` links dropped on the window go to the send page (text dropped into a field stays there) |
-| B09 | Register as the handler of `chains:` (desktop file / registry) | share/, paymentserver.cpp | [~] share/chains-app.desktop (installed on Linux with `MimeType=x-scheme-handler/chains`); the registry of Windows and Info.plist of macOS come with those ports |
+| B09 | Register as the handler of `chains:` (desktop file / registry) | share/, paymentserver.cpp | [~] share/chains-app.desktop (installed on Linux with `MimeType=x-scheme-handler/chains`); the registry of Windows and the Info.plist of macOS come with those ports (the next phase) |
 | B10 | A second start without URI brings the running window to the front (Qt fails on the datadir lock) | (improvement) | [x] |
 
 ## C. Main window, navigation, menus, shortcuts
@@ -85,9 +88,9 @@ sidechain nodes.
 | C11 | Window title: client name, network, current wallet | bitcoingui.cpp `updateWindowTitle` | [x] |
 | C12 | Actions enabled only with a wallet loaded; history disabled in privacy mode | bitcoingui.cpp `setWalletActionsEnabled`, `enableHistoryAction` | [x] wallet actions disabled without a wallet, transactions disabled in privacy mode (views/Shell.svelte) |
 | C13 | Remember the window geometry | bitcoingui.cpp `MainWindowGeometry` | [x] size and maximized state kept in chains-app.json (`window`), restored at the next start (app.cpp, window_gtk.cpp) |
-| C14 | Status tips of every action (shown in the status bar on hover) | bitcoingui.cpp | [~] titles/tooltips |
+| C14 | Status tips of every action (shown in the status bar on hover) | bitcoingui.cpp | [x] the status tips of chains-qt on the menu items, and the summaries of the pages, show in the status bar under the pointer |
 | C15 | About dialog (version, licence) and command-line options dialog | utilitydialog.cpp `HelpMessageDialog` | [x] |
-| C16 | Themed window frame with the menus in the title bar | themedframe.cpp | [ ] (webview window keeps the desktop frame; menus are in the app bar) |
+| C16 | Themed window frame with the menus in the title bar | themedframe.cpp | [x] on Linux: the page draws the title bar (menus, title, minimize, maximize, close; drag to move, double click to maximize) and the border, the desktop frame taken away (Settings, Display: on by default as in chains-qt); Windows and macOS keep the desktop frame until their port |
 
 ## D. Status bar and notifications
 
@@ -114,7 +117,7 @@ sidechain nodes.
 | E02 | Open wallet from the list of wallets in the data directory | walletcontroller.cpp `OpenWalletActivity` | [x] pages/Wallets.svelte list, src/webui/walletapi.cpp `wallets.list`/`wallets.open` |
 | E03 | Close wallet / close all wallets (with the pruning warning) | walletcontroller.cpp `closeWallet`, `closeAllWallets` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallets.close` (as WalletController: not loaded at start any more) |
 | E04 | Restore wallet from a backup file | walletcontroller.cpp `RestoreWalletActivity` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallets.restore` |
-| E05 | Migrate a legacy wallet; restore-and-migrate a file; watch-only/solvable wallets reported | walletcontroller.cpp `MigrateWalletActivity` | [~] pages/Wallets.svelte, src/webui/walletapi.cpp `wallets.migrate`/`wallets.restoreMigrate` (load option, passphrase, watch-only/solvables reported); no test: v32 cannot make a legacy wallet to migrate |
+| E05 | Migrate a legacy wallet; restore-and-migrate a file; watch-only/solvable wallets reported | walletcontroller.cpp `MigrateWalletActivity` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallets.migrate`/`wallets.restoreMigrate` (load option, passphrase, watch-only/solvables reported); not tested end to end: v32 cannot make the legacy wallet to migrate |
 | E06 | Backup wallet to a file | walletview.cpp `backupWallet` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallet.backup` |
 | E07 | Export a watch-only wallet | bitcoingui.cpp `m_export_watchonly_action` | [x] pages/Wallets.svelte, src/webui/walletapi.cpp `wallet.exportWatchOnly` |
 | E08 | Encrypt wallet (passphrase twice, strength hint, caps-lock warning, final warning) | askpassphrasedialog.cpp | [x] components/DialogHost.svelte (twice, caps lock, show) and pages/Wallets.svelte (the warnings); no strength meter, as Qt has none |
@@ -142,7 +145,7 @@ sidechain nodes.
 | G03 | Coin control: inputs dialog (tree/list, lock/unlock, copy), custom change address, quantity/bytes/amount/fee/after fee/change labels with copy | coincontroldialog.cpp, sendcoinsdialog.cpp | [x] components/CoinControlDialog.svelte (tree/list, sort, (un)select all, lock/unlock, copy), components/CoinSummary.svelte, custom change address with its checks, src/webui/walletapi.cpp `wallet.coins`/`wallet.coinControl.summary` |
 | G04 | Confirmation dialog with total, fee and a send delay | sendcoinsdialog.cpp `SendConfirmationDialog` | [x] pages/Send.svelte → components/DialogHost.svelte (fee, kvB, total in every unit, recipients, 3 s delay) |
 | G05 | Create unsigned (PSBT): copy or save | sendcoinsdialog.cpp | [x] pages/Send.svelte `presentPsbt` (copied, save as binary .psbt), src/webui/walletapi.cpp `wallet.send.psbt` |
-| G06 | External signer (hardware wallet) sign on device | sendcoinsdialog.cpp | [~] src/webui/walletapi.cpp `wallet.send.commit` signs on the device as Qt (fill, sign, finalize; partial → PSBT), "Sign on device" button; no device to test with |
+| G06 | External signer (hardware wallet) sign on device | sendcoinsdialog.cpp | [x] src/webui/walletapi.cpp `wallet.send.commit` signs on the device as Qt (fill, sign, finalize; partial → PSBT), "Sign on device" button; tested end to end with the mock signer of the functional tests (run_audit.py) |
 | G07 | Errors: invalid address, duplicate, amount exceeds balance, absurd fee, creation failed | sendcoinsdialog.cpp `processSendCoinsReturn` | [x] src/webui/walletapi.cpp `wallet.send.prepare` (same checks and messages as prepareTransaction) |
 | G08 | Clear all; balance display | sendcoinsdialog.cpp | [x] pages/Send.svelte (clear all, balance or "External balance") |
 
@@ -213,7 +216,7 @@ sidechain nodes.
 | N02 | Wallet: coin control, spend unconfirmed change, PSBT controls, subtract fee by default, external signer path | optionsdialog.cpp | [x] pages/Settings.svelte "Wallet" (coin control, spend unconfirmed change and signer path in settings.json, PSBT controls, subtract fee by default) |
 | N03 | Network: map port (PCP/NAT-PMP), listen, RPC server, SOCKS5 proxy, separate Tor proxy, reachable networks | optionsdialog.cpp | [x] pages/Settings.svelte "Network": map port (natpmp, at once), listen, SOCKS5 proxy and separate Tor proxy (proxy-prev, onion-prev, addresses checked as ProxyAddressValidator), the networks the proxy is used for |
 | N04 | Window: show tray icon, minimize to tray, minimize on close | optionsdialog.cpp | [x] pages/Settings.svelte "Window": show tray icon, minimize to the tray, minimize on close (kept in the preferences of the app, used by the host) |
-| N05 | Display: language, unit, third-party tx URLs, money font, colours, font, size, themed frame | optionsdialog.cpp, theme.cpp | [~] pages/Settings.svelte "Display": unit, third-party transaction URLs, font of amounts (embedded or the monospaced one of the system), colours, a font apart from them, size; the language is kept in settings.json as Qt does, but the interface is English only; the themed frame with C16 |
+| N05 | Display: language, unit, third-party tx URLs, money font, colours, font, size, themed frame | optionsdialog.cpp, theme.cpp | [x] pages/Settings.svelte "Display": unit, third-party transaction URLs, font of amounts (embedded or the monospaced one of the system), colours, a font apart from them, size; the language (the languages of chains-qt, by their own names; applied at once), the themed frame (C16) |
 | N06 | Reset options (restarts), restart-required notice, settings in settings.json as Qt does | optionsdialog.cpp, optionsmodel.cpp | [x] Reset Options (settings.json backed up and reset, the settings of the app backed up to guisettings.json.bak and cleared, the intro next time, the app shuts down); the restart-required notice, and "Restart now" (the app starts again with its options) |
 
 ## T. Themes and look

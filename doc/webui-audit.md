@@ -263,3 +263,40 @@ Tested at 700 × 640 and 480 × 640 (`shots/w700-*`, `shots/w480-*`):
   maximum fee), the passphrase flow (cancel, a wrong passphrase, the 1024 limit, fields
   cleared), the console warning about scammers and its history filter, and the PSBT status
   texts all match chains-qt.
+
+---
+
+## Phase 5: how each finding was closed
+
+Every finding is fixed on branch `webui`, with a test. `test_chains-app`, `npm test` and the
+end-to-end tests (smoke, wallet, node, and `run_audit.py`, made for these findings) pass.
+
+| Finding | Fix | Tests |
+|---------|-----|-------|
+| C1 `-disablewallet` aborts | The wallet functions check for a wallet loader and answer -18; without wallets there are no wallet menus, no wallet pages in the sidebar, and the wallet pages say why | walletapi_tests `wallets_disabled`; audit-ui; run_audit `audit_nowallet.js` |
+| H1 text that is not UTF-8 | Every answer and every event batch is made valid UTF-8 (U+FFFD, maximal subparts) in the bridge and the event hub | hardening_tests `valid_utf8`, `answers_and_events_are_valid_utf8`; run_audit: a block built by hand with the proposal title of the audit |
+| H2 the whole history on every block | The history is loaded once and kept up to date in parts (`wallet.transactions` with `txids` / `latest`); the status follows the height in the page; the overview asks for the newest records and a chart made by the host; raw state; the search waits for a pause and keeps its text per record. The wallet of 24,989 records of the audit: overview stall 106 ms (was 1.7 s), a new block 128 ms (was 1.2 s), ten blocks 251 ms at worst (was 0.5–0.8 s each), web process 365 MB (was 866 MB) | walletapi_tests `history_in_parts`; history.test.ts; run_audit (400 records: a block asks for the changed records only, small answers) |
+| M1 four long calls block the rest | A lane of six workers for the calls that may take long (console, downloads, file choosers, wallet loading, `scantxoutset`...), apart from the four quick ones | hardening_tests `long_calls_do_not_hold_up_quick_ones`; run_audit (eight `waitfornewblock`) |
+| M2 wallets unlocked for 10 minutes | `wallet.withKeys`: the host unlocks for the calls alone (UnlockScope); the page never calls `walletpassphrase` for them | walletapi_tests `keys_for_one_call`; run_audit (a proof of funds with a locked wallet, locked again at once) |
+| M3 the page can run anything | An RPC policy of the methods the pages use (a frontend test checks the sources against it); `node.setSetting` removed; the console stays the way to any command | hardening_tests `page_rpc_policy`; rpcpolicy.test.ts |
+| M4 narrow windows | Menus fold into "More", the sidebar shows icons below 900 px, heads, tabs, rows and the status bar wrap, grids shrink, the transactions table fits | audit-ui; run_audit at 700 and 480 px (no page overflows, amounts in view, menus inside the window) |
+| M5 contrast | New text tokens (faint, accent text, links, amounts, badges) reach 4.5:1 on every surface of every theme; `--accent-text` for text | contrast.test.ts; run_audit measures what nine pages draw in five themes: no text below 4.5:1 |
+| M6 English only | The catalogs of chains-qt (about 100 languages) made into catalogs of the app; the language chosen as chains-qt does; the page translated where it shows its texts, the node's messages through `G_TRANSLATION_FUN`; right-to-left languages | i18n.test.ts; i18n_tests; run_audit `-lang=fr` |
+| M7 no Cancel | Apply and Cancel on the Settings page; the host keeps what each change replaced (`OptionsJournal`) and takes back at the next start what was never applied; risky changes are confirmed | options journal tests; audit-ui; run_audit (Cancel, and the next start) |
+| L1 placeholder pages | A page that needs a wallet offers to create or open one | audit-ui |
+| L2 headers out of line | The rows took the gap of the `.row` of base.css; the arrow of an amount header goes before its label | audit-ui; run_audit measures the headers |
+| L3 sync overlay | Opens by itself while behind, until the user closes it; goes once caught up; a layer over the pages | audit-ui; run_audit |
+| L4 send validation | Dust refused with the node's rule; the message of the amount field in the notice | walletapi_tests `dust`; audit-ui |
+| L5 custom fee | A custom fee that is not valid stops the send with a message; never the smart fee in its place | audit-ui |
+| L6 external signer hints | "Sign on device" disabled without `-signer`, with the hints of chains-qt | audit-ui; run_audit with the mock signer |
+| L7 reindex label | "Indexing blocks on disk…" while the headers run ahead | audit-ui |
+| L8 intro messages | The messages of FreespaceChecker, and "(sufficient to restore backups N days old)" | audit-ui |
+| L9 keyboard | Ctrl+W closes the dialog on top; Ctrl+I/T/N/P from anywhere; headers focusable | audit-ui |
+| L10 overflow | Coin control amounts wrap; two notices at most, the others behind them | audit-ui |
+| L11 debug options in chains.conf | Taken from the command line only | (app.cpp; the run of the tests) |
+| L12 passphrases in memory | Into secure strings straight from the request; the request and its copies wiped after use | hardening_tests `secrets_are_wiped` |
+
+The four items already open in the parity list: C16 (the themed frame) is done. A14 and A15
+(session end on Windows, App Nap and the dock on macOS) and the Windows and macOS part of B09
+belong to the port to those platforms, the next phase: the generic window of those platforms
+is not built nor tested yet.
