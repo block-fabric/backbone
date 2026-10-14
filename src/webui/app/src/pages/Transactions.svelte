@@ -358,7 +358,7 @@
     gap: 1rem;
     align-items: flex-start;
     padding: 1.4rem;
-    color: var(--accent);
+    color: var(--accent-text);
   }
   .masked div {
     color: var(--text);

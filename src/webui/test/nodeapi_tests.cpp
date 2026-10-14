@@ -445,3 +445,58 @@ BOOST_AUTO_TEST_CASE(app_values)
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+// --- The changes of the Settings page wait for Apply (audit M7) ---
+
+BOOST_FIXTURE_TEST_SUITE(webui_options_journal_tests, TestingSetup)
+
+BOOST_AUTO_TEST_CASE(cancel_and_apply)
+{
+    auto node{interfaces::MakeNode(m_node)};
+    webui::AppConfig config{m_args.GetDataDirBase() / "chains-app-journal.json"};
+    webui::OptionsJournal journal{config, *m_node.args, [] { return std::string{"optionsUndo:regtest"}; }};
+    std::optional<bool> restart;
+    webui::NodeOptions options{*node, *m_node.args, [&](std::optional<bool> set) {
+        if (set) restart = *set;
+        return restart.value_or(false);
+    }, [&](const std::string& setting) { journal.Record(*node, setting, restart.value_or(false)); }};
+
+    // A stray click on "Prune block storage", and a database cache.
+    BOOST_CHECK_EQUAL(journal.Pending(), 0U);
+    options.Set("prune", true);
+    options.Set("dbcache", 700);
+    options.Set("dbcache", 800);
+    BOOST_CHECK(node->getPersistentSetting("prune").isStr());
+    BOOST_CHECK_EQUAL(node->getPersistentSetting("dbcache").write(), "\"800\"");
+    BOOST_CHECK(restart.value_or(false));
+    // prune, prune-prev and dbcache changed; the journal is in the settings of the app (a crash keeps it).
+    BOOST_CHECK_EQUAL(journal.Pending(), 3U);
+    webui::AppConfig reread{m_args.GetDataDirBase() / "chains-app-journal.json"};
+    reread.Load();
+    BOOST_CHECK(reread.Value("optionsUndo:regtest").isObject());
+
+    // Cancel: all of it as it was, the restart flag too.
+    std::optional<bool> restored_restart;
+    BOOST_CHECK_EQUAL(journal.Undo(*node, [&](bool r) { restored_restart = r; }), 3U);
+    BOOST_CHECK(node->getPersistentSetting("prune").isNull());
+    BOOST_CHECK(node->getPersistentSetting("dbcache").isNull());
+    BOOST_CHECK(!options.Get()["prune"].get_bool());
+    BOOST_CHECK(restored_restart.has_value() && !*restored_restart);
+    BOOST_CHECK_EQUAL(journal.Pending(), 0U);
+    BOOST_CHECK_EQUAL(journal.Undo(*node, {}), 0U);
+
+    // Apply: the changes stay, and nothing is left to take back.
+    options.Set("dbcache", 600);
+    BOOST_CHECK_EQUAL(journal.Pending(), 1U);
+    journal.Commit();
+    BOOST_CHECK_EQUAL(journal.Pending(), 0U);
+    BOOST_CHECK_EQUAL(journal.Undo(*node, {}), 0U);
+    BOOST_CHECK_EQUAL(node->getPersistentSetting("dbcache").write(), "\"600\"");
+
+    // A value set before the changes comes back as it was, not removed.
+    options.Set("dbcache", 900);
+    journal.Undo(*node, {});
+    BOOST_CHECK_EQUAL(node->getPersistentSetting("dbcache").write(), "\"600\"");
+}
+
+BOOST_AUTO_TEST_SUITE_END()

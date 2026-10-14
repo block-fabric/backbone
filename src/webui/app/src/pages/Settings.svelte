@@ -6,7 +6,8 @@
   import { confirm, errorText, inform } from '../lib/dialogs.svelte';
   import { nav } from '../lib/nav.svelte';
   import { host, type NodeOptions, type NodeOptionValues } from '../lib/rpc';
-  import { app, prefs, savePrefs, toast } from '../lib/state.svelte';
+  import { app, prefs, toast } from '../lib/state.svelte';
+  import { applyChanges, askOnLeave, cancelChanges, noteBaseline, pendingCount, stagePrefs } from '../lib/settingsdraft.svelte';
   import { clampFontAdjust, FONTS, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type FontChoice, type ThemeId } from '../lib/themes';
   import { UNITS, type Unit } from '../lib/units';
 
@@ -28,6 +29,7 @@
   async function load() {
     try {
       options = await host.options();
+      noteBaseline(options);
       loadError = '';
     } catch (e) {
       loadError = errorText(e);
@@ -113,6 +115,7 @@
 
   async function restart() {
     if (!(await confirm('Restart', `${app.info?.name ?? 'Chains'} will stop and start again with the new settings. Restart now?`, { yes: 'Restart' }))) return;
+    if (pending > 0 && (await applyChanges(options)) === null) return;
     try {
       await host.restart();
     } catch (e) {
@@ -121,10 +124,43 @@
   }
 
   function saveThirdParty() {
-    if (thirdParty === prefs.thirdPartyTxUrls) return;
-    savePrefs({ thirdPartyTxUrls: thirdParty.trim() });
-    toast('info', 'Third-party transaction URLs', 'Saved. They show in the context menu of the transactions.');
+    if (thirdParty.trim() === prefs.thirdPartyTxUrls) return;
+    stagePrefs({ thirdPartyTxUrls: thirdParty.trim() });
   }
+
+  // Apply and Cancel (the OK and Cancel of the options dialog): nothing takes effect before Apply.
+  const pending = $derived(pendingCount(options));
+  let applying = $state(false);
+  async function apply() {
+    applying = true;
+    try {
+      const before = options?.restartRequired ?? false;
+      const after = await applyChanges(options);
+      if (after) {
+        options = after;
+        if (after.restartRequired && !before) changedNow = true;
+        toast('success', 'Settings', 'The changes are applied.');
+      }
+    } finally {
+      applying = false;
+    }
+  }
+  async function cancel() {
+    applying = true;
+    try {
+      options = await cancelChanges(options);
+      thirdParty = prefs.thirdPartyTxUrls;
+      changedNow = false;
+      await load();
+    } finally {
+      applying = false;
+    }
+  }
+  // Leaving the page with changes waiting: apply them, or throw them away (asked once the page is gone).
+  $effect(() => () => {
+    const last = options;
+    if (pendingCount(last) > 0) queueMicrotask(() => askOnLeave(last));
+  });
 </script>
 
 <div class="page">
@@ -200,7 +236,7 @@
     <section class="panel">
       <div class="panel-body form">
         <label class="check">
-          <input type="checkbox" checked={prefs.coinControl} onchange={(e) => savePrefs({ coinControl: (e.currentTarget as HTMLInputElement).checked })} />
+          <input type="checkbox" checked={prefs.coinControl} onchange={(e) => stagePrefs({ coinControl: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Enable coin control features</span>
         </label>
         <p class="hint">Show the coin control section of the send page: choose the coins a transaction spends, and a custom change address.</p>
@@ -210,12 +246,12 @@
         </label>
         <p class="hint">If you disable the spending of unconfirmed change, the change from a transaction cannot be used until that transaction has at least one confirmation. This also affects how your balance is computed.</p>
         <label class="check">
-          <input type="checkbox" checked={prefs.psbtControls} onchange={(e) => savePrefs({ psbtControls: (e.currentTarget as HTMLInputElement).checked })} />
+          <input type="checkbox" checked={prefs.psbtControls} onchange={(e) => stagePrefs({ psbtControls: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Enable PSBT controls</span>
         </label>
         <p class="hint">Whether to show PSBT controls (create unsigned transactions).</p>
         <label class="check">
-          <input type="checkbox" checked={prefs.subtractFeeDefault} onchange={(e) => savePrefs({ subtractFeeDefault: (e.currentTarget as HTMLInputElement).checked })} />
+          <input type="checkbox" checked={prefs.subtractFeeDefault} onchange={(e) => stagePrefs({ subtractFeeDefault: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Subtract fee from amount by default</span>
         </label>
         <div class="field">
@@ -277,17 +313,17 @@
       <div class="panel-body form">
         {#if tray && !tray.available}<p class="hint warn">This desktop shows no tray icon now: the options of the tray take effect where it has one.</p>{/if}
         <label class="check">
-          <input id="opt-show-tray" type="checkbox" checked={prefs.showTray} onchange={(e) => { const on = (e.currentTarget as HTMLInputElement).checked; savePrefs(on ? { showTray: true } : { showTray: false, minimizeToTray: false }); }} />
+          <input id="opt-show-tray" type="checkbox" checked={prefs.showTray} onchange={(e) => { const on = (e.currentTarget as HTMLInputElement).checked; stagePrefs(on ? { showTray: true } : { showTray: false, minimizeToTray: false }); }} />
           <span>Show tray icon</span>
         </label>
         <p class="hint">Show an icon in the tray, with a menu to show the window, send, receive, sign, the options and the node window.</p>
         <label class="check">
-          <input id="opt-minimize-tray" type="checkbox" checked={prefs.minimizeToTray} disabled={!prefs.showTray} onchange={(e) => savePrefs({ minimizeToTray: (e.currentTarget as HTMLInputElement).checked })} />
+          <input id="opt-minimize-tray" type="checkbox" checked={prefs.minimizeToTray} disabled={!prefs.showTray} onchange={(e) => stagePrefs({ minimizeToTray: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Minimize to the tray instead of the taskbar</span>
         </label>
         <p class="hint">Show only a tray icon after minimizing the window.</p>
         <label class="check">
-          <input id="opt-minimize-close" type="checkbox" checked={prefs.minimizeOnClose} onchange={(e) => savePrefs({ minimizeOnClose: (e.currentTarget as HTMLInputElement).checked })} />
+          <input id="opt-minimize-close" type="checkbox" checked={prefs.minimizeOnClose} onchange={(e) => stagePrefs({ minimizeOnClose: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Minimize on close</span>
         </label>
         <p class="hint">Minimize instead of exit the application when the window is closed. When this option is enabled, the application will be closed only after selecting Exit in the menu.</p>
@@ -301,7 +337,7 @@
           <div class="themes">
             {#each THEMES as theme (theme.id)}
               <label class="theme" class:chosen={prefs.theme === theme.id} data-swatch={theme.id}>
-                <input type="radio" name="theme" class="sr-only" checked={prefs.theme === theme.id} onchange={() => savePrefs({ theme: theme.id as ThemeId })} />
+                <input type="radio" name="theme" class="sr-only" checked={prefs.theme === theme.id} onchange={() => stagePrefs({ theme: theme.id as ThemeId })} />
                 <span class="swatch" aria-hidden="true"><span></span><span></span><span></span></span>
                 <span>{theme.name}</span>
               </label>
@@ -312,7 +348,7 @@
         <div class="cols">
           <div class="field">
             <label for="opt-font">Font</label>
-            <select id="opt-font" value={prefs.fontFamily} onchange={(e) => savePrefs({ fontFamily: (e.currentTarget as HTMLSelectElement).value as FontChoice })}>
+            <select id="opt-font" value={prefs.fontFamily} onchange={(e) => stagePrefs({ fontFamily: (e.currentTarget as HTMLSelectElement).value as FontChoice })}>
               {#each FONTS as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
             </select>
             <span class="hint">Any font goes with any colours.</span>
@@ -320,7 +356,7 @@
           <div class="field">
             <label for="font-adjust">Text size</label>
             <div class="row">
-              <input id="font-adjust" type="range" min={MIN_FONT_ADJUST} max={MAX_FONT_ADJUST} step="1" value={prefs.fontAdjust} oninput={(e) => savePrefs({ fontAdjust: clampFontAdjust(Number((e.currentTarget as HTMLInputElement).value)) })} />
+              <input id="font-adjust" type="range" min={MIN_FONT_ADJUST} max={MAX_FONT_ADJUST} step="1" value={prefs.fontAdjust} oninput={(e) => stagePrefs({ fontAdjust: clampFontAdjust(Number((e.currentTarget as HTMLInputElement).value)) })} />
               <span class="num">{prefs.fontAdjust > 0 ? '+' : ''}{prefs.fontAdjust} pt</span>
             </div>
             <span class="hint">How much larger, or smaller, than the default. Also Ctrl+ and Ctrl− anywhere.</span>
@@ -330,14 +366,14 @@
         <div class="cols">
           <div class="field">
             <label for="unit">Unit to show amounts in</label>
-            <select id="unit" value={prefs.unit} onchange={(e) => savePrefs({ unit: (e.currentTarget as HTMLSelectElement).value as Unit })}>
+            <select id="unit" value={prefs.unit} onchange={(e) => stagePrefs({ unit: (e.currentTarget as HTMLSelectElement).value as Unit })}>
               {#each UNITS as u (u.id)}<option value={u.id}>{u.short} — {u.long}</option>{/each}
             </select>
             <span class="hint">The default subdivision unit to show in the interface and when sending coins.</span>
           </div>
           <div class="field">
             <label for="money-font">Font in the Overview tab and the amounts</label>
-            <select id="money-font" value={prefs.moneyFont} onchange={(e) => savePrefs({ moneyFont: (e.currentTarget as HTMLSelectElement).value as 'embedded' | 'system' })}>
+            <select id="money-font" value={prefs.moneyFont} onchange={(e) => stagePrefs({ moneyFont: (e.currentTarget as HTMLSelectElement).value as 'embedded' | 'system' })}>
               <option value="embedded">Embedded (the font of the theme)</option>
               <option value="system">Default system monospaced font</option>
             </select>
@@ -363,15 +399,51 @@
         {/if}
 
         <label class="check">
-          <input type="checkbox" checked={prefs.mask} onchange={(e) => savePrefs({ mask: (e.currentTarget as HTMLInputElement).checked })} />
+          <input type="checkbox" checked={prefs.mask} onchange={(e) => stagePrefs({ mask: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Mask values (privacy mode)</span>
         </label>
       </div>
     </section>
   {/if}
+
+  <div class="apply-bar" class:waiting={pending > 0} role="group" aria-label="Apply the settings">
+    <span class="grow" role="status">
+      {#if pending > 0}
+        <Icon name="alert" size={15} />
+        {pending === 1 ? '1 change is' : `${pending} changes are`} not applied yet.
+      {:else}
+        <span class="muted">Changes wait here until you apply them.</span>
+      {/if}
+    </span>
+    <button type="button" class="btn" disabled={pending === 0 || applying} onclick={cancel}>Cancel</button>
+    <button type="button" class="btn primary" disabled={pending === 0 || applying} onclick={apply}>Apply</button>
+  </div>
 </div>
 
 <style>
+  .apply-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    padding: 0.7rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .apply-bar.waiting {
+    border-color: var(--warning);
+  }
+  .apply-bar .grow {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
   .form {
     display: flex;
     flex-direction: column;

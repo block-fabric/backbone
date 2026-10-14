@@ -87,3 +87,68 @@ describe('a node without wallets (-disablewallet, C1)', () => {
     expect(nav.page).toBe('wallets');
   });
 });
+
+describe('the settings wait for Apply (M7)', () => {
+  const OPTIONS = {
+    dbcache: 450, par: 0, prune: false, pruneSize: 2, spendZeroConf: true, signer: '', natpmp: false, listen: true, server: false,
+    proxyUse: false, proxyIp: '127.0.0.1', proxyPort: '9050', torUse: false, torIp: '127.0.0.1', torPort: '9050', lang: '', startAtLogin: false,
+    ignored: {}, overridden: '', limits: { dbcacheMin: 4, parMin: -8, parMax: 15, pruneMinGB: 1 }, proxyReach: { ipv4: false, ipv6: false, tor: false },
+    externalSigner: false, restartRequired: false, pending: 0,
+  };
+
+  async function settingsPage(tab: string) {
+    const options = { ...OPTIONS };
+    const calls = host({
+      'options.get': () => ({ ...options }),
+      'options.set': (r) => {
+        const { name, value } = r.params as { name: string; value: unknown };
+        Object.assign(options, { [name]: value, restartRequired: true, pending: options.pending + 1 });
+        return { ...options };
+      },
+      'options.apply': () => Object.assign(options, { pending: 0 }) && { ...options },
+      'options.cancel': () => Object.assign(options, { ...OPTIONS, pending: 0 }) && { ...options },
+      'prefs.set': () => ({}),
+      'tray.state': () => ({ available: true, visible: true, windowVisible: true }),
+    });
+    const { default: DialogHost } = await import('../components/DialogHost.svelte');
+    const { default: Settings } = await import('../pages/Settings.svelte');
+    nav.tab = tab;
+    render(DialogHost);
+    render(Settings);
+    return calls;
+  }
+
+  it('asks before applying a prune, and applies nothing on Cancel', async () => {
+    const calls = await settingsPage('main');
+    await waitFor(() => screen.getByLabelText('Prune block storage to'));
+    await fireEvent.click(screen.getByLabelText('Prune block storage to'));
+    await waitFor(() => screen.getByText('1 change is not applied yet.'));
+    expect(calls.some((c) => c.method === 'options.apply')).toBe(false);
+    // Apply: the risky change is confirmed first; "Cancel" there leaves it waiting.
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => screen.getByText('Some of these changes are hard to take back. Apply them?'));
+    expect(document.body.textContent).toContain('Reverting this setting requires re-downloading the entire blockchain.');
+    const dialog = document.querySelector('dialog[open]') as HTMLElement;
+    await fireEvent.click([...dialog.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cancel')!);
+    expect(calls.some((c) => c.method === 'options.apply')).toBe(false);
+    // Cancel on the page: taken back by the host.
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' }).at(-1)!);
+    await waitFor(() => expect(calls.some((c) => c.method === 'options.cancel')).toBe(true));
+    await waitFor(() => screen.getByText('Changes wait here until you apply them.'));
+  });
+
+  it('previews the look, saves it on Apply, and puts it back on Cancel', async () => {
+    prefs.theme = 'light';
+    const calls = await settingsPage('display');
+    await waitFor(() => screen.getByText('Ocean Teal'));
+    await fireEvent.click(screen.getByLabelText('Ocean Teal'));
+    expect(prefs.theme).toBe('ocean');
+    expect(calls.some((c) => c.method === 'prefs.set')).toBe(false);
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' }).at(-1)!);
+    await waitFor(() => expect(prefs.theme).toBe('light'));
+    await fireEvent.click(screen.getByLabelText('Matrix Green'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'prefs.set')?.params).toEqual({ theme: 'matrix' }));
+    expect(prefs.theme).toBe('matrix');
+  });
+});

@@ -459,6 +459,10 @@ bool App::StartNode()
         return answer.isBool() && answer.get_bool();
     }));
 
+    // Changes of the Settings page never applied (the app stopped first): taken back before the node
+    // reads its settings, as the Cancel of the options dialog would.
+    UndoOptions(*m_node, "never applied");
+
     if (m_args.GetBoolArg("-resetguisettings", false)) {
         // As OptionsModel::Reset: settings.json is backed up and reset, and the preferences of the interface too.
         m_node->resetSettings();
@@ -691,6 +695,21 @@ void App::OnTrayMenu(const std::string& id)
     data.pushKV("page", page->second.first);
     data.pushKV("tab", page->second.second);
     m_hub->Emit("navigate", std::move(data));
+}
+
+void App::UndoOptions(interfaces::Node& node, const std::string& why)
+{
+    const size_t count{m_options_journal->Undo(node, [this](bool restart) {
+        UniValue change{UniValue::VOBJ};
+        change.pushKV("restartRequired", restart ? UniValue{true} : UniValue{});
+        std::string network;
+        {
+            LOCK(m_mutex);
+            network = m_network;
+        }
+        m_config->UpdatePrefs(network, change);
+    })};
+    if (count > 0) LogInfo("webui: %d changes of the options taken back (%s)", count, why);
 }
 
 void App::RegisterHostMethods()
@@ -968,12 +987,33 @@ void App::RegisterHostMethods()
                 return *set;
             }
             return PrefFlag("restartRequired", false);
+        }, [this](const std::string& setting) {
+            interfaces::Node* node;
+            {
+                LOCK(m_mutex);
+                node = m_node.get();
+            }
+            if (node) m_options_journal->Record(*node, setting, PrefFlag("restartRequired", false));
         }};
     }};
-    b.RegisterHost("options.get", [options](const UniValue&) { return options().Get(); });
-    b.RegisterHost("options.set", [options](const UniValue& params) {
+    const auto with_pending{[this](UniValue out) {
+        // The changes waiting for Apply (the restart flag they may have set is not one).
+        out.pushKV("pending", static_cast<int64_t>(m_options_journal->Pending()));
+        return out;
+    }};
+    b.RegisterHost("options.get", [options, with_pending](const UniValue&) { return with_pending(options().Get()); });
+    b.RegisterHost("options.apply", [this, need_node, options, with_pending](const UniValue&) {
+        need_node();
+        m_options_journal->Commit();
+        return with_pending(options().Get());
+    });
+    b.RegisterHost("options.cancel", [this, need_node, options, with_pending](const UniValue&) {
+        UndoOptions(need_node(), "cancelled");
+        return with_pending(options().Get());
+    });
+    b.RegisterHost("options.set", [options, with_pending](const UniValue& params) {
         try {
-            return options().Set(ParamStr(params, "name"), Param(params, "value"));
+            return with_pending(options().Set(ParamStr(params, "name"), Param(params, "value")));
         } catch (const std::runtime_error& e) {
             throw HostError(BRIDGE_INVALID_REQUEST, e.what());
         }
@@ -997,6 +1037,7 @@ void App::RegisterHostMethods()
             LogWarning("webui: cannot back up the settings of the app: %s", e.what());
         }
         m_config->ResetPrefs(network);
+        m_options_journal->Commit();
         m_config->SetResetPending(true);
         if (NodeOptions::StartAtLogin(m_args)) NodeOptions::SetStartAtLogin(m_args, false);
         RequestShutdown();
@@ -1144,6 +1185,10 @@ int App::Run()
     const std::string config_path{m_config_path};
     m_config = std::make_unique<AppConfig>(config_path.empty() ? AppConfig::DefaultPath() : fs::PathFromString(config_path));
     m_config->Load();
+    m_options_journal = std::make_unique<OptionsJournal>(*m_config, m_args, [this] {
+        LOCK(m_mutex);
+        return "optionsUndo:" + (m_network.empty() ? ChainTypeToString(m_args.GetChainType()) : m_network);
+    });
 
     Window::Options options;
     options.title = CLIENT_NAME;

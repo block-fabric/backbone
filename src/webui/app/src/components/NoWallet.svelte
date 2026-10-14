@@ -34,7 +34,7 @@
     align-items: flex-start;
     margin-top: 1rem;
     padding: 1.5rem;
-    color: var(--accent);
+    color: var(--accent-text);
   }
   .body > div {
     color: var(--text);

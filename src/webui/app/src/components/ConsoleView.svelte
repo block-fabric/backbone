@@ -272,7 +272,7 @@
     border-top: 1px solid var(--line);
   }
   .caret {
-    color: var(--accent);
+    color: var(--accent-text);
     font-weight: 700;
   }
   .suggest {

@@ -201,6 +201,8 @@ export const host = {
   setOption: (name: keyof NodeOptionValues, value: unknown) => request<NodeOptions>('host', 'options.set', { name, value }),
   validProxy: (address: string) => request<boolean>('host', 'options.validProxy', { address }),
   resetOptions: () => request<boolean>('host', 'options.reset', {}),
+  applyOptions: () => request<NodeOptions>('host', 'options.apply', {}),
+  cancelOptions: () => request<NodeOptions>('host', 'options.cancel', {}),
   // Tools.
   depositAddress: (text: string) => request<{ kind: 'plain' | 'valid' | 'invalid'; slot?: number; address?: string }>('host', 'drivechain.depositAddress', { text }),
   hashes: (text: string, hex: boolean) => request<Hashes>('host', 'tools.hashes', { text, hex }),
@@ -243,6 +245,8 @@ export interface NodeOptions extends NodeOptionValues {
   proxyReach: { ipv4: boolean; ipv6: boolean; tor: boolean };
   externalSigner: boolean;
   restartRequired: boolean;
+  /** Changes written since the last Apply, that Cancel takes back. */
+  pending?: number;
 }
 
 export interface Hashes {

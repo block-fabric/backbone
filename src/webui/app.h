@@ -36,6 +36,7 @@ class NodeApi;
 class SidechainNodes;
 class EventHub;
 class NodeEvents;
+class OptionsJournal;
 class SingleInstance;
 class WalletApi;
 
@@ -100,6 +101,9 @@ private:
      * Without an answer (the app stops), `fallback`.
      */
     UniValue Ask(UniValue dialog, UniValue fallback) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /** Take back the changes of the options never applied (OptionsJournal), with the restart flag they set. */
+    void UndoOptions(interfaces::Node& node, const std::string& why) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void Fatal(const std::string& title, const std::string& message, const std::vector<std::string>& details = {}) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     interfaces::Init& m_init;
@@ -110,6 +114,8 @@ private:
     const std::string m_test_shots;
     const std::string m_config_path;
     std::unique_ptr<AppConfig> m_config;
+    //! The changes of the Settings page waiting for Apply.
+    std::unique_ptr<OptionsJournal> m_options_journal;
     std::unique_ptr<interfaces::Node> m_node;
     std::unique_ptr<Window> m_window;
     std::unique_ptr<EventHub> m_hub;

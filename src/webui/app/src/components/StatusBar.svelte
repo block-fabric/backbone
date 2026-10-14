@@ -165,7 +165,7 @@
   .proxy {
     display: inline-flex;
     align-items: center;
-    color: var(--accent);
+    color: var(--accent-text);
   }
   .sync {
     display: flex;
@@ -294,7 +294,7 @@
     border-radius: 4px;
     font-size: 0.72rem;
     font-weight: 700;
-    color: var(--accent);
+    color: var(--accent-text);
   }
   .hd.off {
     color: var(--text-faint);

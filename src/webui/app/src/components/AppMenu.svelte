@@ -201,7 +201,7 @@
   .mark {
     width: 1rem;
     text-align: center;
-    color: var(--accent);
+    color: var(--accent-text);
     font-size: 0.8rem;
   }
   .sep {

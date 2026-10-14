@@ -217,7 +217,7 @@
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    color: var(--accent);
+    color: var(--accent-text);
   }
   .dir.inbound {
     color: var(--positive);

@@ -213,7 +213,7 @@
     align-items: flex-start;
   }
   .mark {
-    color: var(--accent);
+    color: var(--accent-text);
     padding-top: 0.1rem;
   }
   .warning .mark {
