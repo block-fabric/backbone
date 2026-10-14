@@ -120,6 +120,8 @@ private:
     std::unique_ptr<OptionsJournal> m_options_journal;
     std::unique_ptr<interfaces::Node> m_node;
     std::unique_ptr<Window> m_window;
+    //! The page draws the frame of the window (UI thread).
+    bool m_framed{false};
     std::unique_ptr<EventHub> m_hub;
     std::unique_ptr<Bridge> m_bridge;
     std::unique_ptr<NodeEvents> m_node_events;

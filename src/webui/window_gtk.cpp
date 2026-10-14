@@ -17,6 +17,8 @@
 
 #include <atomic>
 #include <cstring>
+#include <map>
+#include <string>
 #include <utility>
 
 namespace webui {
@@ -82,10 +84,14 @@ public:
             gtk_window_set_icon_name(GTK_WINDOW(m_window), "chains");
         }
         if (options.maximized) gtk_window_maximize(GTK_WINDOW(m_window));
+        // The page draws the frame (ThemedFrame): no title bar nor border of the desktop.
+        gtk_window_set_decorated(GTK_WINDOW(m_window), !options.framed);
         g_signal_connect(m_window, "window-state-event", G_CALLBACK(+[](GtkWidget*, GdkEventWindowState* event, gpointer self) -> gboolean {
                              auto* w{static_cast<GtkWindowImpl*>(self)};
                              const bool iconified{(event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) != 0};
+                             const bool was_maximized{w->m_maximized};
                              w->m_maximized = (event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
+                             if (was_maximized != w->m_maximized && w->m_callbacks.maximized_changed) w->m_callbacks.maximized_changed(w->m_maximized);
                              if (iconified && (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) && w->m_callbacks.minimized) w->m_callbacks.minimized();
                              return FALSE;
                          }),
@@ -214,6 +220,48 @@ public:
     void Hide() override { gtk_widget_hide(m_window); }
     bool IsVisible() override { return gtk_widget_get_visible(m_window); }
     Geometry GetGeometry() override { return {m_width, m_height, m_maximized}; }
+
+    bool SetFramed(bool framed) override
+    {
+        gtk_window_set_decorated(GTK_WINDOW(m_window), !framed);
+        return framed;
+    }
+
+    /** Where the pointer is now, on the screen (the drag starts there; the button is still down). */
+    std::pair<int, int> Pointer()
+    {
+        int x{0}, y{0};
+        GdkDisplay* display{gtk_widget_get_display(m_window)};
+        if (GdkSeat* seat{gdk_display_get_default_seat(display)}) {
+            if (GdkDevice* pointer{gdk_seat_get_pointer(seat)}) gdk_device_get_position(pointer, nullptr, &x, &y);
+        }
+        return {x, y};
+    }
+
+    void BeginMove() override
+    {
+        const auto [x, y]{Pointer()};
+        gtk_window_begin_move_drag(GTK_WINDOW(m_window), 1, x, y, gtk_get_current_event_time());
+    }
+
+    void BeginResize(const std::string& edge) override
+    {
+        static const std::map<std::string, GdkWindowEdge> EDGES{
+            {"n", GDK_WINDOW_EDGE_NORTH}, {"ne", GDK_WINDOW_EDGE_NORTH_EAST}, {"e", GDK_WINDOW_EDGE_EAST}, {"se", GDK_WINDOW_EDGE_SOUTH_EAST},
+            {"s", GDK_WINDOW_EDGE_SOUTH}, {"sw", GDK_WINDOW_EDGE_SOUTH_WEST}, {"w", GDK_WINDOW_EDGE_WEST}, {"nw", GDK_WINDOW_EDGE_NORTH_WEST}};
+        const auto it{EDGES.find(edge)};
+        if (it == EDGES.end()) return;
+        const auto [x, y]{Pointer()};
+        gtk_window_begin_resize_drag(GTK_WINDOW(m_window), it->second, 1, x, y, gtk_get_current_event_time());
+    }
+
+    void ToggleMaximized() override
+    {
+        if (m_maximized) gtk_window_unmaximize(GTK_WINDOW(m_window));
+        else gtk_window_maximize(GTK_WINDOW(m_window));
+    }
+
+    bool IsMaximized() override { return m_maximized; }
 
     void SetTray(const Tray& tray) override
     {

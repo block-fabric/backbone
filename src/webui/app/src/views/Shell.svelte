@@ -7,6 +7,8 @@
   import NodeWindow from '../pages/NodeWindow.svelte';
   import Overview from '../pages/Overview.svelte';
   import NoWallet from '../components/NoWallet.svelte';
+  import WindowButtons from '../components/WindowButtons.svelte';
+  import { barMouseDown, frame } from '../lib/frame.svelte';
   import Settings from '../pages/Settings.svelte';
   import Addresses from '../pages/Addresses.svelte';
   import Messages from '../pages/Messages.svelte';
@@ -166,8 +168,11 @@
 <div class="shell">
   <Sidebar />
   <div class="main">
-    <header class="appbar">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <header class="appbar" class:framed={frame.framed} onmousedown={barMouseDown}>
       <AppMenu {menus} />
+      {#if frame.framed}<span class="title" translate="no">{frame.title}</span>{/if}
+      <WindowButtons />
     </header>
     <div class="stage">
     <!-- Before the pages: the dialogs a page opens come after it, above it. -->
@@ -242,6 +247,25 @@
     padding: 0.25rem 0.75rem;
     border-bottom: 1px solid var(--line);
     background: var(--surface);
+  }
+  /* The title bar of the window (ThemedFrame): the menus, the title, the buttons of the window. */
+  .appbar.framed {
+    padding-block: 0;
+    padding-inline-end: 0;
+    user-select: none;
+  }
+  .appbar.framed :global(.menubar) {
+    flex: 0 1 auto;
+  }
+  .title {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
   }
   .stage {
     position: relative;

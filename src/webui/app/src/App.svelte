@@ -7,6 +7,9 @@
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
   import { followLocale, installTranslator, loadLocale } from './lib/i18n.svelte';
+  import { followFrame, loadFrame } from './lib/frame.svelte';
+  import FrameBar from './components/FrameBar.svelte';
+  import FrameEdges from './components/FrameEdges.svelte';
   import { handleShortcut } from './lib/keyboard';
   import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
@@ -61,7 +64,8 @@
         // The language first: the page shows in it from its first frame on.
         installTranslator();
         followLocale();
-        await loadLocale();
+        followFrame();
+        await Promise.all([loadLocale(), loadFrame()]);
         app.info = hello.info;
         app.dialogs = hello.dialogs;
         app.phaseData = hello.phaseData;
@@ -137,22 +141,29 @@
 
 <svelte:window {onkeydown} {ondragover} {ondrop} />
 
-{#if connectError}
-  <main class="lost">
-    <h1>No connection to the node</h1>
-    <p class="muted">{connectError}</p>
-  </main>
-{:else if app.phase === 'intro'}
-  <Intro />
-{:else if app.phase === 'ready'}
-  <Shell />
-{:else if app.phase === 'fatal'}
-  <Fatal />
-{:else if app.phase === 'shutdown'}
-  <Splash stopping />
-{:else}
-  <Splash />
-{/if}
+<div class="window">
+  <!-- The main window draws its frame in its own bar (menus in the title bar); the others in this one. -->
+  {#if app.phase !== 'ready' || connectError}<FrameBar />{/if}
+  <div class="body">
+    {#if connectError}
+      <main class="lost">
+        <h1>No connection to the node</h1>
+        <p class="muted">{connectError}</p>
+      </main>
+    {:else if app.phase === 'intro'}
+      <Intro />
+    {:else if app.phase === 'ready'}
+      <Shell />
+    {:else if app.phase === 'fatal'}
+      <Fatal />
+    {:else if app.phase === 'shutdown'}
+      <Splash stopping />
+    {:else}
+      <Splash />
+    {/if}
+  </div>
+</div>
+<FrameEdges />
 
 <NodeDialogs />
 <AppDialogs />
@@ -160,6 +171,15 @@
 <Toasts />
 
 <style>
+  .window {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .window > .body {
+    flex: 1;
+    min-height: 0;
+  }
   .lost {
     display: grid;
     place-content: center;

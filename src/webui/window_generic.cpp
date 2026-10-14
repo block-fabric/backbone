@@ -64,6 +64,12 @@ public:
     void Hide() override {}
     bool IsVisible() override { return true; }
     Geometry GetGeometry() override { return {}; }
+    // TODO(windows/macos port): a frame drawn by the page (WS_POPUP with WM_NCHITTEST, NSWindowStyleMaskFullSizeContentView).
+    bool SetFramed(bool) override { return false; }
+    void BeginMove() override {}
+    void BeginResize(const std::string&) override {}
+    void ToggleMaximized() override {}
+    bool IsMaximized() override { return false; }
     void SetTray(const Tray&) override {}
     bool TrayAvailable() override { return false; }
     void Notify(const std::string&, const std::string&, const std::string&) override {}

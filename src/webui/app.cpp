@@ -212,6 +212,9 @@ void App::UpdateTitle()
         if (const std::string label{NetworkLabel(m_network)}; !label.empty()) title += " [" + label + "]";
     }
     m_window->Post([this, title] { m_window->SetTitle(title); });
+    UniValue data{UniValue::VOBJ};
+    data.pushKV("title", title);
+    if (m_hub) m_hub->Emit("window", std::move(data), "window.title");
 }
 
 UniValue App::Ask(UniValue dialog, UniValue fallback)
@@ -885,6 +888,15 @@ void App::RegisterHostMethods()
             throw HostError(e.what());
         }
         if (params.exists("showTray")) m_window->Post([this] { UpdateTray(); });
+        if (params.exists("themedFrame")) {
+            const bool wanted{params.find_value("themedFrame").isBool() && params.find_value("themedFrame").get_bool()};
+            m_window->Post([this, wanted] {
+                m_framed = m_window->SetFramed(wanted);
+                UniValue data{UniValue::VOBJ};
+                data.pushKV("framed", m_framed);
+                m_hub->Emit("window", std::move(data), "window.frame");
+            });
+        }
         return prefs;
     });
 
@@ -920,6 +932,36 @@ void App::RegisterHostMethods()
         UpdateTitle();
         return UniValue{true};
     });
+    // The frame the page draws (ThemedFrame): the state, and what its title bar and border do.
+    b.RegisterHost("window.state", [this](const UniValue&) {
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("framed", m_framed);
+        out.pushKV("maximized", m_window->IsMaximized());
+        std::string title{CLIENT_NAME};
+        {
+            LOCK(m_mutex);
+            if (!m_wallet_title.empty()) title += " - " + m_wallet_title;
+            if (const std::string label{NetworkLabel(m_network)}; !label.empty()) title += " [" + label + "]";
+        }
+        out.pushKV("title", title);
+        return out;
+    }, Bridge::Thread::UI);
+    b.RegisterHost("window.beginMove", [this](const UniValue&) {
+        if (m_framed) m_window->BeginMove();
+        return UniValue{m_framed};
+    }, Bridge::Thread::UI);
+    b.RegisterHost("window.beginResize", [this](const UniValue& params) {
+        if (m_framed) m_window->BeginResize(ParamStr(params, "edge"));
+        return UniValue{m_framed};
+    }, Bridge::Thread::UI);
+    b.RegisterHost("window.toggleMaximized", [this](const UniValue&) {
+        m_window->ToggleMaximized();
+        return UniValue{true};
+    }, Bridge::Thread::UI);
+    b.RegisterHost("window.close", [this](const UniValue&) {
+        CloseRequested();
+        return UniValue{true};
+    }, Bridge::Thread::UI);
     b.RegisterHost("window.minimize", [this](const UniValue&) {
         m_window->Minimize();
         return UniValue{true};
@@ -1262,8 +1304,15 @@ int App::Run()
         }
         options.maximized = geometry.find_value("maximized").isBool() && geometry.find_value("maximized").get_bool();
     }
+    // The frame in the colours of the theme (ThemedFrame of chains-qt; on unless the user turned it off).
+    options.framed = PrefFlag("themedFrame", true);
     Window::Callbacks callbacks;
     callbacks.close_requested = [this] { CloseRequested(); };
+    callbacks.maximized_changed = [this](bool maximized) {
+        UniValue data{UniValue::VOBJ};
+        data.pushKV("maximized", maximized);
+        m_hub->Emit("window", std::move(data), "window");
+    };
     callbacks.minimized = [this] {
         // As BitcoinGUI::changeEvent: minimized to the tray, if the user wants that and there is a tray.
         if (PrefFlag("minimizeToTray", false) && PrefFlag("showTray", true) && m_window->TrayAvailable()) {
@@ -1277,6 +1326,7 @@ int App::Run()
     callbacks.tray_menu = [this](const std::string& id) { OnTrayMenu(id); };
     callbacks.call = [this](const std::string& id, const std::string& args) { m_bridge->Handle(id, args); };
     m_window = Window::Create(options, std::move(callbacks));
+    m_framed = options.framed && m_window->SetFramed(true);
 
     m_hub = std::make_unique<EventHub>(
         [this](const std::string& batch) { DeliverEvents(batch); },

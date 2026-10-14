@@ -92,6 +92,8 @@ export const prefs = $state({
   showTray: true,
   minimizeToTray: false,
   minimizeOnClose: false,
+  /** The window framed in the colours of the theme, the menus in the title bar (ThemedFrame). */
+  themedFrame: true,
   /** Web pages of third-party explorers for a transaction, %s for its id, separated by | (strThirdPartyTxUrls). */
   thirdPartyTxUrls: '',
   /** The font of amounts: the embedded monospaced one, or the one of the system (FontForMoney). */
@@ -283,7 +285,7 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (typeof raw.mask === 'boolean') prefs.mask = raw.mask;
   if (typeof raw.compactNav === 'boolean') prefs.compactNav = raw.compactNav;
   if (typeof raw.lastWallet === 'string') prefs.lastWallet = raw.lastWallet;
-  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'showTray', 'minimizeToTray', 'minimizeOnClose'] as const) {
+  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'showTray', 'minimizeToTray', 'minimizeOnClose', 'themedFrame'] as const) {
     if (typeof raw[key] === 'boolean') prefs[key] = raw[key];
   }
   if (raw.feeMode === 'smart' || raw.feeMode === 'custom') prefs.feeMode = raw.feeMode;

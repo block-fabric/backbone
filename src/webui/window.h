@@ -33,6 +33,8 @@ public:
         bool devtools{false};
         //! Start maximized (the geometry saved last time).
         bool maximized{false};
+        //! The page draws the frame: the title bar and the border, in the colours of its theme (ThemedFrame).
+        bool framed{false};
     };
     //! The size of the window, and whether it is maximized (MainWindowGeometry of chains-qt).
     struct Geometry {
@@ -64,6 +66,8 @@ public:
         std::function<void(const std::string& id)> tray_menu;
         //! The window was minimized by the user (for "minimize to the tray").
         std::function<void()> minimized;
+        //! The window was maximized, or no longer is (the page shows its button as "Restore").
+        std::function<void(bool maximized)> maximized_changed;
     };
 
     /** The window of this platform. It is not shown until Show. */
@@ -95,6 +99,19 @@ public:
     virtual bool IsVisible() = 0;
     /** The size of the window now. */
     virtual Geometry GetGeometry() = 0;
+
+    /**
+     * The frame of the window: the one of the desktop, or none, the page drawing its own (ThemedFrame of
+     * chains-qt: the menus in the title bar, the colours of the theme). @return whether the page frames the
+     * window now (false where the platform cannot do without the frame of the desktop).
+     */
+    virtual bool SetFramed(bool framed) = 0;
+    /** The user drags the title bar the page draws: the window moves with the pointer. */
+    virtual void BeginMove() = 0;
+    /** The user drags an edge ("n", "ne", "e", "se", "s", "sw", "w", "nw") of the border the page draws. */
+    virtual void BeginResize(const std::string& edge) = 0;
+    virtual void ToggleMaximized() = 0;
+    virtual bool IsMaximized() = 0;
 
     /**
      * Show, change or take away the icon in the tray. Desktops with a tray of the

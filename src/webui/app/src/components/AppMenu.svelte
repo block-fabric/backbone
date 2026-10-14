@@ -40,14 +40,34 @@
   $effect(() => {
     const holder = bar?.parentElement;
     if (!holder || typeof ResizeObserver === 'undefined') return;
+    // The room of the menus: the bar, less what else is on it (the buttons of a framed window, and some
+    // room for its title).
     const inner = () => {
       const cs = getComputedStyle(holder);
-      return holder.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+      const gap = parseFloat(cs.columnGap || '0') || 0;
+      let others = 0;
+      for (const child of holder.children) {
+        if (child === bar || child === measure) continue;
+        const el = child as HTMLElement;
+        others += (el.classList.contains('title') ? 8 * parseFloat(getComputedStyle(document.documentElement).fontSize || '16') : el.getBoundingClientRect().width) + gap;
+      }
+      return holder.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0') - others;
     };
     const o = new ResizeObserver(() => (available = inner()));
-    o.observe(holder);
-    available = inner();
-    return () => o.disconnect();
+    const watch = () => {
+      o.disconnect();
+      o.observe(holder);
+      for (const child of holder.children) if (child !== bar && child !== measure) o.observe(child);
+      available = inner();
+    };
+    // The buttons of the frame come and go with the option: the room is measured again.
+    const m = new MutationObserver(watch);
+    m.observe(holder, { childList: true });
+    watch();
+    return () => {
+      o.disconnect();
+      m.disconnect();
+    };
   });
 
   /** How many menus fit, with room for "More" when not all do (jsdom measures nothing: all fit). */

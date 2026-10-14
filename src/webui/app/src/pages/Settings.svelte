@@ -423,6 +423,11 @@
           </div>
         {/if}
 
+        <label class="check" title="Draw the title bar and the border of the main window in the colours of the theme, with the menus in the title bar, in place of the frame of the desktop.">
+          <input id="opt-themed-frame" type="checkbox" checked={prefs.themedFrame} onchange={(e) => stagePrefs({ themedFrame: (e.currentTarget as HTMLInputElement).checked })} />
+          <span>Frame the main window in the colours of the theme</span>
+        </label>
+
         <label class="check">
           <input type="checkbox" checked={prefs.mask} onchange={(e) => stagePrefs({ mask: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Mask values (privacy mode)</span>
