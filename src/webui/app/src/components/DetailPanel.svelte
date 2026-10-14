@@ -219,8 +219,12 @@
     width: 25rem;
     flex: none;
     min-height: 0;
-    border-left: 1px solid var(--line);
-    background: var(--surface);
+    margin: 0.75rem 0.75rem 0.75rem 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: linear-gradient(180deg, var(--card-top), transparent 10rem), var(--surface);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
     outline: none;
   }
   header {
@@ -296,6 +300,8 @@
       right: 0;
       bottom: 0;
       width: min(25rem, 100vw);
+      margin: 0;
+      border-radius: 0;
       box-shadow: var(--shadow);
     }
   }

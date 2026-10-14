@@ -1,7 +1,7 @@
-// The looks of the app: the themes of chains-qt (theme.cpp), as sets of CSS
-// variables (styles/themes.css), plus the look of the desktop.
+// The looks of the app: Midnight (the default, the look of chains-app), the themes of chains-qt
+// (theme.cpp), as sets of CSS variables (styles/themes.css), plus the look of the desktop.
 
-export type ThemeId = 'system' | 'light' | 'dark' | 'ocean' | 'matrix' | 'qdarkstyle';
+export type ThemeId = 'system' | 'midnight' | 'light' | 'dark' | 'ocean' | 'matrix' | 'qdarkstyle';
 
 export interface Theme {
   id: ThemeId;
@@ -12,12 +12,16 @@ export interface Theme {
 
 export const THEMES: readonly Theme[] = [
   { id: 'system', name: 'Same as the desktop', dark: 'auto' },
+  { id: 'midnight', name: 'Midnight', dark: true },
   { id: 'light', name: 'Light', dark: false },
   { id: 'dark', name: 'Dark', dark: true },
   { id: 'ocean', name: 'Ocean Teal', dark: true },
   { id: 'matrix', name: 'Matrix Green', dark: true },
   { id: 'qdarkstyle', name: 'Dark (classic Drivechain)', dark: true },
 ];
+
+/** The look of a first start. */
+export const DEFAULT_THEME: ThemeId = 'midnight';
 
 export const MIN_FONT_ADJUST = -6;
 export const MAX_FONT_ADJUST = 12;
@@ -31,6 +35,17 @@ export function isTheme(value: unknown): value is ThemeId {
 export function resolveTheme(id: ThemeId, prefersDark: boolean): Exclude<ThemeId, 'system'> {
   if (id !== 'system') return id;
   return prefersDark ? 'dark' : 'light';
+}
+
+/** Whether a choice is drawn dark. */
+export function isDark(id: ThemeId, prefersDark: boolean): boolean {
+  return THEMES.find((t) => t.id === resolveTheme(id, prefersDark))?.dark === true;
+}
+
+/** The quick switch of the top bar: a dark look goes light; the light one goes back to the dark look last used (Midnight at first). */
+export function toggledTheme(id: ThemeId, prefersDark: boolean, lastDark: ThemeId | null): ThemeId {
+  if (isDark(id, prefersDark)) return 'light';
+  return lastDark && lastDark !== 'light' && lastDark !== 'system' ? lastDark : DEFAULT_THEME;
 }
 
 export function clampFontAdjust(n: number): number {

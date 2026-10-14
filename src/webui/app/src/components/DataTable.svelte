@@ -178,8 +178,9 @@
     min-height: 8rem;
     overflow: auto;
     border: 1px solid var(--line);
-    border-radius: var(--radius-m);
-    background: var(--surface);
+    border-radius: var(--radius-xl);
+    background: linear-gradient(180deg, var(--card-top), transparent 8rem), var(--surface);
+    box-shadow: var(--shadow-card);
     font-variant-numeric: tabular-nums;
   }
   .table:focus-visible {
@@ -192,10 +193,11 @@
     display: grid;
     min-width: max-content;
     width: 100%;
-    background: var(--surface-2);
+    background: var(--surface);
     border-bottom: 1px solid var(--line);
-    font-size: 0.86rem;
+    font-size: 0.8rem;
     font-weight: 600;
+    letter-spacing: 0.02em;
     color: var(--text-muted);
   }
   .head button {
@@ -228,15 +230,20 @@
     width: 100%;
     cursor: default;
   }
+  .row {
+    border-radius: var(--radius-m);
+  }
   .row.odd {
-    background: var(--surface-2);
+    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
   }
   .row:hover {
     background: var(--raised);
   }
   .row.selected {
     background: var(--accent-soft);
-    box-shadow: inset 3px 0 0 var(--accent);
+    box-shadow:
+      inset 3px 0 0 var(--accent),
+      inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .cell {
     display: flex;
