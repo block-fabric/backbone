@@ -227,6 +227,61 @@ public:
             job);
     }
 
+    void ChooseFile(const FileDialog& options, std::function<void(std::optional<std::string>)> done) override
+    {
+        GtkFileChooserNative* chooser{gtk_file_chooser_native_new(
+            options.title.c_str(), GTK_WINDOW(m_window), options.save ? GTK_FILE_CHOOSER_ACTION_SAVE : GTK_FILE_CHOOSER_ACTION_OPEN,
+            options.save ? "_Save" : "_Open", "_Cancel")};
+        GtkFileChooser* fc{GTK_FILE_CHOOSER(chooser)};
+        gtk_native_dialog_set_modal(GTK_NATIVE_DIALOG(chooser), TRUE);
+        std::string suffix;
+        for (const auto& [name, patterns] : options.filters) {
+            GtkFileFilter* filter{gtk_file_filter_new()};
+            std::string label{name};
+            if (!patterns.empty()) {
+                label += " (";
+                for (size_t i = 0; i < patterns.size(); ++i) label += (i ? " " : "") + patterns[i];
+                label += ")";
+            }
+            gtk_file_filter_set_name(filter, label.c_str());
+            for (const auto& pattern : patterns) {
+                gtk_file_filter_add_pattern(filter, pattern.c_str());
+                if (suffix.empty() && pattern.starts_with("*.") && pattern.find_first_of("*?[", 1) == std::string::npos) suffix = pattern.substr(1);
+            }
+            gtk_file_chooser_add_filter(fc, filter);
+        }
+        if (options.save) {
+            gtk_file_chooser_set_do_overwrite_confirmation(fc, TRUE);
+            if (!options.suggested_name.empty()) gtk_file_chooser_set_current_name(fc, options.suggested_name.c_str());
+        }
+        struct Job {
+            std::function<void(std::optional<std::string>)> done;
+            bool save;
+            std::string suffix;
+        };
+        auto* job{new Job{std::move(done), options.save, suffix}};
+        g_signal_connect(chooser, "response", G_CALLBACK(+[](GtkNativeDialog* dialog, gint response, gpointer data) {
+                             std::unique_ptr<Job> job{static_cast<Job*>(data)};
+                             std::optional<std::string> path;
+                             if (response == GTK_RESPONSE_ACCEPT) {
+                                 if (gchar* name{gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog))}) {
+                                     path = name;
+                                     g_free(name);
+                                 }
+                             }
+                             if (path && job->save && !job->suffix.empty()) {
+                                 // A name without an extension gets the one of the filter (GUIUtil::getSaveFileName).
+                                 const auto slash{path->rfind('/')};
+                                 const std::string base{slash == std::string::npos ? *path : path->substr(slash + 1)};
+                                 if (base.find('.') == std::string::npos) *path += job->suffix;
+                             }
+                             g_object_unref(dialog);
+                             job->done(path);
+                         }),
+                         job);
+        gtk_native_dialog_show(GTK_NATIVE_DIALOG(chooser));
+    }
+
 private:
     Callbacks m_callbacks;
     const bool m_devtools;

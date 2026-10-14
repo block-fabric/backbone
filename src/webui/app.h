@@ -11,9 +11,11 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -32,6 +34,7 @@ class Bridge;
 class EventHub;
 class NodeEvents;
 class SingleInstance;
+class WalletApi;
 class Window;
 
 /** The options of the app on top of the ones of the node (the GUI options of chains-qt, and the debug ones of chains-app). */
@@ -89,6 +92,8 @@ private:
     std::unique_ptr<Bridge> m_bridge;
     std::unique_ptr<NodeEvents> m_node_events;
     std::unique_ptr<SingleInstance> m_instance;
+    //! The wallet functions of the page (null in a build without wallets).
+    std::unique_ptr<WalletApi> m_wallet_api;
     std::thread m_node_thread;
     //! Messages and questions of the node.
     std::vector<std::unique_ptr<interfaces::Handler>> m_node_handlers;
@@ -111,6 +116,11 @@ private:
     int64_t m_next_dialog GUARDED_BY(m_mutex){1};
     bool m_node_started GUARDED_BY(m_mutex){false};
     std::optional<int> m_exit_code GUARDED_BY(m_mutex);
+    //! Files the user chose in a file chooser: the only ones the page may read, or write.
+    std::set<std::string> m_readable GUARDED_BY(m_mutex);
+    std::set<std::string> m_writable GUARDED_BY(m_mutex);
+    //! Answers of the file choosers given by the tests (-webuitestscript), in place of the user.
+    std::deque<UniValue> m_test_files GUARDED_BY(m_mutex);
 };
 
 } // namespace webui

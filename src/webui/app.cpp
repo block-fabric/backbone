@@ -22,6 +22,7 @@
 #include <util/exception.h>
 #include <util/fs_helpers.h>
 #include <util/strencodings.h>
+#include <util/string.h>
 #include <util/threadnames.h>
 #include <util/translation.h>
 #include <validation.h>
@@ -30,6 +31,9 @@
 #include <webui/events.h>
 #include <webui/nodeevents.h>
 #include <webui/singleinstance.h>
+#ifdef ENABLE_WALLET
+#include <webui/walletapi.h>
+#endif
 #include <webui/window.h>
 
 #include <chrono>
@@ -694,6 +698,92 @@ void App::RegisterHostMethods()
         m_window->Minimize();
         return UniValue{true};
     }, Bridge::Thread::UI);
+    // Files: the user chooses them in a file chooser of the desktop; the page reads and writes only those.
+    b.RegisterHost("file.choose", [this](const UniValue& params) {
+        Window::FileDialog dialog;
+        dialog.save = Param(params, "save").isBool() && Param(params, "save").get_bool();
+        dialog.title = Param(params, "title").isStr() ? Param(params, "title").get_str() : (dialog.save ? "Save" : "Open");
+        if (Param(params, "name").isStr()) dialog.suggested_name = Param(params, "name").get_str();
+        if (const UniValue& filters{Param(params, "filters")}; filters.isArray()) {
+            for (const UniValue& f : filters.getValues()) {
+                std::vector<std::string> patterns;
+                if (f.find_value("patterns").isArray()) {
+                    for (const UniValue& pattern : f.find_value("patterns").getValues()) {
+                        if (pattern.isStr()) patterns.push_back(pattern.get_str());
+                    }
+                }
+                dialog.filters.emplace_back(f.find_value("name").isStr() ? f.find_value("name").get_str() : "Files", std::move(patterns));
+            }
+        }
+        std::optional<std::string> chosen;
+        bool from_test{false};
+        {
+            LOCK(m_mutex);
+            if (!m_test_files.empty()) {
+                const UniValue answer{m_test_files.front()};
+                m_test_files.pop_front();
+                if (answer.isStr()) chosen = answer.get_str();
+                from_test = true;
+            }
+        }
+        if (!from_test) {
+            auto done{std::make_shared<std::promise<std::optional<std::string>>>()};
+            m_window->Post([this, dialog, done] { m_window->ChooseFile(dialog, [done](std::optional<std::string> path) { done->set_value(std::move(path)); }); });
+            auto future{done->get_future()};
+            // The user takes the time needed; the app may stop meanwhile.
+            while (future.wait_for(200ms) != std::future_status::ready) {
+                LOCK(m_mutex);
+                if (m_shutdown_requested) return UniValue{};
+            }
+            chosen = future.get();
+        }
+        if (!chosen) return UniValue{};
+        {
+            LOCK(m_mutex);
+            (dialog.save ? m_writable : m_readable).insert(*chosen);
+        }
+        return UniValue{*chosen};
+    });
+    b.RegisterHost("file.read", [this](const UniValue& params) {
+        const std::string path{ParamStr(params, "path")};
+        {
+            LOCK(m_mutex);
+            if (!m_readable.contains(path)) throw HostError(BRIDGE_INVALID_REQUEST, "Only a file chosen by the user can be read");
+        }
+        std::ifstream file{static_cast<const std::filesystem::path&>(fs::PathFromString(path)), std::ios::binary};
+        if (!file) throw HostError(strprintf("Cannot open %s", path));
+        file.seekg(0, std::ios::end);
+        const auto size{static_cast<int64_t>(file.tellg())};
+        // The largest file the page reads is a PSBT (MAX_FILE_SIZE_PSBT).
+        if (size < 0 || size >= 100'000'000) throw HostError("The file must be smaller than 100 MB");
+        file.seekg(0);
+        std::string data(static_cast<size_t>(size), '\0');
+        file.read(data.data(), size);
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("path", path);
+        out.pushKV("size", size);
+        out.pushKV("base64", EncodeBase64(data));
+        return out;
+    });
+    b.RegisterHost("file.write", [this](const UniValue& params) {
+        const std::string path{ParamStr(params, "path")};
+        {
+            LOCK(m_mutex);
+            if (!m_writable.contains(path)) throw HostError(BRIDGE_INVALID_REQUEST, "Only a file chosen by the user can be written");
+        }
+        std::string data;
+        if (Param(params, "base64").isStr()) {
+            auto bytes{DecodeBase64(Param(params, "base64").get_str())};
+            if (!bytes) throw HostError(BRIDGE_INVALID_REQUEST, "base64: not base64");
+            data.assign(bytes->begin(), bytes->end());
+        } else {
+            data = ParamStr(params, "text");
+        }
+        std::ofstream file{static_cast<const std::filesystem::path&>(fs::PathFromString(path)), std::ios::binary | std::ios::trunc};
+        if (!file || !file.write(data.data(), data.size()) || !(file.flush())) throw HostError(strprintf("There was an error trying to save to %s.", path));
+        return UniValue{path};
+    });
+
     b.RegisterHost("clipboard.write", [this](const UniValue& params) {
         m_window->SetClipboard(ParamStr(params, "text"));
         return UniValue{true};
@@ -702,6 +792,12 @@ void App::RegisterHostMethods()
         const auto text{m_window->GetClipboard()};
         return text ? UniValue{*text} : UniValue{};
     }, Bridge::Thread::UI);
+
+#ifdef ENABLE_WALLET
+    // The wallet functions (the wallet pages of chains-qt).
+    m_wallet_api = std::make_unique<WalletApi>(need_node);
+    m_wallet_api->Register(b);
+#endif
 
     if (!m_args.GetArg("-webuitestscript", "").empty()) {
         // The hooks of the tests of the app (only with the debug option -webuitestscript).
@@ -726,6 +822,12 @@ void App::RegisterHostMethods()
             auto future{done->get_future()};
             if (future.wait_for(30s) != std::future_status::ready || !future.get()) throw HostError("The snapshot failed");
             return UniValue{path};
+        });
+        b.RegisterHost("test.fileAnswer", [this](const UniValue& params) {
+            // The answer of the next file chooser: a path, or null for "cancelled".
+            LOCK(m_mutex);
+            m_test_files.push_back(Param(params, "path"));
+            return UniValue{true};
         });
         b.RegisterHost("test.exit", [this](const UniValue& params) {
             const UniValue code{Param(params, "code")};

@@ -67,6 +67,20 @@ target_link_libraries(chains_webui_core
     univalue
 )
 
+# The wallet functions of the page (the wallet pages of chains-qt), in a build with wallets.
+if(ENABLE_WALLET)
+  add_library(chains_webui_wallet STATIC EXCLUDE_FROM_ALL
+    walletapi.cpp
+  )
+  target_link_libraries(chains_webui_wallet
+    PUBLIC
+      core_interface
+      chains_webui_core
+      bitcoin_wallet
+      bitcoin_node
+  )
+endif()
+
 if(CMAKE_SYSTEM_NAME MATCHES "Windows|Darwin")
   set(webui_window window_generic.cpp)
 else()
@@ -87,6 +101,7 @@ target_link_libraries(chains-app
   core_interface
   chains_webui_core
   chains_webui_assets
+  $<TARGET_NAME_IF_EXISTS:chains_webui_wallet>
   bitcoin_node
   $<TARGET_NAME_IF_EXISTS:bitcoin_wallet>
   $<TARGET_NAME_IF_EXISTS:PkgConfig::WEBKITGTK>

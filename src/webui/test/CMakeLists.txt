@@ -12,11 +12,13 @@ add_executable(test_chains-app
   events_tests.cpp
   nodeevents_tests.cpp
   singleinstance_tests.cpp
+  $<$<BOOL:${ENABLE_WALLET}>:walletapi_tests.cpp>
 )
 target_link_libraries(test_chains-app
   core_interface
   chains_webui_core
   chains_webui_assets
+  $<TARGET_NAME_IF_EXISTS:chains_webui_wallet>
   test_util
   bitcoin_node
   Boost::headers

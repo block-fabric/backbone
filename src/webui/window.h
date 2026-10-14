@@ -10,6 +10,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace webui {
 
@@ -64,6 +66,22 @@ public:
 
     virtual void SetClipboard(const std::string& text) = 0;
     virtual std::optional<std::string> GetClipboard() = 0;
+
+    /** A file chooser of the desktop, to open a file or to save one. */
+    struct FileDialog {
+        bool save{false};
+        std::string title;
+        //! The name proposed when saving.
+        std::string suggested_name;
+        //! Filters: a name and its patterns ("Wallet Data", {"*.dat"}). The first one is chosen.
+        std::vector<std::pair<std::string, std::vector<std::string>>> filters;
+    };
+    /**
+     * Show a file chooser; `done` gets the path chosen, or nothing when it was cancelled. When
+     * saving, the extension of the first filter is added to a name without one (as the Qt GUI
+     * does), and the user confirms overwriting a file.
+     */
+    virtual void ChooseFile(const FileDialog& options, std::function<void(std::optional<std::string>)> done) = 0;
 
     /** Save a picture of what the page shows now as PNG. For the tests. */
     virtual void Snapshot(const std::string& png_path, std::function<void(bool ok)> done) = 0;

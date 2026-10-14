@@ -60,6 +60,12 @@ public:
     void SetClipboard(const std::string&) override { LogWarning("webui: no clipboard on this platform yet"); }
     std::optional<std::string> GetClipboard() override { return std::nullopt; }
     void Snapshot(const std::string&, std::function<void(bool ok)> done) override { done(false); }
+    void ChooseFile(const FileDialog&, std::function<void(std::optional<std::string>)> done) override
+    {
+        // TODO(windows/macos port): the file dialogs of the platform.
+        LogWarning("webui: no file dialogs on this platform yet");
+        done(std::nullopt);
+    }
 
 private:
     Callbacks m_callbacks;
