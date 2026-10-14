@@ -8,6 +8,7 @@
   import MenuButton from '../../components/MenuButton.svelte';
   import PaletteButton from '../../components/PaletteButton.svelte';
   import StatusBar from '../../components/StatusBar.svelte';
+  import TopActions from '../../components/TopActions.svelte';
   import WalletPicker from '../../components/WalletPicker.svelte';
   import WindowControls from '../../components/WindowControls.svelte';
   import { buildCommands, menuSections, pageAvailable, pageDisabled } from '../../lib/commands.svelte';
@@ -63,9 +64,10 @@
       {/each}
     </nav>
     <div class="tools">
-      <WalletPicker />
+      <WalletPicker pill />
       <PaletteButton />
       <MenuButton label="Menus of chains-qt: wallet, banking, tools, window, node" text="Menus" icon="menu" {sections} />
+      <TopActions />
     </div>
     {#if frame.integrated}<WindowControls />{/if}
   </header>
@@ -105,25 +107,29 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    min-height: 3.2rem;
-    padding: 0.3rem 0.75rem;
-    background: var(--surface);
+    min-height: 3.4rem;
+    padding: 0.35rem 0.75rem;
+    background: color-mix(in srgb, var(--bg) 70%, transparent);
     border-bottom: 1px solid var(--line);
   }
   .areas {
     display: flex;
-    align-self: stretch;
-    gap: 0.25rem;
+    align-items: center;
+    gap: 0.2rem;
     min-width: 0;
+    padding: 0.22rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
   }
   .area {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    padding: 0 0.9rem;
+    min-height: 2.15rem;
+    padding: 0 0.95rem;
     border: 0;
-    border-bottom: 3px solid transparent;
-    border-top: 3px solid transparent;
+    border-radius: 999px;
     background: none;
     color: var(--text-muted);
     font: inherit;
@@ -133,14 +139,12 @@
   }
   .area:hover {
     color: var(--text);
-    background: var(--surface-2);
+    background: var(--raised);
   }
   .area[aria-current='true'] {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-  }
-  .area[aria-current='true'] :global(svg) {
-    color: var(--accent);
+    color: var(--on-accent);
+    background: var(--accent);
+    box-shadow: 0 6px 18px -8px var(--accent);
   }
   .top.titlebar {
     padding-right: 0;
@@ -160,15 +164,13 @@
   .subtabs {
     display: flex;
     gap: 0.15rem;
-    padding: 0 0.75rem;
-    background: var(--surface-2);
-    border-bottom: 1px solid var(--line);
+    padding: 0.35rem 1.1rem 0;
     overflow-x: auto;
     scrollbar-width: thin;
   }
   .subtabs button {
     position: relative;
-    padding: 0.5rem 0.8rem;
+    padding: 0.45rem 0.85rem;
     border: 0;
     border-bottom: 2px solid transparent;
     background: none;
@@ -242,11 +244,13 @@
       display: none;
     }
     .areas {
+      border-radius: var(--radius-l);
       order: 3;
       width: 100%;
       justify-content: space-between;
     }
     .area {
+      border-radius: var(--radius-m);
       flex: 1;
       justify-content: center;
       padding: 0.45rem 0.3rem;

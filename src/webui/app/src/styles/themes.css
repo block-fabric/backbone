@@ -73,8 +73,8 @@
   --shadow-card: 0 1px 0 rgb(255 255 255 / 3%) inset, 0 18px 40px -18px rgb(0 0 0 / 70%);
   --overlay: rgb(4 6 5 / 65%);
   --chain-link: #37403b;
-  --glow: rgb(140 220 90 / 17%);
-  --glow-2: rgb(90 170 70 / 12%);
+  --glow: rgb(140 220 90 / 21%);
+  --glow-2: rgb(90 170 70 / 14%);
   --card-top: rgb(200 255 170 / 4%);
   --chart-fill: rgb(181 242 126 / 30%);
   --radius-xl: 22px;

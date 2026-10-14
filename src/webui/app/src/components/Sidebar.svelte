@@ -2,11 +2,14 @@
   // The navigation on the left: every page, in sections. Two forms:
   //  - the dashboard's: names and icons, with Home first; on a narrow window a drawer (open);
   //  - the compact layout's rail: icons with tooltips, the names on demand (prefs.sidebarExpanded).
-  // At its foot: the menus of chains-qt, the theme, the text size (and the palette in the rail).
+  // At its top a card of the wallet shown (its name, its lock, the unit); the pages in groups; at its
+  // foot the menus of chains-qt, the theme, the text size (and the palette in the rail), then
+  // Close wallet and Quit, apart. The dashboard's current page is a filled pill; the rail's a bar.
   import Brand from './Brand.svelte';
   import Icon from './Icon.svelte';
   import MenuButton from './MenuButton.svelte';
   import PaletteButton from './PaletteButton.svelte';
+  import TopActions from './TopActions.svelte';
   import WalletPicker from './WalletPicker.svelte';
   import { css } from '../lib/actions';
   import { buildCommands, menuSections, pageAvailable, pageDisabled, type Command } from '../lib/commands.svelte';
@@ -14,6 +17,7 @@
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { prefs, savePrefs, selectWallet, wallets } from '../lib/state.svelte';
   import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
+  import { UNITS, type Unit } from '../lib/units';
   import { frame } from '../lib/windowframe.svelte';
 
   let { rail = false, open = $bindable(false) }: { rail?: boolean; open?: boolean } = $props();
@@ -41,6 +45,18 @@
       items: wallets.list.map((w): Command => ({ id: `wallet.select.${w.name}`, group: 'Your wallet', label: w.name === '' ? 'default wallet' : w.name, checked: wallets.current === w.name, run: () => selectWallet(w.name) })),
     },
   ]);
+
+  const shownWallet = $derived(wallets.list.find((w) => w.name === wallets.current) ?? null);
+  const lock = $derived.by(() => {
+    const w = shownWallet;
+    if (!w) return null;
+    if (w.privateKeysDisabled) return { label: 'Watch-only', title: 'Watch-only: no private keys', icon: 'eye' as const, tone: '' };
+    if (!w.encrypted) return { label: 'Not encrypted', title: 'The wallet is not encrypted', icon: 'unlock' as const, tone: 'warning' };
+    return w.locked
+      ? { label: 'Locked', title: 'Encrypted, and locked', icon: 'lock' as const, tone: 'accent' }
+      : { label: 'Unlocked', title: 'Encrypted, and unlocked for now', icon: 'unlock' as const, tone: 'warning' };
+  });
+  const leave = $derived(all.filter((c) => c.id === 'wallet.close' || c.id === 'node.exit'));
 
   function visit(id: PageId) {
     go(id);
@@ -84,16 +100,28 @@
     <Brand name={!collapsed} onclick={() => visit(rail ? 'overview' : 'home')} />
   {/if}
 
-  {#if !collapsed}
-    <WalletPicker />
-  {:else if wallets.list.length > 1}
+  {#if !collapsed && wallets.list.length > 0}
+    <section class="wallet-card" aria-label="Wallet shown">
+      <div class="wc-top">
+        <span class="avatar" aria-hidden="true"><Icon name="wallet" size={17} /></span>
+        <div class="wc-name">
+          <span class="caps">Wallet</span>
+          {#if wallets.list.length > 1}<WalletPicker />{:else}<span class="name">{wallets.current || 'default wallet'}</span>{/if}
+        </div>
+        <select class="pill unit" aria-label="Unit of amounts" title="Unit of amounts" value={prefs.unit} onchange={(e) => savePrefs({ unit: (e.currentTarget as HTMLSelectElement).value as Unit })}>
+          {#each UNITS as u (u.id)}<option value={u.id}>{u.short}</option>{/each}
+        </select>
+      </div>
+      {#if lock}<div class="wc-foot"><span class="badge {lock.tone}" title={lock.title}><Icon name={lock.icon} size={12} /> {lock.label}</span></div>{/if}
+    </section>
+  {:else if collapsed && wallets.list.length > 1}
     <div class="center"><MenuButton label="Wallet shown: {wallets.current || 'default wallet'}" icon="wallet" align="start" sections={walletChoices} /></div>
   {/if}
 
   <div class="scroll">
     {#each sections as section (section.title)}
       <div class="section" role="group" aria-label={section.title || 'Home'}>
-        {#if section.title && !collapsed}<div class="caption">{section.title}</div>{/if}
+        {#if section.title && !collapsed}<div class="caption caps">{section.title}</div>{/if}
         {#if section.title && collapsed}<div class="rule" aria-hidden="true"></div>{/if}
         {#each section.pages as id (id)}
           {@const page = PAGES[id]}
@@ -122,6 +150,10 @@
   </div>
 
   <div class="foot" class:column={collapsed}>
+    {#if rail && !frame.integrated}
+      <!-- The compact layout has no top bar of its own without the integrated title bar: its round buttons here. -->
+      <div class="row" class:column={collapsed}><TopActions /></div>
+    {/if}
     {#if collapsed}
       <PaletteButton compact />
       <MenuButton label="Menus of chains-qt: wallet, banking, tools, window, node" sections={menus} placement="right" icon="menu" />
@@ -153,6 +185,21 @@
         </button>
       {/if}
     </div>
+    <div class="leave" class:column={collapsed}>
+      {#each leave as c (c.id)}
+        <button
+          type="button"
+          class="entry leave-entry"
+          disabled={c.disabled}
+          aria-label={collapsed ? c.label.replace('…', '') : undefined}
+          title={c.shortcut ? `${c.label} (${c.shortcut})` : c.label}
+          onclick={() => c.run()}
+        >
+          <Icon name={c.id === 'node.exit' ? 'power' : 'logout'} size={18} />
+          {#if !collapsed}<span class="grow">{c.id === 'node.exit' ? 'Quit Chains' : 'Close wallet'}</span>{/if}
+        </button>
+      {/each}
+    </div>
   </div>
 </nav>
 
@@ -168,12 +215,15 @@
     width: 15rem;
     flex: none;
     padding: 0.7rem 0.6rem 0.6rem;
-    border-right: 1px solid var(--line);
-    background: var(--surface);
     min-height: 0;
   }
+  /* The compact layout's rail: a surface of its own; the dashboard's sidebar lies on the page. */
+  .sidebar.rail {
+    border-right: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+  }
   .sidebar.rail:not(.collapsed) {
-    width: 13.5rem;
+    width: 15rem;
   }
   .sidebar.collapsed {
     width: 3.7rem;
@@ -192,10 +242,89 @@
     justify-content: center;
   }
   .caption {
-    padding: 0.65rem 0.55rem 0.2rem;
-    color: var(--text-faint);
+    padding: 0.9rem 0.75rem 0.3rem;
+  }
+  .wallet-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    margin: 0.15rem 0 0.3rem;
+    padding: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-l);
+    background: linear-gradient(180deg, var(--card-top), transparent), var(--surface);
+    box-shadow: var(--shadow-card);
+  }
+  .wc-top {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+  }
+  .avatar {
+    display: inline-grid;
+    place-items: center;
+    width: 2.3rem;
+    height: 2.3rem;
+    flex: none;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--on-accent);
+    box-shadow: 0 0 20px -4px var(--accent);
+  }
+  .wc-name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .wc-name .caps {
+    font-size: 0.66rem;
+  }
+  .wc-name .name {
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wc-name :global(select) {
+    min-height: 1.7rem;
+    padding: 0 1.6rem 0 0;
+    border: 0;
+    background-color: transparent;
+    font-weight: 650;
+  }
+  .wc-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+  }
+  .wc-foot .badge {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .unit {
+    flex: none;
+    width: 5.4rem;
+    min-height: 1.75rem;
+    padding: 0 0.3rem 0 0.65rem;
     font-size: 0.8rem;
-    font-weight: 600;
+  }
+  .leave {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--line);
+  }
+  .leave.column {
+    align-items: center;
+  }
+  .leave-entry {
+    font-size: 0.92rem;
   }
   .rule {
     height: 1px;
@@ -208,13 +337,14 @@
     gap: 0.08rem;
   }
   .entry {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 0.65rem;
+    gap: 0.7rem;
     width: 100%;
-    padding: 0.42rem 0.6rem;
+    padding: 0.5rem 0.75rem;
     border: 0;
-    border-radius: var(--radius-s);
+    border-radius: var(--radius-m);
     background: none;
     color: var(--text-muted);
     font: inherit;
@@ -230,10 +360,48 @@
     background: var(--raised);
     color: var(--text);
   }
+  /* The dashboard: the current page a filled pill of the accent. */
   .entry.current {
+    background: var(--accent);
+    color: var(--on-accent);
+    box-shadow: 0 6px 20px -8px var(--accent);
+  }
+  .entry.current:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  /* The rail: groups in cards, the current page with a bar of the accent at its left. */
+  .rail:not(.collapsed) .section {
+    margin: 0.2rem 0 0.45rem;
+    padding: 0.15rem 0.3rem 0.3rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-l);
+    background: var(--surface-2);
+  }
+  .rail:not(.collapsed) .caption {
+    padding: 0.55rem 0.55rem 0.25rem;
+  }
+  .rail .entry.current,
+  .rail .entry.current:hover {
     background: var(--accent-soft);
     color: var(--text);
-    box-shadow: inset 3px 0 0 var(--accent);
+    box-shadow: none;
+  }
+  .rail .entry.current::before {
+    content: '';
+    position: absolute;
+    left: -0.35rem;
+    top: 0.45rem;
+    bottom: 0.45rem;
+    width: 3px;
+    border-radius: 3px;
+    background: var(--accent);
+  }
+  .rail.collapsed .entry.current::before {
+    left: -0.3rem;
+  }
+  .rail .entry.current :global(svg) {
+    color: var(--accent-fg);
   }
   .entry:disabled {
     opacity: 0.45;
@@ -255,7 +423,7 @@
   }
   .look {
     flex: 1;
-    min-width: 0;
+    min-width: 6.5rem;
     width: auto;
     min-height: 1.9rem;
     padding-block: 0.15rem;
@@ -263,6 +431,7 @@
   }
   .row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.2rem;
   }
@@ -271,6 +440,9 @@
   }
   .toggle {
     margin-left: auto;
+  }
+  .column :global(.top-actions) {
+    flex-direction: column;
   }
   .column .toggle {
     margin-left: 0;

@@ -1,23 +1,26 @@
 <script lang="ts">
-  // The home of the dashboard layout: live cards of the wallet, the node, the sidechains, mining
-  // and the chain, each opening its full page, with the quick actions of each. A row of a card
-  // (a transaction, a peer, a sidechain, a block) opens the detail panel.
+  // The home of the dashboard layout: a row of summary cards (the balance, the network, the
+  // sidechains, mining), each opening its full page, with its actions; the balance over time with
+  // its timeframes; blind merged mining; then tables of the recent transactions, the sidechains,
+  // the latest blocks and the peers, with the actions of each row. A row opens the detail panel;
+  // Send and Receive open the side panel (components/QuickPanel.svelte).
   import { untrack } from 'svelte';
   import Amount from '../../components/Amount.svelte';
   import BalanceChart from '../../components/BalanceChart.svelte';
   import Icon, { type IconName } from '../../components/Icon.svelte';
-  import TxStatusIcon from '../../components/TxStatusIcon.svelte';
+  import Sparkline from '../../components/Sparkline.svelte';
   import Card from './Card.svelte';
+  import HomeTables from './HomeTables.svelte';
   import { css } from '../../lib/actions';
   import { openPalette, pageDisabled } from '../../lib/commands.svelte';
-  import { detail, showDetail } from '../../lib/detail.svelte';
-  import { formatCount, formatTime, niceTimeOffset, shortHash } from '../../lib/format';
+  import { formatCount, niceTimeOffset } from '../../lib/format';
   import { go, type PageId } from '../../lib/nav.svelte';
   import { host, rpc } from '../../lib/rpc';
   import { app, node, prefs, toast, wallets } from '../../lib/state.svelte';
   import { syncStatus } from '../../lib/sync';
-  import { coinsToSats } from '../../lib/units';
-  import { addressText, balanceHistory, typeText } from '../../lib/wallet';
+  import { coinsToSats, formatAmount } from '../../lib/units';
+  import { openQuick } from '../../lib/quick.svelte';
+  import { balanceHistory } from '../../lib/wallet';
   import { current, refreshRecords } from '../../lib/walletdata.svelte';
 
   interface Peer {
@@ -70,6 +73,8 @@
   let sidechains: Sidechain[] = $state([]);
   let bundles: Bundle[] = $state([]);
   let bmm: Record<number, number> = $state({});
+  /** Each sidechain's blocks merged mined so far in the window, block after block (its sparkline). */
+  let bmmSeries: Record<number, number[]> = $state({});
   let mining: MiningInfo | null = $state(null);
 
   $effect(() => {
@@ -97,7 +102,7 @@
       })
       .catch(() => undefined);
   });
-  const recent = $derived([...current.records].sort((a, b) => b.time - a.time || b.sortKey.localeCompare(a.sortKey)).slice(0, 5));
+  const recent = $derived([...current.records].sort((a, b) => b.time - a.time || b.sortKey.localeCompare(a.sortKey)).slice(0, 8));
   const history = $derived(balanceHistory(current.records));
 
   // --- The node ---
@@ -158,11 +163,15 @@
     const height = rows[0]?.height ?? 0;
     const from = Math.max(1, height - BMM_WINDOW + 1);
     const counts: Record<number, number> = {};
+    const series: Record<number, number[]> = {};
     for (const s of sidechains) {
       const events: { bmm?: string }[] = await rpc.raw('getsidechainevents', [s.slot, from, height - from + 1], { signal });
       counts[s.slot] = events.filter((e) => e.bmm).length;
+      let n = 0;
+      series[s.slot] = [0, ...events.map((e) => (n += e.bmm ? 1 : 0))];
     }
     bmm = counts;
+    bmmSeries = series;
   }
 
   $effect(() => {
@@ -188,9 +197,9 @@
     return `${h.toFixed(h < 10 ? 2 : 1)} ${units[i]}`;
   }
 
-  const quick: { label: string; icon: IconName; page: PageId; tab?: string }[] = [
-    { label: 'Send', icon: 'send', page: 'send' },
-    { label: 'Receive', icon: 'receive', page: 'receive' },
+  const quickLinks: { label: string; icon: IconName; page: PageId; tab?: string; panel?: 'send' | 'receive' }[] = [
+    { label: 'Send', icon: 'send', page: 'send', panel: 'send' },
+    { label: 'Receive', icon: 'receive', page: 'receive', panel: 'receive' },
     { label: 'Sign message', icon: 'edit', page: 'messages', tab: 'sign' },
     { label: 'Load PSBT', icon: 'paste', page: 'psbt' },
     { label: 'Deposit to a sidechain', icon: 'sidechains', page: 'sidechains' },
@@ -198,32 +207,55 @@
     { label: 'Mine', icon: 'mine', page: 'mine' },
   ];
 
-  const selected = $derived(detail.item);
-  function isSelected(kind: string, key: string | number): boolean {
-    if (!selected || selected.kind !== kind) return false;
-    if (selected.kind === 'tx') return selected.txid === key;
-    if (selected.kind === 'block') return selected.hash === key;
-    if (selected.kind === 'peer') return selected.id === key;
-    return selected.slot === key;
-  }
+  // --- The balance over time, in a timeframe ---
+  const FRAMES = [
+    { id: '1D', label: '1D', name: 'the last day', secs: 86400 },
+    { id: '7D', label: '7D', name: 'the last 7 days', secs: 7 * 86400 },
+    { id: '1M', label: '1M', name: 'the last month', secs: 30 * 86400 },
+    { id: '1Y', label: '1Y', name: 'the last year', secs: 365 * 86400 },
+    { id: 'all', label: 'All', name: 'all time', secs: 0 },
+  ] as const;
+  let frame: (typeof FRAMES)[number]['id'] = $state('all');
+  const frameInfo = $derived(FRAMES.find((f) => f.id === frame)!);
+  const from = $derived(frameInfo.secs ? now - frameInfo.secs : undefined);
+  const balanceAt = (t: number | undefined) => {
+    if (t === undefined) return 0n;
+    let b = 0n;
+    for (const p of history) {
+      if (p.time > t) break;
+      b = p.balance;
+    }
+    return b;
+  };
+  const latest = $derived(history.length ? history[history.length - 1].balance : 0n);
+  const change = $derived(latest - balanceAt(from));
+  const changePct = $derived.by(() => {
+    const before = balanceAt(from);
+    if (before <= 0n) return null;
+    return (Number(change) / Number(before)) * 100;
+  });
+
+  /** A long total takes a smaller figure in its card. */
+  const longTotal = $derived(total !== null && formatAmount(total, prefs.unit).length > 12);
+
+  const bmmAverage = $derived(sidechains.length && bmmWindow ? Math.round((100 * sidechains.reduce((n, s) => n + (bmm[s.slot] ?? 0), 0)) / (sidechains.length * bmmWindow)) : null);
 </script>
 
 <div class="page home">
-  <header class="page-head">
+  <header class="hero">
     <div>
       <h1>Home</h1>
       <p class="muted sub">
-        {#if status}{status.upToDate ? 'Up to date' : status.label} · block {formatCount(node.tip?.height ?? 0)} · {node.networkActive ? `${node.connections} peer${node.connections === 1 ? '' : 's'}` : 'network off'}{:else}Starting…{/if}
+        {#if status}{status.upToDate ? 'Up to date' : status.label}, block {formatCount(node.tip?.height ?? 0)}, {node.networkActive ? `${node.connections} peer${node.connections === 1 ? '' : 's'}` : 'network off'}{:else}Starting…{/if}
       </p>
     </div>
+    <nav class="quick" aria-label="Quick actions">
+      {#each quickLinks as q (q.label)}
+        <button type="button" class="pill action" disabled={pageDisabled(q.page)} onclick={() => (q.panel ? openQuick(q.panel) : go(q.page, q.tab ?? ''))}><Icon name={q.icon} size={15} /> {q.label}</button>
+      {/each}
+      <button type="button" class="pill action ghost" onclick={openPalette}><Icon name="search" size={15} /> All actions <kbd>Ctrl K</kbd></button>
+    </nav>
   </header>
-
-  <nav class="quick" aria-label="Quick actions">
-    {#each quick as q (q.label)}
-      <button type="button" class="btn small" disabled={pageDisabled(q.page)} onclick={() => go(q.page, q.tab ?? '')}><Icon name={q.icon} size={16} /> {q.label}</button>
-    {/each}
-    <button type="button" class="btn ghost small" onclick={openPalette}><Icon name="search" size={16} /> All actions <kbd>Ctrl K</kbd></button>
-  </nav>
 
   {#if node.tip?.ibd}
     <button type="button" class="out-of-sync" onclick={() => go('node', 'info')}>
@@ -231,96 +263,111 @@
     </button>
   {/if}
 
-  <div class="cards">
-    <Card title="Balance" icon="wallet" open={() => go('overview')} openLabel="Open the overview" wide>
+  <div class="stats">
+    <Card title="Balance" icon="wallet" open={() => go('overview')} openLabel="Open the overview" stat>
       {#if wallets.current === null}
         <p class="muted">No wallet is loaded. Create one, or open one of the wallets of this node.</p>
-        <button type="button" class="btn primary" onclick={() => go('wallets', 'create')}>Create or open a wallet</button>
       {:else}
-        <div class="balance">
-          <div>
-            <span class="caption">Total{wallets.list.length > 1 ? ` · ${wallets.current || 'default wallet'}` : ''}</span>
-            <span class="big"><Amount sats={total} /></span>
-            <dl class="trio">
-              <div><dt>Available</dt><dd><Amount sats={balances?.trusted} /></dd></div>
-              <div><dt>Pending</dt><dd><Amount sats={balances?.untrustedPending} /></dd></div>
-              <div><dt>Immature</dt><dd><Amount sats={balances?.immature} /></dd></div>
-            </dl>
-          </div>
-          {#if !prefs.mask && history.length > 1}<div class="chart"><BalanceChart points={history} /></div>{/if}
-        </div>
+        <span class="value big-amount" class:long={longTotal}><Amount sats={total} /></span>
+        <dl class="pairs">
+          <dt>Available</dt><dd><Amount sats={balances?.trusted} showUnit={false} /></dd>
+          <dt>Pending</dt><dd><Amount sats={balances?.untrustedPending} showUnit={false} /></dd>
+          <dt>Immature</dt><dd><Amount sats={balances?.immature} showUnit={false} /></dd>
+        </dl>
       {/if}
       {#snippet actions()}
-        <button type="button" class="btn primary" disabled={pageDisabled('send')} onclick={() => go('send')}><Icon name="send" size={16} /> Send</button>
-        <button type="button" class="btn" disabled={pageDisabled('receive')} onclick={() => go('receive')}><Icon name="receive" size={16} /> Receive</button>
-        <button type="button" class="btn ghost" disabled={pageDisabled('transactions')} onclick={() => go('transactions')}>History</button>
-        <button type="button" class="btn ghost" onclick={() => go('wallets')}>Wallets</button>
+        {#if wallets.current === null}
+          <button type="button" class="btn primary" onclick={() => go('wallets', 'create')}>Create or open a wallet</button>
+        {:else}
+          <button type="button" class="btn primary grow" disabled={pageDisabled('send')} onclick={() => openQuick('send')}><Icon name="send" size={16} /> Send</button>
+          <button type="button" class="btn grow" disabled={pageDisabled('receive')} onclick={() => openQuick('receive')}><Icon name="receive" size={16} /> Receive</button>
+        {/if}
       {/snippet}
     </Card>
 
-    <Card title="Sync and peers" icon="peers" open={() => go('node', 'info')} openLabel="Open the node window">
-      {#if status}
-        <div class="sync" class:ok={status.upToDate}>
-          <Icon name={status.upToDate ? 'check' : 'history'} size={16} />
-          <span>{status.upToDate ? 'Up to date' : status.label}</span>
-          {#if !status.upToDate}<span class="muted num">{status.behind}</span>{/if}
-        </div>
-        <progress max="1" value={status.upToDate ? 1 : status.progress} aria-label="Verification progress"></progress>
-      {/if}
+    <Card title="Network" icon="peers" open={() => go('node', 'info')} openLabel="Open the node window" stat>
+      <span class="value">
+        {#if status}
+          <span class="state" class:ok={status.upToDate}><Icon name={status.upToDate ? 'check' : 'history'} size={16} /> {status.upToDate ? 'Up to date' : status.label}</span>
+        {:else}<span class="muted">Starting…</span>{/if}
+      </span>
+      {#if status && !status.upToDate}<progress max="1" value={status.progress} aria-label="Verification progress"></progress>{/if}
       <dl class="pairs">
-        <dt>Blocks</dt><dd class="num">{formatCount(node.tip?.height ?? 0)}</dd>
-        <dt>Headers</dt><dd class="num">{formatCount(node.header?.height ?? node.tip?.height ?? 0)}</dd>
+        <dt>Height</dt><dd class="num">{formatCount(node.tip?.height ?? 0)}</dd>
         <dt>Peers</dt><dd class="num">{node.networkActive ? node.connections : 'network off'}</dd>
+        <dt>Sync</dt><dd class="num">{status ? (status.upToDate ? '100%' : `${(status.progress * 100).toFixed(1)}%`) : '–'}</dd>
+        <dt>Mempool</dt><dd class="num">{mining ? `${formatCount(mining.pooledtx)} tx` : '–'}</dd>
       </dl>
-      {#if peers.length}
-        <ul class="rows" aria-label="Peers">
-          {#each peers.slice(0, 4) as p (p.id)}
-            <li>
-              <button type="button" class="row-btn" aria-pressed={isSelected('peer', p.id)} onclick={() => showDetail({ kind: 'peer', id: p.id })}>
-                <span class="mono grow ellipsis">{p.addr}</span>
-                <span class="badge">{p.inbound ? 'in' : 'out'}</span>
-                <span class="num muted">{p.pingtime !== undefined ? `${Math.round(p.pingtime * 1000)} ms` : '–'}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
       {#snippet actions()}
-        <button type="button" class="btn" onclick={() => go('node', 'peers')}>Peers</button>
-        <button type="button" class="btn ghost" onclick={toggleNetwork}>{node.networkActive ? 'Disable network' : 'Enable network'}</button>
+        <button type="button" class="btn grow" onclick={() => go('node', 'peers')}><Icon name="peers" size={15} /> Peers</button>
         <button type="button" class="btn ghost" onclick={() => go('node', 'console')}>Console</button>
+        <button type="button" class="btn ghost icon" aria-label={node.networkActive ? 'Disable network' : 'Enable network'} title={node.networkActive ? 'Disable network activity' : 'Enable network activity'} onclick={toggleNetwork}><Icon name={node.networkActive ? 'offline' : 'refresh'} size={16} /></button>
       {/snippet}
     </Card>
 
-    <Card title="Sidechains" icon="sidechains" open={() => go('sidechains')} openLabel="Open the sidechains">
+    <Card title="Sidechains" icon="sidechains" open={() => go('sidechains')} openLabel="Open the sidechains" stat>
+      <span class="value num">{drivechain?.activesidechains ?? '–'} <span class="unit-word">active</span></span>
       <dl class="pairs">
-        <dt>Active</dt><dd class="num">{drivechain?.activesidechains ?? '–'}</dd>
-        <dt>In escrow</dt><dd>{#if drivechain}<Amount sats={coinsToSats(drivechain.escrowtotal)} />{:else}–{/if}</dd>
         <dt>Pending bundles</dt><dd class="num">{drivechain?.pendingbundles ?? '–'}</dd>
+        <dt>In escrow</dt><dd>{#if drivechain}<Amount sats={coinsToSats(drivechain.escrowtotal)} showUnit={false} />{:else}–{/if}</dd>
         <dt>Proposals</dt><dd class="num">{drivechain?.proposals ?? '–'}</dd>
       </dl>
-      {#if sidechains.length === 0}
-        <p class="muted">{drivechain ? 'No sidechain is active yet.' : 'Loading…'}</p>
-      {:else}
-        <ul class="rows" aria-label="Active sidechains">
-          {#each sidechains as s (s.slot)}
-            {@const pending = bundles.filter((b) => b.slot === s.slot)}
-            <li>
-              <button type="button" class="row-btn" aria-pressed={isSelected('sidechain', s.slot)} onclick={() => showDetail({ kind: 'sidechain', slot: s.slot })}>
-                <span class="slot num">{s.slot}</span>
-                <span class="grow ellipsis">{s.title}</span>
-                {#if pending.length}<span class="badge warning" title="Withdrawal bundles being voted on">{pending.length} bundle{pending.length === 1 ? '' : 's'}</span>{/if}
-                <span class="muted"><Amount sats={coinsToSats(s.escrow?.amount ?? 0)} showUnit={false} /></span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
       {#snippet actions()}
-        <button type="button" class="btn" disabled={pageDisabled('sidechains')} onclick={() => go('sidechains')}>Deposit</button>
-        <button type="button" class="btn ghost" disabled={pageDisabled('sidechains')} onclick={() => go('sidechains', 'proposals')}>Proposals and votes</button>
+        <button type="button" class="btn grow" disabled={pageDisabled('sidechains')} onclick={() => go('sidechains')}><Icon name="down" size={15} /> Deposit</button>
+        <button type="button" class="btn ghost" disabled={pageDisabled('sidechains')} title="Proposals and votes" onclick={() => go('sidechains', 'proposals')}>Votes</button>
       {/snippet}
     </Card>
+
+    <Card title="Mining" icon="mine" open={() => go('mine')} openLabel="Open mining" stat>
+      <span class="value num">{mining ? hashRate(mining.networkhashps) : '–'}</span>
+      <dl class="pairs">
+        <dt>Difficulty</dt><dd class="num">{mining ? mining.difficulty.toPrecision(5) : '–'}</dd>
+        <dt>Last block</dt><dd>{blocks[0] ? `${niceTimeOffset(Math.max(0, now - blocks[0].time))} ago` : '–'}</dd>
+        <dt title="Blocks of the last {bmmWindow} that merged mined a sidechain, on average">BMM</dt><dd class="num">{bmmAverage === null ? '–' : `${bmmAverage}%`}</dd>
+      </dl>
+      {#snippet actions()}
+        <button type="button" class="btn grow" onclick={() => go('mine')}><Icon name="mine" size={15} /> Solo mine</button>
+        <button type="button" class="btn ghost" title="Timestamp a file" onclick={() => go('timestamp')}>Timestamp</button>
+      {/snippet}
+    </Card>
+  </div>
+
+  <div class="middle">
+    <section class="panel chart-card" aria-labelledby="chart-title">
+      <header class="chart-head">
+        <div>
+          <h2 id="chart-title">Wallet balance</h2>
+          {#if wallets.current !== null}
+            <div class="figure">
+              <span class="now big-amount"><Amount sats={latest} /></span>
+              {#if !prefs.mask && history.length}
+                <span class="delta" class:up={change > 0n} class:down={change < 0n}>
+                  <Icon name={change < 0n ? 'down' : 'up'} size={13} />
+                  <Amount sats={change} plus showUnit={false} />{#if changePct !== null}&nbsp;({changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%){/if}
+                  <span class="faint">{frameInfo.name}</span>
+                </span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+        <div class="frames" role="group" aria-label="Timeframe">
+          {#each FRAMES as f (f.id)}
+            <button type="button" aria-pressed={frame === f.id} title={f.name} onclick={() => (frame = f.id)}>{f.label}</button>
+          {/each}
+        </div>
+      </header>
+      <div class="chart-body">
+        {#if wallets.current === null}
+          <p class="muted">No wallet is loaded.</p>
+        {:else if prefs.mask}
+          <p class="muted">Hidden: privacy mode.</p>
+        {:else if history.length < 2}
+          <p class="muted">The chart starts with the first transaction.</p>
+        {:else}
+          <BalanceChart points={history} height={210} axes {from} />
+        {/if}
+      </div>
+    </section>
 
     <Card title="Blind merged mining" icon="nodes" open={() => go('sidechain-nodes')} openLabel="Open the sidechain nodes">
       <p class="muted small">Blocks of the last {bmmWindow} that committed to a block of each sidechain.</p>
@@ -331,9 +378,12 @@
           {#each sidechains as s (s.slot)}
             {@const n = bmm[s.slot] ?? 0}
             <li>
-              <span class="grow ellipsis">{s.title}</span>
-              <span class="meter" aria-hidden="true"><span use:css={{ width: `${bmmWindow ? (100 * n) / bmmWindow : 0}%` }}></span></span>
-              <span class="num">{n}/{bmmWindow}</span>
+              <span class="slot num">{s.slot}</span>
+              <span class="grow">
+                <span class="meter-head"><span class="ellipsis">{s.title}</span><span class="num">{n}/{bmmWindow}</span></span>
+                <span class="meter" aria-hidden="true"><span use:css={{ width: `${bmmWindow ? (100 * n) / bmmWindow : 0}%` }}></span></span>
+              </span>
+              <Sparkline values={bmmSeries[s.slot] ?? []} width={64} height={26} tone={n ? 'up' : 'flat'} />
             </li>
           {/each}
         </ul>
@@ -342,171 +392,133 @@
         <button type="button" class="btn" onclick={() => go('sidechain-nodes')}>Sidechain nodes</button>
       {/snippet}
     </Card>
-
-    <Card title="Mining" icon="mine" open={() => go('mine')} openLabel="Open mining">
-      <dl class="pairs">
-        <dt>Difficulty</dt><dd class="num">{mining ? mining.difficulty.toPrecision(5) : '–'}</dd>
-        <dt>Network hash rate</dt><dd class="num">{mining ? hashRate(mining.networkhashps) : '–'}</dd>
-        <dt>Waiting transactions</dt><dd class="num">{mining ? formatCount(mining.pooledtx) : '–'}</dd>
-        <dt>Last block</dt><dd>{blocks[0] ? `${niceTimeOffset(Math.max(0, now - blocks[0].time))} ago` : '–'}</dd>
-      </dl>
-      {#snippet actions()}
-        <button type="button" class="btn" onclick={() => go('mine')}>Solo mine</button>
-        <button type="button" class="btn ghost" onclick={() => go('timestamp')}>Timestamp a file</button>
-      {/snippet}
-    </Card>
-
-    <Card title="Recent activity" icon="history" open={() => go('transactions')} openLabel="Open the transactions">
-      {#if wallets.current === null}
-        <p class="muted">No wallet loaded.</p>
-      {:else if recent.length === 0}
-        <p class="muted">{current.recordsLoaded ? 'No transactions yet.' : 'Loading…'}</p>
-      {:else}
-        <ul class="rows" aria-label="Recent transactions">
-          {#each recent as r (r.key)}
-            <li>
-              <button
-                type="button"
-                class="row-btn tx"
-                aria-pressed={isSelected('tx', r.txid)}
-                disabled={prefs.mask}
-                title={prefs.mask ? 'Hidden: privacy mode' : 'Show the details'}
-                onclick={() => wallets.current !== null && showDetail({ kind: 'tx', wallet: wallets.current, txid: r.txid, idx: r.idx, address: r.address })}
-              >
-                <TxStatusIcon record={r} />
-                <span class="grow what">
-                  <span class="ellipsis">{addressText(r)}</span>
-                  <span class="faint small">{typeText(r.type) || 'Other'} · {formatTime(r.time)}</span>
-                </span>
-                <Amount sats={r.amount} colored plus />
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </Card>
-
-    <Card title="Latest blocks" icon="block" open={() => go('explorer')} openLabel="Open the block explorer">
-      {#if blocks.length === 0}
-        <p class="muted">Waiting for the node…</p>
-      {:else}
-        <ul class="rows" aria-label="Latest blocks">
-          {#each blocks as b (b.hash)}
-            <li>
-              <button type="button" class="row-btn" aria-pressed={isSelected('block', b.hash)} onclick={() => showDetail({ kind: 'block', hash: b.hash })}>
-                <span class="num height">{formatCount(b.height)}</span>
-                <span class="mono muted grow ellipsis">{shortHash(b.hash, 6)}</span>
-                <span class="num small">{b.txs} tx{b.txs === 1 ? '' : 's'}</span>
-                <span class="muted small age">{niceTimeOffset(Math.max(0, now - b.time))} ago</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </Card>
   </div>
+
+  <HomeTables {recent} {history} {sidechains} {bundles} {bmm} {bmmSeries} {bmmWindow} {blocks} {peers} {now} />
 </div>
 
 <style>
   .home {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.1rem;
+    /* The cards follow the room the page has (a side panel takes some), not the window. */
+    container-type: inline-size;
+  }
+  .hero {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.8rem 1.5rem;
   }
   .sub {
-    margin: 0.2rem 0 0;
+    margin: 0.25rem 0 0;
   }
   .quick {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.45rem;
+    gap: 0.4rem;
   }
-  .quick kbd {
+  .action {
+    cursor: pointer;
+  }
+  .action:hover:not(:disabled) {
+    background: var(--raised);
+    border-color: var(--line-strong);
+  }
+  .action:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .action :global(svg) {
+    color: var(--accent-fg);
+  }
+  .action.ghost {
+    border-color: transparent;
+    background: none;
+    color: var(--text-muted);
+  }
+  .action.ghost :global(svg) {
+    color: inherit;
+  }
+  .action kbd {
     margin-left: 0.2rem;
   }
   .out-of-sync {
     display: flex;
     gap: 0.5rem;
     align-items: center;
-    padding: 0.55rem 0.8rem;
+    padding: 0.6rem 0.9rem;
     border: 1px solid var(--warning);
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-l);
     background: var(--warning-soft);
     color: var(--text);
     font: inherit;
     text-align: left;
     cursor: pointer;
   }
-  .cards {
+  .stats {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr));
     gap: 1rem;
-    align-items: stretch;
   }
-  .balance {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem 2rem;
-    align-items: flex-end;
-  }
-  .balance > div:first-child {
-    flex: 1 1 18rem;
-  }
-  .chart {
-    flex: 1 1 16rem;
-    min-width: 0;
-  }
-  .caption {
+  .value {
     display: block;
-    color: var(--text-muted);
-    font-size: 0.9rem;
-  }
-  .big {
-    display: block;
-    font-size: 2.2rem;
+    margin: 0.1rem 0 0.55rem;
+    font-size: 1.55rem;
     font-weight: 650;
     letter-spacing: -0.02em;
     line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .trio {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.6rem 1.6rem;
-    margin: 0.7rem 0 0;
+  .value.long {
+    font-size: 1.22rem;
+    margin-top: 0.3rem;
+    margin-bottom: 0.75rem;
   }
-  .trio dt,
-  .pairs dt {
+  .unit-word {
     color: var(--text-muted);
-    font-size: 0.86rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: 0;
   }
-  .trio dd {
-    margin: 0;
-    font-weight: 600;
+  .state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 1.25rem;
+  }
+  .state.ok {
+    color: var(--positive);
   }
   .pairs {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.3rem 1rem;
-    margin: 0.4rem 0 0.6rem;
+    gap: 0.35rem 1rem;
+    margin: 0;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--line);
+  }
+  .pairs dt {
+    color: var(--text-muted);
+    font-size: 0.86rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .pairs dd {
     margin: 0;
     text-align: right;
     font-weight: 600;
-  }
-  .sync {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    font-weight: 600;
-  }
-  .sync.ok {
-    color: var(--positive);
+    font-size: 0.92rem;
   }
   progress {
     width: 100%;
-    height: 0.4rem;
-    margin: 0.5rem 0 0.2rem;
+    height: 0.35rem;
+    margin: 0 0 0.5rem;
     appearance: none;
     border: 0;
     border-radius: 999px;
@@ -519,75 +531,119 @@
   progress::-webkit-progress-value {
     background: var(--accent);
   }
-  .rows,
+  .middle {
+    display: grid;
+    grid-template-columns: minmax(0, 2.1fr) minmax(16rem, 1fr);
+    gap: 1rem;
+    align-items: stretch;
+  }
+  .chart-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .chart-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 1.05rem 1.2rem 0.3rem 1.3rem;
+  }
+  .chart-head h2 {
+    font-size: 1rem;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .chart-head > div:first-child {
+    min-width: 0;
+  }
+  .figure {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.35rem;
+  }
+  .frames {
+    flex: none;
+  }
+  .now {
+    font-size: 2.2rem;
+    font-weight: 650;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+  .delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .delta.up {
+    color: var(--positive);
+  }
+  .delta.down {
+    color: var(--negative);
+  }
+  .delta .faint {
+    margin-left: 0.3rem;
+    font-weight: 500;
+  }
+  .frames {
+    display: flex;
+    gap: 0.15rem;
+    padding: 0.2rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+  }
+  .frames button {
+    min-width: 2.4rem;
+    padding: 0.25rem 0.6rem;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .frames button:hover {
+    color: var(--text);
+  }
+  .frames button[aria-pressed='true'] {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .chart-body {
+    flex: 1;
+    padding: 0.5rem 1rem 0.9rem 1.1rem;
+    min-width: 0;
+  }
   .meters {
     margin: 0;
     padding: 0;
     list-style: none;
   }
-  .row-btn {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    width: 100%;
-    min-width: 0;
-    padding: 0.42rem 0.4rem;
-    border: 0;
-    border-top: 1px solid var(--line);
-    background: none;
-    color: var(--text);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-  .row-btn:hover:not(:disabled) {
-    background: var(--raised);
-  }
-  .row-btn[aria-pressed='true'] {
-    background: var(--accent-soft);
-    box-shadow: inset 3px 0 0 var(--accent);
-  }
-  .row-btn:disabled {
-    cursor: default;
-  }
-  .what {
-    display: flex;
-    flex-direction: column;
-  }
-  .ellipsis {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .slot {
-    min-width: 1.6rem;
-    padding: 0.05rem 0.35rem;
-    border-radius: var(--radius-s);
-    background: var(--raised);
-    text-align: center;
-    font-weight: 650;
-  }
-  .height {
-    min-width: 4.2rem;
-    font-weight: 650;
-  }
-  .age {
-    min-width: 5.5rem;
-    text-align: right;
-  }
-  .small {
-    font-size: 0.84rem;
-  }
   .meters li {
     display: flex;
     align-items: center;
     gap: 0.7rem;
-    padding: 0.4rem 0;
+    padding: 0.5rem 0;
+  }
+  .meter-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.92rem;
+    margin-bottom: 0.3rem;
   }
   .meter {
-    width: 7rem;
-    height: 0.5rem;
+    display: block;
+    height: 0.4rem;
     border-radius: 999px;
     background: var(--raised);
     overflow: hidden;
@@ -595,13 +651,40 @@
   .meter span {
     display: block;
     height: 100%;
-    background: var(--accent);
+    border-radius: 999px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--accent));
   }
-  @media (max-width: 560px) {
-    .cards {
+  .slot {
+    display: inline-grid;
+    place-items: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    flex: none;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+  .ellipsis {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .small {
+    font-size: 0.86rem;
+  }
+  @container (max-width: 760px) {
+    .middle {
       grid-template-columns: minmax(0, 1fr);
     }
-    .quick .btn {
+  }
+  @container (max-width: 520px) {
+    .stats {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .quick .action {
       flex: 1 1 45%;
     }
   }

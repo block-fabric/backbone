@@ -74,6 +74,8 @@ async function fakeNode(r: BridgeRequest): Promise<unknown> {
       return [];
     case 'getblock':
       return { hash: r.params && (r.params as unknown[])[0], height: 10, time: 1_700_000_000, confirmations: 1, nTx: 1, size: 200, weight: 800, difficulty: 1, tx: ['cc'.repeat(32)] };
+    case 'wallet.info':
+      return { name: 'w', encrypted: false, locked: false, privateKeysDisabled: false, externalSigner: false, hd: true, canGetAddresses: true, taproot: true, defaultAddressType: 'bech32', confirmTarget: 6, requiredFeePerK: 1000, maxTxFee: 10_000_000, multiwallet: false, balance: 1, unconfirmed: 0, immature: 0 };
     case 'getbalances':
       return { mine: { trusted: 1, untrusted_pending: 0, immature: 0 } };
     case 'wallet.transactions':
@@ -210,12 +212,23 @@ describe('the layouts', () => {
     prefs.layout = 'dashboard';
     go('home');
     render(Shell);
-    for (const title of ['Balance', 'Sync and peers', 'Sidechains', 'Blind merged mining', 'Mining', 'Recent activity', 'Latest blocks']) {
+    // The summary row, the chart, merged mining.
+    for (const title of ['Balance', 'Network', 'Sidechains', 'Mining', 'Wallet balance', 'Blind merged mining']) {
       expect(screen.getByRole('heading', { name: title })).toBeTruthy();
     }
+    // The tables in tabs: the transactions first, with the actions of each row.
+    const tabs = screen.getByRole('tablist', { name: 'Activity' });
+    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent?.replace(/\d+/g, '').trim())).toEqual(['Transactions', 'Sidechains', 'Blocks', 'Peers']);
+    const txRow = (await waitFor(() => screen.getByRole('button', { name: /salary/ }))).closest('tr')!;
+    await fireEvent.click(within(txRow).getByRole('button', { name: 'Copy transaction ID' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'clipboard.write')).toBe(true));
+    await fireEvent.click(within(txRow).getByRole('button', { name: 'Details' }));
+    await waitFor(() => expect(detail.item?.kind).toBe('tx'));
+    await fireEvent.click(within(tabs).getByRole('tab', { name: /Sidechains/ }));
     const sidechain = await waitFor(() => screen.getByRole('button', { name: /Thunder/ }));
     await fireEvent.click(sidechain);
     await waitFor(() => screen.getByRole('complementary', { name: 'Sidechain details' }));
+    await fireEvent.click(within(tabs).getByRole('tab', { name: /Peers/ }));
     const peer = await waitFor(() => screen.getByRole('button', { name: /10\.0\.0\.7/ }));
     await fireEvent.click(peer);
     await waitFor(() => expect(detail.item).toEqual({ kind: 'peer', id: 7 }));
@@ -224,6 +237,55 @@ describe('the layouts', () => {
     // Every page in the sidebar, Home first.
     const side = screen.getByRole('navigation', { name: 'Pages' });
     expect(within(side).getAllByRole('button', { name: /Home|Overview|Wallets|Crypto tools|Settings/ }).length).toBeGreaterThanOrEqual(5);
+  }, 20000);
+
+  it('dashboard: Send and Receive in the side panel, the full pages a click away', async () => {
+    prefs.layout = 'dashboard';
+    go('home');
+    render(Shell);
+    const balance = screen.getByRole('heading', { name: 'Balance' }).closest('section')!;
+    await fireEvent.click(within(balance).getByRole('button', { name: 'Send' }));
+    const panel = await waitFor(() => screen.getByRole('complementary', { name: 'Send' }));
+    expect(within(panel).getByLabelText('Pay to')).toBeTruthy();
+    await waitFor(() => expect(within(panel).getByRole('button', { name: /^Send/ })).toBeTruthy());
+    await fireEvent.click(within(panel).getByRole('tab', { name: /Receive/ }));
+    const receive = await waitFor(() => screen.getByRole('complementary', { name: 'Receive' }));
+    expect(within(receive).getByRole('button', { name: /Create address/ })).toBeTruthy();
+    await fireEvent.click(within(receive).getByRole('button', { name: /the Receive page/ }));
+    expect(nav.page).toBe('receive');
+    expect(screen.queryByRole('complementary', { name: 'Receive' })).toBeNull();
+  });
+
+  it('every layout: the notifications and the light/dark switch in the top bar', async () => {
+    for (const layout of ['dashboard', 'workspace', 'sidebar'] as const) {
+      prefs.layout = layout;
+      prefs.theme = 'midnight';
+      wallets.newTxs = [];
+      const view = render(Shell);
+      const toggle = screen.getByRole('button', { name: 'Switch to the light look' });
+      await fireEvent.click(toggle);
+      expect(prefs.theme).toBe('light');
+      await fireEvent.click(screen.getByRole('button', { name: 'Switch to the dark look' }));
+      expect(prefs.theme).toBe('midnight');
+      expect(screen.getByRole('button', { name: 'Notifications' })).toBeTruthy();
+      wallets.newTxs.push({ wallet: 'w', txid: 'aa'.repeat(32) });
+      const bell = await waitFor(() => screen.getByRole('button', { name: 'Notifications: 1 new' }));
+      await fireEvent.click(bell);
+      expect(screen.getByRole('dialog', { name: 'Notifications' })).toBeTruthy();
+      view.unmount();
+      wallets.newTxs = [];
+    }
+  }, 30000);
+
+  it('the sidebar: a card of the wallet, Close wallet and Quit at its foot', () => {
+    prefs.layout = 'dashboard';
+    render(Shell);
+    const side = screen.getByRole('navigation', { name: 'Pages' });
+    const card = within(side).getByRole('region', { name: 'Wallet shown' });
+    expect(within(card).getByText('Not encrypted')).toBeTruthy();
+    expect(within(card).getByRole('combobox', { name: 'Unit of amounts' })).toBeTruthy();
+    expect(within(side).getByRole('button', { name: /Close wallet/ })).toBeTruthy();
+    expect(within(side).getByRole('button', { name: /Quit Chains/ })).toBeTruthy();
   });
 
   it('compact: an icon rail named for screen readers, opened on demand', async () => {

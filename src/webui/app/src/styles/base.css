@@ -154,7 +154,7 @@ code,
   padding: 0 1.4rem;
   border: 0;
   border-radius: var(--radius-l);
-  background: linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 78%, white));
+  background: linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 86%, white));
   color: var(--on-accent);
   font-size: 1.2rem;
   font-weight: 650;

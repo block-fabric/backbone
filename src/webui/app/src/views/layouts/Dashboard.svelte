@@ -1,17 +1,31 @@
 <script lang="ts">
   // Dashboard: a home of live cards (views/home/Home.svelte), every page in the sidebar, a light
-  // bar above the page (where you are, the palette), the detail panel, the status bar.
+  // bar above the page (where you are, the palette, the wallet, the notifications, the light/dark
+  // switch), the detail panel or the Send/Receive side panel, the status bar.
   import DetailPanel from '../../components/DetailPanel.svelte';
   import Icon from '../../components/Icon.svelte';
   import PaletteButton from '../../components/PaletteButton.svelte';
+  import QuickPanel from '../../components/QuickPanel.svelte';
   import Sidebar from '../../components/Sidebar.svelte';
   import StatusBar from '../../components/StatusBar.svelte';
+  import TopActions from '../../components/TopActions.svelte';
+  import WalletPicker from '../../components/WalletPicker.svelte';
+  import { detail } from '../../lib/detail.svelte';
+  import { closeQuick } from '../../lib/quick.svelte';
   import { NAV_SECTIONS } from '../../lib/layout';
   import { go, nav, PAGES } from '../../lib/nav.svelte';
   import PageView from '../PageView.svelte';
 
   let drawer = $state(false);
   const section = $derived(NAV_SECTIONS.find((s) => s.pages.includes(nav.page))?.title ?? '');
+
+  // One panel at the right: a row opened in the detail panel closes Send/Receive; so does a new page.
+  $effect(() => {
+    if (detail.item) closeQuick();
+  });
+  $effect(() => {
+    if (nav.page !== 'home') closeQuick();
+  });
 </script>
 
 <div class="dashboard">
@@ -30,12 +44,15 @@
         {/if}
       </nav>
       <PaletteButton />
+      <WalletPicker pill />
+      <TopActions />
     </header>
     <div class="body">
       <main class="content" id="content" tabindex="-1" data-page={nav.page}>
         <PageView />
       </main>
       <DetailPanel />
+      <QuickPanel />
     </div>
     <StatusBar />
   </div>
@@ -55,11 +72,9 @@
   .top {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    min-height: 2.9rem;
-    padding: 0.3rem 0.9rem;
-    border-bottom: 1px solid var(--line);
-    background: var(--surface);
+    gap: 0.6rem;
+    min-height: 3.6rem;
+    padding: 0.5rem 1rem 0.3rem 1.5rem;
   }
   .drawer {
     display: none;
@@ -93,7 +108,9 @@
     color: var(--text-faint);
   }
   .here {
+    font-size: 1.15rem;
     font-weight: 650;
+    letter-spacing: -0.01em;
   }
   .body {
     flex: 1;
@@ -110,6 +127,18 @@
     .drawer {
       display: inline-flex;
     }
+    .top :global(.palette-button) {
+      min-width: 0;
+    }
+    .top :global(.palette-button .grow),
+    .top :global(.palette-button kbd) {
+      display: none;
+    }
+    .top :global(.wallet) {
+      display: none;
+    }
+  }
+  @media (max-width: 1100px) {
     .top :global(.palette-button) {
       min-width: 0;
     }

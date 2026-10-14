@@ -40,7 +40,7 @@
 <div class="frame">
   <!-- The integrated title bar: the workspace's is its top bar; the other layouts have a slim strip. -->
   {#if prefs.layout !== 'workspace'}
-    <TitleStrip title={PAGES[nav.page]?.title ?? ''} detail={wallets.current !== null ? wallets.current || 'default wallet' : ''} />
+    <TitleStrip title={PAGES[nav.page]?.title ?? ''} detail={wallets.current !== null ? wallets.current || 'default wallet' : ''} actions={prefs.layout === 'sidebar'} />
   {/if}
   <div class="layout">
     {#if prefs.layout === 'workspace'}
