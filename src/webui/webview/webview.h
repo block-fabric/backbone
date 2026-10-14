@@ -4198,6 +4198,12 @@ private:
     }
     wchar_t userDataFolder[MAX_PATH];
     PathCombineW(userDataFolder, dataPath, currentExeName);
+    // Chains: WEBVIEW2_USER_DATA_FOLDER chooses the folder, as with the loader of Microsoft (the
+    // built-in one does not read it).
+    if (GetEnvironmentVariableW(L"WEBVIEW2_USER_DATA_FOLDER", userDataFolder,
+                                MAX_PATH) == 0) {
+      PathCombineW(userDataFolder, dataPath, currentExeName);
+    }
 
     m_com_handler = new webview2_com_handler(
         wnd, cb,

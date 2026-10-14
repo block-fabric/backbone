@@ -71,7 +71,12 @@ target_link_libraries(chains_webui_core
     bitcoin_common
     bitcoin_util
     univalue
+    Boost::headers
 )
+if(WIN32)
+  # The named pipe of the single instance, the link of the startup folder.
+  target_link_libraries(chains_webui_core PUBLIC advapi32 ole32 shell32 uuid)
+endif()
 
 # The wallet functions of the page (the wallet pages of chains-qt), in a build with wallets.
 if(ENABLE_WALLET)
@@ -87,7 +92,19 @@ if(ENABLE_WALLET)
   )
 endif()
 
-if(CMAKE_SYSTEM_NAME MATCHES "Windows|Darwin")
+if(WIN32)
+  # WebView2: its headers (the depends package webview2, or WEBVIEW2_INCLUDE_DIR); the loader is the
+  # one built into webview.h, so no WebView2Loader.dll.
+  find_path(WEBVIEW2_INCLUDE_DIR WebView2.h PATH_SUFFIXES webview2 REQUIRED)
+  set(webui_window window_win32.cpp urischeme_win.cpp res/chains-app-res.rc)
+  # The manifest: per monitor DPI awareness (v2), UTF-8, Windows 8 to 11, common controls 6.
+  configure_file(res/chains-app.manifest.in ${CMAKE_CURRENT_BINARY_DIR}/chains-app.manifest USE_SOURCE_PERMISSIONS)
+  file(CONFIGURE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/chains-app-manifest.rc
+    CONTENT "1 /* CREATEPROCESS_MANIFEST_RESOURCE_ID */ 24 /* RT_MANIFEST */ \"${CMAKE_CURRENT_BINARY_DIR}/chains-app.manifest\""
+  )
+  list(APPEND webui_window ${CMAKE_CURRENT_BINARY_DIR}/chains-app-manifest.rc)
+elseif(APPLE)
   set(webui_window window_generic.cpp)
 else()
   find_package(PkgConfig REQUIRED)
@@ -113,12 +130,37 @@ target_link_libraries(chains-app
   $<TARGET_NAME_IF_EXISTS:PkgConfig::WEBKITGTK>
 )
 if(WIN32)
-  target_compile_definitions(chains-app PRIVATE WEBVIEW_MSWEBVIEW2_EXPLICIT_LINK=0)
-  target_link_libraries(chains-app advapi32 ole32 shell32 shlwapi user32 version)
+  target_include_directories(chains-app SYSTEM PRIVATE ${WEBVIEW2_INCLUDE_DIR})
+  target_compile_definitions(chains-app PRIVATE WEBVIEW_MSWEBVIEW2_BUILTIN_IMPL=1 WEBVIEW_MSWEBVIEW2_EXPLICIT_LINK=1)
+  target_link_libraries(chains-app advapi32 dwmapi gdi32 ole32 shell32 shlwapi user32 uuid version)
 elseif(APPLE)
   target_link_libraries(chains-app "-framework WebKit" "-framework Cocoa")
 endif()
 install_binary_component(chains-app)
+
+# The Windows release: a zip and an installer (NSIS) with chains-app and the programs of the node.
+if(MINGW AND TARGET bitcoind AND TARGET bitcoin-cli AND TARGET bitcoin-tx AND TARGET bitcoin-wallet AND TARGET bitcoin-util)
+  set(webui_release ${PROJECT_BINARY_DIR}/release-app)
+  set(webui_stem chains-app-${CLIENT_VERSION_STRING}-win64)
+  set(CLIENT_URL ${PROJECT_HOMEPAGE_URL})
+  set(BIN_DIR ${webui_release}/bin)
+  set(abs_top_srcdir ${PROJECT_SOURCE_DIR})
+  configure_file(res/setup-app.nsi.in ${webui_release}/chains-app-setup.nsi @ONLY)
+  add_custom_target(deploy-app
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${webui_release}/bin
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:chains-app> -o ${webui_release}/bin/chains-app.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoind> -o ${webui_release}/bin/chainsd.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-cli> -o ${webui_release}/bin/chains-cli.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-tx> -o ${webui_release}/bin/chains-tx.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-wallet> -o ${webui_release}/bin/chains-wallet.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-util> -o ${webui_release}/bin/chains-util.exe
+    COMMAND ${CMAKE_COMMAND} -DBIN_DIR=${webui_release}/bin -DOUT_DIR=${webui_release} -DSRC_DIR=${PROJECT_SOURCE_DIR}
+      -DNSI=${webui_release}/chains-app-setup.nsi -DSTEM=${webui_stem} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_windows.cmake
+    DEPENDS chains-app bitcoind bitcoin-cli bitcoin-tx bitcoin-wallet bitcoin-util
+    COMMENT "The Windows release of chains-app: ${webui_release}/${webui_stem}.zip and -setup.exe"
+    VERBATIM
+  )
+endif()
 
 if(BUILD_TESTS)
   add_subdirectory(test)

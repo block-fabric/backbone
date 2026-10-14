@@ -34,6 +34,9 @@
 #include <webui/options.h>
 #include <webui/sidechainnodes.h>
 #include <webui/singleinstance.h>
+#ifdef WIN32
+#include <webui/urischeme.h>
+#endif
 #ifdef ENABLE_WALLET
 #include <webui/walletapi.h>
 #endif
@@ -116,6 +119,9 @@ void SetupUIArgs(ArgsManager& argsman)
     argsman.AddArg("-webuiconfig=<file>", "File of the app settings (default: chains-app.json in the configuration folder of the user)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-webuitestscript=<file>", "Run this script in the page once it is loaded, with the test methods of the bridge (for the tests of the app)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-webuitestshots=<dir>", "Folder for the pictures the test script takes", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+#ifdef WIN32
+    argsman.AddArg("-webuiregisteruri", "Open chains: payment URIs with this program, for this user, unless another one does (default: 1; never with -webuitestscript)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+#endif
 }
 
 App::App(interfaces::Init& init, ArgsManager& args, std::vector<std::string> uris)
@@ -1178,6 +1184,11 @@ int App::Run()
     m_config = std::make_unique<AppConfig>(config_path.empty() ? AppConfig::DefaultPath() : fs::PathFromString(config_path));
     m_config->Load();
 
+#ifdef WIN32
+    // The payment URIs of the chain (the installer of chains-qt registers them for all users).
+    if (m_args.GetBoolArg("-webuiregisteruri", true) && m_args.GetArg("-webuitestscript", "").empty()) RegisterUriScheme("chains", CLIENT_NAME);
+#endif
+
     Window::Options options;
     options.title = CLIENT_NAME;
     options.devtools = m_args.GetBoolArg("-webuidevtools", false);
@@ -1211,6 +1222,7 @@ int App::Run()
         else m_window->Present();
     };
     callbacks.tray_menu = [this](const std::string& id) { OnTrayMenu(id); };
+    callbacks.session_ending = [this] { RequestShutdown(); };
     callbacks.call = [this](const std::string& id, const std::string& args) { m_bridge->Handle(id, args); };
     m_window = Window::Create(options, std::move(callbacks));
 

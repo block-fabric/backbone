@@ -2,7 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-// The window on Windows (WebView2) and macOS (WKWebView), through webview/webview.
+// The window on macOS (WKWebView), through webview/webview (Windows: window_win32.cpp).
 //
 // Not built or tested on this branch yet (the Linux window is window_gtk.cpp).
 // The interface is loaded as one self-contained document (InlineDocument), as

@@ -71,6 +71,8 @@ public:
         std::function<void()> minimized;
         //! The window was maximized or restored (by the page, the desktop or a shortcut).
         std::function<void(bool maximized)> maximized_changed;
+        //! The session of the user ends (log off, shut down): the app stops (Windows).
+        std::function<void()> session_ending;
     };
 
     /** The window of this platform. It is not shown until Show. */
@@ -110,11 +112,11 @@ public:
      *
      *  - Linux (GTK): an undecorated window; the page's drags start the moves and resizes of
      *    the window manager (begin_move_drag, begin_resize_drag).
-     *  - TODO(windows port): WebView2 in a window without a caption (WS_THICKFRAME kept, the
-     *    client area extended over the frame in WM_NCCALCSIZE, DwmExtendFrameIntoClientArea for
-     *    the shadow), WM_NCHITTEST answering HTLEFT... with EdgeAt for the borders; StartMove:
-     *    ReleaseCapture + WM_NCLBUTTONDOWN/HTCAPTION, StartResize: WM_NCLBUTTONDOWN with the HT of
-     *    the edge; the snap layouts of Windows 11 want HTMAXBUTTON over the page's maximize button.
+     *  - Windows (WebView2): a window without a caption: WS_OVERLAPPEDWINDOW kept, the client area
+     *    extended over the caption in WM_NCCALCSIZE (the other borders, invisible on Windows 10 and
+     *    11, still resize the window and carry its shadow and rounded corners); StartMove and
+     *    StartResize: ReleaseCapture + WM_NCLBUTTONDOWN with HTCAPTION or the HT of the edge. A small
+     *    window over the page's maximize button answers HTMAXBUTTON, for the snap layouts of Windows 11.
      *  - TODO(macos port): a hidden title bar (titlebarAppearsTransparent, titleVisibility hidden,
      *    NSWindowStyleMaskFullSizeContentView), the traffic lights of macOS kept at the left (the
      *    page then hides its own buttons and leaves room for them: "controls" of window.state);
