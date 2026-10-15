@@ -58,8 +58,10 @@ public:
     QString dataDir(const Sidechain& sidechain) const;
     /** The arguments a program of a sidechain is run with to reach its node on the network of this node. */
     QStringList networkArgs(const Sidechain& sidechain) const;
-    /** The arguments its node is started with on top of those. */
+    /** The arguments its node is started with on top of those. Never a password: see passwordFile. */
     QStringList nodeArgs(const Sidechain& sidechain) const;
+    /** The file from which its node reads the RPC password of this node, if this node has one (-rpcpassword). */
+    QString passwordFile(const Sidechain& sidechain) const;
 
 public Q_SLOTS:
     void refresh();
@@ -82,6 +84,8 @@ private:
     /** Run a command of the node of a sidechain and hand its answer, or nothing if it failed, to `then`. */
     void runCli(const Sidechain& sidechain, const QStringList& command, std::function<void(const std::optional<UniValue>&, const QString& error)> then);
     std::optional<Sidechain> selected() const;
+    /** Write the RPC password of this node to passwordFile, owner-only (or remove the file if there is none). */
+    bool writePasswordFile(const Sidechain& sidechain);
     QString program(const Sidechain& sidechain, const QString& suffix) const;
     void setCell(int row, int column, const QString& text);
     void say(const QString& text);

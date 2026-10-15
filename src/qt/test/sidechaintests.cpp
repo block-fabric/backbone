@@ -1003,6 +1003,50 @@ esac
     QVERIFY(QString::fromUtf8(calls.readAll()).contains("loadwallet main"));
     click("stopNode");
     QTRY_COMPARE_WITH_TIMEOUT(table->item(4, 2)->text(), QString("stopped"), 10000);
+
+    // With an RPC password (-rpcpassword), the password is never on the command line of the node, which any
+    // local user can read: it is in a file only the user can read, replaced atomically, and the node is
+    // given its path.
+    {
+        const QString password_file{QDir(data_dir).filePath("mainchain.rpcpass")};
+        {
+            // A file left by someone else, readable by all, is replaced.
+            QFile old_file{password_file};
+            QVERIFY(old_file.open(QIODevice::WriteOnly));
+            old_file.write("stale\n");
+            old_file.close();
+            QVERIFY(old_file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ReadOther | QFileDevice::ReadGroup));
+        }
+        gArgs.ForceSetArg("-rpcuser", "mainuser");
+        gArgs.ForceSetArg("-rpcpassword", "pw-on-argv-would-leak");
+        click("startNode");
+        QTRY_COMPARE_WITH_TIMEOUT(table->item(4, 2)->text(), QString("running"), 10000);
+        QFile argv_file{QDir(data_dir).filePath("args")};
+        QVERIFY(argv_file.open(QIODevice::ReadOnly));
+        const QString argv{QString::fromUtf8(argv_file.readAll())};
+        QVERIFY2(!argv.contains("pw-on-argv-would-leak"), qPrintable(argv));
+        QVERIFY2(!argv.contains("-mainchainrpcpassword="), qPrintable(argv));
+        QVERIFY2(argv.contains("-mainchainrpcuser=mainuser"), qPrintable(argv));
+        QVERIFY2(argv.contains(QString{"-mainchainrpcpasswordfile="} + password_file), qPrintable(argv));
+        QVERIFY2(!argv.contains("-mainchainrpccookiefile="), qPrintable(argv));
+        QFile written{password_file};
+        QVERIFY(written.open(QIODevice::ReadOnly));
+        QCOMPARE(written.readAll(), QByteArray{"pw-on-argv-would-leak\n"});
+        QCOMPARE(written.permissions() & ~(QFileDevice::ReadUser | QFileDevice::WriteUser), QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        QCOMPARE(QDir(data_dir).entryList({"mainchain.rpcpass*"}, QDir::Files | QDir::Hidden), QStringList{"mainchain.rpcpass"});
+        click("stopNode");
+        QTRY_COMPARE_WITH_TIMEOUT(table->item(4, 2)->text(), QString("stopped"), 10000);
+        gArgs.LockSettings([](common::Settings& settings) {
+            settings.forced_settings.erase("rpcuser");
+            settings.forced_settings.erase("rpcpassword");
+        });
+        // Back on the cookie file: the password file goes.
+        click("startNode");
+        QTRY_COMPARE_WITH_TIMEOUT(table->item(4, 2)->text(), QString("running"), 10000);
+        QVERIFY(!QFile::exists(password_file));
+        click("stopNode");
+        QTRY_COMPARE_WITH_TIMEOUT(table->item(4, 2)->text(), QString("stopped"), 10000);
+    }
     // It has no wallet program.
     click("startWallet");
     QVERIFY(logged("Fakechain: the wallet could not be started"));

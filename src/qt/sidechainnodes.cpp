@@ -7,10 +7,12 @@
 #include <chainparams.h>
 #include <chainparamsbase.h>
 #include <common/args.h>
+#include <common/secretfile.h>
 #include <crypto/sha256.h>
 #include <qt/clientmodel.h>
 #include <qt/guiutil.h>
 #include <qt/itemviews.h>
+#include <support/cleanse.h>
 #include <util/chaintype.h>
 #include <util/strencodings.h>
 
@@ -234,13 +236,39 @@ QStringList SidechainNodesDialog::nodeArgs(const Sidechain& sidechain) const
     QStringList args{networkArgs(sidechain)};
     args << QStringLiteral("-mainchainrpcport=%1").arg(gArgs.GetIntArg("-rpcport", BaseParams().RPCPort()));
     if (gArgs.IsArgSet("-rpcpassword")) {
+        // Never the password itself: any local user can read the command line of a process. It is in a file
+        // only the user can read (written by writePasswordFile before the node starts).
         args << QStringLiteral("-mainchainrpcuser=%1").arg(QString::fromStdString(gArgs.GetArg("-rpcuser", "")));
-        args << QStringLiteral("-mainchainrpcpassword=%1").arg(QString::fromStdString(gArgs.GetArg("-rpcpassword", "")));
+        args << QStringLiteral("-mainchainrpcpasswordfile=%1").arg(passwordFile(sidechain));
     } else {
         args << QStringLiteral("-mainchainrpccookiefile=%1").arg(GUIUtil::PathToQString(gArgs.GetDataDirNet() / ".cookie"));
     }
     if (const auto wallet{m_wallet_name()}) args << QStringLiteral("-mainchainrpcwallet=%1").arg(*wallet);
     return args;
+}
+
+QString SidechainNodesDialog::passwordFile(const Sidechain& sidechain) const
+{
+    return QDir(dataDir(sidechain)).filePath(QStringLiteral("mainchain.rpcpass"));
+}
+
+bool SidechainNodesDialog::writePasswordFile(const Sidechain& sidechain)
+{
+    const fs::path path{GUIUtil::QStringToPath(passwordFile(sidechain))};
+    if (!gArgs.IsArgSet("-rpcpassword")) {
+        // The cookie file is used: no password is left lying around.
+        std::error_code ec;
+        fs::remove(path, ec);
+        return true;
+    }
+    std::string password{gArgs.GetArg("-rpcpassword", "")};
+    const auto written{common::WriteSecretFile(path, password + "\n")};
+    memory_cleanse(password.data(), password.size());
+    if (!written) {
+        say(tr("%1: the password for this node could not be written for it (%2)").arg(sidechain.name, QString::fromStdString(util::ErrorString(written).original)));
+        return false;
+    }
+    return true;
 }
 
 std::optional<SidechainNodesDialog::Sidechain> SidechainNodesDialog::selected() const
@@ -517,6 +545,7 @@ void SidechainNodesDialog::startNode()
         return;
     }
     QDir().mkpath(dataDir(*sidechain));
+    if (!writePasswordFile(*sidechain)) return;
     const QStringList args{nodeArgs(*sidechain) + QStringList{QStringLiteral("-daemon")}};
     if (Launch(program(*sidechain, QStringLiteral("d")), args)) {
         say(tr("%1: node started").arg(sidechain->name));
@@ -538,6 +567,7 @@ void SidechainNodesDialog::startWallet()
         return;
     }
     QDir().mkpath(dataDir(*sidechain));
+    if (!writePasswordFile(*sidechain)) return;
     if (Launch(program(*sidechain, QStringLiteral("-qt")), nodeArgs(*sidechain) + QStringList{QStringLiteral("-server")})) {
         say(tr("%1: wallet started").arg(sidechain->name));
     } else {
