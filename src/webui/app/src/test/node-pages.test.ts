@@ -174,6 +174,68 @@ describe('the sidechain page', () => {
   });
 });
 
+describe('the vote of this node on a bundle', () => {
+  it('shows the new vote at once after Downvote (user report)', async () => {
+    let vote = 'upvote';
+    drivechain({
+      listwithdrawalbundles: () => [{ ...BUNDLE, vote }],
+      setwithdrawalvote: (r) => {
+        const p = r.params as unknown[];
+        vote = p[1] === 'default' ? 'upvote' : (p[1] as string);
+        return null;
+      },
+    });
+    nav.page = 'sidechains';
+    nav.tab = 'withdrawals';
+    render(DialogHost);
+    render(Sidechains);
+    const row = await waitFor(() => screen.getByText('Testchain', { selector: '.muted' }).closest('tr') as HTMLElement);
+    expect(within(row).getByText('Upvote')).toBeTruthy();
+    await fireEvent.click(row);
+    await fireEvent.click(screen.getByRole('button', { name: 'Downvote sidechain' }));
+    await waitFor(() => expect(within(screen.getByText('Testchain', { selector: '.muted' }).closest('tr') as HTMLElement).getByText('Downvote')).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'Abstain' }));
+    await waitFor(() => expect(within(screen.getByText('Testchain', { selector: '.muted' }).closest('tr') as HTMLElement).getByText('Abstain')).toBeTruthy());
+  });
+});
+
+describe('the vote of this node, with a block arriving', () => {
+  it('keeps the new vote when a reload started before it answers after it', async () => {
+    let vote = 'upvote';
+    let slow = false;
+    drivechain({
+      listwithdrawalbundles: () => {
+        const answer = [{ ...BUNDLE, vote }];
+        // The reload of a new block: it read the vote before the click, and answers late.
+        if (slow) {
+          slow = false;
+          return new Promise((done) => setTimeout(() => done(answer), 300));
+        }
+        return answer;
+      },
+      setwithdrawalvote: (r) => {
+        vote = (r.params as unknown[])[1] as string;
+        return null;
+      },
+    });
+    nav.page = 'sidechains';
+    nav.tab = 'withdrawals';
+    render(DialogHost);
+    render(Sidechains);
+    const row = () => screen.getByText('Testchain', { selector: '.muted' }).closest('tr') as HTMLElement;
+    await waitFor(() => within(row()).getByText('Upvote'));
+    await fireEvent.click(row());
+    slow = true;
+    node.tip = { ...node.tip!, height: 131 };
+    await waitFor(() => expect(slow).toBe(false));
+    await fireEvent.click(screen.getByRole('button', { name: 'Downvote sidechain' }));
+    await waitFor(() => within(row()).getByText('Downvote'));
+    // The late answer of the block's reload has come: the vote stays.
+    await new Promise((done) => setTimeout(done, 400));
+    expect(within(row()).getByText('Downvote')).toBeTruthy();
+  });
+});
+
 describe('the node window', () => {
   it('runs console commands on a wallet, keeps the filtered history, and shows errors', async () => {
     wallets.list = [{ name: 'w', encrypted: false, locked: false, privateKeysDisabled: false, hd: true }];

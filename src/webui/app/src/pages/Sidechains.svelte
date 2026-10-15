@@ -47,12 +47,18 @@
   let dc = $state<DrivechainState | null>(null);
   let loadError = $state('');
 
+  // Only the refresh started last is shown: one a new block started before a vote, answered after the
+  // vote's own, would show the old vote again (user report: the vote did not change at once).
+  let refreshes = 0;
   async function refresh() {
+    const mine = ++refreshes;
     try {
-      dc = await loadDrivechain();
+      const loaded = await loadDrivechain();
+      if (mine !== refreshes) return;
+      dc = loaded;
       loadError = '';
     } catch (e) {
-      loadError = errorText(e);
+      if (mine === refreshes) loadError = errorText(e);
     }
   }
   // Again with every block (SidechainPage: numBlocksChanged while it shows).
@@ -248,7 +254,20 @@
     else if (tab === 'sidechains') queueMicrotask(() => document.getElementById('deposit-destination')?.focus());
   });
   async function vote(b: Bundle, v: 'upvote' | 'downvote' | 'abstain' | 'default') {
-    await call('setwithdrawalvote', v === 'upvote' ? [b.slot, v, b.hash] : [b.slot, v]);
+    const params = v === 'upvote' ? [b.slot, v, b.hash] : [b.slot, v];
+    try {
+      await rpc.raw('setwithdrawalvote', params);
+    } catch (e) {
+      await inform(t('Sidechains'), errorText(e), 'warning');
+      return;
+    }
+    // The new vote at once, as the node counts it (listwithdrawalbundles): upvoting a bundle downvotes the
+    // others of its sidechain. The default depends on the node: the refresh says.
+    if (dc && v !== 'default') {
+      const bundles = dc.bundles.map((x) => (x.slot !== b.slot ? x : { ...x, vote: v === 'upvote' ? (x.hash === b.hash ? 'upvote' : 'downvote') : v }));
+      dc = { ...dc, bundles };
+    }
+    await refresh();
   }
   async function defaultVote(v: string) {
     await call('setdefaultwithdrawalvote', [v]);
