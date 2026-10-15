@@ -46,6 +46,33 @@ export function selectable(node: HTMLElement, choose: () => void) {
 }
 
 /**
+ * A table that turns into a list of cards in a narrow panel (styles/side.css, a container query): each cell is
+ * given the words of its column (data-label, shown before it), so that no column is hidden behind a scroll
+ * (audit port-1 #9). The words are those of the header as shown (already in the language of the app).
+ */
+export function stacked(table: HTMLTableElement) {
+  function label() {
+    const heads = [...table.querySelectorAll('thead th')].map((th) => th.textContent?.trim() ?? '');
+    for (const row of table.querySelectorAll('tbody tr')) {
+      [...row.children].forEach((cell, i) => {
+        const words = heads[i] ?? '';
+        if (words) (cell as HTMLElement).dataset.label = words;
+        else delete (cell as HTMLElement).dataset.label;
+      });
+    }
+  }
+  label();
+  // Rows come and go as the data does: labelled again (only the list of rows is watched).
+  const watch = typeof MutationObserver === 'undefined' ? null : new MutationObserver(label);
+  watch?.observe(table, { childList: true, subtree: true });
+  return {
+    destroy() {
+      watch?.disconnect();
+    },
+  };
+}
+
+/**
  * Give an element the height its scrolling page has left below it, `reserve` pixels kept for what
  * follows (a hint line), and `min` at least: a list that grows with the window (the block explorer).
  * Measured when it appears, when the window (or the page around it) changes size.
