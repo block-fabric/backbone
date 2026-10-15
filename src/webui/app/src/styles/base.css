@@ -19,12 +19,7 @@ body {
 }
 
 body {
-  /* The ambient light of the accent behind the page: still (no motion), under everything. */
-  background:
-    radial-gradient(60rem 36rem at 12% -12%, var(--glow), transparent 70%),
-    radial-gradient(48rem 30rem at 105% 112%, var(--glow-2), transparent 70%),
-    var(--bg);
-  background-attachment: fixed;
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 1rem;
@@ -34,7 +29,24 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The ambient light of the accent behind the page: still (no motion), under everything. A layer of its
+   own, painted once and composited (not a fixed background of the body, which the engine paints again
+   at each scroll of the page above it: with software GL, as under WSLg, two large gradients each time). */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 36rem at 12% -12%, var(--ambient), transparent 70%),
+    radial-gradient(48rem 30rem at 105% 112%, var(--ambient-2), transparent 70%);
+  transform: translateZ(0);
+  will-change: transform;
+}
+
 #app {
+  position: relative;
   height: 100%;
 }
 
@@ -126,11 +138,10 @@ code,
   font-weight: 550;
   cursor: pointer;
   white-space: nowrap;
+  /* Colours only: a shadow or a filter animated is painted again at each frame (software GL). */
   transition:
     background-color 120ms,
-    border-color 120ms,
-    box-shadow 160ms,
-    filter 120ms;
+    border-color 120ms;
 }
 
 .btn:hover:not(:disabled) {
@@ -329,9 +340,7 @@ textarea {
   background-color: var(--surface-2);
   color: var(--text);
   font: inherit;
-  transition:
-    border-color 120ms,
-    box-shadow 120ms;
+  transition: border-color 120ms;
 }
 
 input:focus-visible,

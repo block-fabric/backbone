@@ -19,6 +19,9 @@ describe('highlighted buttons glow under the pointer', () => {
   it('the glow is defined from the accent', () => {
     expect(base).toMatch(/--glow:[^;]*var\(--accent\)/);
   });
+  it('no look redefines it (the ambient light of a look is --ambient: a colour, not a shadow)', () => {
+    expect(css('../styles/themes.css')).not.toMatch(/--glow(-strong)?\s*:/);
+  });
   for (const selector of ['.btn.primary:hover:not(:disabled)', '.btn.cta:hover:not(:disabled)']) {
     it(`${selector}: keeps the accent and glows`, () => {
       const body = rule(base, selector);

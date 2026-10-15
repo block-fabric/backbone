@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { every } from '../lib/poll';
   import { t } from '../lib/i18n.svelte';
   // Solo mining with the processor of this computer (MiningDialog of chains-qt): an address for the
   // rewards (new from the wallet), threads, start and stop, how the miner does, and the network.
@@ -44,9 +45,7 @@
   }
   // Every 2 seconds (MiningDialog REFRESH_INTERVAL_MS).
   $effect(() => {
-    refresh();
-    const timer = setInterval(refresh, 2000);
-    return () => clearInterval(timer);
+    return every(2000, refresh, { now: true });
   });
 
   const running = $derived(!!gen?.generate);

@@ -4,6 +4,7 @@
   // its timeframes; blind merged mining; then tables of the recent transactions, the sidechains,
   // the latest blocks and the peers, with the actions of each row. A row opens the detail panel;
   // Send and Receive open the side panel (components/QuickPanel.svelte).
+  import { every } from '../../lib/poll';
   import { t } from '../../lib/i18n.svelte';
   import SafeText from '../../components/SafeText.svelte';
   import { untrack } from 'svelte';
@@ -23,7 +24,7 @@
   import { syncStatus } from '../../lib/sync';
   import { coinsToSats, formatAmount } from '../../lib/units';
   import { openQuick } from '../../lib/quick.svelte';
-  import { balanceHistory } from '../../lib/wallet';
+  import { balanceHistory, newest } from '../../lib/wallet';
   import { current, refreshRecords } from '../../lib/walletdata.svelte';
 
   interface Peer {
@@ -81,8 +82,7 @@
   let mining: MiningInfo | null = $state(null);
 
   $effect(() => {
-    const timer = setInterval(() => (now = Math.floor(Date.now() / 1000)), 5000);
-    return () => clearInterval(timer);
+    return every(5000, () => (now = Math.floor(Date.now() / 1000)));
   });
 
   // --- The wallet ---
@@ -105,7 +105,8 @@
       })
       .catch(() => undefined);
   });
-  const recent = $derived([...current.records].sort((a, b) => b.time - a.time || b.sortKey.localeCompare(a.sortKey)).slice(0, 8));
+  // The newest few, without sorting the whole history (a wallet of 100 000 records).
+  const recent = $derived(newest(current.records, 8));
   const history = $derived(balanceHistory(current.records));
 
   // --- The node ---
@@ -135,9 +136,7 @@
         .raw<Peer[]>('getpeerinfo')
         .then((list) => (peers = list))
         .catch(() => undefined);
-    load();
-    const timer = setInterval(load, 15000);
-    return () => clearInterval(timer);
+    return every(15000, load, { now: true });
   });
 
   async function toggleNetwork() {

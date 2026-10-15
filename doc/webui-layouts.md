@@ -128,6 +128,41 @@ the same effects in their own colours.
   `prefers-reduced-motion`. No remote fonts or images (the fonts are bundled; CSP unchanged). The
   long tables stay virtual (components/DataTable.svelte).
 
+## Performance (user decision, 2026-10-15)
+
+`src/webui/test/e2e/run_perf.py --app build/bin/chains-app --tmp <dir> --shots <dir>` makes a wallet of
+20,000 records (40 transactions of 500 outputs), starts the app again on it with software GL (as the demo
+under WSLg) and measures, in the page (perf.js): the start (first paint; the home with the balance; with
+the history), each page opened (go() to the frame after it), a full repaint (another look), typing in the
+search of the history, scrolling the history and the home (frame lengths), a new block (the longest frame),
+what pages ask the host for in 10 s shown and hidden, and the processor time of the app meanwhile. It
+fails over its limits (`LIMITS`), so a regression shows (the start is reported, not limited: it is mostly
+the node's and the machine's, 0.7 s on an idle machine, up to 27 s on a busy one). Before and after the changes of 2026-10-15, on
+the same data (ms unless said; xvfb 1400×900, llvmpipe):
+
+| Measure | Before | After |
+|---|---|---|
+| First paint / home with the balance / with the history | 215 / 720 / 823 | 205 / 685 / 783 |
+| Page opened: median / slowest (the home) | 19 / 52 | 18 / 42 (home 36) |
+| Full repaint (another look) | 47 | 42 |
+| Search: a key, slowest / rows filtered after 8 keys (250 ms pause included) | 19 / 775 | 20 / 776 |
+| History scrolled: frame median / longest (fps) | 19 / 24 (53) | 18 / 25 (56) |
+| A new block: longest frame | 25 | 17 |
+| Calls in 10 s with the window hidden: Mine / Node ▸ Peers | 12 / 7 | 2 / 2 |
+| Processor time in 10 s hidden: Mine / Node ▸ Peers | 40 / 50 | 30 / 30 |
+
+What changed: the timers of the pages (Mine, Peers, Sidechain nodes, the home's peers and clocks, the
+status bar, the traffic graph, the Wallets page) rest while the window is hidden and catch up when it is
+shown (lib/poll.ts `every`); the sync overlay watches the page and ticks only while it is shown (it
+watched every change of the page, each row of a long table scrolled in); the home takes its newest rows
+in one pass instead of sorting the whole history, and the history is sorted by its keys as they are, not
+by the locale; the ambient light is a layer of its own painted once (not a fixed background of the body,
+painted again at each scroll); shadows and filters are no longer animated (colours only). Already in
+place: the long tables are virtual, the history is kept in raw state and updated in parts, the search
+waits for a pause. The interface is one script and one style sheet on purpose (the inline document of
+the other platforms), so it is not split. test/perf.test.ts guards the styles (no animated shadow or
+filter, no backdrop blur or fixed background) and the timers.
+
 ## Where things are in the code
 
 | File | What |
