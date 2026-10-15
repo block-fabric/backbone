@@ -16,10 +16,10 @@
   import { errorText, inform } from '../lib/dialogs.svelte';
   import { formatBytes, formatCount, formatTime, shortHash } from '../lib/format';
   import { untrack } from 'svelte';
-  import { fillHeight } from '../lib/actions';
+  import { css, fillHeight } from '../lib/actions';
   import { detail, showDetail } from '../lib/detail.svelte';
   import { nav } from '../lib/nav.svelte';
-  import { rpc } from '../lib/rpc';
+  import { host, rpc } from '../lib/rpc';
   import { node, prefs, savePrefs } from '../lib/state.svelte';
   import { filterAndSort, type Column } from '../lib/table';
   import { explorerQuery } from '../lib/tools';
@@ -32,8 +32,9 @@
     height: number;
     time: number;
     nTx: number;
-    size: number;
-    weight: number;
+    /** Read with the block (getblock) for the rows shown: unknown before. */
+    size?: number;
+    weight?: number;
     difficulty: number;
     hash: string;
     /** The id of its coinbase (for the miner's tag). */
@@ -46,6 +47,8 @@
     vsize: number;
   }
   interface Block extends BlockRow {
+    size: number;
+    weight: number;
     tx: string[];
     previousblockhash?: string;
     nextblockhash?: string;
@@ -94,9 +97,12 @@
   let blockDir = $state<'asc' | 'desc'>('desc');
   // How many of the latest blocks are read, and how many a page shows (user decisions); sorted across all
   // of them, then paged.
-  const BLOCK_POINTS = [25, 50, 100, 250, 500, 1000];
+  // 0: all of them.
+  const BLOCK_POINTS = [25, 50, 100, 250, 500, 1000, 10000, 50000, 0];
   const BLOCK_PAGE_SIZES = [10, 25, 50, 100];
-  const blockPoints = $derived(BLOCK_POINTS.includes(prefs.explorerCount) ? BLOCK_POINTS : [...BLOCK_POINTS, prefs.explorerCount].sort((a, b) => a - b));
+  /** The height of a row of the list (DataTable's), to size the list to its page. */
+  const ROW = 34;
+  const blockPoints = $derived(BLOCK_POINTS.includes(prefs.explorerCount) ? BLOCK_POINTS : [...BLOCK_POINTS.filter((n) => n > 0), prefs.explorerCount].sort((a, b) => a - b).concat(0));
   let blocksPage = $state(0);
   // Another order: from its first page.
   $effect(() => {
@@ -118,23 +124,29 @@
     return row;
   }
 
+  // The list: from the block index in one call (rpc.explorerBlocks), up to every block of the chain; the
+  // size and weight of a block (read with the block) for the rows a page shows and the boxes of the ribbon.
+  let detailsVersion = $state(0);
   async function refreshBlocks() {
     try {
       const count = prefs.explorerCount;
-      let hash: string | undefined = await rpc.call('getbestblockhash', []);
+      const tip = await rpc.call('getbestblockhash', []);
       // Nothing to do if the list is up to date.
-      if (blocks.length && blocks[0].hash === hash && blocks.length === Math.min(count, blocks[0].height + 1)) return;
-      const rows: BlockRow[] = [];
-      while (hash && rows.length < count) {
-        const row: BlockRow & { previousblockhash?: string } = await blockRow(hash);
-        rows.push(row);
-        hash = row.previousblockhash;
-      }
-      blocks = rows;
+      if (blocks.length && blocks[0].hash === tip && (count === 0 ? blocks.length === blocks[0].height + 1 : blocks.length === Math.min(count, blocks[0].height + 1))) return;
+      const rows = await host.explorerBlocks(count);
+      blocks = rows.map(([height, hash, time, nTx, difficulty]) => cache.get(hash) ?? { height, hash, time, nTx, difficulty });
     } catch {
       // Again at the next block.
     }
   }
+  /** The size and weight of these blocks, read once each. */
+  async function fillDetails(rows: readonly BlockRow[]) {
+    const missing = rows.filter((b) => !cache.has(b.hash));
+    if (!missing.length) return;
+    for (const b of missing) await blockRow(b.hash).catch(() => undefined);
+    detailsVersion++;
+  }
+  const withDetails = (b: BlockRow): BlockRow => cache.get(b.hash) ?? b;
 
   async function refreshMempool() {
     try {
@@ -161,6 +173,7 @@
   // --- The ribbon: the blocks of the list ("Last N blocks") as boxes, newest first. Their details (reward,
   //     tag, BMM) are read for the first boxes, and for more as the strip scrolls towards them. ---
   const RIBBON_STEP = 12;
+  const RIBBON_MAX = 1000;
   let detailed = $state(RIBBON_STEP);
   interface Extra {
     subsidy: number;
@@ -191,7 +204,9 @@
     if (!latest.length) return;
     try {
       // A block whose stats cannot be read (pruned) is drawn without them.
-      for (const row of latest) await extraOf(row).catch(() => undefined);
+      // Their blocks first (the coinbase, the weight).
+      await fillDetails(latest);
+      for (const row of latest) await extraOf(withDetails(row)).catch(() => undefined);
       extrasVersion++;
       // Blind merged mining: the sidechains each block committed to.
       const from = latest[latest.length - 1].height;
@@ -210,16 +225,19 @@
 
   /** The strip neared its end: the details of the next boxes. */
   function moreDetails() {
-    if (detailed >= blocks.length) return;
-    detailed = Math.min(blocks.length, detailed + RIBBON_STEP);
+    const boxes = Math.min(blocks.length, RIBBON_MAX);
+    if (detailed >= boxes) return;
+    detailed = Math.min(boxes, detailed + RIBBON_STEP);
     void refreshRibbon(blocks);
   }
 
   const ribbon = $derived.by((): RibbonBlock[] => {
     void extrasVersion;
-    return blocks.map((b) => {
+    void detailsVersion;
+    // The boxes: the first RIBBON_MAX blocks of the list (all 50 000 would be too many to draw).
+    return blocks.slice(0, RIBBON_MAX).map(withDetails).map((b) => {
       const x = extras.get(b.hash);
-      return { height: b.height, hash: b.hash, time: b.time, nTx: b.nTx, weight: b.weight, subsidy: x?.subsidy ?? null, fees: x?.fees ?? null, feeRate: x?.feeRate ?? null, tag: x ? x.tag : null, bmm: bmmAt[b.height] ?? [] };
+      return { height: b.height, hash: b.hash, time: b.time, nTx: b.nTx, weight: b.weight ?? null, subsidy: x?.subsidy ?? null, fees: x?.fees ?? null, feeRate: x?.feeRate ?? null, tag: x ? x.tag : null, bmm: bmmAt[b.height] ?? [] };
     });
   });
 
@@ -315,8 +333,15 @@
     { key: 'difficulty', label: 'Difficulty', value: (b) => b.difficulty, width: '10rem', align: 'end' },
     { key: 'hash', label: 'Hash', value: (b) => b.hash, width: 'minmax(14rem, 1fr)', mono: true },
   ];
-  const sortedBlocks = $derived(filterAndSort(blocks, blockColumns, '', blockSort, blockDir));
+  const sortedBlocks = $derived.by(() => {
+    void detailsVersion;
+    return filterAndSort(blocks.map(withDetails), blockColumns, '', blockSort, blockDir);
+  });
   const blocksShown = $derived(sortedBlocks.slice(blocksPage * prefs.explorerPageSize, (blocksPage + 1) * prefs.explorerPageSize));
+  $effect(() => {
+    const rows = blocksShown;
+    untrack(() => fillDetails(rows));
+  });
   const mempoolColumns: Column<MempoolRow>[] = [
     { key: 'time', label: 'Received', value: (m) => m.time, width: '11.5rem' },
     { key: 'fee', label: 'Fee', value: (m) => m.fee, width: '9rem', align: 'end' },
@@ -343,7 +368,7 @@
     <label class="row count">
       <span class="muted">Last</span>
       <select value={prefs.explorerCount} onchange={(e) => { savePrefs({ explorerCount: Number((e.currentTarget as HTMLSelectElement).value) }); blocksPage = 0; }} aria-label="Blocks listed">
-        {#each blockPoints as n (n)}<option value={n}>{formatCount(n)}</option>{/each}
+        {#each blockPoints as n (n)}<option value={n}>{n === 0 ? t('All') : formatCount(n)}</option>{/each}
       </select>
       <span class="muted">blocks</span>
     </label>
@@ -362,18 +387,22 @@
       <div class="block-pages"><Pager total={sortedBlocks.length} bind:page={blocksPage} size={prefs.explorerPageSize} sizes={BLOCK_PAGE_SIZES} label="blocks" onsize={(n) => savePrefs({ explorerPageSize: n })} /></div>
     {/if}
   </div>
-  <div class="table-box" use:fillHeight>
-    {#if list === 'blocks'}
-      <DataTable rows={blocksShown} columns={blockColumns} key={(b) => b.hash} bind:selected={selectedBlock} bind:sortKey={blockSort} bind:sortDir={blockDir} label="Blocks" empty="Loading…" onactivate={(b) => showBlock(b.hash)}>
+  {#if list === 'blocks'}
+    <!-- As tall as the rows of the page (10 to 100, user decision): the page scrolls, not the list. -->
+    <div class="table-box fit" use:css={{ height: `${(Math.max(1, blocksShown.length) + 1) * ROW + 2}px` }}>
+      <DataTable fit rows={blocksShown} columns={blockColumns} key={(b) => b.hash} bind:selected={selectedBlock} bind:sortKey={blockSort} bind:sortDir={blockDir} label="Blocks" empty="Loading…" onactivate={(b) => showBlock(b.hash)}>
         {#snippet cell(b, column)}
           {#if column.key === 'time'}{formatTime(b.time)}
-          {:else if column.key === 'size'}{formatBytes(b.size)}
+          {:else if column.key === 'size'}{#if b.size === undefined}<span class="faint">…</span>{:else}{formatBytes(b.size)}{/if}
+          {:else if column.key === 'weight' && b.weight === undefined}<span class="faint">…</span>
           {:else if column.key === 'difficulty'}{b.difficulty.toPrecision(8)}
           {:else if column.key === 'height' || column.key === 'nTx' || column.key === 'weight'}{formatCount(Number(column.value(b)))}
           {:else}{b.hash}{/if}
         {/snippet}
       </DataTable>
-    {:else}
+    </div>
+  {:else}
+    <div class="table-box" use:fillHeight>
       <DataTable rows={mempool} columns={mempoolColumns} key={(m) => m.txid} bind:selected={selectedTx} label="Waiting transactions" empty="No transaction is waiting" onactivate={(m) => showTx(m.txid, null)}>
         {#snippet cell(m, column)}
           {#if column.key === 'time'}{formatTime(m.time)}
@@ -382,8 +411,8 @@
           {:else}{m.txid}{/if}
         {/snippet}
       </DataTable>
-    {/if}
-  </div>
+    </div>
+  {/if}
   <p class="faint hint">Double-click a block or a transaction to see its details.</p>
 
   {#if shown?.kind === 'block'}
@@ -518,6 +547,9 @@
   .table-box {
     height: 21rem;
     min-height: 16rem;
+  }
+  .table-box.fit {
+    min-height: 0;
   }
   .hint {
     margin: 0.4rem 0 1rem;

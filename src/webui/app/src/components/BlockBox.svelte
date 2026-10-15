@@ -32,7 +32,7 @@
     onselect: (hash: string) => void;
   } = $props();
 
-  const fill = $derived(fillPercent(block.weight, block.nTx));
+  const fill = $derived(fillPercent(block.weight ?? 0, block.nTx));
   const tint = $derived(feeTint(block.feeRate));
   const tone = $derived(intervalTone(secs, median));
   const reward = $derived(block.subsidy === null ? null : block.subsidy + (block.fees ?? 0));
@@ -53,7 +53,7 @@
     </span>
     <span class="who">
       <span class="tag" class:untagged={!block.tag}>{#if block.tag}<SafeText text={block.tag} title={block.tag} />{:else}{block.tag === null ? '…' : t('no tag')}{/if}</span>
-      <span class="txs faint">{formatCount(block.nTx)} tx · {formatCount(Math.round(block.weight / 1000))} kWU</span>
+      <span class="txs faint">{formatCount(block.nTx)} tx{#if block.weight !== null} · {formatCount(Math.round(block.weight / 1000))} kWU{/if}</span>
     </span>
     {#if block.bmm.length}
       <span class="bmm" aria-hidden="true">

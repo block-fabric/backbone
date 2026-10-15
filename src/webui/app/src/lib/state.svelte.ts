@@ -105,7 +105,7 @@ export const prefs = $state({
   /** Solo mining: the address of the rewards and the threads, as last started (MiningAddress, MiningThreads). */
   miningAddress: '',
   miningThreads: 1,
-  /** Block explorer: how many of the latest blocks are listed. */
+  /** Block explorer: how many of the latest blocks are listed (0: all). */
   explorerCount: 50,
   /** Block explorer: the blocks shown a page (10, 25, 50 or 100). */
   explorerPageSize: 25,
@@ -305,7 +305,8 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (typeof raw.thirdPartyTxUrls === 'string') prefs.thirdPartyTxUrls = raw.thirdPartyTxUrls;
   if (typeof raw.miningAddress === 'string') prefs.miningAddress = raw.miningAddress;
   if (typeof raw.miningThreads === 'number' && raw.miningThreads >= 1) prefs.miningThreads = Math.floor(raw.miningThreads);
-  if (typeof raw.explorerCount === 'number' && raw.explorerCount >= 10 && raw.explorerCount <= 1000) prefs.explorerCount = Math.floor(raw.explorerCount);
+  // 10 to 50 000 of the latest blocks, or 0 for all of them.
+  if (typeof raw.explorerCount === 'number' && (raw.explorerCount === 0 || (raw.explorerCount >= 10 && raw.explorerCount <= 50000))) prefs.explorerCount = Math.floor(raw.explorerCount);
   if (raw.explorerPageSize === 10 || raw.explorerPageSize === 25 || raw.explorerPageSize === 50 || raw.explorerPageSize === 100) prefs.explorerPageSize = raw.explorerPageSize;
   const entries = (v: unknown) => (Array.isArray(v) ? v.filter((e): e is { name: string; value: string } => !!e && typeof e.name === 'string' && typeof e.value === 'string') : []);
   if (Array.isArray(raw.multisigKeys)) prefs.multisigKeys = entries(raw.multisigKeys);
