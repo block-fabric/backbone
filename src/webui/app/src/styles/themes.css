@@ -16,6 +16,9 @@
   --line-strong: #c3cbd4;
   --text: #15191e;
   --text-muted: #525c69;
+  /* The chevron of the dropdowns (Icon "chevron"), in --text-muted: test/controls.test.ts keeps them equal. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23525c69' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  color-scheme: light;
   --text-faint: #646e7a;
   --accent: #087a52;
   --accent-strong: #06663f;
@@ -56,6 +59,9 @@
   --line-strong: #37403b;
   --text: #eef3ee;
   --text-muted: #a9b4ad;
+  /* The chevron of the dropdowns (Icon "chevron"), in --text-muted: test/controls.test.ts keeps them equal. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9b4ad' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  color-scheme: dark;
   --text-faint: #8c9790;
   --accent: #b5f27e;
   --accent-strong: #cdf8a8;
@@ -89,6 +95,9 @@
   --line-strong: #3b414a;
   --text: #e9ebee;
   --text-muted: #a6aeb9;
+  /* The chevron of the dropdowns (Icon "chevron"), in --text-muted: test/controls.test.ts keeps them equal. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a6aeb9' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  color-scheme: dark;
   --text-faint: #8b939f;
   --accent: #5aa6ff;
   --accent-strong: #8cc0ff;
@@ -122,6 +131,9 @@
   --line-strong: #23596c;
   --text: #d6f0f5;
   --text-muted: #9cc4ce;
+  /* The chevron of the dropdowns (Icon "chevron"), in --text-muted: test/controls.test.ts keeps them equal. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239cc4ce' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  color-scheme: dark;
   --text-faint: #86b0bb;
   --accent: #2ec4b6;
   --accent-strong: #5fdcd0;
@@ -160,6 +172,9 @@
   --line-strong: #12602a;
   --text: #33ff66;
   --text-muted: #2bc955;
+  /* The chevron of the dropdowns (Icon "chevron"), in --text-muted: test/controls.test.ts keeps them equal. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232bc955' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  color-scheme: dark;
   --text-faint: #23a646;
   --accent: #00ff41;
   --accent-strong: #7dff9d;
@@ -198,6 +213,9 @@
   --line-strong: #455364;
   --text: #f0f0f0;
   --text-muted: #b5bfc8;
+  /* The chevron of the dropdowns (Icon "chevron"), in --text-muted: test/controls.test.ts keeps them equal. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b5bfc8' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  color-scheme: dark;
   --text-faint: #9aa6b1;
   --accent: #1464a0;
   --accent-strong: #66b4e2;

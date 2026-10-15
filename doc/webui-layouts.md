@@ -113,6 +113,17 @@ the same effects in their own colours.
 - **Contrast**: every text colour of every look passes WCAG AA (4.5:1) on the backgrounds it is
   drawn on; `--accent` is a fill, `--accent-fg` the accent drawn as text or icons
   (test/contrast.test.ts reads styles/themes.css).
+- **Dropdowns and scroll bars** (user decision, 2026-10-15): our own, the same in WebKitGTK and WebView2.
+  Every select has no native face (`appearance: none`) and the chevron of the icons in the muted colour
+  of the look (`--chevron`, one per look in styles/themes.css), the padding and radius of the fields or
+  pills, a focus ring, a disabled state; the list that opens stays the native one (keyboard, screen
+  readers), in the colours of the look where the engine allows (`color-scheme` per look, `option`
+  colours: WebView2; GTK draws its own popup). Scroll bars: 10 px, round, `--line-strong` thumb,
+  `--text-muted` under the pointer, no track, through `::-webkit-scrollbar` (both engines; the standard
+  `scrollbar-width`/`scrollbar-color` only where those are unknown, as Chromium would drop ours).
+  test/controls.test.ts checks the rules for every look; `run_layouts.py --script controls.js` checks
+  every select drawn and the bars of the page, a long table and the console in the engine (pictures
+  `controls-*`).
 - **Motion**: only answers to an action (hover, a panel opening); none with
   `prefers-reduced-motion`. No remote fonts or images (the fonts are bundled; CSP unchanged). The
   long tables stay virtual (components/DataTable.svelte).

@@ -148,7 +148,6 @@
     min-height: 0;
     overflow-y: auto;
     width: 100%;
-    scrollbar-width: thin;
   }
   .caption {
     padding: 0.9rem 0.75rem 0.3rem;

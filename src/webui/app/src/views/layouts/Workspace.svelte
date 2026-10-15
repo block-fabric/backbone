@@ -188,7 +188,6 @@
     gap: 0.15rem;
     padding: 0.35rem 1.1rem 0;
     overflow-x: auto;
-    scrollbar-width: thin;
   }
   .subtabs button {
     position: relative;

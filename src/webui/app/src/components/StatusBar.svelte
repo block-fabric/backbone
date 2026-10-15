@@ -289,9 +289,10 @@
   }
   .unit select {
     min-height: 1.8rem;
-    padding: 0 0.4rem;
+    padding: 0 1.7rem 0 0.55rem;
     border-color: var(--line);
-    background: var(--surface-2);
+    background-color: var(--surface-2);
+    background-position: right 0.45rem center;
     font-size: 0.86rem;
   }
   .hd {
