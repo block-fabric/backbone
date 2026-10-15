@@ -404,6 +404,7 @@
             {#if deposits.length === 0}
               <p class="muted">No deposits yet.</p>
             {:else}
+              <div class="scroll-x">
               <table class="grid compact" aria-label="Deposits">
                 <thead><tr><th>Destination</th><th class="end">Amount</th><th class="end">Escrow after</th><th class="end">Confirmations</th></tr></thead>
                 <tbody>
@@ -418,6 +419,7 @@
                   {/each}
                 </tbody>
               </table>
+              </div>
               <Pager total={deposits.length} bind:page={depositsPage} bind:size={depositsSize} sizes={DEPOSIT_SIZES} label="deposits" />
             {/if}
           </div>
@@ -703,6 +705,11 @@
   }
   .dest {
     white-space: nowrap;
+  }
+  /* A narrow window: the deposits scroll sideways in their column, not the page. */
+  .scroll-x {
+    overflow-x: auto;
+    overflow-y: hidden;
   }
   .link {
     padding: 0;
