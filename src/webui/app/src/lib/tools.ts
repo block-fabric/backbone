@@ -71,6 +71,8 @@ export function parseProof(text: string): ParsedProof | null {
       const sats = m ? coinsToUnits(m[3]) : null;
       // A coin line that is not one: not a proof (what was signed cannot be known).
       if (!m || sats === null) return null;
+      // A coin listed twice would be counted twice: not a proof.
+      if (coins.some((c) => c.txid === m[1] && c.vout === Number(m[2]))) return null;
       coins.push({ txid: m[1], vout: Number(m[2]), sats });
     }
   }
@@ -105,7 +107,12 @@ export interface CoinsCheck {
 /** The coins of a proof against the chain now (one gettxout answer per coin, in order) and the addresses that signed. */
 export function checkProofCoins(coins: readonly ProofCoin[], now: readonly (TxOutNow | null)[], signed: ReadonlySet<string>): CoinsCheck {
   const out: CoinsCheck = { good: [], spent: [], unsigned: [], wrongAmount: [], total: 0n };
+  // Each coin counts once, whatever lists it again (parseProof refuses such a proof already).
+  const seen = new Set<string>();
   coins.forEach((c, i) => {
+    const key = `${c.txid}:${c.vout}`;
+    if (seen.has(key)) return;
+    seen.add(key);
     const o = now[i];
     if (!o) return void out.spent.push(c);
     const address = o.scriptPubKey.address ?? '';

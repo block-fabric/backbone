@@ -236,3 +236,20 @@ describe('the Proof of funds page', () => {
     expect(calls.some((c) => c.method === 'gettxout')).toBe(false);
   });
 });
+
+// A coin listed twice must not be counted twice (security review of f96baf9f74).
+describe('a coin listed twice', () => {
+  const txid = 'ab'.repeat(32);
+  const coin = { txid, vout: 0, sats: 100_000_000n };
+  it('a proof listing the same coin twice is not a proof', () => {
+    const text = formatProof('I hold this', [{ address: 'addr', signature: 'sig' }], [coin, coin]);
+    expect(parseProof(text)).toBeNull();
+    expect(parseProof(formatProof('I hold this', [{ address: 'addr', signature: 'sig' }], [coin]))?.coins.length).toBe(1);
+  });
+  it('the check counts each coin once whatever lists it again', () => {
+    const now = { value: 1, scriptPubKey: { address: 'addr' } };
+    const check = checkProofCoins([coin, coin, coin], [now, now, now], new Set(['addr']));
+    expect(check.good.length).toBe(1);
+    expect(check.total).toBe(100_000_000n);
+  });
+});
