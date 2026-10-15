@@ -118,7 +118,7 @@
     await sleep(300);
     if ($('.sidebar button[aria-label^="Menus of chains-qt"]')) throw new Error('the dashboard sidebar still has a Menus button');
     // Every other theme, on the dashboard.
-    for (const theme of ['midnight', 'ocean', 'matrix', 'qdarkstyle']) {
+    for (const theme of ['midnight', 'ocean', 'matrix', 'qdarkstyle', 'mocha', 'dracula']) {
       T().savePrefs({ theme, layout: 'dashboard' });
       T().go('home');
       await sleep(300);
