@@ -381,6 +381,7 @@
   .entry.current:hover {
     background: var(--accent);
     color: var(--on-accent);
+    box-shadow: var(--glow);
   }
   /* The rail: groups in cards, the current page with a bar of the accent at its left. */
   .rail:not(.collapsed) .section {
@@ -398,6 +399,9 @@
     background: var(--accent-soft);
     color: var(--text);
     box-shadow: none;
+  }
+  .rail .entry.current:hover {
+    box-shadow: var(--glow);
   }
   .rail .entry.current::before {
     content: '';

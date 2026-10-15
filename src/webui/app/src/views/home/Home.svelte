@@ -614,9 +614,13 @@
   .frames button:hover {
     color: var(--text);
   }
-  .frames button[aria-pressed='true'] {
+  .frames button[aria-pressed='true'],
+  .frames button[aria-pressed='true']:hover {
     background: var(--accent);
     color: var(--on-accent);
+  }
+  .frames button[aria-pressed='true']:hover {
+    box-shadow: var(--glow);
   }
   .chart-body {
     flex: 1;

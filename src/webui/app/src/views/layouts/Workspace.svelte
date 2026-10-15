@@ -150,6 +150,11 @@
     background: var(--accent);
     box-shadow: 0 6px 18px -8px var(--accent);
   }
+  .area[aria-current='true']:hover {
+    color: var(--on-accent);
+    background: var(--accent);
+    box-shadow: var(--glow);
+  }
   .top.titlebar {
     padding-right: 0;
     user-select: none;

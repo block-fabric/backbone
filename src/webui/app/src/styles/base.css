@@ -102,6 +102,13 @@ code,
   color: var(--text);
 }
 
+/* The glow of a highlighted thing (a button of the accent, the page shown) under the pointer: it lights
+   up rather than darkens (user decision, 2026-10-15). In every theme, from its accent. */
+:root {
+  --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 20px -2px color-mix(in srgb, var(--accent) 75%, transparent);
+  --glow-strong: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent), 0 0 30px -2px color-mix(in srgb, var(--accent) 85%, transparent);
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -142,8 +149,12 @@ code,
 }
 
 .btn.primary:hover:not(:disabled) {
+  /* Still the accent (the hover of .btn would make it dark), lit up and glowing. */
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
   filter: brightness(1.08) saturate(1.05);
-  box-shadow: 0 8px 24px -8px var(--accent);
+  box-shadow: var(--glow);
 }
 
 /* The one big action of a panel: full width, the accent, an arrow at its end. */
@@ -163,8 +174,10 @@ code,
 }
 
 .btn.cta:hover:not(:disabled) {
+  background: linear-gradient(120deg, var(--accent), color-mix(in srgb, var(--accent) 86%, white));
+  color: var(--on-accent);
   filter: brightness(1.06);
-  box-shadow: 0 12px 34px -10px var(--accent);
+  box-shadow: var(--glow-strong);
 }
 
 /* Round icon buttons of the top bars. */
