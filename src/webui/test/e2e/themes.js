@@ -32,7 +32,7 @@
     const palette = T().buildCommands().map((c) => c.label);
     await check('the palette lists them', palette.includes('Theme: Catppuccin Mocha') && palette.includes('Theme: Dracula') && palette.includes('Advanced theme…'), palette.filter((l) => l.startsWith('Theme')).join(', '));
 
-    for (const [theme, base, accent] of [['mocha', '#181825', '#cba6f7'], ['dracula', '#21222c', '#bd93f9']]) {
+    for (const [theme, base, accent] of [['mocha', '#181825', '#cba6f7'], ['dracula', '#070708', '#d7263d']]) {
       T().savePrefs({ theme, layout: 'dashboard' });
       T().go('home');
       await waitFor(`${theme}: Home`, () => { const h = $('.home'); return h && h.textContent.includes('CHN') && h.querySelector('table tbody tr'); }, 30000);
