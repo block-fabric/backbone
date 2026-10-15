@@ -1,8 +1,11 @@
 // The lint of the opt-in translation (security audit 2026-10-14, item 3): every field that holds words
 // and is shown as text says whose words they are. The app's own (a tab, a menu item, a title held in
-// code) are shown with t() / tn() / tx(); text from the chain, peers, the wallet or the user (a label, a
+// code) are shown with t() / tn(); text from the chain, peers, the wallet or the user (a label, a
 // memo, the title of a sidechain, the version of a peer, a URI) with <SafeText>, which is never
 // translated and carries translate="no". A field shown bare is an error here: whoever adds one decides.
+// Messages with values are translated where they are made, with their own placeholders: t() is never
+// given text put together (a call, a template with values, a sum), and the words of the app put in a
+// toast or a dialog go through t() there (the toasts and dialogs show what they get as it is).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { parse } from 'svelte/compiler';
@@ -14,7 +17,18 @@ const SRC = join(__dirname, '..');
 export const TEXT_FIELDS = new Set(['label', 'title', 'name', 'description', 'message', 'memo', 'comment', 'subver', 'subversion', 'uri', 'text', 'hint', 'tip', 'informative', 'heading', 'caption', 'purpose', 'note', 'summary', 'detail', 'details']);
 /** Fields that only ever hold text from outside the app: never in t(). */
 export const UNTRUSTED_FIELDS = new Set(['memo', 'comment', 'subver', 'subversion', 'uri']);
-const TRANSLATE = new Set(['t', 'tn', 'tx']);
+const TRANSLATE = new Set(['t', 'tn']);
+/** Functions that give words of the app already in the language shown (made with t() / tn()). */
+const SELF_TRANSLATED = new Set(['typeText', 'statusText', 'voteText', 'summaryText', 'signersText', 'pingText', 'rangeText', 'rateText', 'noWalletText', 'nodeWords']);
+/** Where a toast or a dialog of the app takes its words: the arguments (by place) and the fields of an object argument. */
+const MESSAGE_CALLS: Record<string, { args: number[]; props: string[] }> = {
+  toast: { args: [1, 2], props: [] },
+  inform: { args: [0, 1, 3], props: [] },
+  confirm: { args: [0, 1], props: ['informative'] },
+  prompt: { args: [0, 1], props: ['message'] },
+  ask: { args: [], props: ['title', 'message', 'informative'] },
+  warn: { args: [0], props: [] },
+};
 /** The name of the app (from the host), put in sentences of the app: not text from outside. */
 const ALLOWED = new Set(["app.info?.name ?? 'Chains'"]);
 
@@ -52,7 +66,7 @@ function shownFields(expr: Node | undefined, out: string[]): string[] {
       // What a function of words gives (typeText(row.type), statusLabel(tx)): words too.
       const callee = expr.callee as Node;
       const name = callee.type === 'Identifier' ? (callee.name as string) : callee.type === 'MemberExpression' && (callee.property as Node).type === 'Identifier' ? ((callee.property as Node).name as string) : '';
-      if (/(Text|Label|Title|Name|Words|Message)$/.test(name) && !TRANSLATE.has(name)) out.push(`${name}()`);
+      if (/(Text|Label|Title|Name|Words|Message)$/.test(name) && !TRANSLATE.has(name) && !SELF_TRANSLATED.has(name)) out.push(`${name}()`);
       break;
     }
     case 'ChainExpression':
@@ -109,6 +123,97 @@ function untrustedInT(expr: Node | undefined, out: string[], inT = false): strin
   return out;
 }
 
+/** Whether an expression is text put together: a call, a template with values, a sum (or one of them in a branch). */
+function composed(expr: Node | undefined): boolean {
+  if (!expr) return false;
+  switch (expr.type) {
+    case 'CallExpression':
+    case 'BinaryExpression':
+      return true;
+    case 'TemplateLiteral':
+      return (expr.expressions as Node[]).length > 0;
+    case 'ConditionalExpression':
+      return composed(expr.consequent as Node) || composed(expr.alternate as Node);
+    case 'LogicalExpression':
+      return composed(expr.left as Node) || composed(expr.right as Node);
+    case 'ChainExpression':
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+    case 'TSNonNullExpression':
+      return composed(expr.expression as Node);
+    default:
+      return false;
+  }
+}
+
+/** Literal words of an expression (a string, a template, in a branch): what must go through t(). */
+function literalWords(expr: Node | undefined): boolean {
+  if (!expr) return false;
+  switch (expr.type) {
+    case 'Literal':
+      return typeof expr.value === 'string' && /\p{L}/u.test(expr.value);
+    case 'TemplateLiteral':
+      return (expr.quasis as Node[]).some((q) => /\p{L}/u.test(((q.value as { cooked?: string }).cooked ?? '') as string));
+    case 'ConditionalExpression':
+      return literalWords(expr.consequent as Node) || literalWords(expr.alternate as Node);
+    case 'LogicalExpression':
+      return literalWords(expr.right as Node);
+    case 'ParenthesizedExpression':
+    case 'TSAsExpression':
+      return literalWords(expr.expression as Node);
+    default:
+      return false;
+  }
+}
+
+/** Calls of t() given text put together, and words of the app put in a toast or a dialog without t(). */
+function messageFindings(root: Node, file: string, source: string, lineOf: (pos: number) => number): Finding[] {
+  const out: Finding[] = [];
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    const n = node as Node;
+    if (n.type === 'CallExpression' && (n.callee as Node).type === 'Identifier') {
+      const name = (n.callee as Node).name as string;
+      const args = n.arguments as Node[];
+      const code = source.slice(n.start as number, Math.min(n.end as number, (n.start as number) + 80));
+      if (TRANSLATE.has(name) && composed(args[0])) out.push({ file, line: lineOf(n.start as number), code, why: 'text put together given to t(): write the message with its own placeholders, t(\'… %1\', value)' });
+      const spec = MESSAGE_CALLS[name];
+      if (spec) {
+        const parts = spec.args.map((i) => args[i]);
+        for (const a of args) {
+          if (a?.type === 'ObjectExpression') {
+            for (const p of a.properties as Node[]) {
+              if (p.type === 'Property' && (p.key as Node).type === 'Identifier' && spec.props.includes((p.key as Node).name as string)) parts.push(p.value as Node);
+            }
+          }
+        }
+        for (const p of parts) {
+          if (literalWords(p)) out.push({ file, line: lineOf(p.start as number), code: source.slice(p.start as number, p.end as number).slice(0, 80), why: `words of the app in ${name}() without t(): toasts and dialogs show what they get as it is` });
+        }
+      }
+    }
+    for (const [k, v] of Object.entries(n)) {
+      if (k === 'start' || k === 'end' || k === 'loc') continue;
+      if (v && typeof v === 'object') walk(v);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+/** The same for a TypeScript file of the interface. */
+export function lintScript(file: string, source: string): Finding[] {
+  const wrapped = `<script lang="ts">${source}</script>`;
+  const ast = parse(wrapped, { modern: true }) as unknown as { instance: Node };
+  const offset = '<script lang="ts">'.length;
+  const lineOf = (pos: number) => source.slice(0, Math.max(0, pos - offset)).split('\n').length;
+  return messageFindings(ast.instance.content as Node, file, wrapped, lineOf);
+}
+
 export function lint(file: string, source: string): Finding[] {
   const findings: Finding[] = [];
   const ast = parse(source, { modern: true }) as unknown as { fragment: Node; instance?: Node };
@@ -148,6 +253,8 @@ export function lint(file: string, source: string): Finding[] {
     for (const a of (node.attributes as Node[]) ?? []) visit({ ...a, value: a.value } as Node, true);
   };
   visit(ast.fragment, false);
+  findings.push(...messageFindings(ast.fragment, file, source, lineOf));
+  if (ast.instance) findings.push(...messageFindings(ast.instance, file, source, lineOf));
   // In the code of the component, too: t(x.memo)...
   if (ast.instance) {
     for (const field of untrustedInT(ast.instance.content as Node, [])) {
@@ -157,12 +264,44 @@ export function lint(file: string, source: string): Finding[] {
   return findings;
 }
 
+function scriptFiles(dir: string, out: string[] = []): string[] {
+  for (const f of readdirSync(dir)) {
+    const p = join(dir, f);
+    if (statSync(p).isDirectory()) {
+      if (f !== 'test') scriptFiles(p, out);
+    } else if (p.endsWith('.ts') && !p.endsWith('.test.ts') && !p.endsWith('.d.ts')) out.push(p);
+  }
+  return out;
+}
+
 describe('the opt-in translation (i18n lint)', () => {
   it('finds fields of words shown bare, and text from outside put in t()', () => {
     const bad = lint('x.svelte', `<script>let tx = { label: 'a' }; const TITLE = 'T';</script><p>{tx.label}</p><h1>{TITLE}</h1><p>{t(peer.subver)}</p>`);
     expect(bad.map((f) => f.code)).toEqual(['{tx.label}', '{TITLE}', 't(peer.subver)']);
     const good = lint('y.svelte', `<p>{t(tab.label)}</p><SafeText text={tx.label} /><span translate="no">{tx.label}</span><p>{t('Sent to %1', tx.label)}</p><code>{x.name}</code>`);
     expect(good).toEqual([]);
+  });
+
+  it('finds text put together given to t(), and words put in toasts and dialogs without t()', () => {
+    const bad = lint('z.svelte', `<script>toast('error', 'Saved', err); inform(t('Ok'), \`Sent \${n}\`); ask({ title: 'Hi', message: t('m') }); const a = t(statusText(r)); const b = t(\`\${n} hours behind\`); const c = t('x ' + y);</script><p>{t(String(v))}</p>`);
+    expect(bad.map((f) => f.why.split(':')[0])).toEqual([
+      'text put together given to t()',
+      "words of the app in toast() without t()",
+      "words of the app in inform() without t()",
+      "words of the app in ask() without t()",
+      'text put together given to t()',
+      'text put together given to t()',
+      'text put together given to t()',
+    ]);
+    const good = lintScript('z.ts', `toast('error', t('Saved'), errorText(e)); inform(t('Ok'), t('Sent %1', n)); confirm(TITLE, t('Sure?'), { informative: lines.join('\\n') }); t(tab.label); t(x ? 'a' : 'b'); tn('%n day(s)', n);`);
+    expect(good).toEqual([]);
+    expect(lintScript('y.ts', `toast('info', 'Copied', \`\${a} b\`)`).length).toBe(2);
+  });
+
+  it('passes on every script of the interface', () => {
+    const findings: Finding[] = [];
+    for (const file of scriptFiles(SRC)) findings.push(...lintScript(relative(SRC, file), readFileSync(file, 'utf8')));
+    expect(findings.map((f) => `${f.file}:${f.line} ${f.code} (${f.why})`)).toEqual([]);
   });
 
   it('passes on every component of the interface', () => {

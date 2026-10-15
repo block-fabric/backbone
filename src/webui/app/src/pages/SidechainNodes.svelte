@@ -11,7 +11,7 @@
   import { wallets } from '../lib/state.svelte';
 
   const REFRESH_MS = 4000;
-  const TITLE = 'Sidechain Nodes';
+  const TITLE = $derived(t('Sidechain Nodes'));
 
   let list = $state<SidechainNodeList | null>(null);
   let status = $state<Record<string, SidechainNodeStatus>>({});
@@ -54,7 +54,7 @@
 
   async function run(method: SidechainNodeMethod, params: Record<string, unknown> = {}) {
     if (!chosen) {
-      await inform(TITLE, 'Select a sidechain in the list first.');
+      await inform(TITLE, t('Select a sidechain in the list first.'));
       return null;
     }
     busy = true;
@@ -75,53 +75,53 @@
   const walletParam = () => (wallets.current === null ? {} : { wallet: wallets.current });
 
   async function startNode() {
-    if (!chosen?.installed) return inform(TITLE, 'Select a sidechain whose programs are on this computer.');
+    if (!chosen?.installed) return inform(TITLE, t('Select a sidechain whose programs are on this computer.'));
     if (chosenStatus?.running) return say([`${chosen.name} is running already.`]);
     await run('start', walletParam());
   }
   async function startWallet() {
-    if (!chosen?.installed) return inform(TITLE, 'Select a sidechain whose programs are on this computer.');
-    if (chosenStatus?.running) return inform(TITLE, `The node of ${chosen.name} is running in the background. Stop it first: the wallet window is a node itself, and there can be only one.`);
+    if (!chosen?.installed) return inform(TITLE, t('Select a sidechain whose programs are on this computer.'));
+    if (chosenStatus?.running) return inform(TITLE, t('The node of %1 is running in the background. Stop it first: the wallet window is a node itself, and there can be only one.', chosen.name));
     await run('startWallet', walletParam());
   }
   async function toggleMining() {
-    if (!chosen || !chosenStatus?.running) return inform(TITLE, 'Select a sidechain whose node is running.');
-    if (!chosenStatus.mining && wallets.current === null) return inform(TITLE, 'Open a wallet of this node first: it pays the miners of this chain for each block of the sidechain.');
+    if (!chosen || !chosenStatus?.running) return inform(TITLE, t('Select a sidechain whose node is running.'));
+    if (!chosenStatus.mining && wallets.current === null) return inform(TITLE, t('Open a wallet of this node first: it pays the miners of this chain for each block of the sidechain.'));
     await run('mining', { on: !chosenStatus.mining });
   }
   async function mineOnce() {
-    if (!chosen || !chosenStatus?.running) return inform(TITLE, 'Select a sidechain whose node is running.');
-    if (wallets.current === null) return inform(TITLE, 'Open a wallet of this node first: it pays the miners of this chain for the block of the sidechain.');
-    const amount = await prompt(TITLE, `What to offer the miners of this chain for one block of ${chosen.name}, in coins of this chain:`, '0.0001');
+    if (!chosen || !chosenStatus?.running) return inform(TITLE, t('Select a sidechain whose node is running.'));
+    if (wallets.current === null) return inform(TITLE, t('Open a wallet of this node first: it pays the miners of this chain for the block of the sidechain.'));
+    const amount = await prompt(TITLE, t('What to offer the miners of this chain for one block of %1, in coins of this chain:', chosen.name), '0.0001');
     if (!amount?.trim()) return;
     await run('mineOnce', { amount: amount.trim() });
   }
   // The app asks the user itself, in a dialog of the desktop showing the address, the hash and the folder,
   // before anything is downloaded: this page only says what to download.
   async function download() {
-    if (!chosen) return inform(TITLE, 'Select a sidechain in the list first.');
+    if (!chosen) return inform(TITLE, t('Select a sidechain in the list first.'));
     if (chosen.release) {
       say([`${chosen.name}: the release ${chosen.release.version} built into this app`]);
       await run('download', { release: true });
       return;
     }
     // The app takes secure web addresses only, and says so.
-    const url = (await prompt(TITLE, `Address of the release of ${chosen.name} to download (a .tar.gz archive, at a secure web address):`))?.trim();
+    const url = (await prompt(TITLE, t('Address of the release of %1 to download (a .tar.gz archive, at a secure web address):', chosen.name)))?.trim();
     if (!url) return;
-    const sha256 = (await prompt(TITLE, 'SHA-256 hash that the publisher gives for it. The download is thrown away if it does not match:'))?.trim().toLowerCase();
+    const sha256 = (await prompt(TITLE, t('SHA-256 hash that the publisher gives for it. The download is thrown away if it does not match:')))?.trim().toLowerCase();
     if (sha256 === undefined) return;
-    if (!/^[0-9a-f]{64}$/.test(sha256)) return inform(TITLE, 'A SHA-256 hash is 64 hexadecimal characters. Programs that hold coins are not installed unchecked.', 'warning');
+    if (!/^[0-9a-f]{64}$/.test(sha256)) return inform(TITLE, t('A SHA-256 hash is 64 hexadecimal characters. Programs that hold coins are not installed unchecked.'), 'warning');
     await run('download', { url, sha256 });
   }
   async function addSidechain() {
-    const name = (await prompt(TITLE, 'Name of the sidechain:'))?.trim();
+    const name = (await prompt(TITLE, t('Name of the sidechain:')))?.trim();
     if (!name) return;
-    const stem = (await prompt(TITLE, 'What its programs are named after: if its node is "examplechaind", enter "examplechain".', name.toLowerCase().replace(/ /g, '')))?.trim();
+    const stem = (await prompt(TITLE, t('What its programs are named after: if its node is "examplechaind", enter "examplechain".'), name.toLowerCase().replace(/ /g, '')))?.trim();
     if (!stem) return;
-    const slotText = await prompt(TITLE, 'The slot of the sidechain on this chain:', '0');
+    const slotText = await prompt(TITLE, t('The slot of the sidechain on this chain:'), '0');
     if (slotText === null) return;
     const slot = Number(slotText);
-    if (!Number.isInteger(slot) || slot < 0 || slot > 65535) return inform(TITLE, 'The slot is a number from 0 to 65535.', 'warning');
+    if (!Number.isInteger(slot) || slot < 0 || slot > 65535) return inform(TITLE, t('The slot is a number from 0 to 65535.'), 'warning');
     try {
       const r = await host.sidechainNode('add', { name, stem, slot });
       if (r?.log) say(r.log);
@@ -132,14 +132,21 @@
     }
   }
   async function removeSidechain() {
-    if (!chosen) return inform(TITLE, 'Select the sidechain to remove.');
-    if (chosen.builtin) return inform(TITLE, `${chosen.name} comes with this wallet and stays in the list. Only a sidechain that was added by hand can be removed.`);
-    if (chosenStatus?.running) return inform(TITLE, `The node of ${chosen.name} is running. Stop it first.`);
-    if (!(await confirm(TITLE, `Take ${chosen.name} off the list? Its programs and its data stay on this computer.`, { yes: 'Remove', danger: true }))) return;
+    if (!chosen) return inform(TITLE, t('Select the sidechain to remove.'));
+    if (chosen.builtin) return inform(TITLE, t('%1 comes with this wallet and stays in the list. Only a sidechain that was added by hand can be removed.', chosen.name));
+    if (chosenStatus?.running) return inform(TITLE, t('The node of %1 is running. Stop it first.', chosen.name));
+    if (!(await confirm(TITLE, t('Take %1 off the list? Its programs and its data stay on this computer.', chosen.name), { yes: 'Remove', danger: true }))) return;
     await run('remove');
     selected = null;
   }
 
+  /** What the list says of the node, in the language shown. */
+  function nodeWords(s: SidechainNodeEntry): string {
+    const state = nodeText(s);
+    return state === 'running' ? t('running') : state === 'stopped' ? t('stopped') : state;
+  }
+
+  /** The state of the node: its class in the list too. */
   function nodeText(s: SidechainNodeEntry): string {
     const st = status[s.stem];
     if (!s.installed) return '–';
@@ -164,7 +171,7 @@
       <button type="button" role="radio" aria-checked={selected === s.stem} class="card panel" class:chosen={selected === s.stem} onclick={() => (selected = s.stem)} title={s.description}>
         <span class="top">
           <strong><SafeText text={s.name} /></strong>
-          <span class="state {nodeText(s)}"><span class="dot"></span>{t(nodeText(s))}</span>
+          <span class="state {nodeText(s)}"><span class="dot"></span>{nodeWords(s)}</span>
         </span>
         <span class="muted desc">{t(s.description)}</span>
         <span class="facts-row">

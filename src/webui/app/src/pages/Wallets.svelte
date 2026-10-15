@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // Wallets (WalletController and its activities, the wallet menu of chains-qt): create, open, close,
   // restore, migrate; encrypt, change the passphrase, unlock for a while, back up, export watch-only.
   import SafeText from '../components/SafeText.svelte';
@@ -135,9 +136,9 @@
 
   async function confirmEncryption(): Promise<boolean> {
     const r = await ask({
-      title: 'Confirm wallet encryption',
-      message: 'Warning: If you encrypt your wallet and lose your passphrase, you will LOSE ALL OF YOUR COINS!',
-      informative: 'Are you sure you wish to encrypt your wallet?',
+      title: t('Confirm wallet encryption'),
+      message: t('Warning: If you encrypt your wallet and lose your passphrase, you will LOSE ALL OF YOUR COINS!'),
+      informative: t('Are you sure you wish to encrypt your wallet?'),
       level: 'warning',
       choices: [
         { id: 'back', label: 'Back', kind: 'primary' },
@@ -157,8 +158,8 @@
       if (!p) return;
       if (!(await confirmEncryption())) return;
       const sure = await confirm(
-        'Wallet to be encrypted',
-        `Your wallet is about to be encrypted. Remember that encrypting your wallet cannot fully protect your coins from being stolen by malware infecting your computer. Are you sure you wish to encrypt your wallet?`,
+        t('Wallet to be encrypted'),
+        t('Your wallet is about to be encrypted. Remember that encrypting your wallet cannot fully protect your coins from being stolen by malware infecting your computer. Are you sure you wish to encrypt your wallet?'),
         { level: 'warning' },
       );
       if (!sure) return;
@@ -169,11 +170,11 @@
         wallets.create({ name: options.name, passphrase, disablePrivateKeys: options.disableKeys, blank: options.blank, externalSigner: options.signer }),
       );
       if (!r) return;
-      if (r.warnings.length) await inform('Create wallet warning', warnings(r.warnings), 'warning');
+      if (r.warnings.length) await inform(t('Create wallet warning'), warnings(r.warnings), 'warning');
       selectWallet(r.name);
       await loadDir();
     } catch (e) {
-      await inform('Create wallet failed', errorText(e), 'error');
+      await inform(t('Create wallet failed'), errorText(e), 'error');
     }
   }
 
@@ -183,17 +184,17 @@
     try {
       const r = await run(`Opening Wallet ${walletDisplayName(w.name)}…`, () => wallets.open(w.name));
       if (!r) return;
-      if (r.warnings.length) await inform('Open wallet warning', warnings(r.warnings), 'warning');
+      if (r.warnings.length) await inform(t('Open wallet warning'), warnings(r.warnings), 'warning');
       selectWallet(r.name);
       await loadDir();
     } catch (e) {
-      await inform('Open wallet failed', errorText(e), 'error');
+      await inform(t('Open wallet failed'), errorText(e), 'error');
     }
   }
 
   async function closeWallet(walletName: string) {
-    const yes = await confirm('Close wallet', `Are you sure you wish to close the wallet ${walletDisplayName(walletName)}?`, {
-      informative: 'Closing the wallet for too long can result in having to resync the entire chain if pruning is enabled.',
+    const yes = await confirm(t('Close wallet'), t('Are you sure you wish to close the wallet %1?', walletDisplayName(walletName)), {
+      informative: t('Closing the wallet for too long can result in having to resync the entire chain if pruning is enabled.'),
       yes: 'Yes',
     });
     if (!yes) return;
@@ -201,7 +202,7 @@
       await wallets.close(walletName);
       await loadDir();
     } catch (e) {
-      await inform('Close wallet', errorText(e), 'error');
+      await inform(t('Close wallet'), errorText(e), 'error');
     }
   }
 
@@ -210,7 +211,7 @@
   }
 
   async function closeAll() {
-    if (!(await confirm('Close all wallets', 'Are you sure you wish to close all wallets?'))) return;
+    if (!(await confirm(t('Close all wallets'), t('Are you sure you wish to close all wallets?')))) return;
     for (const w of [...walletState.list]) await wallets.close(w.name).catch(() => undefined);
     await loadDir();
   }
@@ -220,21 +221,21 @@
   async function restore() {
     const file = await chooseFile({ title: 'Load Wallet Backup', filters: [FILTERS.walletBackup, FILTERS.all] });
     if (!file) return;
-    const walletName = await prompt('Restore Wallet', 'Wallet Name');
+    const walletName = await prompt(t('Restore Wallet'), t('Wallet Name'));
     if (walletName === null) return;
     if (!walletName) {
-      await inform('Invalid Wallet Name', 'Wallet name cannot be empty', 'error');
+      await inform(t('Invalid Wallet Name'), t('Wallet name cannot be empty'), 'error');
       return;
     }
     try {
       const r = await run(`Restoring Wallet ${walletName}…`, () => wallets.restore(file, walletName));
       if (!r) return;
-      if (r.warnings.length) await inform('Restore wallet warning', warnings(r.warnings), 'warning');
-      else await inform('Restore wallet message', 'Wallet restored successfully');
+      if (r.warnings.length) await inform(t('Restore wallet warning'), warnings(r.warnings), 'warning');
+      else await inform(t('Restore wallet message'), t('Wallet restored successfully'));
       selectWallet(r.name);
       await loadDir();
     } catch (e) {
-      await inform('Restore wallet failed', errorText(e), 'error');
+      await inform(t('Restore wallet failed'), errorText(e), 'error');
     }
   }
 
@@ -245,10 +246,10 @@
     'The migration process will create a backup of the wallet before migrating. This backup file will be named <wallet name>-<timestamp>.legacy.bak and can be found in the directory for this wallet. In the event of an incorrect migration, the backup can be restored with the "Restore Wallet" functionality.';
 
   function migrated(r: MigrateResult): string {
-    let text = `The wallet '${walletDisplayName(r.name)}' was migrated successfully.`;
-    if (r.watchonlyName) text += ` Watchonly scripts have been migrated to a new wallet named '${walletDisplayName(r.watchonlyName)}'.`;
-    if (r.solvablesName) text += ` Solvable but not watched scripts have been migrated to a new wallet named '${walletDisplayName(r.solvablesName)}'.`;
-    if (!r.loaded) text += ' The wallet was not loaded after migration. You can open it from the "Your wallet > Open wallet" menu.';
+    let text = t("The wallet '%1' was migrated successfully.", walletDisplayName(r.name));
+    if (r.watchonlyName) text += ' ' + t("Watchonly scripts have been migrated to a new wallet named '%1'.", walletDisplayName(r.watchonlyName));
+    if (r.solvablesName) text += ' ' + t("Solvable but not watched scripts have been migrated to a new wallet named '%1'.", walletDisplayName(r.solvablesName));
+    if (!r.loaded) text += ' ' + t('The wallet was not loaded after migration. You can open it from the "Your wallet > Open wallet" menu.');
     return text;
   }
 
@@ -262,18 +263,18 @@
     try {
       const r = await run(`Migrating Wallet ${walletDisplayName(walletName)}…`, () => wallets.migrate(walletName, passphrase, load));
       if (!r) return;
-      await inform('Migration Successful', migrated(r));
+      await inform(t('Migration Successful'), migrated(r));
       if (r.loaded) selectWallet(r.name);
       await loadDir();
     } catch (e) {
-      await inform('Migration failed', errorText(e), 'error');
+      await inform(t('Migration failed'), errorText(e), 'error');
     }
   }
 
   async function migrate(w: WalletDirEntry) {
     const r = await ask({
-      title: 'Migrate wallet',
-      message: `Are you sure you wish to migrate the wallet ${walletDisplayName(w.name)}?`,
+      title: t('Migrate wallet'),
+      message: t('Are you sure you wish to migrate the wallet %1?', walletDisplayName(w.name)),
       informative: MIGRATE_TEXT,
       level: 'question',
       checkbox: { label: 'Load wallet after migration', checked: true, tip: 'If the node is pruned and the wallet was created before the pruned height, the migration process may fail trying to load the migrated wallet.' },
@@ -288,11 +289,11 @@
   async function restoreMigrate() {
     const file = await chooseFile({ title: 'Restore and Migrate Wallet Backup', filters: [FILTERS.wallet] });
     if (!file) return;
-    const walletName = await prompt('Restore and Migrate Wallet', 'Wallet Name');
+    const walletName = await prompt(t('Restore and Migrate Wallet'), t('Wallet Name'));
     if (!walletName) return;
     const yes = await ask({
-      title: 'Restore and Migrate wallet',
-      message: `Are you sure you wish to restore the wallet file ${file} to ${walletDisplayName(walletName)} and migrate it?`,
+      title: t('Restore and Migrate wallet'),
+      message: t('Are you sure you wish to restore the wallet file %1 to %2 and migrate it?', file, walletDisplayName(walletName)),
       informative: 'Restoring the wallet will copy the backup file to the wallets directory and place it in the standard wallet directory layout. The original file will not be modified.\n\n' + MIGRATE_TEXT,
       level: 'question',
       choices: [
@@ -308,11 +309,11 @@
         await doMigrate(walletName, true);
         return;
       }
-      await inform('Migration Successful', migrated(r));
+      await inform(t('Migration Successful'), migrated(r));
       if (r.loaded) selectWallet(r.name);
       await loadDir();
     } catch (e) {
-      await inform('Migration failed', errorText(e), 'error');
+      await inform(t('Migration failed'), errorText(e), 'error');
     }
   }
 
@@ -326,14 +327,14 @@
     try {
       await run('Encrypting the wallet…', () => walletApi(name).encrypt(p.next!));
       await inform(
-        'Wallet encrypted',
-        'Your wallet is now encrypted. Remember that encrypting your wallet cannot fully protect your coins from being stolen by malware infecting your computer.',
+        t('Wallet encrypted'),
+        t('Your wallet is now encrypted. Remember that encrypting your wallet cannot fully protect your coins from being stolen by malware infecting your computer.'),
         'warning',
-        'IMPORTANT: Any previous backups you have made of your wallet file should be replaced with the newly generated, encrypted wallet file. For security reasons, previous backups of the unencrypted wallet file will become useless as soon as you start using the new, encrypted wallet.',
+        t('IMPORTANT: Any previous backups you have made of your wallet file should be replaced with the newly generated, encrypted wallet file. For security reasons, previous backups of the unencrypted wallet file will become useless as soon as you start using the new, encrypted wallet.'),
       );
       await refreshInfo(true);
     } catch (e) {
-      await inform('Wallet encryption failed', errorText(e), 'error');
+      await inform(t('Wallet encryption failed'), errorText(e), 'error');
     }
   }
 
@@ -345,14 +346,14 @@
       if (!p?.next) return;
       try {
         await walletApi(name).changePassphrase(p.passphrase, p.next);
-        await inform('Wallet encrypted', 'Wallet passphrase was successfully changed.');
+        await inform(t('Wallet encrypted'), t('Wallet passphrase was successfully changed.'));
         return;
       } catch (e) {
         if (e instanceof BridgeError && e.code === WalletError.PASSPHRASE_INCORRECT) {
           error = e.message;
           continue;
         }
-        await inform('Passphrase change failed', errorText(e), 'error');
+        await inform(t('Passphrase change failed'), errorText(e), 'error');
         return;
       }
     }
@@ -374,7 +375,7 @@
           error = 'The passphrase entered for the wallet decryption was incorrect.';
           continue;
         }
-        await inform('Wallet unlock failed', errorText(e), 'error');
+        await inform(t('Wallet unlock failed'), errorText(e), 'error');
         return;
       }
     }
@@ -392,9 +393,9 @@
     if (!path) return;
     try {
       await run('Backing up the wallet…', () => walletApi(name).backup(path));
-      await inform('Backup Successful', `The wallet data was successfully saved to ${path}.`);
+      await inform(t('Backup Successful'), t('The wallet data was successfully saved to %1.', path));
     } catch (e) {
-      await inform('Backup Failed', `There was an error trying to save the wallet data to ${path}. ${errorText(e)}`, 'error');
+      await inform(t('Backup Failed'), t('There was an error trying to save the wallet data to %1. %2', path, errorText(e)), 'error');
     }
   }
 
@@ -404,9 +405,9 @@
     if (!path) return;
     try {
       const out = await run('Exporting…', () => walletApi(name).exportWatchOnly(path));
-      await inform('Export Successful', `The wallet has been exported to ${out ?? path}`);
+      await inform(t('Export Successful'), t('The wallet has been exported to %1', out ?? path));
     } catch (e) {
-      await inform('Export Error', errorText(e), 'error');
+      await inform(t('Export Error'), errorText(e), 'error');
     }
   }
 

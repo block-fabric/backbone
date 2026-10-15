@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // Proof of funds (ProofOfFundsDialog of chains-qt): a statement signed with every address of the
   // wallet that holds coins, and the check of such a proof against the chain as it is now.
   import CopyButton from '../components/CopyButton.svelte';
@@ -22,12 +23,12 @@
   async function prove() {
     const text = simplified(statement);
     if (!text) {
-      await inform('Proof of Funds', 'Enter the statement to sign.');
+      await inform(t('Proof of Funds'), t('Enter the statement to sign.'));
       return;
     }
     const wallet = wallets.current;
     if (wallet === null) {
-      await inform('Proof of Funds', noWalletText());
+      await inform(t('Proof of Funds'), noWalletText());
       return;
     }
     proving = true;
@@ -60,15 +61,15 @@
       const signatures = signed;
       if (signatures.length === 0) {
         proof = '';
-        await inform('Proof of Funds', addresses.length === 0 ? 'The wallet holds no coins on an address.' : `None of the addresses could sign: ${lastError}`, 'warning');
+        await inform(t('Proof of Funds'), addresses.length === 0 ? t('The wallet holds no coins on an address.') : t('None of the addresses could sign: %1', lastError), 'warning');
         return;
       }
       proof = formatProof(text, signatures);
       if (failed > 0) {
-        await inform('Proof of Funds', `${failed} address(es) holding coins are left out of the proof, because they cannot sign a message (only addresses that stand for a single key can): ${lastError}`);
+        await inform(t('Proof of Funds'), t('%1 address(es) holding coins are left out of the proof, because they cannot sign a message (only addresses that stand for a single key can): %2', failed, lastError));
       }
     } catch (e) {
-      await inform('Proof of Funds', errorText(e), 'warning');
+      await inform(t('Proof of Funds'), errorText(e), 'warning');
     } finally {
       proving = false;
     }

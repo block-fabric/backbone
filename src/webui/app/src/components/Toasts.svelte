@@ -1,6 +1,7 @@
 <script lang="ts">
+  import SafeText from './SafeText.svelte';
   // Short notices in a corner: copied, sent, a warning of the node.
-  import { t, tx } from '../lib/i18n.svelte';
+  import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import { dismissToast, toasts } from '../lib/state.svelte';
 
@@ -18,8 +19,8 @@
     <div class="toast {toast.kind}">
       <Icon name={toast.kind === 'success' ? 'check' : toast.kind === 'info' ? 'info' : 'alert'} size={18} />
       <div class="grow">
-        <strong>{t(toast.title)}</strong>
-        {#if toast.message}<p class="break">{tx(toast.message)}</p>{/if}
+        <strong><SafeText text={toast.title} /></strong>
+        {#if toast.message}<p class="break"><SafeText text={toast.message} /></p>{/if}
         {#if toast.actions?.length}
           <div class="acts">
             {#each toast.actions as a (a.label)}

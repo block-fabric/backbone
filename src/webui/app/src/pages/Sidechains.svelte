@@ -126,45 +126,45 @@
     const wallet = wallets.current;
     if (!selected || depositing) return;
     if (wallet === null) {
-      await inform('Sidechains', noWalletText('the deposit is paid from it.'));
+      await inform(t('Sidechains'), noWalletText(t('the deposit is paid from it.')));
       return;
     }
     const dest = destination.trim();
     if (!dest) {
-      await inform('Sidechains', 'Enter the deposit address that the wallet of the sidechain gives.', 'warning');
+      await inform(t('Sidechains'), t('Enter the deposit address that the wallet of the sidechain gives.'), 'warning');
       return;
     }
     let check;
     try {
       check = await host.depositAddress(dest);
     } catch (e) {
-      await inform('Sidechains', errorText(e), 'error');
+      await inform(t('Sidechains'), errorText(e), 'error');
       return;
     }
     if (check.kind === 'invalid') {
-      await inform('Sidechains', 'This deposit address has a typing error in it. Copy it again from the wallet of the sidechain.', 'warning');
+      await inform(t('Sidechains'), t('This deposit address has a typing error in it. Copy it again from the wallet of the sidechain.'), 'warning');
       return;
     }
     if (check.kind === 'valid' && check.slot !== selected.slot) {
-      await inform('Sidechains', `This deposit address is for the sidechain in slot ${check.slot}, and the sidechain selected is the one in slot ${selected.slot}.`, 'warning');
+      await inform(t('Sidechains'), t('This deposit address is for the sidechain in slot %1, and the sidechain selected is the one in slot %2.', check.slot, selected.slot), 'warning');
       return;
     }
     // Without the checks of a deposit address, a destination the sidechain does not understand is lost there.
     if (
       check.kind === 'plain' &&
-      !(await confirm('Sidechains', `"${dest}" is not a deposit address (s<slot>_<address>_<checksum>), so it cannot be checked. If the sidechain does not understand it, the coins are lost. Deposit anyway?`, { yes: 'Deposit anyway', level: 'warning' }))
+      !(await confirm(t('Sidechains'), t('"%1" is not a deposit address (s<slot>_<address>_<checksum>), so it cannot be checked. If the sidechain does not understand it, the coins are lost. Deposit anyway?', dest), { yes: 'Deposit anyway', level: 'warning' }))
     )
       return;
     if (amount === null || amount <= 0n) {
-      await inform('Sidechains', 'Enter the amount to deposit.', 'warning');
+      await inform(t('Sidechains'), t('Enter the amount to deposit.'), 'warning');
       return;
     }
     const sats = amount;
     const r = await ask({
-      title: 'Confirm sidechain deposit',
-      message: `Deposit ${formatAmount(sats, prefs.unit, { withUnit: true })} to the sidechain "${selected.title}" (slot ${selected.slot}), to be credited there to:`,
+      title: t('Confirm sidechain deposit'),
+      message: t('Deposit %1 to the sidechain "%2" (slot %3), to be credited there to:', formatAmount(sats, prefs.unit, { withUnit: true }), selected.title, selected.slot),
       code: dest,
-      informative: 'Coins deposited to a sidechain can only come back through a withdrawal approved by the miners.',
+      informative: t('Coins deposited to a sidechain can only come back through a withdrawal approved by the miners.'),
       level: 'question',
       choices: [
         { id: 'no', label: 'Cancel' },
@@ -176,13 +176,13 @@
     try {
       const result = await walletRpc<{ txid: string }>(wallet, 'createsidechaindeposit', [selected.slot, dest, satsToCoins(sats)]);
       if (!result) return;
-      await inform('Sidechains', `Deposit sent in transaction ${result.txid}.`, 'info');
+      await inform(t('Sidechains'), t('Deposit sent in transaction %1.', result.txid), 'info');
       destination = '';
       amount = null;
       amountKey++;
       refresh();
     } catch (e) {
-      await inform('Sidechains', errorText(e), 'error');
+      await inform(t('Sidechains'), errorText(e), 'error');
     } finally {
       depositing = false;
     }
@@ -200,7 +200,7 @@
       await refresh();
       return true;
     } catch (e) {
-      await inform('Sidechains', errorText(e), 'warning');
+      await inform(t('Sidechains'), errorText(e), 'warning');
       return false;
     }
   }
@@ -215,7 +215,7 @@
     if (formErrors.length) return;
     const ok = await call('createsidechainproposal', [form.slot, form.title.trim(), form.description.trim(), form.hash1.trim() || '0'.repeat(64), form.hash2.trim() || '0'.repeat(40)]);
     if (ok) {
-      toast('success', 'Proposal queued', `It goes into the next block this node mines.`);
+      toast('success', t('Proposal queued'), t('It goes into the next block this node mines.'));
       form = { slot: form.slot, title: '', description: '', hash1: '', hash2: '' };
     }
   }
@@ -248,7 +248,7 @@
 <div class="page sidechains">
   <header class="page-head"><h1>Sidechains</h1></header>
   {#if dc}
-    <p class="summary muted">{t(summaryText(dc.info, formatAmount(escrowTotal, prefs.unit, { withUnit: true })))}</p>
+    <p class="summary muted">{summaryText(dc.info, formatAmount(escrowTotal, prefs.unit, { withUnit: true }))}</p>
   {:else}
     <p class="summary muted">{loadError || 'The drivechain state is not available yet.'}</p>
   {/if}
@@ -489,7 +489,7 @@
                 <td class="end num">{b.blocksleft}</td>
                 <td>{#if b.payable}<span class="yes"><Icon name="check" size={14} /> yes</span>{:else}no{/if}</td>
                 <td>{b.known ? 'yes' : 'no'}</td>
-                <td><span class="badge" class:accent={b.vote === 'upvote'} class:warning={b.vote === 'downvote'}>{t(voteText(b.vote))}</span></td>
+                <td><span class="badge" class:accent={b.vote === 'upvote'} class:warning={b.vote === 'downvote'}>{voteText(b.vote)}</span></td>
                 <td class="mono">{shortHash(b.hash)}</td>
               </tr>
               {#if b.hash === selectedBundle && b.payouts}

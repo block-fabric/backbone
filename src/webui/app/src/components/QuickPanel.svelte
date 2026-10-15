@@ -50,7 +50,7 @@
       amount = all > 0n ? all : 0n;
       subtractFee = all > 0n;
     } catch (e) {
-      toast('error', 'Use available balance', errorText(e));
+      toast('error', t('Use available balance'), errorText(e));
     }
   }
 
@@ -58,12 +58,12 @@
     if (busy) return;
     if (!valid) {
       document.getElementById('quick-pay-to')?.focus();
-      toast('warning', 'Send Coins', address ? 'The recipient address is not valid. Please recheck.' : 'Enter an address to pay to.');
+      toast('warning', t('Send Coins'), address ? t('The recipient address is not valid. Please recheck.') : t('Enter an address to pay to.'));
       return;
     }
     if (amount === null || amount <= 0n) {
       document.getElementById('quick-amount')?.focus();
-      toast('warning', 'Send Coins', 'The amount to pay must be larger than 0.');
+      toast('warning', t('Send Coins'), t('The amount to pay must be larger than 0.'));
       return;
     }
     busy = true;
@@ -91,14 +91,14 @@
       const type = current.info?.defaultAddressType || 'bech32';
       const a = await withUnlock(wallet, (passphrase) => api.newAddress(rLabel, type, passphrase));
       if (a === null) {
-        await inform('Receive', 'Could not unlock wallet.', 'error');
+        await inform(t('Receive'), t('Could not unlock wallet.'), 'error');
         return;
       }
       made = { address: a, label: rLabel, amount: rAmount ?? 0n };
       // Kept with the requests of the Receive page.
       await api.addRequest({ ...made, message: '' });
     } catch (e) {
-      await inform('Receive', errorText(e), 'error');
+      await inform(t('Receive'), errorText(e), 'error');
     } finally {
       busy = false;
     }

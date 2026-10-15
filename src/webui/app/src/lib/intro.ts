@@ -1,13 +1,14 @@
 // What the intro says of the data directory chosen (intro.cpp, freespacechecker.cpp of chains-qt).
+import { t } from './i18n.svelte';
 import type { Space } from './rpc';
 
 /** FreespaceChecker::check: what the path is, and whether the app can start with it. */
 export function pathMessage(space: Space | null): { text: string; error: boolean } | null {
   if (!space) return null;
-  if (space.error) return { text: 'Cannot create data directory here.', error: true };
-  if (space.exists && !space.isDirectory) return { text: 'Path already exists, and is not a directory.', error: true };
-  if (space.exists) return { text: 'Directory already exists. Add /name if you intend to create a new directory here.', error: false };
-  return { text: 'A new data directory will be created.', error: false };
+  if (space.error) return { text: t('Cannot create data directory here.'), error: true };
+  if (space.exists && !space.isDirectory) return { text: t('Path already exists, and is not a directory.'), error: true };
+  if (space.exists) return { text: t('Directory already exists. Add %1 if you intend to create a new directory here.', '/name'), error: false };
+  return { text: t('A new data directory will be created.'), error: false };
 }
 
 /**

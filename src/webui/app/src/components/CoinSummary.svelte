@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // The estimate of a transaction made of the coins chosen (the coin control labels of chains-qt):
   // quantity, bytes, amount, fee, after fee, change; each can be copied.
   import Amount from './Amount.svelte';
@@ -14,7 +15,7 @@
 
   async function copy(text: string) {
     await host.copy(text).catch(() => undefined);
-    toast('success', 'Copied', text);
+    toast('success', t('Copied'), text);
   }
   const plain = (v: bigint) => formatAmount(v, prefs.unit, { separators: false });
 </script>

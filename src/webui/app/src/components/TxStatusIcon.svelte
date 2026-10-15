@@ -11,7 +11,7 @@
 </script>
 
 <svg class="status {record.status}" width={size} height={size} viewBox="0 0 18 18" role="img" aria-label={statusText(record)}>
-  <title>{t(statusText(record))}</title>
+  <title>{statusText(record)}</title>
   {#if record.status === 'conflicted' || record.status === 'notaccepted'}
     <circle cx="9" cy="9" r={R} class="track" />
     <path d="M6 6l6 6M12 6l-6 6" class="mark" />

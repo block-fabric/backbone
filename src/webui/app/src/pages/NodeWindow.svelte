@@ -45,7 +45,7 @@
     try {
       await host.open('debuglog');
     } catch (e) {
-      await inform('Debug log file', errorText(e), 'warning');
+      await inform(t('Debug log file'), errorText(e), 'warning');
     }
   }
 

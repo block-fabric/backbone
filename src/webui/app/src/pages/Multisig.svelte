@@ -18,7 +18,7 @@
   ];
   const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'keys');
 
-  const warn = (text: string) => inform('Multisig Lounge', text, 'warning');
+  const warn = (text: string) => inform(t('Multisig Lounge'), text, 'warning');
 
   // --- Keys ---
   let keyName = $state('');
@@ -36,7 +36,7 @@
       const info = await rpc.raw<{ desc: string }>('getaddressinfo', [address], { wallet });
       // The key with the path it has in the wallet, which is what lets the wallet find it again to sign.
       const key = keyOfDescriptor(info.desc);
-      if (!key) return warn('The wallet did not give a key that can be used here.');
+      if (!key) return warn(t('The wallet did not give a key that can be used here.'));
       savePrefs({ multisigKeys: [...prefs.multisigKeys, { name, value: key }] });
       if (keyName === typed) keyName = '';
     } catch (e) {
@@ -47,11 +47,11 @@
   async function addPartnerKey() {
     const name = keyName.trim();
     const key = partnerKey.trim();
-    if (!name || !key) return warn('Enter the name of the partner and their public key.');
+    if (!name || !key) return warn(t('Enter the name of the partner and their public key.'));
     try {
       await rpc.raw('getdescriptorinfo', [`wpkh(${key})`]);
     } catch (e) {
-      return warn(`This is not a public key: ${errorText(e)}`);
+      return warn(t('This is not a public key: %1', errorText(e)));
     }
     savePrefs({ multisigKeys: [...prefs.multisigKeys, { name, value: key }] });
     keyName = '';
@@ -95,7 +95,7 @@
     }
     const known = prefs.multisigAddresses.find((a) => a.value === checked);
     if (known) {
-      await warn(`This shared address is already in the list, as "${known.name}".`);
+      await warn(t('This shared address is already in the list, as "%1".', known.name));
       return false;
     }
     savePrefs({ multisigAddresses: [...prefs.multisigAddresses, { name, value: checked }] });
@@ -104,10 +104,10 @@
 
   async function createAddress() {
     const keys = prefs.multisigKeys.filter((_, i) => ticked[i]).map((k) => k.value);
-    if (keys.length < 2) return warn('Tick at least two keys. Add them on the Keys tab first.');
-    if (required > keys.length) return warn('More signatures are needed than there are keys.');
+    if (keys.length < 2) return warn(t('Tick at least two keys. Add them on the Keys tab first.'));
+    if (required > keys.length) return warn(t('More signatures are needed than there are keys.'));
     const name = addressName.trim();
-    if (!name) return warn('Give the shared address a name.');
+    if (!name) return warn(t('Give the shared address a name.'));
     // The keys are sorted by the descriptor, so that all partners get the same address whatever their order.
     if (await addAddress(name, sharedDescriptor(required, keys))) {
       addressName = '';
@@ -116,10 +116,10 @@
   }
 
   async function importAddress() {
-    const descriptor = (await prompt('Multisig Lounge', 'Descriptor of the shared address, as a partner copied it:'))?.trim();
+    const descriptor = (await prompt(t('Multisig Lounge'), t('Descriptor of the shared address, as a partner copied it:')))?.trim();
     if (!descriptor) return;
-    if (!descriptor.startsWith('wsh(sortedmulti(')) return warn('This is not the descriptor of a shared address made in this window.');
-    const name = (await prompt('Multisig Lounge', 'Name for this shared address:'))?.trim();
+    if (!descriptor.startsWith('wsh(sortedmulti(')) return warn(t('This is not the descriptor of a shared address made in this window.'));
+    const name = (await prompt(t('Multisig Lounge'), t('Name for this shared address:')))?.trim();
     if (!name) return;
     await addAddress(name, descriptor);
   }
@@ -128,7 +128,7 @@
     if (selectedAddress === null) return;
     const entry = prefs.multisigAddresses[selectedAddress];
     if (!entry) return;
-    if (!(await confirm('Multisig Lounge', `Remove "${entry.name}" from the list? Coins on the address stay there, but spending them needs its descriptor; make sure it is kept somewhere.`, { yes: 'Remove', danger: true })))
+    if (!(await confirm(t('Multisig Lounge'), t('Remove "%1" from the list? Coins on the address stay there, but spending them needs its descriptor; make sure it is kept somewhere.', entry.name), { yes: 'Remove', danger: true })))
       return;
     savePrefs({ multisigAddresses: prefs.multisigAddresses.filter((_, i) => i !== selectedAddress) });
     selectedAddress = null;
@@ -161,10 +161,10 @@
 
   async function prepare() {
     const entry = prefs.multisigAddresses[from];
-    if (!entry) return warn('There is no shared address to spend from. Make one on the Shared addresses tab.');
+    if (!entry) return warn(t('There is no shared address to spend from. Make one on the Shared addresses tab.'));
     const amountUnits = coinsToUnits(amount);
     const feeUnits = coinsToUnits(fee);
-    if (amountUnits === null || feeUnits === null) return warn('Enter the amount and the fee as numbers, like 1.5');
+    if (amountUnits === null || feeUnits === null) return warn(t('Enter the amount and the fee as numbers, like 1.5'));
     preparing = true;
     try {
       const [scan, addresses] = await Promise.all([
@@ -174,9 +174,9 @@
       // All coins of the address are spent, and what is left goes back to it, counted in satoshis.
       const inputs = scan.unspents.map((c) => ({ txid: c.txid, vout: c.vout }));
       const available = scan.unspents.reduce((sum, c) => sum + jsonCoinsToUnits(c.amount), 0n);
-      if (inputs.length === 0) return warn('The shared address holds no coins.');
+      if (inputs.length === 0) return warn(t('The shared address holds no coins.'));
       const change = available - amountUnits - feeUnits;
-      if (change < 0n) return warn(`The shared address holds ${unitsToCoins(available)} CHN, which is less than the amount and the fee.`);
+      if (change < 0n) return warn(t('The shared address holds %1 CHN, which is less than the amount and the fee.', unitsToCoins(available)));
       const outputs: Record<string, string>[] = [{ [destination.trim()]: amount.trim() }];
       // Change too small to be worth an output goes to the fee.
       if (change >= 1000n) outputs.push({ [addresses[0]]: unitsToCoins(change) });
@@ -209,14 +209,14 @@
 
   async function sign() {
     const wallet = wallets.current;
-    if (wallet === null) return warn('Open the wallet that holds your key first.');
+    if (wallet === null) return warn(t('Open the wallet that holds your key first.'));
     try {
       // Signs, without finalizing, so that the next partner can still add a signature.
       const r = await walletRpc<{ psbt: string }>(wallet, 'walletprocesspsbt', [psbt.trim(), true, 'ALL', true, false]);
       if (!r) return;
       const before = psbt.trim();
       psbt = r.psbt;
-      if (before === r.psbt) await inform('Multisig Lounge', 'This wallet added no signature: either it already signed, or it holds none of the keys of the shared address.');
+      if (before === r.psbt) await inform(t('Multisig Lounge'), t('This wallet added no signature: either it already signed, or it holds none of the keys of the shared address.'));
     } catch (e) {
       await warn(errorText(e));
     }
@@ -225,11 +225,11 @@
   async function broadcast() {
     try {
       const final = await rpc.raw<{ complete: boolean; hex?: string }>('finalizepsbt', [psbt.trim()]);
-      if (!final.complete) return warn('The transaction does not have enough signatures yet.');
-      if (!(await confirm('Multisig Lounge', `Send this transaction? ${status}`, { yes: 'Send' }))) return;
+      if (!final.complete) return warn(t('The transaction does not have enough signatures yet.'));
+      if (!(await confirm(t('Multisig Lounge'), t('Send this transaction? %1', status), { yes: 'Send' }))) return;
       const txid = await rpc.raw<string>('sendrawtransaction', [final.hex]);
       psbt = '';
-      await inform('Multisig Lounge', `Sent as transaction ${txid}`);
+      await inform(t('Multisig Lounge'), t('Sent as transaction %1', txid));
     } catch (e) {
       await warn(errorText(e));
     }
@@ -303,7 +303,7 @@
         {#each prefs.multisigAddresses as entry, i (entry.value)}
           <li class:chosen={selectedAddress === i}>
             <label class="pick"><input type="radio" name="address" checked={selectedAddress === i} onchange={() => (selectedAddress = i)} /> <strong translate="no">{entry.name}</strong></label>
-            <span class="badge accent">{t(signersText(entry.value))}</span>
+            <span class="badge accent">{signersText(entry.value)}</span>
             <span class="balance num">{balances[entry.value] ?? '?'} CHN</span>
             <code class="break">{addressOf[entry.value] ?? '…'}</code>
             <span class="copies">

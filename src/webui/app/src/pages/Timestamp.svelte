@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // Timestamp a file (TimestampDialog of chains-qt): its fingerprint published in a transaction, and
   // found again in the last blocks. The file stays on this computer.
   import CopyButton from '../components/CopyButton.svelte';
@@ -40,32 +41,32 @@
 
   async function stamp() {
     if (!hash) {
-      await inform('Timestamp File', 'Choose a file first.');
+      await inform(t('Timestamp File'), t('Choose a file first.'));
       return;
     }
     const wallet = wallets.current;
     if (wallet === null) {
-      await inform('Timestamp File', noWalletText('stamping costs a transaction fee.'));
+      await inform(t('Timestamp File'), noWalletText(t('stamping costs a transaction fee.')));
       return;
     }
-    if (!(await confirm('Timestamp File', 'Publish the fingerprint of this file on the chain?'))) return;
+    if (!(await confirm(t('Timestamp File'), t('Publish the fingerprint of this file on the chain?')))) return;
     try {
       const r = await walletRpc<{ txid?: string; complete: boolean }>(wallet, 'send', [[{ data: stampPayload(hash) }]]);
       if (!r) return;
       if (!r.txid) {
-        await inform('Timestamp File', 'The wallet could not sign the transaction.', 'warning');
+        await inform(t('Timestamp File'), t('The wallet could not sign the transaction.'), 'warning');
         return;
       }
       result = `The fingerprint was published in transaction\n${r.txid}\n\nThe stamp counts from the block that includes this transaction. Keep the file exactly as it is: any change gives it another fingerprint.`;
       resultKind = 'sent';
     } catch (e) {
-      await inform('Timestamp File', errorText(e), 'warning');
+      await inform(t('Timestamp File'), errorText(e), 'warning');
     }
   }
 
   async function find() {
     if (!hash) {
-      await inform('Timestamp File', 'Choose a file first.');
+      await inform(t('Timestamp File'), t('Choose a file first.'));
       return;
     }
     controller = new AbortController();

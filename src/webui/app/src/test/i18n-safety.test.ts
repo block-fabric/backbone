@@ -9,7 +9,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import Transactions from '../pages/Transactions.svelte';
 import { setTransport } from '../lib/bridge';
 import { dialogs } from '../lib/dialogs.svelte';
-import { MAX_MATCHED, matchMessage, setCatalog, t, translateText, type Locale } from '../lib/i18n.svelte';
+import { setCatalog, t, tn, type Locale } from '../lib/i18n.svelte';
+import Toasts from '../components/Toasts.svelte';
+import DialogHost from '../components/DialogHost.svelte';
+import { errorText, inform } from '../lib/dialogs.svelte';
+import { niceTimeOffset } from '../lib/format';
+import { syncStatus } from '../lib/sync';
+import { toast, toasts } from '../lib/state.svelte';
+import { statusText } from '../lib/wallet';
 import { app, prefs, wallets } from '../lib/state.svelte';
 import { resetWalletData } from '../lib/walletdata.svelte';
 import { regtestP2tr, regtestP2wpkh } from './bech32';
@@ -69,8 +76,7 @@ describe('text from outside the app', () => {
     setCatalog(FR);
     // Messages of the catalog, one with a placeholder ("%1 behind"), and the French of one.
     const labels = ['Send', 'Confirmed', 'Label', '3 hours behind', 'Envoyer'];
-    expect(translateText('Send')).toBe('Envoyer');
-    expect(translateText('3 hours behind')).not.toBeNull();
+    expect(t('Send')).toBe('Envoyer');
     history(labels);
     render(Transactions);
     await waitFor(() => expect(shownLabels().length).toBe(labels.length));
@@ -115,20 +121,15 @@ describe('text from outside the app', () => {
     expect(shown - delivered).toBeLessThan(50);
   });
 
-  it('is never matched at length, and the matcher does not backtrack', () => {
+  it('is never matched against the catalog, whatever its length', () => {
     setCatalog({ code: 'fr', name: 'Français', rtl: false, messages: { '%1 a %2 a %3 a %4 b': '%1 x %2 x %3 x %4 y', '%1 behind': '%1 de retard' } });
     const evil = 'a '.repeat(5_000);
-    let start = performance.now();
-    expect(translateText(evil)).toBeNull();
-    expect(translateText(evil + 'behind')).toBeNull();
+    const start = performance.now();
+    // Only a message of the app is looked up, as a whole: nothing is matched in what it is not.
+    expect(t(evil)).toBe(evil);
+    expect(t(evil + 'behind')).toBe(evil + 'behind');
+    expect(t('5 hours behind')).toBe('5 hours behind');
     expect(performance.now() - start).toBeLessThan(50);
-    // The matcher itself, on 10 KB: linear.
-    start = performance.now();
-    for (let i = 0; i < 20; i++) expect(matchMessage(evil + 'c', ['', ' a ', ' a ', ' a ', ' b'])).toBeNull();
-    expect(performance.now() - start).toBeLessThan(50);
-    // Up to MAX_MATCHED characters, messages with placeholders are found.
-    expect(translateText('5 hours behind')).toBe('5 hours de retard');
-    expect(translateText('x'.repeat(MAX_MATCHED) + ' behind')).toBeNull();
   });
 
   it('put in a message of the app is spliced in as it is, not translated', () => {
@@ -136,7 +137,51 @@ describe('text from outside the app', () => {
     expect(t('Sent to %1', 'Send')).toBe('Envoyé à Send');
     // A value holding a placeholder is not filled again.
     expect(t('Sent to %1', '%1 behind')).toBe('Envoyé à %1 behind');
-    // A template of the app that is a part of a message: "%1 hours behind" is "%1 behind".
-    expect(t('%1 hours behind', 3)).toBe('3 hours de retard');
+    // A template of the app is a message of its own: "%1 hours behind" is not "%1 behind" with "hours" left in English.
+    expect(t('%1 hours behind', 3)).toBe('3 hours behind');
+    expect(t('%1 behind', '3 hours')).toBe('3 hours de retard');
+  });
+});
+
+describe('messages the app puts together, in French', () => {
+  afterEach(() => {
+    toasts.list.splice(0);
+  });
+
+  it('show an error of the host as it is, never partly translated', async () => {
+    setCatalog(FR);
+    // Words of the catalog are in it ("%1 and %2", "Error", "Send"): the old translator made "… sidechain et of its programs …".
+    const hostError = 'The name of the sidechain and of its programs are needed.';
+    expect(t('%1 and %2', 'a', 'b')).toBe('a et b');
+    const { container } = render(Toasts);
+    toast('error', t('Settings'), errorText(new Error(hostError)));
+    flushSync();
+    expect(container.querySelector('.toast strong')?.textContent).toBe('Paramètres');
+    expect(container.querySelector('.toast p')?.textContent).toBe(hostError);
+    // In a dialog, the same.
+    const host = render(DialogHost);
+    void inform(t('Error'), errorText(new Error(`Send failed: ${hostError} 3 hours behind`)), 'error');
+    await waitFor(() => expect(host.container.ownerDocument.querySelector('.question .message')).toBeTruthy());
+    const dialog = host.container.ownerDocument.querySelector('dialog[open]') as HTMLElement;
+    expect(dialog.querySelector('h2')?.textContent).toBe('Erreur');
+    expect(dialog.querySelector('.message')?.textContent).toBe(`Send failed: ${hostError} 3 hours behind`);
+    expect(dialog.querySelector('.message [translate="no"]')).toBeTruthy();
+  });
+
+  it('are wholly in French: the sync status, durations, confirmations', () => {
+    setCatalog(FR);
+    const now = 1_800_000_000;
+    const behind = syncStatus({ tipHeight: 100, tipTime: now - 3 * 3600, progress: 0.5, loadingBlocks: false, headerHeight: 100, headerTime: now, connections: 3, networkActive: true, spacing: 600, now });
+    expect(behind.label).toBe('Synchronisation avec le réseau…');
+    expect(behind.behind).toBe('en retard de 3\u00a0heures');
+    expect(behind.detail).toContain('Le dernier bloc reçu avait été généré il y a 3\u00a0heures.');
+    expect(behind.detail).not.toMatch(/\b(hours|behind|Processed)\b/);
+    expect(niceTimeOffset(400 * 86400)).toBe('1\u00a0an et 4\u00a0semaines');
+    expect(statusText({ status: 'confirmed', depth: 7, maturesIn: 0 })).toBe('Confirmée (7 confirmations)');
+    expect(tn('Processed %n block(s) of transaction history.', 100)).toBe('100 blocs d’historique transactionnel ont été traités.');
+    // And English as it was written.
+    setCatalog(null);
+    expect(syncStatus({ tipHeight: 1, tipTime: now - 3 * 3600, progress: 0.5, loadingBlocks: false, headerHeight: 1, headerTime: now, connections: 3, networkActive: true, spacing: 600, now }).behind).toBe('3 hours behind');
+    expect(niceTimeOffset(400 * 86400)).toBe('1 year and 4 weeks');
   });
 });

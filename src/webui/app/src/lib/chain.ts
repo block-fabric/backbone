@@ -1,6 +1,7 @@
 // The drivechain state of Chains (BIP300/301) as the RPC methods give it, and what the sidechain
 // pages show of it: slots, proposals and their acks, escrows and deposits, withdrawal bundles and
 // their votes.
+import { t } from './i18n.svelte';
 import { rpc } from './rpc';
 
 export interface DrivechainInfo {
@@ -146,10 +147,15 @@ export function bundleCanPass(b: Bundle, info: DrivechainInfo): boolean {
 
 /** The summary line of the page (SidechainPage::refresh), with the escrow already formatted. */
 export function summaryText(info: DrivechainInfo, escrow: string): string {
-  return (
-    `${info.activesidechains} of ${info.maxsidechains} sidechain slots in use, holding ${escrow} in escrow. ` +
-    `A proposal needs ${info.activationperiod} blocks to activate and is rejected after ${info.activationmaxfailures} blocks without an ack. ` +
-    `A withdrawal has ${info.withdrawalperiod} blocks to reach a score of ${info.withdrawalminscore}.`
+  return t(
+    '%1 of %2 sidechain slots in use, holding %3 in escrow. A proposal needs %4 blocks to activate and is rejected after %5 blocks without an ack. A withdrawal has %6 blocks to reach a score of %7.',
+    info.activesidechains,
+    info.maxsidechains,
+    escrow,
+    info.activationperiod,
+    info.activationmaxfailures,
+    info.withdrawalperiod,
+    info.withdrawalminscore,
   );
 }
 
@@ -157,13 +163,13 @@ export function summaryText(info: DrivechainInfo, escrow: string): string {
 export function voteText(vote: string): string {
   switch (vote) {
     case 'upvote':
-      return 'Upvote';
+      return t('Upvote');
     case 'downvote':
-      return 'Downvote';
+      return t('Downvote');
     case 'abstain':
-      return 'Abstain';
+      return t('Abstain');
     case 'follow':
-      return 'Follow';
+      return t('Follow');
     default:
       return vote;
   }

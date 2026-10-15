@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // Solo mining with the processor of this computer (MiningDialog of chains-qt): an address for the
   // rewards (new from the wallet), threads, start and stop, how the miner does, and the network.
   import Icon from '../components/Icon.svelte';
@@ -54,14 +55,14 @@
   async function newAddress(): Promise<boolean> {
     const wallet = wallets.current;
     if (wallet === null) {
-      await inform('Solo Mine', walletsEnabled() ? 'Open or create a wallet first, or enter an address.' : 'Enter an address: this node runs without wallets (-disablewallet).');
+      await inform(t('Solo Mine'), walletsEnabled() ? t('Open or create a wallet first, or enter an address.') : t('Enter an address: this node runs without wallets (-disablewallet).'));
       return false;
     }
     try {
       address = await rpc.call('getnewaddress', ['mining'], { wallet });
       return true;
     } catch (e) {
-      await inform('Solo Mine', errorText(e), 'warning');
+      await inform(t('Solo Mine'), errorText(e), 'warning');
       return false;
     }
   }
@@ -74,7 +75,7 @@
       await rpc.raw('setgenerate', [true, address.trim(), threads]);
       savePrefs({ miningAddress: address.trim(), miningThreads: threads });
     } catch (e) {
-      await inform('Solo Mine', errorText(e), 'warning');
+      await inform(t('Solo Mine'), errorText(e), 'warning');
     } finally {
       busy = false;
       refresh();
@@ -86,7 +87,7 @@
     try {
       await rpc.raw('setgenerate', [false]);
     } catch (e) {
-      await inform('Solo Mine', errorText(e), 'warning');
+      await inform(t('Solo Mine'), errorText(e), 'warning');
     } finally {
       busy = false;
       refresh();

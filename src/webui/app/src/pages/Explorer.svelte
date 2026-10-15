@@ -168,7 +168,7 @@
           await showBlock(hash);
           return;
         } catch (e) {
-          await inform('Block Explorer', errorText(e));
+          await inform(t('Block Explorer'), errorText(e));
           return;
         }
       }
@@ -176,12 +176,12 @@
         if (await showBlock(q.hash)) return;
         if (await showTx(q.hash, null)) return;
         await inform(
-          'Block Explorer',
-          'No block has this hash, and no transaction with this id is waiting to be mined. Finding a mined transaction by its id alone requires the node to run with -txindex.',
+          t('Block Explorer'),
+          t('No block has this hash, and no transaction with this id is waiting to be mined. Finding a mined transaction by its id alone requires the node to run with -txindex.'),
         );
         return;
       }
-      await inform('Block Explorer', 'Enter a block height, a block hash or a transaction id.');
+      await inform(t('Block Explorer'), t('Enter a block height, a block hash or a transaction id.'));
     } finally {
       loading = false;
     }

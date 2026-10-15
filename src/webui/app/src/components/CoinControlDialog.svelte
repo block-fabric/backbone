@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // Coin control: choose the coins a transaction spends (CoinControlDialog), by address or in a list.
   import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
@@ -167,7 +168,7 @@
 
   async function copy(text: string) {
     await host.copy(text).catch(() => undefined);
-    toast('success', 'Copied', text.length > 80 ? undefined : text);
+    toast('success', t('Copied'), text.length > 80 ? undefined : text);
   }
 
   async function setLocked(c: Coin, lock: boolean) {
@@ -180,7 +181,7 @@
       }
       await load();
     } catch (e) {
-      toast('error', 'Coin control', e instanceof Error ? e.message : String(e));
+      toast('error', t('Coin control'), e instanceof Error ? e.message : String(e));
     }
   }
 

@@ -11,6 +11,7 @@
   <button title="Mask values">Send</button>
   <input placeholder="Enter address or label to search" />
   <p id="behind">{hours} hours behind</p>
+  <p id="behind-own">{hours} behind</p>
   <p id="label"><SafeText text={label} /></p>
   <p id="bare">{label}</p>
   <span translate="no" id="no">Send</span>

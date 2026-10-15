@@ -38,6 +38,7 @@
   let sortDir: 'asc' | 'desc' = $state('desc');
 
   const types = $derived(ADDRESS_TYPES.filter((t) => !t.taproot || info?.taproot));
+  const typeTip = $derived(types.find((ty) => ty.id === addressType)?.tip ?? '');
 
   $effect(() => {
     if (wallet !== null) refreshInfo();
@@ -73,7 +74,7 @@
       const type = addressType || info?.defaultAddressType || 'bech32';
       const address = await withUnlock(wallet, (passphrase) => api.newAddress(label, type, passphrase));
       if (address === null) {
-        await inform('Receive', 'Could not unlock wallet.', 'error');
+        await inform(t('Receive'), t('Could not unlock wallet.'), 'error');
         return;
       }
       const request = { address, label, amount: amount ?? 0n, message };
@@ -83,7 +84,7 @@
       await loadRequests();
       clear();
     } catch (e) {
-      await inform('Receive', errorText(e), 'error');
+      await inform(t('Receive'), errorText(e), 'error');
     } finally {
       busy = false;
     }
@@ -106,13 +107,13 @@
       selected = null;
       await loadRequests();
     } catch (e) {
-      toast('error', 'Remove', errorText(e));
+      toast('error', t('Remove'), errorText(e));
     }
   }
 
   async function copy(text: string, what: string) {
     await host.copy(text).catch(() => undefined);
-    toast('success', 'Copied', what);
+    toast('success', t('Copied'), what);
   }
 
   const menuItems: ContextItem[] = $derived(
@@ -162,7 +163,7 @@
             <select id="req-type" bind:value={addressType}>
               {#each types as tb (tb.id)}<option value={tb.id} title={t(tb.tip)}>{t(tb.label)}</option>{/each}
             </select>
-            <span class="hint">{t(types.find((ty) => ty.id === addressType)?.tip ?? '')}</span>
+            <span class="hint">{t(typeTip)}</span>
           </div>
           <div class="row">
             <button type="submit" class="btn primary" disabled={busy || !info?.canGetAddresses} title={info && !info.canGetAddresses ? 'This wallet cannot give out new addresses' : undefined}>

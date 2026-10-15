@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // Copies text to the clipboard of the desktop.
   import Icon from './Icon.svelte';
   import { host } from '../lib/rpc';
@@ -13,7 +14,7 @@
       done = true;
       setTimeout(() => (done = false), 1400);
     } catch (e) {
-      toast('error', 'Could not copy', e instanceof Error ? e.message : String(e));
+      toast('error', t('Could not copy'), e instanceof Error ? e.message : String(e));
     }
   }
 </script>

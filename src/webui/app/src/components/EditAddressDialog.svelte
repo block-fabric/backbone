@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // Add or edit an entry of the address book (EditAddressDialog).
   import Dialog from './Dialog.svelte';
   import { errorText } from '../lib/dialogs.svelte';
@@ -46,7 +47,7 @@
         await api.editAddress(edit.address, label, edit.mode === 'edit-send' && changed ? address.trim() : undefined);
       }
       await refreshAddresses(true);
-      toast('success', 'Address book', edit.mode === 'new-send' ? 'Address added' : 'Address saved');
+      toast('success', t('Address book'), edit.mode === 'new-send' ? t('Address added') : t('Address saved'));
       edit = null;
     } catch (e) {
       error = errorText(e);

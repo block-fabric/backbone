@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from '../components/SafeText.svelte';
   // Sign and verify messages (SignVerifyMessageDialog).
-  import { tx } from '../lib/i18n.svelte';
   import AddressPicker from '../components/AddressPicker.svelte';
   import CopyButton from '../components/CopyButton.svelte';
   import Icon from '../components/Icon.svelte';
@@ -31,12 +32,12 @@
 
   // An address given with the tab ("sign:<address>", from the address book).
   $effect(() => {
-    const t = nav.tab;
-    const i = t.indexOf(':');
+    const tab = nav.tab;
+    const i = tab.indexOf(':');
     if (i < 0) return;
-    if (t.startsWith('sign')) signAddress = t.slice(i + 1);
-    else verifyAddress = t.slice(i + 1);
-    nav.tab = t.slice(0, i);
+    if (tab.startsWith('sign')) signAddress = tab.slice(i + 1);
+    else verifyAddress = tab.slice(i + 1);
+    nav.tab = tab.slice(0, i);
   });
 
   async function sign() {
@@ -49,10 +50,10 @@
       const api = walletApi(wallet);
       const r = await withUnlock(wallet, (passphrase) => api.signMessage(signAddress.trim(), signMessage, passphrase));
       if (!r) {
-        signStatus = { text: 'Wallet unlock was cancelled.', ok: false };
+        signStatus = { text: t('Wallet unlock was cancelled.'), ok: false };
       } else {
         signature = r.signature;
-        signStatus = { text: 'Message signed.', ok: true };
+        signStatus = { text: t('Message signed.'), ok: true };
       }
     } catch (e) {
       signStatus = { text: e instanceof BridgeError || e instanceof Error ? e.message : String(e), ok: false };
@@ -128,7 +129,7 @@
               signStatus = { text: '', ok: false };
             }}>Clear All</button
           >
-          {#if signStatus.text}<span class="status" class:ok={signStatus.ok} class:bad={!signStatus.ok} role="status">{tx(signStatus.text)}</span>{/if}
+          {#if signStatus.text}<span class="status" class:ok={signStatus.ok} class:bad={!signStatus.ok} role="status"><SafeText text={signStatus.text} /></span>{/if}
         </div>
       </form>
     </section>
@@ -171,7 +172,7 @@
               verifyStatus = { text: '', ok: false, field: '' };
             }}>Clear All</button
           >
-          {#if verifyStatus.text}<span class="status" class:ok={verifyStatus.ok} class:bad={!verifyStatus.ok} role="status">{tx(verifyStatus.text)}</span>{/if}
+          {#if verifyStatus.text}<span class="status" class:ok={verifyStatus.ok} class:bad={!verifyStatus.ok} role="status"><SafeText text={verifyStatus.text} /></span>{/if}
         </div>
       </form>
     </section>

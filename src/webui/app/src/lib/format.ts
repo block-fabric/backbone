@@ -1,8 +1,6 @@
 // Times, durations and sizes, as chains-qt writes them.
+import { t, tn } from './i18n.svelte';
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
-}
 
 /** How long ago, in words (GUIUtil::formatNiceTimeOffset). */
 export function niceTimeOffset(secs: number): string {
@@ -11,12 +9,12 @@ export function niceTimeOffset(secs: number): string {
   const WEEK = 7 * DAY;
   const YEAR = 31556952;
   const s = Math.max(0, Math.floor(secs));
-  if (s < 60) return plural(s, 'second');
-  if (s < 2 * HOUR) return plural(Math.floor(s / 60), 'minute');
-  if (s < 2 * DAY) return plural(Math.floor(s / HOUR), 'hour');
-  if (s < 2 * WEEK) return plural(Math.floor(s / DAY), 'day');
-  if (s < YEAR) return plural(Math.floor(s / WEEK), 'week');
-  return `${plural(Math.floor(s / YEAR), 'year')} and ${plural(Math.floor((s % YEAR) / WEEK), 'week')}`;
+  if (s < 60) return tn('%n second(s)', s);
+  if (s < 2 * HOUR) return tn('%n minute(s)', Math.floor(s / 60));
+  if (s < 2 * DAY) return tn('%n hour(s)', Math.floor(s / HOUR));
+  if (s < 2 * WEEK) return tn('%n day(s)', Math.floor(s / DAY));
+  if (s < YEAR) return tn('%n week(s)', Math.floor(s / WEEK));
+  return t('%1 and %2', tn('%n year(s)', Math.floor(s / YEAR)), tn('%n week(s)', Math.floor((s % YEAR) / WEEK)));
 }
 
 /** A duration, short: "3 d 4 h", "5 m 2 s" (GUIUtil::formatDurationStr). */

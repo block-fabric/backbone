@@ -35,34 +35,34 @@
   }
 
   function rateText(kbs: number): string {
-    return kbs >= 1000 ? `${(kbs / 1000).toFixed(1)} MB/s` : `${kbs.toFixed(kbs < 10 ? 2 : 1)} kB/s`;
+    return kbs >= 1000 ? t('%1 MB/s', (kbs / 1000).toFixed(1)) : t('%1 kB/s', kbs.toFixed(kbs < 10 ? 2 : 1));
   }
   const latest = $derived(points.length ? points[points.length - 1] : null);
 </script>
 
 <section class="panel traffic">
   <div class="graph">
-    <svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" role="img" aria-label="Network traffic, received and sent, over the last {t(rangeText(prefs.trafficRange))}">
+    <svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" role="img" aria-label="Network traffic, received and sent, over the last {rangeText(prefs.trafficRange)}">
       {#each [0.25, 0.5, 0.75] as f (f)}<line class="grid" x1="0" x2={W} y1={H * f} y2={H * f} />{/each}
       <path class="area in" d={path('inRate', true)} />
       <path class="area out" d={path('outRate', true)} />
       <path class="line in" d={path('inRate', false)} />
       <path class="line out" d={path('outRate', false)} />
     </svg>
-    <span class="scale num">{t(rateText(scale))}</span>
+    <span class="scale num">{rateText(scale)}</span>
     {#if points.length === 0}<span class="empty muted">Collecting samples…</span>{/if}
   </div>
   <div class="controls">
     <label class="range">
       <span class="muted">Range</span>
       <input type="range" min={MIN_RANGE_MINUTES} max={MAX_RANGE_MINUTES} step="5" value={prefs.trafficRange} oninput={(e) => savePrefs({ trafficRange: Number((e.currentTarget as HTMLInputElement).value) })} aria-label="Range of the graph" />
-      <span class="num">{t(rangeText(prefs.trafficRange))}</span>
+      <span class="num">{rangeText(prefs.trafficRange)}</span>
     </label>
     <button type="button" class="btn small" onclick={() => clearGraph()}>Clear</button>
   </div>
   <dl class="totals">
-    <div><dt><span class="dot in"></span>Received</dt><dd class="num">{formatBytes(traffic.recv)}</dd><dd class="rate num">{latest ? t(rateText(latest.inRate)) : '–'}</dd></div>
-    <div><dt><span class="dot out"></span>Sent</dt><dd class="num">{formatBytes(traffic.sent)}</dd><dd class="rate num">{latest ? t(rateText(latest.outRate)) : '–'}</dd></div>
+    <div><dt><span class="dot in"></span>Received</dt><dd class="num">{formatBytes(traffic.recv)}</dd><dd class="rate num">{latest ? rateText(latest.inRate) : '–'}</dd></div>
+    <div><dt><span class="dot out"></span>Sent</dt><dd class="num">{formatBytes(traffic.sent)}</dd><dd class="rate num">{latest ? rateText(latest.outRate) : '–'}</dd></div>
   </dl>
 </section>
 

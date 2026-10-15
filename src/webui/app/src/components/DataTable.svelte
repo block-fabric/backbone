@@ -167,7 +167,7 @@
           >
             {#each columns as column (column.key)}
               <div role="gridcell" class="cell {column.align ?? 'start'}" class:mono={column.mono}>
-                {#if cell}{@render cell(row, column)}{:else if column.words}{t(String(column.value(row) ?? ''))}{:else}<SafeText text={String(column.value(row) ?? '')} />{/if}
+                {#if cell}{@render cell(row, column)}{:else if column.words}{String(column.value(row) ?? '')}{:else}<SafeText text={String(column.value(row) ?? '')} />{/if}
               </div>
             {/each}
           </div>

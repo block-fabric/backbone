@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // A payment request: the QR code, the link, the address (ReceiveRequestDialog, QRImageWidget).
   import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
@@ -30,14 +31,14 @@
     if (!request) return;
     const png = qrPngBase64(uri, request.address);
     if (!png) {
-      toast('error', 'Save QR code', 'The picture could not be made');
+      toast('error', t('Save QR code'), t('The picture could not be made'));
       return;
     }
     const path = await saveBase64As({ title: 'Save QR Code', name: safeFileName(`${request.label || request.address}.png`), filters: [FILTERS.png] }, png).catch((e) => {
-      toast('error', 'Save QR code', errorText(e));
+      toast('error', t('Save QR code'), errorText(e));
       return null;
     });
-    if (path) toast('success', 'Saved', path);
+    if (path) toast('success', t('Saved'), path);
   }
 
   async function verify() {
@@ -45,7 +46,7 @@
     try {
       await walletApi(wallet).displayAddress(request.address);
     } catch (e) {
-      await inform('Signer error', errorText(e), 'warning');
+      await inform(t('Signer error'), errorText(e), 'warning');
     }
   }
 </script>

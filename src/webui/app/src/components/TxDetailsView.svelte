@@ -1,7 +1,7 @@
 <script lang="ts">
   // The details of a transaction of the wallet (TransactionDesc::toHTML): in the dialog of the
   // transactions page, or in the detail panel of the workspace layout.
-  import { t, tx } from '../lib/i18n.svelte';
+  import { t } from '../lib/i18n.svelte';
   import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
   import CopyButton from './CopyButton.svelte';
@@ -31,11 +31,11 @@
     {#if row.own}<span class="badge accent">own address</span>{/if}
   {:else if row.sats !== undefined}
     <Amount sats={row.sats} plus={row.plus} colored={row.k === 'Net amount'} />
-    {#if row.note}<span class="muted">({t(row.note)})</span>{/if}
+    {#if row.note}<span class="muted">(<SafeText text={row.note} />)</span>{/if}
   {:else if row.time !== undefined}
     {row.time ? formatTime(row.time) : ''}
   {:else if row.k === 'Status'}
-    <span class="break">{tx(row.text ?? '')}</span>
+    <span class="break"><SafeText text={row.text ?? ''} /></span>
   {:else}
     <SafeText class="break" text={row.text} />
   {/if}
@@ -70,7 +70,7 @@
         </dd>
       {/each}
     </dl>
-    {#if details.coinbaseNote}<p class="muted note">{tx(details.coinbaseNote)}</p>{/if}
+    {#if details.coinbaseNote}<p class="muted note"><SafeText text={details.coinbaseNote} /></p>{/if}
     {#if details.debug}
       <details class="debug">
         <summary>Debug information</summary>

@@ -1,6 +1,8 @@
 // The tools of chains-qt that work on text: proofs of funds, multisig amounts and signature counts,
 // the search of the block explorer, the payload of a file stamp.
 
+import { t } from './i18n.svelte';
+
 // --- Proof of funds (proofoffundsdialog.cpp) ---
 
 export const PROOF_BEGIN = '-----BEGIN CHAINS PROOF OF FUNDS-----';
@@ -83,7 +85,7 @@ export function bareDescriptor(descriptor: string): string {
 export function signersText(descriptor: string): string {
   const m = /multi\((\d+),/.exec(descriptor);
   const keys = (descriptor.match(/,/g) ?? []).length;
-  return `${m ? m[1] : '?'} of ${keys}`;
+  return t('%1 of %2', m ? m[1] : '?', keys);
 }
 
 /** The key of a wallet address, with its derivation path, from the descriptor of getaddressinfo ("wpkh(KEY)#..."). */

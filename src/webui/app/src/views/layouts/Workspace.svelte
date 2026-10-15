@@ -84,7 +84,7 @@
         title={PAGES[tb.page].shortcut ? `${t(PAGES[tb.page].summary)} (${PAGES[tb.page].shortcut})` : t(PAGES[tb.page].summary)}
         onclick={() => go(tb.page, tb.tab ?? '')}
       >
-        {t(placeLabel(tb))}
+        {t(tb.label ?? PAGES[tb.page].title)}
         {#if !PAGES[tb.page].ready}<span class="soon" aria-label="(being rebuilt)">•</span>{/if}
       </button>
     {/each}

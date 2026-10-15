@@ -10,6 +10,7 @@
   import QrCode from '../components/QrCode.svelte';
   import { formatTime, shortHash } from '../lib/format';
   import { toast } from '../lib/state.svelte';
+  import { t } from '../lib/i18n.svelte';
   import type { Column } from '../lib/table';
   import { formatPaymentUri } from '../lib/uri';
 
@@ -62,7 +63,7 @@
         <AddressInput id="kit-address" bind:value={address} bind:valid={addressValid} />
         <div class="row">
           <button type="button" class="btn" onclick={() => (dialogOpen = true)}>Open a dialog</button>
-          <button type="button" class="btn" onclick={() => toast('success', 'Copied', 'A notice, as after copying.')}>Show a notice</button>
+          <button type="button" class="btn" onclick={() => toast('success', t('Copied'), t('A notice, as after copying.'))}>Show a notice</button>
           <CopyButton text={uri} label="Copy the URI" iconOnly={false} small={false} />
         </div>
       </div>
@@ -82,7 +83,7 @@
       <input type="search" placeholder="Filter" aria-label="Filter the rows" bind:value={filter} />
     </div>
     <div class="table-holder">
-      <DataTable {rows} {columns} key={(r) => r.id} {filter} bind:selected label="Generated rows" onactivate={(r) => toast('info', `Row ${r.n}`, r.label)}>
+      <DataTable {rows} {columns} key={(r) => r.id} {filter} bind:selected label="Generated rows" onactivate={(r) => toast('info', t('Row %1', r.n), r.label)}>
         {#snippet cell(row, column)}
           {#if column.key === 'amount'}<Amount sats={row.amount} colored plus />
           {:else if column.key === 'time'}{formatTime(row.time)}

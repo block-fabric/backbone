@@ -8,7 +8,7 @@
   import TitleStrip from './components/TitleStrip.svelte';
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
-  import { followLocale, loadLocale } from './lib/i18n.svelte';
+  import { t, followLocale, loadLocale } from './lib/i18n.svelte';
   import { handleShortcut } from './lib/keyboard';
   import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
@@ -99,13 +99,13 @@
   function handleUri(uri: string) {
     const parsed = parsePaymentUri(uri);
     if (!parsed.ok) {
-      toast('error', 'Payment request error', parsed.error);
+      toast('error', t('Payment request error'), parsed.error);
       return;
     }
     nav.pendingUri = uri;
     nav.uriSeq++;
     go('send');
-    toast('info', 'Payment request', `Pay to ${parsed.request.address}`);
+    toast('info', t('Payment request'), t('Pay to %1', parsed.request.address));
   }
 
   function droppedUris(e: DragEvent): string[] {

@@ -152,9 +152,9 @@
   async function copy(text: string, what: string) {
     try {
       await host.copy(text);
-      toast('success', 'Copied', what);
+      toast('success', t('Copied'), what);
     } catch (e) {
-      toast('error', 'Could not copy', errorText(e));
+      toast('error', t('Could not copy'), errorText(e));
     }
   }
 
@@ -210,9 +210,9 @@
     const sorted = [...shown].sort((a, b) => b.time - a.time || b.sortKey.localeCompare(a.sortKey));
     try {
       const path = await saveTextAs({ title: 'Export Transaction History', name: 'transactions.csv', filters: [FILTERS.csv] }, transactionsCsv(sorted, prefs.unit));
-      if (path) toast('success', 'Exporting Successful', `The transaction history was successfully saved to ${path}.`);
+      if (path) toast('success', t('Exporting Successful'), t('The transaction history was successfully saved to %1.', path));
     } catch (e) {
-      await inform('Exporting Failed', `There was an error trying to save the transaction history. ${errorText(e)}`, 'error');
+      await inform(t('Exporting Failed'), t('There was an error trying to save the transaction history. %1', errorText(e)), 'error');
     }
   }
 
@@ -284,7 +284,7 @@
             <span class="cellwrap {rowClass(row)}" title={column.key === 'label' ? `${statusText(row)}\n${typeText(row.type)} ${addressText(row, true)}` : undefined}>
               {#if column.key === 'status'}<TxStatusIcon record={row} />
               {:else if column.key === 'date'}{narrow ? formatTime(row.time, true) : formatTime(row.time)}
-              {:else if column.key === 'type'}<span class="type {row.type}"><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /> {t(typeText(row.type) || 'Other')}</span>
+              {:else if column.key === 'type'}<span class="type {row.type}"><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /> {typeText(row.type) || 'Other'}</span>
               {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeText(row.type) || 'Other'}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span> {/if}<span class:bare={!row.label} translate="no">{addressText(row)}</span>
               {:else if column.key === 'amount'}
                 {#if prefs.mask}<Amount sats={row.amount} showUnit={false} />

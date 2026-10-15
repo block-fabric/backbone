@@ -1,6 +1,7 @@
 // Dialogs that a page waits for: a question with buttons (QMessageBox), a line of text
 // (QInputDialog), a passphrase (AskPassphraseDialog). One shows at a time; DialogHost.svelte draws it.
 import { BridgeError, request } from './bridge';
+import { t } from './i18n.svelte';
 import { rpc } from './rpc';
 import { WalletError } from './wallet';
 
@@ -108,10 +109,10 @@ export interface PassphraseAnswer {
 /** Ask for a passphrase; null when cancelled. */
 export function askPassphrase(mode: PassphraseMode, options: { wallet?: string; error?: string } = {}): Promise<PassphraseAnswer | null> {
   const titles: Record<PassphraseMode, string> = {
-    unlock: 'Unlock wallet',
-    migrate: 'Unlock wallet',
-    encrypt: 'Encrypt wallet',
-    change: 'Change passphrase',
+    unlock: t('Unlock wallet'),
+    migrate: t('Unlock wallet'),
+    encrypt: t('Encrypt wallet'),
+    change: t('Change passphrase'),
   };
   return push({ kind: 'passphrase', mode, title: titles[mode], ...options });
 }

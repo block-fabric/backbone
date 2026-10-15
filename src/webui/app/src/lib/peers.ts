@@ -1,6 +1,7 @@
 // Peers and bans of the node window (PeerTableModel, BanTableModel and RPCConsole::updateDetailWidget
 // of chains-qt), from getpeerinfo and listbanned.
 import { formatBytes, shortDuration } from './format';
+import { t } from './i18n.svelte';
 
 export interface PeerInfo {
   id: number;
@@ -74,8 +75,8 @@ export function connectionType(type: string, inbound: boolean, withDirection = f
 
 /** A ping time (GUIUtil::formatPingTime): "N/A" when there is none. */
 export function pingText(seconds: number | undefined): string {
-  if (seconds === undefined || seconds <= 0 || !Number.isFinite(seconds)) return 'N/A';
-  return `${Math.round(seconds * 1000)} ms`;
+  if (seconds === undefined || seconds <= 0 || !Number.isFinite(seconds)) return t('N/A');
+  return t('%1 ms', Math.round(seconds * 1000));
 }
 
 /** How long ago something happened, "Never" if it did not (RPCConsole TimeDurationField). */

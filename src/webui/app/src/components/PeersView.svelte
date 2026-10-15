@@ -84,19 +84,19 @@
       selected = null;
       refresh();
     } catch (e) {
-      toast('error', 'Disconnect', errorText(e));
+      toast('error', t('Disconnect'), errorText(e));
     }
   }
 
   async function ban(p: PeerInfo, seconds: number, label: string) {
     try {
       await host.banPeer(p.id, seconds);
-      toast('info', 'Peer banned', `${p.addr} for ${label}`);
+      toast('info', t('Peer banned'), t('%1 for %2', p.addr, label));
       selected = null;
       refresh();
       refreshBans();
     } catch (e) {
-      toast('error', 'Ban', errorText(e));
+      toast('error', t('Ban'), errorText(e));
     }
   }
 
@@ -106,7 +106,7 @@
       selectedBan = null;
       refreshBans();
     } catch (e) {
-      toast('error', 'Unban', errorText(e));
+      toast('error', t('Unban'), errorText(e));
     }
   }
 
@@ -115,7 +115,7 @@
       ? [
           { label: 'Copy address', action: () => host.copy(menu.peer!.addr) },
           { label: 'Disconnect', action: () => disconnect(menu.peer!), separator: true },
-          ...BAN_TIMES.map((t, i) => ({ label: `Ban for ${t.label}`, action: () => ban(menu.peer!, t.seconds, t.label), danger: true, separator: i === 0 })),
+          ...BAN_TIMES.map((b, i) => ({ label: `Ban for ${b.label}`, action: () => ban(menu.peer!, b.seconds, t(b.label)), danger: true, separator: i === 0 })),
         ]
       : [],
   );
@@ -135,7 +135,7 @@
       <DataTable rows={peers} {columns} key={(p) => String(p.id)} bind:selected bind:sortKey bind:sortDir label="Peers" empty="No peers connected" oncontext={(p, e) => (menu = { open: true, x: e.clientX, y: e.clientY, peer: p })}>
         {#snippet cell(p, column)}
           {#if column.key === 'age'}{shortDuration(now - p.conntime)}
-          {:else if column.key === 'ping'}{t(pingText(p.pingtime))}
+          {:else if column.key === 'ping'}{pingText(p.pingtime)}
           {:else if column.key === 'sent'}{formatBytes(p.bytessent)}
           {:else if column.key === 'recv'}{formatBytes(p.bytesrecv)}
           {:else if column.key === 'direction'}<span class="dir" class:inbound={p.inbound}><Icon name={p.inbound ? 'down' : 'up'} size={13} /> {p.inbound ? 'Inbound' : 'Outbound'}</span>
@@ -171,7 +171,7 @@
       </dl>
       <div class="panel-body row actions">
         <button type="button" class="btn small" onclick={() => disconnect(peer)}>Disconnect</button>
-        <button type="button" class="btn small danger" onclick={async () => { if (await confirm('Ban peer', `Ban ${peer.addr} for 1 day?`, { yes: 'Ban', danger: true })) ban(peer, 86400, '1 day'); }}>Ban…</button>
+        <button type="button" class="btn small danger" onclick={async () => { if (await confirm(t('Ban peer'), t('Ban %1 for 1 day?', peer.addr), { yes: 'Ban', danger: true })) ban(peer, 86400, t('1 day')); }}>Ban…</button>
       </div>
     </aside>
   {:else}

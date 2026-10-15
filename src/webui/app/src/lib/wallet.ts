@@ -1,6 +1,7 @@
 // The wallet functions of the host (src/webui/walletapi.h), typed, and what the wallet pages of
 // chains-qt compute from them: the texts of the transaction table, its filters, the CSV export.
 import { BridgeError, request } from './bridge';
+import { t } from './i18n.svelte';
 import { formatAmount, type Unit } from './units';
 
 /** Error codes of the wallet functions (walletapi.h). */
@@ -443,14 +444,14 @@ export const RECOMMENDED_CONFIRMATIONS = 6;
 export function typeText(type: RecordType): string {
   switch (type) {
     case 'recv':
-      return 'Received with';
+      return t('Received with');
     case 'recvOther':
-      return 'Received from';
+      return t('Received from');
     case 'send':
     case 'sendOther':
-      return 'Sent to';
+      return t('Sent to');
     case 'mined':
-      return 'Mined';
+      return t('Mined');
     default:
       return '';
   }
@@ -460,19 +461,19 @@ export function typeText(type: RecordType): string {
 export function statusText(r: Pick<TxRecord, 'status' | 'depth' | 'maturesIn'>): string {
   switch (r.status) {
     case 'unconfirmed':
-      return 'Unconfirmed';
+      return t('Unconfirmed');
     case 'abandoned':
-      return 'Abandoned';
+      return t('Abandoned');
     case 'confirming':
-      return `Confirming (${r.depth} of ${RECOMMENDED_CONFIRMATIONS} recommended confirmations)`;
+      return t('Confirming (%1 of %2 recommended confirmations)', r.depth, RECOMMENDED_CONFIRMATIONS);
     case 'confirmed':
-      return `Confirmed (${r.depth} confirmations)`;
+      return t('Confirmed (%1 confirmations)', r.depth);
     case 'conflicted':
-      return 'Conflicted';
+      return t('Conflicted');
     case 'immature':
-      return `Immature (${r.depth} confirmations, will be available after ${r.depth + r.maturesIn})`;
+      return t('Immature (%1 confirmations, will be available after %2)', r.depth, r.depth + r.maturesIn);
     case 'notaccepted':
-      return 'Generated but not accepted';
+      return t('Generated but not accepted');
   }
 }
 

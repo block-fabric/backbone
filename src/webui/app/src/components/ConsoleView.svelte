@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // The console of the node window (RPCConsole): commands with nesting and queries, a history
   // (arrows), completion of command names (Tab), a wallet to run them on, help-console, Ctrl+L.
   import { onMount, tick } from 'svelte';
@@ -53,12 +54,12 @@
     try {
       const check = await host.consoleCheck(cmd);
       if (!check.ok) {
-        await inform('Error', check.error ?? 'Invalid command line', 'error');
+        await inform(t('Error'), check.error ?? t('Invalid command line'), 'error');
         return;
       }
       filtered = check.filtered ?? cmd;
     } catch (e) {
-      await inform('Error', e instanceof Error ? e.message : String(e), 'error');
+      await inform(t('Error'), e instanceof Error ? e.message : String(e), 'error');
       return;
     }
     // A stop may be asked for while a long command runs.

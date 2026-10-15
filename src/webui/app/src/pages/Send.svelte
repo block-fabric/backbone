@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from '../components/SafeText.svelte';
   // Send coins (SendCoinsDialog, SendCoinsEntry): several recipients, the fee, coin control, a
   // confirmation with a delay, unsigned transactions (PSBT) and hardware wallets.
-  import { tx } from '../lib/i18n.svelte';
   import AddressInput from '../components/AddressInput.svelte';
   import AddressPicker from '../components/AddressPicker.svelte';
   import Amount from '../components/Amount.svelte';
@@ -87,7 +88,7 @@
   // Dust, checked with the node as the amount and the address are typed (SendCoinsEntry::validate).
   $effect(() => {
     const checks = entries.map((e) => ({ e, address: e.address.trim(), amount: e.amount, valid: e.valid }));
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       for (const { e, address, amount, valid } of checks) {
         if (!valid || amount === null || amount <= 0n) {
           e.dust = false;
@@ -100,7 +101,7 @@
           .catch(() => undefined);
       }
     }, 250);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   });
 
   $effect(() => {
@@ -136,8 +137,8 @@
       summary = null;
       return;
     }
-    const t = setTimeout(() => api.coinSummary({ selected: list }, amounts, subtract, fee).then((s) => (summary = s)).catch(() => (summary = null)), 150);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => api.coinSummary({ selected: list }, amounts, subtract, fee).then((s) => (summary = s)).catch(() => (summary = null)), 150);
+    return () => clearTimeout(timer);
   });
 
   // Coin control turned off: nothing chosen any more.
@@ -169,13 +170,13 @@
   async function pasteUri(uri: string): Promise<boolean> {
     const parsed = parsePaymentUri(uri);
     if (!parsed.ok) {
-      await inform('Payment request error', parsed.error, 'error');
+      await inform(t('Payment request error'), parsed.error, 'error');
       return false;
     }
     const check = await checkAddress(parsed.request.address, app.info?.network ?? 'main');
     if (!check.valid) {
       // PaymentServer::handleURIOrFile: an address of another network, or no address.
-      await inform('URI handling', `Invalid payment address ${parsed.request.address}`, 'error');
+      await inform(t('URI handling'), t('Invalid payment address %1', parsed.request.address), 'error');
       return false;
     }
     const first = entries.length === 1 ? entries[0] : null;
@@ -230,7 +231,7 @@
         e.amount = 0n;
       }
     } catch (err) {
-      toast('error', 'Use available balance', errorText(err));
+      toast('error', t('Use available balance'), errorText(err));
     }
   }
 
@@ -248,16 +249,16 @@
       changeStatus = { text: '', bad: false, accepted: '' };
       return;
     }
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       const r = await api.checkChange(text).catch(() => null);
       if (mine !== changeCheck || !r) return;
       if (!r.valid) {
-        changeStatus = { text: 'Warning: Invalid Chains address', bad: true, accepted: '' };
+        changeStatus = { text: t('Warning: Invalid Chains address'), bad: true, accepted: '' };
       } else if (!r.mine) {
-        changeStatus = { text: 'Warning: Unknown change address', bad: true, accepted: '' };
+        changeStatus = { text: t('Warning: Unknown change address'), bad: true, accepted: '' };
         const yes = await ask({
-          title: 'Confirm custom change address',
-          message: 'The address you selected for change is not part of this wallet. Any or all funds in your wallet may be sent to this address. Are you sure?',
+          title: t('Confirm custom change address'),
+          message: t('The address you selected for change is not part of this wallet. Any or all funds in your wallet may be sent to this address. Are you sure?'),
           level: 'warning',
           choices: [
             { id: 'cancel', label: 'Cancel', kind: 'primary' },
@@ -265,16 +266,16 @@
           ],
         });
         if (mine !== changeCheck) return;
-        if (yes.choice === 'yes') changeStatus = { text: 'Warning: Unknown change address', bad: true, accepted: text };
+        if (yes.choice === 'yes') changeStatus = { text: t('Warning: Unknown change address'), bad: true, accepted: text };
         else {
           changeAddress = '';
           changeStatus = { text: '', bad: false, accepted: '' };
         }
       } else {
-        changeStatus = { text: r.label || '(no label)', bad: false, accepted: text };
+        changeStatus = { text: r.label || t('(no label)'), bad: false, accepted: text };
       }
     }, 250);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   });
 
   const smartLabel = $derived(smart ? `${formatAmount(BigInt(smart.feePerK), prefs.unit, { withUnit: true })}/kvB` : '–');
@@ -289,8 +290,8 @@
   async function presentPsbt(psbt: string, recipients: { address: string; label?: string; amount: bigint }[]) {
     await host.copy(psbt).catch(() => undefined);
     const r = await ask({
-      title: 'Unsigned Transaction',
-      message: 'The PSBT has been copied to the clipboard. You can also save it.',
+      title: t('Unsigned Transaction'),
+      message: t('The PSBT has been copied to the clipboard. You can also save it.'),
       code: psbt,
       level: 'info',
       choices: [
@@ -300,7 +301,7 @@
     });
     if (r.choice !== 'save') return;
     const path = await saveBase64As({ title: 'Save Transaction Data', name: safeFileName(psbtFileName(recipients, prefs.unit)), filters: [FILTERS.psbt] }, psbt);
-    if (path) toast('success', 'PSBT saved', 'PSBT saved to disk');
+    if (path) toast('success', t('PSBT saved'), t('PSBT saved to disk'));
   }
 
   async function send() {
@@ -309,19 +310,19 @@
     for (const e of entries) {
       if (!e.valid) {
         document.getElementById(`pay-to-${e.id}`)?.focus();
-        toast('warning', 'Send Coins', e.address ? 'The recipient address is not valid. Please recheck.' : 'Enter an address to pay to.');
+        toast('warning', t('Send Coins'), e.address ? t('The recipient address is not valid. Please recheck.') : t('Enter an address to pay to.'));
         return;
       }
       if (e.amount === null || e.amount <= 0n) {
         document.getElementById(`amount-${e.id}`)?.focus();
         // What the field says of the text typed (too many decimals, out of range...), or an amount of zero.
-        toast('warning', 'Send Coins', e.amount === null && e.amountError ? e.amountError : 'The amount to pay must be larger than 0.');
+        toast('warning', t('Send Coins'), e.amount === null && e.amountError ? e.amountError : t('The amount to pay must be larger than 0.'));
         return;
       }
       if (await isDust(e.address.trim(), e.amount).catch(() => false)) {
         e.dust = true;
         document.getElementById(`amount-${e.id}`)?.focus();
-        toast('warning', 'Send Coins', 'The amount is too small to send: the output would be dust.');
+        toast('warning', t('Send Coins'), t('The amount is too small to send: the output would be dust.'));
         return;
       }
     }
@@ -329,7 +330,7 @@
       // QDoubleSpinBox of chains-qt cannot go below the minimum: here the send waits for a valid fee.
       if (prefs.feeMinimized) savePrefs({ feeMinimized: false });
       queueMicrotask(() => document.getElementById('custom-fee')?.focus());
-      toast('warning', 'Send Coins', `Enter a custom fee of at least ${formatAmount(requiredFee, prefs.unit, { withUnit: true })}/kvB, or choose the recommended fee.`);
+      toast('warning', t('Send Coins'), t('Enter a custom fee of at least %1/kvB, or choose the recommended fee.', formatAmount(requiredFee, prefs.unit, { withUnit: true })));
       return;
     }
     const recipients = entries.map((e) => ({ address: e.address.trim(), label: e.label, amount: e.amount!, subtractFee: e.subtractFee, message: e.message }));
@@ -340,7 +341,7 @@
       prepared = await withUnlock(wallet, (passphrase) => api.prepare(recipients, cc, feeChoice, passphrase));
     } catch (e) {
       busy = false;
-      await inform('Send Coins', errorText(e), 'warning');
+      await inform(t('Send Coins'), errorText(e), 'warning');
       return;
     }
     busy = false;
@@ -350,24 +351,24 @@
     const multi = wallets.list.length > 1;
     const lines = prepared.recipients.map((r) => {
       let amount = formatAmount(r.amount, prefs.unit, { withUnit: true });
-      if (multi) amount = `${amount} from wallet '${walletDisplayName(wallet)}'`;
-      return r.label ? `${amount} to '${r.label}' (${r.address})` : `${amount} to ${r.address}`;
+      if (multi) amount = t("%1 from wallet '%2'", amount, walletDisplayName(wallet));
+      return r.label ? `${t("%1 to '%2'", amount, r.label)} (${r.address})` : t('%1 to %2', amount, r.address);
     });
     const enableSend = !prepared.privateKeysDisabled || prepared.externalSigner;
-    let review = 'Please, review your transaction.';
+    let review = t('Please, review your transaction.');
     if (prepared.privateKeysDisabled && !prepared.externalSigner) {
-      review = `Please, review your transaction proposal. This will produce a Partially Signed Transaction (PSBT) which you can save or copy and then sign with e.g. an offline ${app.info?.name ?? 'Chains'} wallet, or a PSBT-compatible hardware wallet.`;
+      review = t('Please, review your transaction proposal. This will produce a Partially Signed Transaction (PSBT) which you can save or copy and then sign with e.g. an offline %1 wallet, or a PSBT-compatible hardware wallet.', app.info?.name ?? 'Chains');
     } else if (prefs.psbtControls) {
-      review = `Please, review your transaction. You can create and send this transaction or create a Partially Signed Transaction (PSBT), which you can save or copy and then sign with, e.g., an offline ${app.info?.name ?? 'Chains'} wallet, or a PSBT-compatible hardware wallet.`;
+      review = t('Please, review your transaction. You can create and send this transaction or create a Partially Signed Transaction (PSBT), which you can save or copy and then sign with, e.g., an offline %1 wallet, or a PSBT-compatible hardware wallet.', app.info?.name ?? 'Chains');
     }
     const kvb = (prepared.vsize / 1000).toPrecision(3);
     const informative = [
       review,
-      prepared.fee > 0n ? `Transaction fee (${kvb} kvB): ${formatAmount(prepared.fee, prefs.unit, { withUnit: true })}` : '',
-      'You can increase the fee later.',
-      `Total Amount: ${formatAmount(prepared.total, prefs.unit, { withUnit: true })}`,
+      prepared.fee > 0n ? t('Transaction fee (%1 kvB): %2', kvb, formatAmount(prepared.fee, prefs.unit, { withUnit: true })) : '',
+      t('You can increase the fee later.'),
+      t('Total Amount: %1', formatAmount(prepared.total, prefs.unit, { withUnit: true })),
       `(= ${alternatives(prepared.total)})`,
-      lines.length === 1 ? lines[0] : 'To review recipient list click "Show Details…"',
+      lines.length === 1 ? lines[0] : t('To review recipient list click "Show Details…"'),
     ]
       .filter(Boolean)
       .join('\n');
@@ -375,8 +376,8 @@
     if (prefs.psbtControls || !enableSend) choices.push({ id: 'psbt', label: 'Create Unsigned', delay: SEND_CONFIRM_DELAY });
     if (enableSend) choices.push({ id: 'send', label: info?.externalSigner ? 'Sign on device' : 'Send', kind: 'primary', delay: SEND_CONFIRM_DELAY });
     const answer = await ask({
-      title: 'Confirm send coins',
-      message: 'Do you want to create this transaction?',
+      title: t('Confirm send coins'),
+      message: t('Do you want to create this transaction?'),
       informative,
       details: lines.length > 1 ? lines : undefined,
       level: 'question',
@@ -399,14 +400,14 @@
           // A hardware wallet signed only part of it (a multisig wallet).
           await presentPsbt(result.psbt, prepared.recipients);
         } else {
-          toast('success', 'Sent', `Transaction ${result.txid?.slice(0, 16)}…`);
+          toast('success', t('Sent'), t('Transaction %1…', result.txid?.slice(0, 16)));
           nav.highlightTx = result.txid ?? null;
         }
       }
       clearAll();
     } catch (e) {
       busy = false;
-      await inform('Send Coins', errorText(e), 'error');
+      await inform(t('Send Coins'), errorText(e), 'error');
     }
   }
 </script>
@@ -445,7 +446,7 @@
           </label>
           <div class="row grow">
             <input type="text" class="mono grow" aria-label="Custom change address" placeholder="Enter a Chains address" spellcheck="false" autocomplete="off" disabled={!customChange} bind:value={changeAddress} />
-            {#if changeStatus.text}<span class:error={changeStatus.bad} class="change-label">{tx(changeStatus.text)}</span>{/if}
+            {#if changeStatus.text}<span class:error={changeStatus.bad} class="change-label"><SafeText text={changeStatus.text} /></span>{/if}
           </div>
         </div>
       </div>

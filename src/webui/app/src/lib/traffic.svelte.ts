@@ -1,6 +1,8 @@
 // The traffic of the network (TrafficGraphWidget of chains-qt): the totals the node counts, sampled
 // every second from the "traffic" events, kept for a day, and the rates over a range of time.
 
+import { t } from './i18n.svelte';
+
 export interface TrafficSample {
   /** Milliseconds since 1970. */
   t: number;
@@ -69,6 +71,6 @@ export function rates(samples: readonly TrafficSample[], minutes: number, now: n
 export function rangeText(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  if (!h) return `${m} m`;
-  return m ? `${h} h ${m} m` : `${h} h`;
+  if (!h) return t('%1 m', m);
+  return m ? t('%1 h %2 m', h, m) : t('%1 h', h);
 }

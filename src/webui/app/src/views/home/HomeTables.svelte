@@ -152,11 +152,11 @@
     try {
       const can = await walletApi(wallet).txActions(r.txid);
       if (!can.canBump) {
-        toast('info', 'Increase transaction fee', 'The fee of this transaction cannot be increased (it is confirmed, or does not signal replacement).');
+        toast('info', t('Increase transaction fee'), t('The fee of this transaction cannot be increased (it is confirmed, or does not signal replacement).'));
         return;
       }
     } catch (e) {
-      toast('error', 'Increase transaction fee', errorText(e));
+      toast('error', t('Increase transaction fee'), errorText(e));
       return;
     }
     await bumpFee(wallet, r.txid);
@@ -164,9 +164,9 @@
   async function copy(text: string, what: string) {
     try {
       await host.copy(text);
-      toast('success', 'Copied', what);
+      toast('success', t('Copied'), what);
     } catch (e) {
-      toast('error', 'Could not copy', errorText(e));
+      toast('error', t('Could not copy'), errorText(e));
     }
   }
 
@@ -242,8 +242,8 @@
                   <button type="button" class="row-name" disabled={prefs.mask} title={prefs.mask ? 'Hidden: privacy mode' : 'Show the details'} onclick={() => details(r)}>
                     <span class="bubble" class:in={r.amount >= 0n}><Icon name={r.type === 'mined' ? 'mine' : r.amount < 0n ? 'send' : 'receive'} size={16} /></span>
                     <span class="what">
-                      <span class="ellipsis strong">{#if addressText(r)}<SafeText text={addressText(r)} />{:else}{t(typeText(r.type) || 'Other')}{/if}</span>
-                      <span class="faint small">{t(typeText(r.type) || 'Other')}</span>
+                      <span class="ellipsis strong">{#if addressText(r)}<SafeText text={addressText(r)} />{:else}{typeText(r.type) || 'Other'}{/if}</span>
+                      <span class="faint small">{typeText(r.type) || 'Other'}</span>
                     </span>
                   </button>
                 </td>

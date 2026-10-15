@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { render } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import I18nHarness from './I18nHarness.svelte';
-import { i18n, pluralIndex, refreshPage, setCatalog, t, tn, translateText } from '../lib/i18n.svelte';
+import { i18n, pluralIndex, refreshPage, setCatalog, t, tn } from '../lib/i18n.svelte';
 
 const APP = join(__dirname, '../..');
 const DE = { code: 'de', name: 'Deutsch', rtl: false, messages: { Send: 'Überweisen', 'Mask values': 'Werte ausblenden', '%1 behind': '%1 im Rückstand', 'Enter address or label to search': 'Zu suchende Adresse oder Bezeichnung eingeben', '%n GB of space available': ['%n GB freier Speicherplatz verfügbar', '%n GB freier Speicherplatz verfügbar'] } };
@@ -39,12 +39,15 @@ describe('the catalogs', () => {
 describe('a language', () => {
   it('translates messages, with what is in them', () => {
     setCatalog(DE);
-    expect(translateText('Send')).toBe('Überweisen');
-    expect(translateText('3 hours behind')).toBe('3 hours im Rückstand');
-    expect(translateText('12 GB of space available')).toBe('12 GB freier Speicherplatz verfügbar');
-    expect(translateText('Nothing of the catalog')).toBeNull();
+    expect(t('Send')).toBe('Überweisen');
+    expect(tn('%n GB of space available', 12)).toBe('12 GB freier Speicherplatz verfügbar');
+    expect(t('Nothing of the catalog')).toBe('Nothing of the catalog');
     expect(t('Mask values')).toBe('Werte ausblenden');
     expect(t('%1 behind', '2 days')).toBe('2 days im Rückstand');
+    // Only the message of the app is looked up, as a whole: text put together is never matched, so a
+    // part of it is never translated alone.
+    expect(t('3 hours behind')).toBe('3 hours behind');
+    expect(t('%1 hours behind', 3)).toBe('3 hours behind');
     expect(i18n.code).toBe('de');
   });
 
@@ -54,7 +57,11 @@ describe('a language', () => {
     expect(pluralIndex('ru', 3, 4)).toBe(1);
     expect(pluralIndex('ru', 7, 4)).toBe(2);
     expect(tn('Processed %n block(s) of transaction history.', 21)).toBe('Обработан 21 блок');
-    expect(translateText('Processed 5 block(s) of transaction history.')).toBe('Обработано 5 блоков');
+    expect(tn('Processed %n block(s) of transaction history.', 5)).toBe('Обработано 5 блоков');
+    // In English, the "(s)" of a message is the English plural.
+    setCatalog(null);
+    expect(tn('Processed %n block(s) of transaction history.', 1)).toBe('Processed 1 block of transaction history.');
+    expect(tn('Processed %n block(s) of transaction history.', 5)).toBe('Processed 5 blocks of transaction history.');
     expect(pluralIndex('de', 1, 2)).toBe(0);
     expect(pluralIndex('de', 2, 2)).toBe(1);
   });
@@ -66,7 +73,9 @@ describe('a language', () => {
     expect($('button').textContent).toBe('Überweisen');
     expect($('button').title).toBe('Werte ausblenden');
     expect(($('input') as HTMLInputElement).placeholder).toBe('Zu suchende Adresse oder Bezeichnung eingeben');
-    expect($('#behind').textContent).toBe('5 hours im Rückstand');
+    // A template is the message of the app: "%1 hours behind" is not "%1 behind" with "5 hours" in it.
+    expect($('#behind').textContent).toBe('5 hours behind');
+    expect($('#behind-own').textContent).toBe('5 im Rückstand');
     expect($('#cond').textContent).toBe('Überweisen');
     expect($('#tab-a').textContent).toBe('Werte ausblenden');
     // Text from outside: as it is, with or without SafeText (SafeText also says translate="no").

@@ -1,6 +1,7 @@
 // The state of the app as the page knows it: what the host says in its events,
 // kept in Svelte state that the components read.
 import { on } from './bridge';
+import { t } from './i18n.svelte';
 import { addSample } from './traffic.svelte';
 import { addProgressSample, type ProgressSample } from './syncoverlay';
 import { host, type AppInfo, type Dialog, type NodeSnapshot, type Phase, type WalletSummary } from './rpc';
@@ -167,8 +168,8 @@ export function walletsEnabled(): boolean {
 
 /** What to tell the user who needs a wallet and has none open. */
 export function noWalletText(why = ''): string {
-  if (!walletsEnabled()) return 'This node runs without wallets (-disablewallet).';
-  return `Open or create a wallet first${why ? `: ${why}` : '.'}`;
+  if (!walletsEnabled()) return t('This node runs without wallets (-disablewallet).');
+  return why ? t('Open or create a wallet first: %1', why) : t('Open or create a wallet first.');
 }
 
 export function selectWallet(name: string | null): void {

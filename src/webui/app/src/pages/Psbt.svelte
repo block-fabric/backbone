@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from '../components/SafeText.svelte';
   // Partially signed transactions (WalletFrame::gotoLoadPSBT, PSBTOperationsDialog): loaded from a
   // file, the clipboard or pasted; signed with the wallet; broadcast; copied or saved.
-  import { tx } from '../lib/i18n.svelte';
   import Amount from '../components/Amount.svelte';
   import Icon from '../components/Icon.svelte';
   import { errorText, withUnlock } from '../lib/dialogs.svelte';
@@ -65,10 +66,10 @@
 
   // From the menu: Load PSBT from file… / from clipboard…
   $effect(() => {
-    const t = nav.tab;
-    if (t !== 'file' && t !== 'clipboard') return;
+    const tab = nav.tab;
+    if (tab !== 'file' && tab !== 'clipboard') return;
     nav.tab = '';
-    if (t === 'file') fromFile();
+    if (tab === 'file') fromFile();
     else fromClipboard();
   });
 
@@ -79,7 +80,7 @@
       const api = walletApi(wallet);
       const current = ps.psbt;
       const r = await withUnlock(wallet, (passphrase) => api.psbtSign(current, passphrase));
-      if (!r) status = { text: 'Cannot sign inputs while wallet is locked.', level: 'warning' };
+      if (!r) status = { text: t('Cannot sign inputs while wallet is locked.'), level: 'warning' };
       else {
         ps = r;
         status = r.status;
@@ -96,7 +97,7 @@
     busy = true;
     try {
       const r = await psbtApi.broadcast(ps.psbt);
-      status = { text: `Transaction broadcast successfully! Transaction ID: ${r.txid}`, level: 'success' };
+      status = { text: t('Transaction broadcast successfully! Transaction ID: %1', r.txid), level: 'success' };
       ps = { ...ps, canBroadcast: false, canSign: false };
     } catch (e) {
       status = { text: errorText(e), level: 'error' };
@@ -108,7 +109,7 @@
   async function copy() {
     if (!ps) return;
     await host.copy(ps.psbt).catch(() => undefined);
-    status = { text: 'PSBT copied to clipboard.', level: 'info' };
+    status = { text: t('PSBT copied to clipboard.'), level: 'info' };
   }
 
   async function save() {
@@ -182,7 +183,7 @@
           </p>
         {/if}
         {#if ps.unsignedInputs > 0}<p>Transaction has {ps.unsignedInputs} unsigned input{ps.unsignedInputs === 1 ? '' : 's'}.</p>{/if}
-        {#if status}<p class="status {status.level}" role="status">{tx(status.text)}</p>{/if}
+        {#if status}<p class="status {status.level}" role="status"><SafeText text={status.text} /></p>{/if}
         <div class="row buttons">
           <button type="button" class="btn primary" disabled={busy || !ps.canSign || wallet === null} onclick={sign}><Icon name="edit" size={16} /> Sign Tx</button>
           <button type="button" class="btn primary" disabled={busy || !ps.canBroadcast} onclick={broadcast}><Icon name="send" size={16} /> Broadcast Tx</button>

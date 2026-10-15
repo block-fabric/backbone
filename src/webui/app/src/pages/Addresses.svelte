@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   // The address book (AddressBookPage): sending addresses to add, edit and delete; receiving
   // addresses whose label can be edited. Both searchable and exported as CSV.
   import SafeText from '../components/SafeText.svelte';
@@ -43,7 +44,7 @@
 
   async function copy(text: string, what: string) {
     await host.copy(text).catch(() => undefined);
-    toast('success', 'Copied', what);
+    toast('success', t('Copied'), what);
   }
 
   function editChosen() {
@@ -53,23 +54,23 @@
 
   async function deleteChosen() {
     if (!chosen || wallet === null || tab !== 'send') return;
-    const yes = await confirm('Delete address', `Delete ${chosen.label ? `"${chosen.label}" ` : ''}${chosen.address} from the list?`, { yes: 'Delete', danger: true });
+    const yes = await confirm(t('Delete address'), t('Delete %1%2 from the list?', chosen.label ? `"${chosen.label}" ` : '', chosen.address), { yes: 'Delete', danger: true });
     if (!yes) return;
     try {
       await walletApi(wallet).deleteAddress(chosen.address);
       selected = null;
       await refreshAddresses(true);
     } catch (e) {
-      await inform('Delete address', errorText(e), 'error');
+      await inform(t('Delete address'), errorText(e), 'error');
     }
   }
 
   async function exportCsv() {
     try {
       const path = await saveTextAs({ title: 'Export Address List', name: `${tab === 'send' ? 'sending' : 'receiving'}-addresses.csv`, filters: [FILTERS.csv] }, addressesCsv(rows));
-      if (path) toast('success', 'Exported', path);
+      if (path) toast('success', t('Exported'), path);
     } catch (e) {
-      await inform('Exporting Failed', `There was an error trying to save the address list. Please try again. ${errorText(e)}`, 'error');
+      await inform(t('Exporting Failed'), t('There was an error trying to save the address list. Please try again. %1', errorText(e)), 'error');
     }
   }
 
