@@ -24,6 +24,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <deque>
 #include <fstream>
@@ -35,6 +36,8 @@
 using webui::console::Check;
 using webui::console::ParseCommandLine;
 using webui::console::Run;
+
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -363,6 +366,41 @@ BOOST_AUTO_TEST_CASE(node_options)
     options.Set("proxyUse", false);
     BOOST_CHECK_EQUAL(asked.size(), before_off);
     BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "");
+
+    // A change made while a confirmation is open (another call of the page) waits for it: what is turned
+    // on is the address the user was shown, never one set meanwhile (review of 598f5c70ca, TOCTOU).
+    {
+        std::atomic<bool> other_done{false};
+        std::thread other;
+        UniValue other_result;
+        std::vector<std::string> other_asked;
+        // The second call's own confirmation: declined (its address is not the one the user wants).
+        webui::NodeOptions second{*node, *m_node.args, [](std::optional<bool>) { return false; }, {}, {}, [&](const std::string&, const std::string& message, const std::string&) {
+            other_asked.push_back(message);
+            return false;
+        }};
+        webui::NodeOptions first{*node, *m_node.args, [](std::optional<bool>) { return false; }, {}, {}, [&](const std::string&, const std::string& message, const std::string&) {
+            BOOST_CHECK(message.find("Route all connections through 10.0.0.2:9150?") != std::string::npos);
+            // While the dialog is open, another call sets an address of its own (the proxy is still off).
+            other = std::thread{[&] {
+                other_result = second.Set("proxyIp", "10.6.6.6");
+                other_done = true;
+            }};
+            std::this_thread::sleep_for(300ms);
+            BOOST_CHECK(!other_done);
+            return true;
+        }};
+        first.Set("proxyUse", true);
+        // Turned on: the address the user accepted.
+        BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "10.0.0.2:9150");
+        other.join();
+        // Then the other change ran: the proxy now in use, its new address had to be asked, and was declined.
+        BOOST_REQUIRE_EQUAL(other_asked.size(), 1U);
+        BOOST_CHECK(other_asked[0].find("10.6.6.6:9150") != std::string::npos);
+        BOOST_CHECK(other_result["declined"].get_bool());
+        BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "10.0.0.2:9150");
+        options.Set("proxyUse", false);
+    }
     BOOST_CHECK_EQUAL(options.Get()["proxyIp"].get_str(), "10.0.0.2");
     BOOST_CHECK_EQUAL(options.Get()["proxyPort"].get_str(), "9150");
     BOOST_CHECK_THROW(options.Set("proxyIp", "not a proxy"), std::runtime_error);

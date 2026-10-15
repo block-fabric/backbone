@@ -1190,6 +1190,8 @@ void App::RegisterHostMethods()
         // As OptionsModel::Reset: settings.json backed up and reset, the settings of the app backed up and
         // cleared (but for the data directory), the intro shown at the next start; then the app shuts down.
         interfaces::Node& node{need_node()};
+        // Not while a change of the options waits for a confirmation of the desktop.
+        std::unique_lock changes{NodeOptions::ChangesMutex()};
         node.resetSettings();
         std::string network;
         {
@@ -1207,6 +1209,7 @@ void App::RegisterHostMethods()
         m_options_journal->Commit();
         m_config->SetResetPending(true);
         if (NodeOptions::StartAtLogin(m_args)) NodeOptions::SetStartAtLogin(m_args, false);
+        changes.unlock();
         RequestShutdown();
         return UniValue{true};
     });

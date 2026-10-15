@@ -153,6 +153,12 @@ NodeOptions::NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag 
 {
 }
 
+std::mutex& NodeOptions::ChangesMutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
 bool NodeOptions::NamesProgram(const std::string& name)
 {
     return name == "signer";
@@ -161,6 +167,7 @@ bool NodeOptions::NamesProgram(const std::string& name)
 UniValue NodeOptions::ChooseProgram(const std::string& name)
 {
     if (!NamesProgram(name)) throw std::runtime_error("No option naming a program: " + name);
+    const std::lock_guard changes{ChangesMutex()};
     if (m_node.isSettingIgnored(name)) throw std::runtime_error("This option is set on the command line or in the configuration file.");
     if (!m_choose_program) throw std::runtime_error("Programs cannot be chosen here.");
     const std::string current{SettingToString(m_node.getPersistentSetting(name), "")};
@@ -335,6 +342,8 @@ UniValue NodeOptions::Get()
 
 UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
 {
+    // One change at a time, from the question to the write (see ChangesMutex).
+    const std::lock_guard changes{ChangesMutex()};
     const auto setting{[&](const std::string& n) { return m_node.getPersistentSetting(n); }};
     // OptionsModel UpdateRwSetting: these numbers are written as strings, for the versions that read them so.
     const auto update{[&](const std::string& n, const common::SettingsValue& v) {
@@ -448,6 +457,7 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
     const auto set_proxy_address{[&](const std::string& n, const std::string& ip, const std::string& port) {
         if (ip == proxy_field(n, true, "") && port == proxy_field(n, false, "")) return;
         if (proxy_now(n, "").is_set && !confirm_proxy(n, ProxyString(true, ip, port), true)) return;
+        // Exactly the address that was asked about (the one of the request, not read again).
         set_proxy_field(n, true, ip, "");
         set_proxy_field(n, false, port, "");
     }};
@@ -494,8 +504,17 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
     } else if (name == "proxyUse" || name == "torUse") {
         const std::string n{name == "proxyUse" ? "proxy" : "onion"};
         const bool on{Bool(value)};
-        if (!on || proxy_now(n, "").is_set || confirm_proxy(n, ProxyString(true, proxy_field(n, true, ""), proxy_field(n, false, "")), false)) {
+        if (!on || proxy_now(n, "").is_set) {
             set_proxy_use(n, on, "");
+        } else {
+            const std::string shown{ProxyString(true, proxy_field(n, true, ""), proxy_field(n, false, ""))};
+            if (confirm_proxy(n, shown, false)) {
+                // What is turned on is the address the user accepted, never another one.
+                if (ProxyString(true, proxy_field(n, true, ""), proxy_field(n, false, "")) != shown) {
+                    throw std::runtime_error("The address of the proxy changed while you were asked: nothing was changed. Try again.");
+                }
+                set_proxy_use(n, true, "");
+            }
         }
     } else if (name == "proxyIp" || name == "torIp") {
         const std::string n{name == "proxyIp" ? "proxy" : "onion"};
@@ -561,6 +580,8 @@ void OptionsJournal::Commit()
 
 size_t OptionsJournal::Undo(interfaces::Node& node, const std::function<void(bool)>& restart)
 {
+    // Not while a change of the options waits for a confirmation (NodeOptions::ChangesMutex first).
+    const std::lock_guard changes{NodeOptions::ChangesMutex()};
     LOCK(m_mutex);
     const std::string key{m_key()};
     const UniValue undo{m_config.Value(key)};
