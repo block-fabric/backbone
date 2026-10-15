@@ -21,6 +21,7 @@ const std::map<std::string, Bridge::Thread>& Methods()
         {"getblockchaininfo", WORKER},
         {"getblockcount", WORKER},
         {"getblockhash", WORKER},
+        {"getblockstats", WORKER},
         {"getblockheader", WORKER},
         {"getmempoolentry", WORKER},
         {"getmempoolinfo", WORKER},

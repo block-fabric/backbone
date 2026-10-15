@@ -128,6 +128,32 @@ the same effects in their own colours.
   `prefers-reduced-motion`. No remote fonts or images (the fonts are bundled; CSP unchanged). The
   long tables stay virtual (components/DataTable.svelte).
 
+## The block explorer's ribbon (user request, 2026-10-15)
+
+The Block explorer opens on a ribbon of the latest blocks, after the /blocks page of the user's pool site
+(epool.cash, ~/datumpool: BlockRibbon, BlockBox): components/BlockRibbon.svelte, BlockBox.svelte,
+lib/blocks.ts.
+
+- **Boxes**: each block a box (a lid and a side as two skewed faces, no 3D), newest at the left, joined by a
+  link. The face: the height; the reward (subsidy and fees, `getblockstats`; decimals dimmed); the miner's
+  tag of the coinbase (its printable text after the height, text of the chain: SafeText); transactions and
+  weight; a **BMM n** badge per sidechain whose block it committed to (`getsidechainevents`); the time since
+  the block before it, coloured against the median of the ribbon (fast under half, slow over twice; the
+  target of Chains is 1 minute) and how long ago.
+- **Fill**: rising from the floor of the face, the weight against the 800,000 a block of Chains may have
+  (`CHAINS_MAX_BLOCK_WEIGHT`; none for the coinbase alone, at least 6 % otherwise), tinted by the average
+  fee rate (under 2 sat/vB, under 10, more).
+- **The block being mined** first, in outline: tip + 1, the transactions waiting and their size and fees
+  (`getmempoolinfo`), what it would pay, the expected time at the hash rate of the network (the target when
+  that guess is far off); a click opens the waiting transactions.
+- A click (or Enter) on a box chooses it: its details below (the detail panel in the workspace); the arrows
+  move between the boxes; the strip scrolls sideways, never the page. A block that comes while the page is
+  shown slides in once (transform and opacity only; none with reduced motion). Below, the tables of the
+  blocks and of the waiting transactions as before.
+- Tests: test/blocks.test.ts (fill, tint, interval colour, tag, the box and the ribbon);
+  `run_layouts.py --script explorer.js` (pictures `explorer-*` in Midnight and Light, a block with
+  transactions, a new block, the workspace's panel).
+
 ## Performance (user decision, 2026-10-15)
 
 `src/webui/test/e2e/run_perf.py --app build/bin/chains-app --tmp <dir> --shots <dir>` makes a wallet of
