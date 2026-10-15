@@ -60,6 +60,12 @@
     networkhashps: number;
     pooledtx: number;
   }
+  /** This node's own mining (getgenerate): off, or the threads and the rate they hash at. */
+  interface Generate {
+    generate: boolean;
+    threads: number;
+    hashespersec: number;
+  }
   interface BlockRow {
     height: number;
     hash: string;
@@ -80,6 +86,7 @@
   /** Each sidechain's blocks merged mined so far in the window, block after block (its sparkline). */
   let bmmSeries: Record<number, number[]> = $state({});
   let mining: MiningInfo | null = $state(null);
+  let generate: Generate | null = $state(null);
 
   $effect(() => {
     return every(5000, () => (now = Math.floor(Date.now() / 1000)));
@@ -159,6 +166,7 @@
     blocks = rows;
     now = Math.floor(Date.now() / 1000);
     mining = await rpc.raw<MiningInfo>('getmininginfo', [], { signal });
+    generate = await rpc.raw<Generate>('getgenerate', [], { signal }).catch(() => null);
     drivechain = await rpc.raw<DrivechainInfo>('getdrivechaininfo', [], { signal });
     sidechains = await rpc.raw<Sidechain[]>('listactivesidechains', [], { signal });
     bundles = await rpc.raw<Bundle[]>('listwithdrawalbundles', [], { signal });
@@ -318,8 +326,10 @@
     </Card>
 
     <Card title="Mining" icon="mine" open={() => go('mine')} openLabel="Open mining" stat>
-      <span class="value num">{mining ? hashRate(mining.networkhashps) : '–'}</span>
+      <!-- This node's mining (user decision: the network's estimate is not what this node mines). -->
+      <span class="value num" data-testid="mining-rate">{generate?.generate ? hashRate(generate.hashespersec) : t('Off')}</span>
       <dl class="pairs">
+        <dt title="An estimate from the difficulty and the times of recent blocks">Network</dt><dd class="num">{mining ? hashRate(mining.networkhashps) : '–'}</dd>
         <dt>Difficulty</dt><dd class="num">{mining ? mining.difficulty.toPrecision(5) : '–'}</dd>
         <dt>Last block</dt><dd>{blocks[0] ? `${niceTimeOffset(Math.max(0, now - blocks[0].time))} ago` : '–'}</dd>
         <dt title="Blocks of the last {bmmWindow} that merged mined a sidechain, on average">BMM</dt><dd class="num">{bmmAverage === null ? '–' : `${bmmAverage}%`}</dd>

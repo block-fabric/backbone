@@ -54,6 +54,9 @@ const OLD_MENUS: Record<string, string[]> = {
 
 const calls: BridgeRequest[] = [];
 
+/** This node's own mining as getgenerate tells it (null: the call failed; off by default). */
+let generating: { generate: boolean; threads: number; hashespersec: number } | null = { generate: false, threads: 0, hashespersec: 0 };
+
 /** The node as the pages and cards ask it. */
 async function fakeNode(r: BridgeRequest): Promise<unknown> {
   calls.push(r);
@@ -64,6 +67,8 @@ async function fakeNode(r: BridgeRequest): Promise<unknown> {
       return [{ id: 7, addr: '10.0.0.7:8333', inbound: false, pingtime: 0.05, synced_blocks: 10, network: 'ipv4', connection_type: 'outbound-full-relay', subver: '/Chains:32/', version: 70016, startingheight: 1, synced_headers: 10, bytessent: 1, bytesrecv: 2, conntime: 1, lastsend: 1, lastrecv: 1 }];
     case 'getblockheader':
       return { height: 10, time: 1_700_000_000, nTx: 1 };
+    case 'getgenerate':
+      return generating;
     case 'getmininginfo':
       return { blocks: 10, difficulty: 1, networkhashps: 12345, pooledtx: 0, chain: 'regtest', next: { height: 11, bits: '207fffff', difficulty: 1, target: '7f'.padEnd(64, 'f') } };
     case 'getdrivechaininfo':
@@ -557,5 +562,25 @@ describe('the layouts', () => {
     await fireEvent.keyDown(input, { key: 'Enter' });
     expect(palette.open).toBe(false);
     expect([nav.page, nav.tab]).toEqual(['advanced', 'messages/verify']);
+  });
+
+  it("the dashboard's Mining card shows this node's mining, not the network's estimate", async () => {
+    prefs.layout = 'dashboard';
+    generating = { generate: false, threads: 0, hashespersec: 0 };
+    go('home');
+    const view = render(Shell);
+    const rate = await waitFor(() => {
+      const el = document.querySelector('[data-testid="mining-rate"]');
+      expect(el?.textContent).toBe('Off');
+      return el!;
+    });
+    // The network's estimate (12,345 H/s in the fake node) is a line of its own.
+    expect(rate.closest('section, article, div')!.textContent).toMatch(/Network/);
+    view.unmount();
+    generating = { generate: true, threads: 2, hashespersec: 1500 };
+    go('home');
+    render(Shell);
+    await waitFor(() => expect(document.querySelector('[data-testid="mining-rate"]')?.textContent).toMatch(/1\.5\d* kH\/s|1,?500 H\/s/));
+    generating = { generate: false, threads: 0, hashespersec: 0 };
   });
 });
