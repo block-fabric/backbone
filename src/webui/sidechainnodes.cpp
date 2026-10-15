@@ -7,12 +7,14 @@
 #include <chainparams.h>
 #include <chainparamsbase.h>
 #include <common/args.h>
+#include <common/secretfile.h>
 #include <crypto/sha256.h>
 #include <logging.h>
 #include <tinyformat.h>
 #include <util/chaintype.h>
 #include <util/strencodings.h>
 #include <util/string.h>
+#include <support/cleanse.h>
 #include <webui/bridge.h>
 
 #include <chrono>
@@ -186,13 +188,34 @@ std::vector<std::string> SidechainNodes::NodeArgs(const Sidechain& sidechain, co
     std::vector<std::string> args{NetworkArgs(sidechain)};
     args.push_back(strprintf("-mainchainrpcport=%d", m_args.GetIntArg("-rpcport", BaseParams().RPCPort())));
     if (m_args.IsArgSet("-rpcpassword")) {
+        // Never the password itself: any local user can read the command line of a process.
         args.push_back("-mainchainrpcuser=" + m_args.GetArg("-rpcuser", ""));
-        args.push_back("-mainchainrpcpassword=" + m_args.GetArg("-rpcpassword", ""));
+        args.push_back("-mainchainrpcpasswordfile=" + fs::PathToString(PasswordFile(sidechain)));
     } else {
         args.push_back("-mainchainrpccookiefile=" + fs::PathToString(m_args.GetDataDirNet() / ".cookie"));
     }
     if (wallet) args.push_back("-mainchainrpcwallet=" + *wallet);
     return args;
+}
+
+fs::path SidechainNodes::PasswordFile(const Sidechain& sidechain) const
+{
+    return DataDir(sidechain) / "mainchain.rpcpass";
+}
+
+void SidechainNodes::WritePasswordFile(const Sidechain& sidechain) const
+{
+    const fs::path path{PasswordFile(sidechain)};
+    if (!m_args.IsArgSet("-rpcpassword")) {
+        // The cookie file is used: no password is left lying around.
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        return;
+    }
+    std::string password{m_args.GetArg("-rpcpassword", "") + "\n"};
+    const auto written{common::WriteSecretFile(path, password)};
+    memory_cleanse(password.data(), password.size());
+    if (!written) throw HostError(strprintf("%s: the password of this node could not be written for it (%s)", sidechain.name, util::ErrorString(written).original));
 }
 
 std::pair<std::optional<UniValue>, std::string> SidechainNodes::Cli(const Sidechain& sidechain, const std::vector<std::string>& command) const
@@ -388,6 +411,7 @@ UniValue SidechainNodes::Call(const std::string& method, const UniValue& params)
         if (!installed(s)) throw HostError("Select a sidechain whose programs are on this computer.");
         std::error_code ec;
         std::filesystem::create_directories(DataDir(s), ec);
+        WritePasswordFile(s);
         const bool wallet_window{method == "sidechainNodes.startWallet"};
         std::vector<std::string> argv{Program(s, wallet_window ? "-qt" : "d")};
         for (const auto& a : NodeArgs(s, ParamWallet(params))) argv.push_back(a);

@@ -407,6 +407,45 @@ esac
     BOOST_CHECK_EQUAL(nodes.Call("sidechainNodes.stop", Obj({{"stem", "fake"}}))["log"][0].get_str(), "Fake chain: stopping");
     BOOST_CHECK(nodes.Call("sidechainNodes.log", Obj({{"stem", "fake"}}))["log"][0].get_str().starts_with("Fake chain has no log at "));
 
+    // With an RPC password (-rpcpassword), the node gets the path of a file only the user can read, never the
+    // password: any local user can read the command line of a process (audit 2026-10-14 item 1).
+    {
+        const webui::SidechainNodes::Sidechain fake{nodes.Sidechains().back()};
+        BOOST_REQUIRE_EQUAL(fake.stem, "fake");
+        const fs::path password_file{nodes.PasswordFile(fake)};
+        BOOST_CHECK(password_file == nodes.DataDir(fake) / "mainchain.rpcpass");
+        {
+            std::ofstream stale{password_file.std_path()};
+            stale << "stale\n";
+        }
+        fs::permissions(password_file, fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::others_read, fs::perm_options::replace);
+        m_node.args->ForceSetArg("-rpcuser", "mainuser");
+        m_node.args->ForceSetArg("-rpcpassword", "pw-on-argv-would-leak");
+        fs::remove(started);
+        nodes.Call("sidechainNodes.start", Obj({{"stem", "fake"}}));
+        for (int i{0}; i < 100 && !fs::exists(started); ++i) std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        std::ifstream argv_file{started.std_path()};
+        std::string argv;
+        std::getline(argv_file, argv);
+        BOOST_CHECK_MESSAGE(argv.find("pw-on-argv-would-leak") == std::string::npos, argv);
+        BOOST_CHECK_MESSAGE(argv.find("-mainchainrpcpassword=") == std::string::npos, argv);
+        BOOST_CHECK(argv.find("-mainchainrpcuser=mainuser") != std::string::npos);
+        BOOST_CHECK_MESSAGE(argv.find("-mainchainrpcpasswordfile=" + fs::PathToString(password_file)) != std::string::npos, argv);
+        for (const auto& a : nodes.NodeArgs(fake, std::nullopt)) BOOST_CHECK(a.find("pw-on-argv-would-leak") == std::string::npos);
+        std::ifstream written{password_file.std_path()};
+        std::string content;
+        std::getline(written, content);
+        BOOST_CHECK_EQUAL(content, "pw-on-argv-would-leak");
+        BOOST_CHECK(fs::status(password_file).permissions() == (fs::perms::owner_read | fs::perms::owner_write));
+        m_node.args->LockSettings([](common::Settings& settings) {
+            settings.forced_settings.erase("rpcuser");
+            settings.forced_settings.erase("rpcpassword");
+        });
+        // Back on the cookie file: the password file goes.
+        nodes.Call("sidechainNodes.start", Obj({{"stem", "fake"}}));
+        BOOST_CHECK(!fs::exists(password_file));
+    }
+
     // Downloads only over the web, and only with a hash to check.
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "file:///etc/passwd"}, {"sha256", std::string(64, 'a')}})), webui::HostError);
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "https://example.com/x.tar.gz"}, {"sha256", "abc"}})), webui::HostError);

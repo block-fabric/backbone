@@ -61,8 +61,16 @@ public:
     fs::path DataDir(const Sidechain& sidechain) const;
     /** The arguments a program of a sidechain is run with to reach its node on the network of this node. */
     std::vector<std::string> NetworkArgs(const Sidechain& sidechain) const;
-    /** The arguments its node is started with on top of those (pointed at this node). */
+    /**
+     * The arguments its node is started with on top of those (pointed at this node). Never a password: with
+     * -rpcpassword, the node reads it from PasswordFile (-mainchainrpcpasswordfile), which WritePasswordFile
+     * writes before the node starts.
+     */
     std::vector<std::string> NodeArgs(const Sidechain& sidechain, const std::optional<std::string>& wallet) const;
+    /** <sidechain data dir>/mainchain.rpcpass */
+    fs::path PasswordFile(const Sidechain& sidechain) const;
+    /** Write the RPC password of this node to PasswordFile, owner-only and replaced atomically; remove it if this node has none. */
+    void WritePasswordFile(const Sidechain& sidechain) const;
 
     /** The output of a program run to its end: exit code (-1: it could not be started), stdout, stderr. */
     struct Output {
