@@ -290,7 +290,6 @@ host methods (walletapi.cpp holds the ones of a Bitcoin-like wallet), and in
 | `e2e/run_wallet.py` | The wallet pages as a user drives them |
 | `e2e/run_node.py` | The node and Chains pages, with a pretend desktop (tray, notifications) and a second node |
 | `e2e/run_audit.py` | The fixes of the audit: the sync overlay, a block built by hand with a title that is not UTF-8, long calls, a history kept up to date in parts, a proof with a locked wallet, contrast measured on what the page draws, aligned tables, the title bar of the desktop or the integrated one, settings that wait for Apply (and the next start), `-disablewallet`, windows 700 and 480 px wide, a hardware wallet (the mock signer of the functional tests), `-lang=fr` |
-
 | `e2e/run_layouts.py` | The three layouts, the palette, the detail panel, the integrated title bar and the refresh (layouts.js, titlebar.js, refresh.js); pictures of each layout |
 | `e2e/run_windows.py` | From WSL, on the Windows of the machine (`--app build_win/bin/chains-app.exe --unit build_win/bin/test_chains-app.exe --shots <dir>`, in a folder of the Windows temporary folder, removed at the end): the unit tests, then smoke.js, layouts.js and titlebar.js |
 
