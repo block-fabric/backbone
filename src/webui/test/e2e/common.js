@@ -61,7 +61,7 @@ const E2E = (() => {
   }
 
   async function finish(error) {
-    if (error) failures.push(`script error: ${error && error.stack ? error.stack : error}`);
+    if (error) failures.push(`script error: ${error}${error && error.stack ? ' at ' + error.stack.split('\n')[0] : ''}`);
     await report();
     await host('test.exit', { code: failures.length ? 1 : 0 });
   }
