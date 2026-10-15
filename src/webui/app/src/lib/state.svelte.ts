@@ -107,6 +107,8 @@ export const prefs = $state({
   miningThreads: 1,
   /** Block explorer: how many of the latest blocks are listed. */
   explorerCount: 50,
+  /** Block explorer: the blocks shown a page (10, 25, 50 or 100). */
+  explorerPageSize: 25,
   /** Multisig lounge: keys and shared addresses (MultisigKeys, MultisigAddresses), name and value. */
   multisigKeys: [] as { name: string; value: string }[],
   multisigAddresses: [] as { name: string; value: string }[],
@@ -304,6 +306,7 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (typeof raw.miningAddress === 'string') prefs.miningAddress = raw.miningAddress;
   if (typeof raw.miningThreads === 'number' && raw.miningThreads >= 1) prefs.miningThreads = Math.floor(raw.miningThreads);
   if (typeof raw.explorerCount === 'number' && raw.explorerCount >= 10 && raw.explorerCount <= 1000) prefs.explorerCount = Math.floor(raw.explorerCount);
+  if (raw.explorerPageSize === 10 || raw.explorerPageSize === 25 || raw.explorerPageSize === 50 || raw.explorerPageSize === 100) prefs.explorerPageSize = raw.explorerPageSize;
   const entries = (v: unknown) => (Array.isArray(v) ? v.filter((e): e is { name: string; value: string } => !!e && typeof e.name === 'string' && typeof e.value === 'string') : []);
   if (Array.isArray(raw.multisigKeys)) prefs.multisigKeys = entries(raw.multisigKeys);
   if (Array.isArray(raw.multisigAddresses)) prefs.multisigAddresses = entries(raw.multisigAddresses);

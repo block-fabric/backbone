@@ -12,6 +12,7 @@
     sizes = [],
     label = 'rows',
     onpage,
+    onsize,
   }: {
     total: number;
     page?: number;
@@ -22,6 +23,8 @@
     label?: string;
     /** Told of a new page (for a parent that keeps pages itself rather than binding). */
     onpage?: (page: number) => void;
+    /** Told of a new page size (for a parent that keeps it itself, in its prefs say). */
+    onsize?: (size: number) => void;
   } = $props();
   function go(n: number) {
     page = n;
@@ -43,7 +46,7 @@
     {#if sizes.length > 0}
       <label class="size">
         <span class="faint">{t('Show')}</span>
-        <select value={size} aria-label={t('Rows per page')} onchange={(e) => { size = Number((e.currentTarget as HTMLSelectElement).value); go(0); }}>
+        <select value={size} aria-label={t('Rows per page')} onchange={(e) => { size = Number((e.currentTarget as HTMLSelectElement).value); onsize?.(size); go(0); }}>
           {#each sizes as n (n)}<option value={n}>{n}</option>{/each}
         </select>
       </label>

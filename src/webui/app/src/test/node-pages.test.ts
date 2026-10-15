@@ -409,6 +409,35 @@ describe('tools', () => {
     expect(screen.getByRole('list', { name: 'Transactions of the block' }).textContent).toContain('c0'.repeat(32));
   });
 
+  it('pages the blocks of the explorer, sorted across all of them', async () => {
+    const hashOf = (h: number) => h.toString(16).padStart(64, '0');
+    host({
+      getbestblockhash: () => hashOf(30),
+      getblock: (r) => {
+        const h = parseInt((r.params as string[])[0], 16);
+        return { height: h, time: 1_700_000_000 + h, nTx: 1 + (h % 7), size: 250, weight: 1000, difficulty: 1, hash: hashOf(h), previousblockhash: h > 0 ? hashOf(h - 1) : undefined, tx: [] };
+      },
+      getrawmempool: () => ({}),
+    });
+    prefs.explorerCount = 25;
+    prefs.explorerPageSize = 10;
+    render(Explorer);
+    await waitFor(() => screen.getByText(/1–10 of 25/));
+    expect((screen.getByLabelText('Blocks listed') as HTMLSelectElement).value).toBe('25');
+    expect([...(screen.getByLabelText('Blocks listed') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['25', '50', '100', '250', '500', '1000']);
+    expect([...(screen.getByLabelText('Rows per page') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['10', '25', '50', '100']);
+    // Newest first: block 30 on the first page, block 6 (the 25th) on the last.
+    expect(screen.queryAllByText(hashOf(30)).length).toBeGreaterThan(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => screen.getByText(/21–25 of 25/));
+    expect(document.querySelector('.table-box')?.textContent).toContain(hashOf(6));
+    // 25 a page, then fewer blocks read.
+    await fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '25' } });
+    await waitFor(() => screen.getByText(/1–25 of 25/));
+    expect(prefs.explorerPageSize).toBe(25);
+  });
+
   it('hashes text and hexadecimal', async () => {
     host({
       'tools.hashes': (r) => {
