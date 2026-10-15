@@ -346,7 +346,7 @@
             <select id="deposit-sidechain" value={selectedSlot ?? ''} onchange={(e) => pick(Number((e.currentTarget as HTMLSelectElement).value))}>
               {#if selectedSlot === null}<option value="" disabled>Select a sidechain</option>{/if}
               {#each dc.sidechains as s (s.slot)}
-                <option value={s.slot}>{s.slot} · {s.title}</option>
+                <option value={s.slot} translate="no">{s.slot} · {s.title}</option>
               {/each}
             </select>
           </div>

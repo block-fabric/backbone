@@ -99,8 +99,13 @@ describe('the sidechain page', () => {
     expect(document.querySelectorAll('.slot').length).toBe(256);
     expect(document.querySelector('.slot.active')?.getAttribute('aria-label')).toBe('Slot 1, Testchain, active');
     // The title of the sidechain is text of the chain (SafeText), in the sentence of the app.
-    await waitFor(() => expect(document.querySelector('.target')?.textContent).toBe('Testchain (slot 1)'));
-    expect(document.querySelector('.target [translate="no"]')?.textContent).toBe('Testchain');
+    // The sidechain to deposit to: chosen in the form's dropdown (user decision), the first active one.
+    await waitFor(() => {
+      const select = document.getElementById('deposit-sidechain') as HTMLSelectElement | null;
+      expect(select?.selectedOptions[0]?.textContent).toBe('1 · Testchain');
+    });
+    // Text of the chain, never translated.
+    expect((document.getElementById('deposit-sidechain') as HTMLSelectElement).selectedOptions[0].getAttribute('translate')).toBe('no');
     await waitFor(() => screen.getByText('s1_erin_b91ea9'));
 
     await fireEvent.input(screen.getByLabelText('Destination'), { target: { value: 's1_erin_b91ea9' } });
@@ -123,8 +128,13 @@ describe('the sidechain page', () => {
     render(DialogHost);
     render(Sidechains);
     // The title of the sidechain is text of the chain (SafeText), in the sentence of the app.
-    await waitFor(() => expect(document.querySelector('.target')?.textContent).toBe('Testchain (slot 1)'));
-    expect(document.querySelector('.target [translate="no"]')?.textContent).toBe('Testchain');
+    // The sidechain to deposit to: chosen in the form's dropdown (user decision), the first active one.
+    await waitFor(() => {
+      const select = document.getElementById('deposit-sidechain') as HTMLSelectElement | null;
+      expect(select?.selectedOptions[0]?.textContent).toBe('1 · Testchain');
+    });
+    // Text of the chain, never translated.
+    expect((document.getElementById('deposit-sidechain') as HTMLSelectElement).selectedOptions[0].getAttribute('translate')).toBe('no');
     await fireEvent.input(screen.getByLabelText('Destination'), { target: { value: 's1_eric_b91ea9' } });
     await waitFor(() => screen.getByText('This deposit address has a typing error in it.'));
     await fireEvent.input(screen.getByLabelText('Amount'), { target: { value: '1' } });
