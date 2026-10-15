@@ -183,7 +183,7 @@ if(ENABLE_WALLET)
 endif()
 
 
-# P2P and RPC server functionality used by `bitcoind` and `bitcoin-qt` executables.
+# P2P and RPC server functionality used by `bitcoind` and `chains-app` executables.
 add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   addrdb.cpp
   addrman.cpp
@@ -412,10 +412,6 @@ if(BUILD_UTIL)
 endif()
 
 
-if(BUILD_GUI)
-  add_subdirectory(qt)
-endif()
-
 if(BUILD_WEBUI)
   add_subdirectory(webui)
 endif()
@@ -459,7 +455,7 @@ endif()
 foreach(name_pair
     "bitcoin:chains" "bitcoind:chainsd" "bitcoin-node:chains-node" "bitcoin-cli:chains-cli"
     "bitcoin-tx:chains-tx" "bitcoin-util:chains-util" "bitcoin-wallet:chains-wallet"
-    "bitcoin-chainstate:chains-chainstate" "bitcoin-qt:chains-qt" "bitcoin-gui:chains-gui")
+    "bitcoin-chainstate:chains-chainstate")
   string(REPLACE ":" ";" name_pair "${name_pair}")
   list(GET name_pair 0 target)
   list(GET name_pair 1 output_name)
