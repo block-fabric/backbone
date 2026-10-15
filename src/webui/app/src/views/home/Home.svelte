@@ -14,6 +14,7 @@
   import Card from './Card.svelte';
   import HomeTables from './HomeTables.svelte';
   import { css } from '../../lib/actions';
+  import { HOME_QUICK_ACTIONS } from '../../lib/layout';
   import { openPalette, pageDisabled } from '../../lib/commands.svelte';
   import { formatCount, niceTimeOffset } from '../../lib/format';
   import { go, type PageId } from '../../lib/nav.svelte';
@@ -143,7 +144,7 @@
     try {
       await host.setNetworkActive(!node.networkActive);
     } catch (e) {
-      toast('error', 'Could not change network activity', e instanceof Error ? e.message : String(e));
+      toast('error', t('Could not change network activity'), e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -199,15 +200,8 @@
     return `${h.toFixed(h < 10 ? 2 : 1)} ${units[i]}`;
   }
 
-  const quickLinks: { label: string; icon: IconName; page: PageId; tab?: string; panel?: 'send' | 'receive' }[] = [
-    { label: 'Send', icon: 'send', page: 'send', panel: 'send' },
-    { label: 'Receive', icon: 'receive', page: 'receive', panel: 'receive' },
-    { label: 'Sign message', icon: 'edit', page: 'messages', tab: 'sign' },
-    { label: 'Load PSBT', icon: 'paste', page: 'psbt' },
-    { label: 'Deposit to a sidechain', icon: 'sidechains', page: 'sidechains' },
-    { label: 'Block explorer', icon: 'explorer', page: 'explorer' },
-    { label: 'Mine', icon: 'mine', page: 'mine' },
-  ];
+  // Send and Receive, then what concerns the chain, then the tools (lib/layout.ts).
+  const quickLinks = HOME_QUICK_ACTIONS;
 
   // --- The balance over time, in a timeframe ---
   const FRAMES = [
@@ -248,7 +242,7 @@
     <div>
       <h1>Home</h1>
       <p class="muted sub">
-        {#if status}{status.upToDate ? 'Up to date' : t(status.label)}, block {formatCount(node.tip?.height ?? 0)}, {node.networkActive ? `${node.connections} peer${node.connections === 1 ? '' : 's'}` : 'network off'}{:else}Starting…{/if}
+        {#if status}{#if status.upToDate}Up to date{:else}<SafeText text={status.label} />{/if}, block {formatCount(node.tip?.height ?? 0)}, {node.networkActive ? `${node.connections} peer${node.connections === 1 ? '' : 's'}` : 'network off'}{:else}Starting…{/if}
       </p>
     </div>
     <nav class="quick" aria-label="Quick actions">
@@ -268,7 +262,7 @@
   <div class="stats">
     <Card title="Balance" icon="wallet" open={() => go('overview')} openLabel="Open the overview" stat>
       {#if !walletsEnabled()}
-        <p class="muted">{t(noWalletText())}</p>
+        <p class="muted">{noWalletText()}</p>
       {:else if wallets.current === null}
         <p class="muted">No wallet is loaded. Create one, or open one of the wallets of this node.</p>
       {:else}
@@ -294,7 +288,7 @@
     <Card title="Network" icon="peers" open={() => go('node', 'info')} openLabel="Open the node window" stat>
       <span class="value">
         {#if status}
-          <span class="state" class:ok={status.upToDate}><Icon name={status.upToDate ? 'check' : 'history'} size={16} /> {status.upToDate ? 'Up to date' : t(status.label)}</span>
+          <span class="state" class:ok={status.upToDate}><Icon name={status.upToDate ? 'check' : 'history'} size={16} /> {#if status.upToDate}Up to date{:else}<SafeText text={status.label} />{/if}</span>
         {:else}<span class="muted">Starting…</span>{/if}
       </span>
       {#if status && !status.upToDate}<progress max="1" value={status.progress} aria-label="Verification progress"></progress>{/if}

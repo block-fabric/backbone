@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { setTransport, type BridgeRequest } from '../lib/bridge';
-import { buildCommands, MENU_GROUPS, palette, searchCommands, setLayout } from '../lib/commands.svelte';
+import { buildCommands, MENU_GROUPS, menuSections, palette, searchCommands, setLayout } from '../lib/commands.svelte';
 import { closeDetail, detail } from '../lib/detail.svelte';
 import { handleShortcut } from '../lib/keyboard';
-import { AREAS, DEFAULT_LAYOUT, LAYOUTS, NAV_SECTIONS } from '../lib/layout';
+import { AREAS, chainBeforeTools, DEFAULT_LAYOUT, HOME_QUICK_ACTIONS, LAYOUTS, NAV_SECTIONS, pageKind } from '../lib/layout';
 import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
 import { app, applyPrefs, node, prefs, wallets } from '../lib/state.svelte';
 import { resetWalletData } from '../lib/walletdata.svelte';
@@ -364,6 +364,40 @@ describe('the layouts', () => {
     const areas = AREAS.map((a) => a.id);
     expect(areas.indexOf('chain')).toBeLessThan(areas.indexOf('tools'));
     expect(areas.indexOf('sidechains')).toBeLessThan(areas.indexOf('tools'));
+  });
+
+  it('chain before tools, in every list of actions and every menu', () => {
+    // The helper finds a list out of order.
+    expect(chainBeforeTools(['send', 'psbt', 'mine'] as PageId[], (p) => p)).toEqual({ chain: 'mine', tool: 'psbt' });
+    expect(chainBeforeTools(['send', 'mine', 'psbt', 'node'] as PageId[], (p) => p)).toBeNull();
+    expect(pageKind('explorer')).toBe('chain');
+    expect(pageKind('messages')).toBe('tools');
+    const lists: [string, PageId[]][] = [
+      ['Home quick actions', HOME_QUICK_ACTIONS.map((q) => q.page)],
+      ['sidebar sections', NAV_SECTIONS.flatMap((s) => s.pages)],
+      ['workspace areas', AREAS.flatMap((a) => a.tabs.map((tb) => tb.page))],
+    ];
+    const all = buildCommands();
+    lists.push(['Go to', all.filter((c) => c.group === 'Go to').map((c) => c.page!)]);
+    for (const section of menuSections(all)) lists.push([`menu ${section.title}`, section.items.flatMap((c) => (c.page ? [c.page] : []))]);
+    // The menus themselves: the one of the chain before the one of the tools.
+    expect(MENU_GROUPS.indexOf('Chains')).toBeLessThan(MENU_GROUPS.indexOf('Tools'));
+    for (const [name, pages] of lists) {
+      expect(pages.length, name).toBeGreaterThan(0);
+      expect(chainBeforeTools(pages, (p) => p), name).toBeNull();
+    }
+    // Home: Send and Receive first, then the chain, then the tools.
+    expect(HOME_QUICK_ACTIONS.map((q) => q.label)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine', 'Sign message', 'Load PSBT']);
+  });
+
+  it('dashboard: the quick actions of Home in that order, as shown', () => {
+    prefs.layout = 'dashboard';
+    go('home');
+    render(Shell);
+    const row = screen.getByRole('navigation', { name: 'Quick actions' });
+    const labels = within(row).getAllByRole('button').map((b) => b.textContent?.trim() ?? '');
+    expect(labels.slice(0, 7)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine', 'Sign message', 'Load PSBT']);
+    expect(chainBeforeTools(labels.slice(0, 7), (l) => HOME_QUICK_ACTIONS.find((q) => q.label === l)?.page)).toBeNull();
   });
 
   it('the dashboard is the default layout', () => {

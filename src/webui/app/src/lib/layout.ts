@@ -136,6 +136,51 @@ export interface NavSection {
   pages: PageId[];
 }
 
+/** What a page is about, by the section of the sidebars it is in: what concerns the chain comes before the tools. */
+export type PageKind = 'wallet' | 'chain' | 'tools' | 'node';
+
+export function pageKind(page: PageId): PageKind {
+  if (page === 'home') return 'wallet';
+  const section = NAV_SECTIONS.find((s) => s.pages.includes(page));
+  return (section?.title.toLowerCase() as PageKind | undefined) ?? 'node';
+}
+
+/**
+ * Whether a list of actions keeps what concerns the chain before the tools (the decision "chain before
+ * tools"): no action that opens a page of the chain comes after one that opens a tool. Gives the first
+ * pair out of order, or null.
+ */
+export function chainBeforeTools<T>(items: readonly T[], pageOf: (item: T) => PageId | undefined): { chain: T; tool: T } | null {
+  let firstTool: T | undefined;
+  for (const item of items) {
+    const page = pageOf(item);
+    if (!page) continue;
+    const kind = pageKind(page);
+    if (kind === 'tools' && firstTool === undefined) firstTool = item;
+    if (kind === 'chain' && firstTool !== undefined) return { chain: item, tool: firstTool };
+  }
+  return null;
+}
+
+export interface QuickAction {
+  label: string;
+  icon: IconName;
+  page: PageId;
+  tab?: string;
+  panel?: 'send' | 'receive';
+}
+
+/** The quick actions of Home: Send and Receive, then what concerns the chain, then the tools. */
+export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
+  { label: 'Send', icon: 'send', page: 'send', panel: 'send' },
+  { label: 'Receive', icon: 'receive', page: 'receive', panel: 'receive' },
+  { label: 'Deposit to a sidechain', icon: 'sidechains', page: 'sidechains' },
+  { label: 'Block explorer', icon: 'explorer', page: 'explorer' },
+  { label: 'Mine', icon: 'mine', page: 'mine' },
+  { label: 'Sign message', icon: 'edit', page: 'messages', tab: 'sign' },
+  { label: 'Load PSBT', icon: 'paste', page: 'psbt' },
+];
+
 /** The sidebars (dashboard, compact): every page, in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
   { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'addresses', 'wallets'] },

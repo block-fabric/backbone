@@ -1,6 +1,7 @@
 // Every action of the main window in one list: the pages, and the items of the menu bar of
 // chains-qt (bitcoingui.cpp createMenuBar), which the layouts put in tabs, sidebars, an
 // overflow menu and the command palette (doc/webui-layouts.md maps each one).
+import { t } from './i18n.svelte';
 import type { IconName } from '../components/Icon.svelte';
 import { closeDetail } from './detail.svelte';
 import { LAYOUTS, pageIcon, type LayoutId } from './layout';
@@ -33,6 +34,8 @@ export interface Command {
   separator?: boolean;
   /** The status tip of chains-qt (QAction::statusTip): shown in the status bar under the pointer. */
   tip?: string;
+  /** The page it opens, if it opens one (what decides where it goes: chain before tools). */
+  page?: PageId;
 }
 
 export const palette = $state({ open: false });
@@ -71,7 +74,7 @@ export function buildCommands(): Command[] {
   const currentWallet = wallets.list.find((w) => w.name === wallets.current) ?? null;
   const encrypted = !!currentWallet?.encrypted;
   const watchOnly = !!currentWallet?.privateKeysDisabled;
-  const to = (page: PageId, tab = '') => () => go(page, tab);
+  const to = (page: PageId, tab = '') => Object.assign(() => go(page, tab), { page });
   const font = (delta: number) => () => savePrefs({ fontAdjust: clampFontAdjust(prefs.fontAdjust + delta) });
 
   const pages: Command[] = (Object.keys(PAGES) as PageId[]).filter(pageAvailable).map((id) => ({
@@ -158,14 +161,15 @@ export function buildCommands(): Command[] {
       label: node.networkActive ? 'Disable network activity' : 'Enable network activity',
       keywords: 'offline online connections',
       run: () =>
-        void host.setNetworkActive(!node.networkActive).catch((e) => toast('error', 'Could not change network activity', e instanceof Error ? e.message : String(e))),
+        void host.setNetworkActive(!node.networkActive).catch((e) => toast('error', t('Could not change network activity'), e instanceof Error ? e.message : String(e))),
     },
   ];
 
   // With -disablewallet: no wallet menus, nor the items that need a wallet (chains-qt builds no wallet UI).
   const walletOnly = new Set(['Your wallet', 'Banking']);
   const shown = walletsEnabled() ? menus : menus.filter((c) => !walletOnly.has(c.group) && c.id !== 'use.sign' && c.id !== 'use.verify');
-  return [...pages, ...shown, ...extra];
+  // What a command opens, from the function it runs (to(page)).
+  return [...pages, ...shown, ...extra].map((c) => ('page' in c.run ? { ...c, page: (c.run as { page: PageId }).page } : c));
 }
 
 /** The commands of the old menu bar, by menu (the overflow menus of the layouts). */
