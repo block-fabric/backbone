@@ -10,6 +10,7 @@
   import { coinbaseTag, type RibbonBlock } from '../lib/blocks';
   import { every } from '../lib/poll';
   import CopyButton from '../components/CopyButton.svelte';
+  import Pager from '../components/Pager.svelte';
   import DataTable from '../components/DataTable.svelte';
   import Icon from '../components/Icon.svelte';
   import { errorText, inform } from '../lib/dialogs.svelte';
@@ -20,7 +21,7 @@
   import { nav } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
   import { node, prefs, savePrefs } from '../lib/state.svelte';
-  import type { Column } from '../lib/table';
+  import { filterAndSort, type Column } from '../lib/table';
   import { explorerQuery } from '../lib/tools';
   import { coinsToSats } from '../lib/units';
 
@@ -91,6 +92,18 @@
   });
   let blockSort = $state<string | null>('height');
   let blockDir = $state<'asc' | 'desc'>('desc');
+  // How many of the latest blocks are read, and how many a page shows (user decisions); sorted across all
+  // of them, then paged.
+  const BLOCK_POINTS = [25, 50, 100, 250, 500, 1000];
+  const BLOCK_PAGE_SIZES = [10, 25, 50, 100];
+  const blockPoints = $derived(BLOCK_POINTS.includes(prefs.explorerCount) ? BLOCK_POINTS : [...BLOCK_POINTS, prefs.explorerCount].sort((a, b) => a - b));
+  let blocksPage = $state(0);
+  // Another order: from its first page.
+  $effect(() => {
+    void blockSort;
+    void blockDir;
+    blocksPage = 0;
+  });
   let shown = $state<{ kind: 'block'; block: Block } | { kind: 'tx'; tx: Tx; blockHash: string | null } | null>(null);
   let raw = $state(false);
   let loading = $state(false);
@@ -302,6 +315,8 @@
     { key: 'difficulty', label: 'Difficulty', value: (b) => b.difficulty, width: '10rem', align: 'end' },
     { key: 'hash', label: 'Hash', value: (b) => b.hash, width: 'minmax(14rem, 1fr)', mono: true },
   ];
+  const sortedBlocks = $derived(filterAndSort(blocks, blockColumns, '', blockSort, blockDir));
+  const blocksShown = $derived(sortedBlocks.slice(blocksPage * prefs.explorerPageSize, (blocksPage + 1) * prefs.explorerPageSize));
   const mempoolColumns: Column<MempoolRow>[] = [
     { key: 'time', label: 'Received', value: (m) => m.time, width: '11.5rem' },
     { key: 'fee', label: 'Fee', value: (m) => m.fee, width: '9rem', align: 'end' },
@@ -327,7 +342,9 @@
     <button type="submit" class="btn primary" disabled={loading}>Search</button>
     <label class="row count">
       <span class="muted">Last</span>
-      <input type="number" min="10" max="1000" value={prefs.explorerCount} onchange={(e) => savePrefs({ explorerCount: Math.max(10, Math.min(1000, Number((e.currentTarget as HTMLInputElement).value) || 50)) })} aria-label="Blocks listed" />
+      <select value={prefs.explorerCount} onchange={(e) => { savePrefs({ explorerCount: Number((e.currentTarget as HTMLSelectElement).value) }); blocksPage = 0; }} aria-label="Blocks listed">
+        {#each blockPoints as n (n)}<option value={n}>{formatCount(n)}</option>{/each}
+      </select>
       <span class="muted">blocks</span>
     </label>
     <button type="button" class="btn" onclick={() => { cache.clear(); blocks = []; refreshBlocks(); refreshMempool(); }}>Refresh</button>
@@ -335,14 +352,19 @@
 
   <BlockRibbon blocks={ribbon} selected={selectedBlock} {fresh} now={nowSecs} onselect={pickBlock} onmore={moreDetails} />
 
+  <div class="list-bar">
   <div class="tabs" role="tablist" aria-label="Lists" id="explorer-lists">
     {#each TABS as tb (tb.id)}
       <button type="button" role="tab" aria-selected={list === tb.id} onclick={() => (list = tb.id as 'blocks' | 'mempool')}>{tb.id === 'mempool' ? `${t(tb.label)} (${mempoolTotal})` : t(tb.label)}</button>
     {/each}
   </div>
+    {#if list === 'blocks'}
+      <div class="block-pages"><Pager total={sortedBlocks.length} bind:page={blocksPage} size={prefs.explorerPageSize} sizes={BLOCK_PAGE_SIZES} label="blocks" onsize={(n) => savePrefs({ explorerPageSize: n })} /></div>
+    {/if}
+  </div>
   <div class="table-box" use:fillHeight>
     {#if list === 'blocks'}
-      <DataTable rows={blocks} columns={blockColumns} key={(b) => b.hash} bind:selected={selectedBlock} bind:sortKey={blockSort} bind:sortDir={blockDir} label="Blocks" empty="Loading…" onactivate={(b) => showBlock(b.hash)}>
+      <DataTable rows={blocksShown} columns={blockColumns} key={(b) => b.hash} bind:selected={selectedBlock} bind:sortKey={blockSort} bind:sortDir={blockDir} label="Blocks" empty="Loading…" onactivate={(b) => showBlock(b.hash)}>
         {#snippet cell(b, column)}
           {#if column.key === 'time'}{formatTime(b.time)}
           {:else if column.key === 'size'}{formatBytes(b.size)}
@@ -477,8 +499,20 @@
     outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
-  .count input {
-    width: 5.5rem;
+  .count select {
+    width: auto;
+  }
+  .list-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+  }
+  .block-pages {
+    margin-left: auto;
+  }
+  .block-pages :global(.pager) {
+    padding: 0;
   }
   /* The list takes the height the window has left (fillHeight), 16rem at least. */
   .table-box {

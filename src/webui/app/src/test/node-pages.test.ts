@@ -199,6 +199,35 @@ describe('the vote of this node on a bundle', () => {
   });
 });
 
+describe('who a withdrawal bundle pays', () => {
+  it('opens a bundle to its payees, their amounts, the total and the fee', async () => {
+    drivechain({
+      listwithdrawalbundles: () => [
+        { ...BUNDLE, payouts: [{ amount: 1.25, script: '0014' + 'aa'.repeat(20), address: 'tchn1qpayee' }, { amount: 0.5, script: '6a' }], fee: 0.001 },
+        { ...BUNDLE, hash: 'ce'.repeat(32), known: false, payouts: undefined, fee: undefined },
+      ],
+    });
+    nav.page = 'sidechains';
+    nav.tab = 'withdrawals';
+    render(DialogHost);
+    render(Sidechains);
+    const open = await waitFor(() => screen.getByRole('button', { name: `Who bundle ${'bd'.repeat(4)}…${'bd'.repeat(4)} pays` }));
+    expect(open.getAttribute('aria-expanded')).toBe('false');
+    await fireEvent.click(open);
+    const payees = await waitFor(() => screen.getByRole('table', { name: `Payees of bundle ${'bd'.repeat(4)}…${'bd'.repeat(4)}` }));
+    expect(payees.textContent).toContain('tchn1qpayee');
+    expect(payees.textContent).toContain('1.25000000');
+    expect(payees.textContent).toContain('script');
+    expect(payees.textContent).toContain('2 payees, in all');
+    expect(payees.textContent).toContain('1.75000000');
+    expect(payees.textContent).toContain('0.00100000');
+    await fireEvent.click(screen.getByRole('button', { name: `Who bundle ${'ce'.repeat(4)}…${'ce'.repeat(4)} pays` }));
+    await waitFor(() => screen.getByText(/does not have the transaction of this bundle/));
+    await fireEvent.click(open);
+    await waitFor(() => expect(screen.queryByRole('table', { name: /Payees of bundle bdbd/ })).toBeNull());
+  });
+});
+
 describe('the vote of this node, with a block arriving', () => {
   it('keeps the new vote when a reload started before it answers after it', async () => {
     let vote = 'upvote';
@@ -378,6 +407,35 @@ describe('tools', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     await waitFor(() => screen.getByText('Block 130'));
     expect(screen.getByRole('list', { name: 'Transactions of the block' }).textContent).toContain('c0'.repeat(32));
+  });
+
+  it('pages the blocks of the explorer, sorted across all of them', async () => {
+    const hashOf = (h: number) => h.toString(16).padStart(64, '0');
+    host({
+      getbestblockhash: () => hashOf(30),
+      getblock: (r) => {
+        const h = parseInt((r.params as string[])[0], 16);
+        return { height: h, time: 1_700_000_000 + h, nTx: 1 + (h % 7), size: 250, weight: 1000, difficulty: 1, hash: hashOf(h), previousblockhash: h > 0 ? hashOf(h - 1) : undefined, tx: [] };
+      },
+      getrawmempool: () => ({}),
+    });
+    prefs.explorerCount = 25;
+    prefs.explorerPageSize = 10;
+    render(Explorer);
+    await waitFor(() => screen.getByText(/1–10 of 25/));
+    expect((screen.getByLabelText('Blocks listed') as HTMLSelectElement).value).toBe('25');
+    expect([...(screen.getByLabelText('Blocks listed') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['25', '50', '100', '250', '500', '1000']);
+    expect([...(screen.getByLabelText('Rows per page') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['10', '25', '50', '100']);
+    // Newest first: block 30 on the first page, block 6 (the 25th) on the last.
+    expect(screen.queryAllByText(hashOf(30)).length).toBeGreaterThan(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => screen.getByText(/21–25 of 25/));
+    expect(document.querySelector('.table-box')?.textContent).toContain(hashOf(6));
+    // 25 a page, then fewer blocks read.
+    await fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '25' } });
+    await waitFor(() => screen.getByText(/1–25 of 25/));
+    expect(prefs.explorerPageSize).toBe(25);
   });
 
   it('hashes text and hexadecimal', async () => {
