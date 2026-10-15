@@ -180,8 +180,7 @@ export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
   { label: 'Deposit to a sidechain', icon: 'sidechains', page: 'sidechains' },
   { label: 'Block explorer', icon: 'explorer', page: 'explorer' },
   { label: 'Mine', icon: 'mine', page: 'mine' },
-  { label: 'Sign message', icon: 'edit', page: 'messages', tab: 'sign' },
-  { label: 'Load PSBT', icon: 'paste', page: 'psbt' },
+  // No Sign message nor Load PSBT here (user decision): "All actions" (the palette) reaches them.
 ];
 
 /** The dashboard's sidebar: every page (after Home), in the sections of the areas. */
