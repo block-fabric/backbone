@@ -20,6 +20,17 @@
   );
   const pct = $derived(tip ? (tip.progress * 100).toFixed(2) : '0.00');
 
+  // Another dialog is open (a page asks something): the layer steps aside until it closes.
+  let othersOpen = $state(false);
+  $effect(() => {
+    if (typeof MutationObserver === 'undefined') return;
+    const look = () => (othersOpen = document.querySelectorAll('dialog[open]:not(.layer)').length > 0);
+    const o = new MutationObserver(look);
+    o.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
+    look();
+    return () => o.disconnect();
+  });
+
   // Shown: the keyboard goes to it, unless the user is typing somewhere (ModalOverlay focuses its button).
   let card: HTMLDivElement | undefined = $state();
   $effect(() => {
@@ -66,8 +77,8 @@
 {#if nav.dialog === 'sync'}
   <!-- A layer over the pages, as ModalOverlay covers the wallet view of chains-qt: the menus, the status bar
        and the dialogs of the app stay above it. -->
-  <!-- Not modal: a layer over the pages only. -->
-  <dialog open class="layer" aria-labelledby="sync-title">
+  <!-- Not modal: a layer over the pages only; it steps aside while a dialog is open above it. -->
+  <dialog open={!othersOpen} class="layer" aria-labelledby="sync-title">
     <div class="card" bind:this={card} role="document" tabindex="-1">
       <header>
         <h2 id="sync-title">Synchronizing with the network</h2>

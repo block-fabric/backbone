@@ -5,6 +5,7 @@
   try {
     await waitFor('the node to run', () => T() && T().app.phase === 'ready' && T().node.tip);
     await check('C1 the app knows there are no wallets', T().app.info.walletEnabled === false);
+    await check('L11 a debug option set in chains.conf is ignored', T().app.info.devtools === false);
     const menus = [...document.querySelectorAll('.menubar .top')].map((b) => b.textContent.trim());
     await check('C1 no wallet menus', !menus.includes('Your wallet') && !menus.includes('Banking'), menus.join(', '));
     await check('C1 the overview says why', text('.balances').includes('-disablewallet') && !text('.balances').includes('Create or open'));

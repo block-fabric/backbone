@@ -293,7 +293,7 @@ end-to-end tests (smoke, wallet, node, and `run_audit.py`, made for these findin
 | L8 intro messages | The messages of FreespaceChecker, and "(sufficient to restore backups N days old)" | audit-ui |
 | L9 keyboard | Ctrl+W closes the dialog on top; Ctrl+I/T/N/P from anywhere; headers focusable | audit-ui |
 | L10 overflow | Coin control amounts wrap; two notices at most, the others behind them | audit-ui |
-| L11 debug options in chains.conf | Taken from the command line only | (app.cpp; the run of the tests) |
+| L11 debug options in chains.conf | Taken from the command line only | run_audit: `webuidevtools=1` in chains.conf is ignored |
 | L12 passphrases in memory | Into secure strings straight from the request; the request and its copies wiped after use | hardening_tests `secrets_are_wiped` |
 
 The four items already open in the parity list: C16 (the themed frame) is done. A14 and A15

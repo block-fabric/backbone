@@ -141,6 +141,8 @@ def main():
     # 3. Without wallets.
     nowallet = base / "nowallet"
     nowallet.mkdir()
+    # A chains.conf that turns on a debug option of the app: ignored, only the command line counts (audit L11).
+    (nowallet / "chains.conf").write_text("webuidevtools=1\n")
     run(args.app, base, "audit-nowallet", "audit_nowallet.js", common + [f"-port={port + 2}", f"-datadir={nowallet}", "-disablewallet", f"-webuiconfig={base / 'nowallet.json'}"], env, args.shots, failures)
     check_shutdown(nowallet, failures)
 
