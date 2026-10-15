@@ -34,6 +34,8 @@
     await check('tip event', T().node.tip.height === 101, String(T().node.tip.height));
     await waitFor('the balance event', () => T().wallets.balances.smoke && T().wallets.balances.smoke.trusted === 5000000000n);
     await check('balance event', true);
+    // The dashboard (the default layout) opens its home: the balances checked here are the overview's.
+    T().go('overview');
     await waitFor('the balance on the overview', () => text('.balances').includes('50.00000000'));
     await check('overview shows the balance', true);
     await check('the chain in the status bar', text('.chain .newest').includes('101'), text('.chain'));
@@ -88,7 +90,7 @@
     await check('100 000 rows, a few drawn', rows > 2 && rows < 120, String(rows));
 
     // Pictures of every page, light and dark.
-    const pages = ['overview', 'send', 'receive', 'transactions', 'sidechains', 'sidechain-nodes', 'mine', 'explorer', 'node', 'settings', 'addresses', 'messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto', 'wallets', 'kit'];
+    const pages = ['overview', 'send', 'receive', 'transactions', 'sidechains', 'sidechain-nodes', 'mine', 'explorer', 'node', 'settings', 'addresses', 'messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto', 'wallets', 'kit', 'home', 'tools', 'advanced'];
     for (const theme of ['light', 'dark']) {
       T().savePrefs({ theme });
       for (const page of pages) {
