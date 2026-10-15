@@ -35,6 +35,8 @@ export interface PageInfo {
   wallet?: boolean;
   /** Built (false: the page says what it will do). */
   ready?: boolean;
+  /** Not a page of its own any more: a tab of another page, where go() leads. */
+  tabOf?: { page: PageId; tab: string };
   /** Shortcut, as written in menus. */
   shortcut?: string;
 }
@@ -45,7 +47,7 @@ export const PAGES: Record<PageId, PageInfo> = {
   receive: { id: 'receive', title: 'Receive', icon: 'receive', summary: 'Request payments, with an address, a QR code and a payment link', parity: ['H01', 'H02', 'H03'], wallet: true, ready: true, shortcut: 'Alt+3' },
   transactions: { id: 'transactions', title: 'Transactions', icon: 'history', summary: 'Every transaction of the wallet, to search, sort and export', parity: ['I01', 'I02', 'I03', 'I04', 'I05', 'I06'], wallet: true, ready: true, shortcut: 'Alt+4' },
   sidechains: { id: 'sidechains', title: 'Sidechains', icon: 'sidechains', summary: 'Deposit to sidechains, ack proposals and vote on withdrawals', parity: ['L01', 'L02', 'L03'], shortcut: 'Alt+5', ready: true },
-  'sidechain-nodes': { id: 'sidechain-nodes', title: 'Sidechain nodes', icon: 'nodes', summary: 'Install, start and stop the nodes of sidechains, and watch them', parity: ['L04'], ready: true },
+  'sidechain-nodes': { id: 'sidechain-nodes', title: 'Sidechain nodes', icon: 'nodes', summary: 'Install, start and stop the nodes of sidechains, and watch them', parity: ['L04'], ready: true, tabOf: { page: 'sidechains', tab: 'nodes' } },
   mine: { id: 'mine', title: 'Mine', icon: 'mine', summary: 'Mine blocks with the processor of this computer', parity: ['L05'], ready: true },
   explorer: { id: 'explorer', title: 'Block explorer', icon: 'explorer', summary: 'Browse blocks and the transactions waiting to be mined', parity: ['L06'], ready: true },
   node: { id: 'node', title: 'Node window', icon: 'terminal', summary: 'Information, console, network traffic and peers of this node', parity: ['M01', 'M02', 'M03', 'M04', 'M05'], ready: true, shortcut: 'Ctrl+Shift+D' },
@@ -82,6 +84,13 @@ export const nav = $state({
 });
 
 export function go(page: PageId, tab = ''): void {
+  // A page that became a tab of another one (Sidechain nodes: a tab of Sidechains).
+  const into = PAGES[page].tabOf;
+  if (into) {
+    nav.page = into.page;
+    nav.tab = into.tab;
+    return;
+  }
   nav.page = page;
   nav.tab = tab;
 }

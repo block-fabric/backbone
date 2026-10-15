@@ -10,6 +10,9 @@
   import { host, type SidechainNodeEntry, type SidechainNodeList, type SidechainNodeMethod, type SidechainNodeStatus } from '../lib/rpc';
   import { wallets } from '../lib/state.svelte';
 
+  // Inside the Sidechains page (its Nodes tab): without a title of its own.
+  let { embedded = false }: { embedded?: boolean } = $props();
+
   const REFRESH_MS = 4000;
   const TITLE = $derived(t('Sidechain Nodes'));
 
@@ -155,8 +158,12 @@
   }
 </script>
 
-<div class="page nodes">
-  <header class="page-head"><h1>Sidechain nodes {#if list}<span class="badge">{list.network}</span>{/if}</h1></header>
+<div class="nodes" class:page={!embedded}>
+  {#if embedded}
+    {#if list}<p class="muted">{t('Nodes of sidechains on this computer')} <span class="badge">{list.network}</span></p>{/if}
+  {:else}
+    <header class="page-head"><h1>Sidechain nodes {#if list}<span class="badge">{list.network}</span>{/if}</h1></header>
+  {/if}
   <p class="muted">Run the nodes of sidechains from here. A sidechain node follows this node, mines its blocks through the miners of this chain, and holds the coins you deposit to the sidechain.</p>
   {#if list && !list.server}
     <p class="notice" role="alert" id="sidechain-nodes-notice">

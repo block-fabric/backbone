@@ -59,6 +59,8 @@ export function pageAvailable(id: PageId): boolean {
   if ((PAGES[id].wallet || id === 'wallets') && !walletsEnabled()) return false;
   if (id === 'kit') return !!(app.info?.test || app.info?.devtools);
   if (id === 'home') return prefs.layout === 'dashboard';
+  // A tab of another page: reached through it (and through its own command), not as a page.
+  if (PAGES[id].tabOf) return false;
   return true;
 }
 

@@ -19,7 +19,6 @@
   import { prefs, savePrefs, selectWallet, statusTip, wallets } from '../lib/state.svelte';
   import { pendingNow } from '../lib/settingsdraft.svelte';
   import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
-  import { UNITS, type Unit } from '../lib/units';
   import { frame } from '../lib/windowframe.svelte';
 
   let { rail = false, open = $bindable(false) }: { rail?: boolean; open?: boolean } = $props();
@@ -110,12 +109,10 @@
         <span class="avatar" aria-hidden="true"><Icon name="wallet" size={17} /></span>
         <div class="wc-name">
           <span class="caps">Wallet</span>
-          <!-- The name keeps room of its own next to the unit; a long one ends in "…", whole in its tooltip. -->
+          <!-- The wallet shown, and the switch between wallets (a round pill); a long name ends in "…",
+               whole in its tooltip. The unit of amounts is chosen in the status bar. -->
           {#if wallets.list.length > 1}<WalletPicker />{:else}<span class="name" translate="no" title={shownName}>{shownName}</span>{/if}
         </div>
-        <select class="pill unit" aria-label="Unit of amounts" title="Unit of amounts" value={prefs.unit} onchange={(e) => savePrefs({ unit: (e.currentTarget as HTMLSelectElement).value as Unit })}>
-          {#each UNITS as u (u.id)}<option value={u.id}>{u.short}</option>{/each}
-        </select>
       </div>
       {#if lock}<div class="wc-foot"><span class="badge {lock.tone}" title={t(lock.title)}><Icon name={lock.icon} size={12} /> {t(lock.label)}</span></div>{/if}
     </section>
@@ -285,11 +282,11 @@
     color: var(--on-accent);
     box-shadow: 0 0 20px -4px var(--accent);
   }
-  /* The name has room of its own: at least 5 characters or so beside the unit, or the unit goes under it
-     (a narrow sidebar, large text, 125 or 150 % on Windows). */
+  /* The name takes the room beside the avatar (a narrow sidebar, large text, 125 or 150 % on Windows). */
   .wc-name {
     display: flex;
     flex-direction: column;
+    gap: 0.15rem;
     flex: 1 1 5rem;
     min-width: 5rem;
   }
@@ -302,13 +299,15 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* The switch between wallets: a round pill, as the other choices of the app. */
   .wc-name :global(select) {
     width: 100%;
     min-width: 0;
-    min-height: 1.7rem;
-    padding: 0 1.4rem 0 0;
-    border: 0;
-    background-color: transparent;
+    min-height: 1.9rem;
+    padding: 0 1.7rem 0 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background-color: var(--surface-2);
     font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -325,13 +324,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .unit {
-    flex: none;
-    width: 4.6rem;
-    min-height: 1.75rem;
-    padding: 0 0.2rem 0 0.55rem;
-    font-size: 0.8rem;
   }
   .leave {
     display: flex;

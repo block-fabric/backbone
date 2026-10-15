@@ -10,8 +10,9 @@
   function nameField() {
     const card = document.querySelector('.wallet-card');
     const el = card && card.querySelector('.wc-name .name, .wc-name select');
+    // The unit is no longer in the card (it is chosen in the status bar): nothing to share the room with.
     const unit = card && card.querySelector('select.unit');
-    if (!el || !unit) return null;
+    if (!el) return null;
     const style = getComputedStyle(el);
     let text;
     let fits;
@@ -32,8 +33,8 @@
       fits = range.getBoundingClientRect().width <= box + 0.5;
     }
     const a = el.getBoundingClientRect();
-    const b = unit.getBoundingClientRect();
-    const apart = a.right <= b.left + 0.5 || b.top >= a.bottom - 0.5;
+    const b = unit ? unit.getBoundingClientRect() : null;
+    const apart = !b || a.right <= b.left + 0.5 || b.top >= a.bottom - 0.5;
     const em = parseFloat(getComputedStyle(document.documentElement).fontSize);
     return { el, text, fits, room, apart, title: el.title, ellipsis: style.textOverflow === 'ellipsis', roomEm: room / em };
   }

@@ -91,7 +91,8 @@ export const AREAS: readonly Area[] = [
     id: 'sidechains',
     label: 'Sidechains',
     icon: 'sidechains',
-    tabs: [{ page: 'sidechains' }, { page: 'sidechain-nodes' }],
+    // One page: its own tabs (Sidechains, Nodes, Proposals, Withdrawals) are the rest.
+    tabs: [{ page: 'sidechains' }],
   },
   {
     id: 'tools',
@@ -185,7 +186,7 @@ export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
 export const NAV_SECTIONS: readonly NavSection[] = [
   { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'addresses', 'wallets'] },
   // What concerns the chain before the tools.
-  { title: 'Chain', pages: ['sidechains', 'sidechain-nodes', 'mine', 'explorer'] },
+  { title: 'Chain', pages: ['sidechains', 'mine', 'explorer'] },
   { title: 'Tools', pages: ['messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto'] },
   { title: 'Node', pages: ['node', 'settings', 'kit'] },
 ];

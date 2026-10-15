@@ -29,12 +29,14 @@
   import { formatCount, formatTime, shortHash } from '../lib/format';
   import { detail, showDetail } from '../lib/detail.svelte';
   import { nav, takeFocus } from '../lib/nav.svelte';
+  import SidechainNodes from './SidechainNodes.svelte';
   import { host, rpc } from '../lib/rpc';
   import { node, noWalletText, prefs, toast, wallets } from '../lib/state.svelte';
   import { coinsToSats, formatAmount, satsToCoins, unitInfo } from '../lib/units';
 
   const TABS = [
     { id: 'sidechains', label: 'Sidechains' },
+    { id: 'nodes', label: 'Nodes' },
     { id: 'proposals', label: 'Proposals' },
     { id: 'withdrawals', label: 'Withdrawals' },
   ];
@@ -262,7 +264,10 @@
     {/each}
   </div>
 
-  {#if dc && tab === 'sidechains'}
+  {#if tab === 'nodes'}
+    <!-- The nodes of sidechains run from here (chains-qt's Sidechain Nodes window), as a tab of this page. -->
+    <SidechainNodes embedded />
+  {:else if dc && tab === 'sidechains'}
     <section class="stats">
       <div class="stat panel"><span class="muted">Active sidechains</span><strong class="num">{dc.info.activesidechains}</strong><span class="faint">of {dc.info.maxsidechains} slots</span></div>
       <div class="stat panel"><span class="muted">In escrow</span><strong><Amount sats={escrowTotal} /></strong><span class="faint">held for the sidechains</span></div>

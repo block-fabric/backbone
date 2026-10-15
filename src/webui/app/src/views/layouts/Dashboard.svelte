@@ -10,7 +10,6 @@
   import Sidebar from '../../components/Sidebar.svelte';
   import StatusBar from '../../components/StatusBar.svelte';
   import TopActions from '../../components/TopActions.svelte';
-  import WalletPicker from '../../components/WalletPicker.svelte';
   import { detail } from '../../lib/detail.svelte';
   import { closeQuick } from '../../lib/quick.svelte';
   import { NAV_SECTIONS } from '../../lib/layout';
@@ -46,7 +45,7 @@
         {/if}
       </nav>
       <PaletteButton />
-      <WalletPicker pill />
+      <!-- The wallet is switched in the sidebar's card (in the drawer on a narrow window). -->
       <TopActions />
     </header>
     <div class="body">

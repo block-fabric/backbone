@@ -143,13 +143,40 @@ describe('the commands', () => {
 
   it('reach every page, and every page is in each layout', () => {
     const all = buildCommands();
-    const pages = (Object.keys(PAGES) as PageId[]).filter((p) => p !== 'kit' && p !== 'home');
+    const pages = (Object.keys(PAGES) as PageId[]).filter((p) => p !== 'kit' && p !== 'home' && !PAGES[p].tabOf);
     for (const p of pages) {
       expect(all.some((c) => c.id === `page.${p}`), p).toBe(true);
       expect(AREAS.some((a) => a.tabs.some((t) => t.page === p)), `workspace: ${p}`).toBe(true);
       expect(NAV_SECTIONS.some((s) => s.pages.includes(p)), `sidebars: ${p}`).toBe(true);
     }
     expect(LAYOUTS.map((l) => l.id)).toEqual(['workspace', 'dashboard', 'sidebar']);
+  });
+
+  it('sidechain nodes: a tab of the Sidechains page, not a page of its own', () => {
+    expect(PAGES['sidechain-nodes'].tabOf).toEqual({ page: 'sidechains', tab: 'nodes' });
+    expect(NAV_SECTIONS.some((s) => s.pages.includes('sidechain-nodes'))).toBe(false);
+    expect(AREAS.some((a) => a.tabs.some((t) => t.page === 'sidechain-nodes'))).toBe(false);
+    // Its command, the old way to it and the dashboard's link all lead to the tab.
+    const all = buildCommands();
+    expect(all.some((c) => c.id === 'page.sidechain-nodes')).toBe(false);
+    all.find((c) => c.label === 'Sidechain nodes')!.run();
+    expect([nav.page, nav.tab]).toEqual(['sidechains', 'nodes']);
+    go('overview');
+    go('sidechain-nodes');
+    expect([nav.page, nav.tab]).toEqual(['sidechains', 'nodes']);
+  });
+
+  it('dashboard: the wallet is switched in the sidebar card only, and the unit in the status bar only', () => {
+    prefs.layout = 'dashboard';
+    render(Shell);
+    const side = screen.getByRole('navigation', { name: 'Pages' });
+    const card = within(side).getByRole('region', { name: 'Wallet shown' });
+    // No wallet choice in the top bar beside the search.
+    const top = document.querySelector('.content-head, header.top, .dash-head') ?? document.body;
+    const outside = Array.from(document.querySelectorAll('select')).filter((el) => !card.contains(el) && el.querySelector('option') && /wallet/i.test(el.getAttribute('title') ?? '') && !el.closest('.statusbar, footer'));
+    expect(outside.length, top.className).toBe(0);
+    // One unit chooser: in the status bar.
+    expect(within(card).queryByRole('combobox', { name: 'Unit of amounts' })).toBeNull();
   });
 
   it('are found by name, words in any order, and run', () => {
@@ -319,7 +346,8 @@ describe('the layouts', () => {
     const side = screen.getByRole('navigation', { name: 'Pages' });
     const card = within(side).getByRole('region', { name: 'Wallet shown' });
     expect(within(card).getByText('Not encrypted')).toBeTruthy();
-    expect(within(card).getByRole('combobox', { name: 'Unit of amounts' })).toBeTruthy();
+    // The unit is chosen in the status bar only, not in the card.
+    expect(within(card).queryByRole('combobox', { name: 'Unit of amounts' })).toBeNull();
     expect(within(side).getByRole('button', { name: /Close wallet/ })).toBeTruthy();
     expect(within(side).getByRole('button', { name: /Quit Chains/ })).toBeTruthy();
   });

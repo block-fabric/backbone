@@ -369,7 +369,7 @@
       </div>
     </section>
 
-    <Card title="Blind merged mining" icon="nodes" open={() => go('sidechain-nodes')} openLabel="Open the sidechain nodes">
+    <Card title="Blind merged mining" icon="nodes" open={() => go('sidechains', 'nodes')} openLabel="Open the sidechain nodes">
       <p class="muted small">Blocks of the last {bmmWindow} that committed to a block of each sidechain.</p>
       {#if sidechains.length === 0}
         <p class="muted">No sidechain to merge mine yet.</p>
@@ -389,7 +389,7 @@
         </ul>
       {/if}
       {#snippet actions()}
-        <button type="button" class="btn" onclick={() => go('sidechain-nodes')}>Sidechain nodes</button>
+        <button type="button" class="btn" onclick={() => go('sidechains', 'nodes')}>Sidechain nodes</button>
       {/snippet}
     </Card>
   </div>
