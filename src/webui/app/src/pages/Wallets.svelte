@@ -480,8 +480,8 @@
               <Icon name="eye" /><span><strong>Export watch-only wallet…</strong><small>Export a watch-only version of the current wallet that can be restored onto another node.</small></span>
             </button>
           {/if}
-          <button type="button" class="action" onclick={() => go('addresses', 'receive')}>
-            <Icon name="book" /><span><strong>Addresses</strong><small>Show the list of used sending and receiving addresses and labels</small></span>
+          <button type="button" class="action" onclick={() => go('receive', 'addresses')}>
+            <Icon name="book" /><span><strong>Receiving addresses</strong><small>Show the list of used receiving addresses and labels</small></span>
           </button>
           <button type="button" class="action danger" onclick={closeCurrent}>
             <Icon name="x" /><span><strong>Close wallet</strong><small>Close the wallet (it is opened again with "Open")</small></span>

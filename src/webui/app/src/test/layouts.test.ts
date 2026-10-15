@@ -19,7 +19,7 @@ const OLD_MENUS: Record<string, string[]> = {
     'Close all wallets…',
     'Migrate wallet…',
     'Restore and migrate wallet file…',
-    'Sending addresses',
+    // 'Sending addresses' is gone (user decision, 2026-10-15: no sending address book; tested below).
     'Receiving addresses',
     'Backup wallet…',
     'Restore wallet…',
@@ -164,6 +164,39 @@ describe('the commands', () => {
     go('overview');
     go('sidechain-nodes');
     expect([nav.page, nav.tab]).toEqual(['sidechains', 'nodes']);
+  });
+
+  it('receiving addresses: a tab of the Receive page; no sending addresses (user decision)', () => {
+    expect(PAGES.addresses.tabOf).toEqual({ page: 'receive', tab: 'addresses' });
+    expect(NAV_SECTIONS.some((s) => s.pages.includes('addresses'))).toBe(false);
+    expect(AREAS.some((a) => a.tabs.some((t) => t.page === 'addresses'))).toBe(false);
+    const all = buildCommands();
+    expect(all.some((c) => c.id === 'page.addresses')).toBe(false);
+    // No sending addresses anywhere: not in the menus, not in the palette.
+    expect(all.some((c) => /sending address/i.test(c.label))).toBe(false);
+    expect(searchCommands(all, 'sending addresses').some((c) => /sending/i.test(c.label))).toBe(false);
+    // Receiving addresses, from the menu, the palette and the old page id, open the tab.
+    all.find((c) => c.label === 'Receiving addresses')!.run();
+    expect([nav.page, nav.tab]).toEqual(['receive', 'addresses']);
+    go('overview');
+    searchCommands(all, 'receiving addresses')[0].run();
+    expect([nav.page, nav.tab]).toEqual(['receive', 'addresses']);
+    go('overview');
+    go('addresses');
+    expect([nav.page, nav.tab]).toEqual(['receive', 'addresses']);
+  });
+
+  it('receiving addresses: the Receive page shows its Addresses tab', async () => {
+    prefs.layout = 'sidebar';
+    render(Shell);
+    go('receive', 'addresses');
+    const tab = await screen.findByRole('tab', { name: 'Addresses' });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(await screen.findByRole('button', { name: /Generate new address/ })).toBeTruthy();
+    expect(screen.getByRole('grid', { name: 'Receiving addresses' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('tab', { name: 'Requests' }));
+    expect(nav.tab).toBe('');
+    expect(await screen.findByRole('button', { name: /Create new receiving address/ })).toBeTruthy();
   });
 
   it('dashboard: the wallet is switched in the sidebar card only, and the unit in the status bar only', () => {

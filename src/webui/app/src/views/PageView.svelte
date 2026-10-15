@@ -1,7 +1,6 @@
 <script lang="ts">
   // The page shown, whatever the layout around it.
   import NoWallet from '../components/NoWallet.svelte';
-  import Addresses from '../pages/Addresses.svelte';
   import Crypto from '../pages/Crypto.svelte';
   import Explorer from '../pages/Explorer.svelte';
   import Kit from '../pages/Kit.svelte';
@@ -61,8 +60,6 @@
     <Receive />
   {:else if nav.page === 'transactions'}
     <Transactions />
-  {:else if nav.page === 'addresses'}
-    <Addresses />
   {:else if nav.page === 'messages'}
     <Messages />
   {:else if nav.page === 'psbt'}

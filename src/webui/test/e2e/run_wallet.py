@@ -9,8 +9,8 @@ display, and has it run wallet.js in its page: wallets created (one encrypted),
 a payment request, coins mined, a payment sent with the passphrase through the
 confirmation, the history with details and a fee bump, a PSBT created, saved,
 loaded from the file, signed and broadcast, encryption, unlocking for a while,
-a new passphrase, messages signed and verified, the address book, backups and
-a restore, coin control; with pictures of every wallet page in the light and
+a new passphrase, messages signed and verified, the receiving addresses (a tab
+of Receive), backups and a restore, choosing the coins in the Send page; with pictures of every wallet page in the light and
 dark themes. The file choosers are answered by the test (test.fileAnswer).
 
     run_wallet.py --app build/bin/chains-app --tmp <dir> --shots <dir>
@@ -63,7 +63,7 @@ def main():
     check_shutdown(datadir, failures)
 
     # What the page saved through the file choosers.
-    for name in ["request.png", "transactions.csv", "payment.psbt", "sending.csv", "alice-backup.dat", "alice-watchonly.dat"]:
+    for name in ["request.png", "transactions.csv", "payment.psbt", "receiving.csv", "alice-backup.dat", "alice-watchonly.dat"]:
         if not (files / name).is_file() or (files / name).stat().st_size == 0:
             failures.append(f"no file {name}")
     if (files / "request.png").is_file() and not (files / "request.png").read_bytes().startswith(b"\x89PNG"):
@@ -73,8 +73,8 @@ def main():
     csv = (files / "transactions.csv").read_text() if (files / "transactions.csv").is_file() else ""
     if not csv.startswith('"Confirmed","Date","Type","Label","Address","Amount (CHN)","ID"\n') or '"Sent to","Bob"' not in csv:
         failures.append(f"transactions.csv: {csv[:200]!r}")
-    if (files / "sending.csv").is_file() and '"Carol"' not in (files / "sending.csv").read_text():
-        failures.append("sending.csv has no Carol")
+    if (files / "receiving.csv").is_file() and '"Rainy day"' not in (files / "receiving.csv").read_text():
+        failures.append("receiving.csv has no Rainy day")
 
     if result:
         missing = [s for s in result["shots"] if not (args.shots / f"{s}.png").is_file()]

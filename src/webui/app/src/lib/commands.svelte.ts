@@ -98,8 +98,8 @@ export function buildCommands(): Command[] {
     { id: 'wallet.closeAll', group: 'Your wallet', label: 'Close all wallets…', run: to('wallets', 'close-all'), disabled: noWallet, tip: 'Close all wallets' },
     { id: 'wallet.migrate', group: 'Your wallet', label: 'Migrate wallet…', run: to('wallets', 'migrate'), keywords: 'legacy descriptor', tip: 'Migrate a wallet' },
     { id: 'wallet.restoreMigrate', group: 'Your wallet', label: 'Restore and migrate wallet file…', run: to('wallets', 'restore-migrate'), keywords: 'legacy' },
-    { id: 'wallet.sendingAddresses', group: 'Your wallet', label: 'Sending addresses', run: to('addresses', 'send'), disabled: noWallet, separator: true, keywords: 'address book contacts', tip: 'Show the list of used sending addresses and labels' },
-    { id: 'wallet.receivingAddresses', group: 'Your wallet', label: 'Receiving addresses', run: to('addresses', 'receive'), disabled: noWallet, keywords: 'address book', tip: 'Show the list of used receiving addresses and labels' },
+    // No sending addresses (user decision, 2026-10-15): the receiving ones are a tab of Receive.
+    { id: 'wallet.receivingAddresses', group: 'Your wallet', label: 'Receiving addresses', run: to('receive', 'addresses'), disabled: noWallet, separator: true, keywords: 'address book labels generate new', tip: 'Show the list of used receiving addresses and labels' },
     { id: 'wallet.backup', group: 'Your wallet', label: 'Backup wallet…', run: to('wallets', 'backup'), disabled: noWallet, separator: true, keywords: 'save copy', tip: 'Backup wallet to another location' },
     { id: 'wallet.restore', group: 'Your wallet', label: 'Restore wallet…', run: to('wallets', 'restore'), keywords: 'backup file', tip: 'Restore a wallet from a backup file' },
     { id: 'wallet.exportWatchOnly', group: 'Your wallet', label: 'Export watch-only wallet…', run: to('wallets', 'export'), disabled: noWallet || watchOnly, tip: 'Export a watch-only version of the current wallet that can be restored onto another node.' },

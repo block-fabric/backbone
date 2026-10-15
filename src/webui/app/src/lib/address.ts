@@ -182,3 +182,25 @@ export function isSingleKeyAddress(address: string, network: string): boolean {
   const bytes = base58Decode(address);
   return bytes !== null && bytes.length === 25 && bytes[0] === params.pubkey;
 }
+
+/**
+ * The type of an address of the wallet, told from its form, as the Receive page names them (the ids
+ * of ADDRESS_TYPES): bech32 (native segwit v0), bech32m (taproot), p2sh-segwit (base58 to a script:
+ * what the wallet makes of that form), legacy (base58 to a key); '' when it is none of them.
+ */
+export function addressTypeOf(address: string, network: string): '' | 'bech32' | 'bech32m' | 'p2sh-segwit' | 'legacy' {
+  const params = networkParams(network);
+  if (address.toLowerCase().startsWith(params.hrp + '1')) {
+    const decoded = bech32Decode(address);
+    if (!decoded || decoded.hrp !== params.hrp) return '';
+    const version = decoded.data[0];
+    if (version === 0 && decoded.encoding === 'bech32') return 'bech32';
+    if (version === 1 && decoded.encoding === 'bech32m') return 'bech32m';
+    return '';
+  }
+  const bytes = base58Decode(address);
+  if (!bytes || bytes.length !== 25) return '';
+  if (bytes[0] === params.pubkey) return 'legacy';
+  if (bytes[0] === params.script) return 'p2sh-segwit';
+  return '';
+}

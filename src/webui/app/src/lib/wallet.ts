@@ -641,6 +641,49 @@ export function addressesCsv(entries: readonly AddressEntry[]): string {
   return toCsv(['Label', 'Address'], entries.map((e) => [e.label, e.address]));
 }
 
+/** A receiving address of the wallet as the Addresses tab of the Receive page lists it. */
+export interface ReceivingAddress {
+  address: string;
+  label: string;
+  /** The id of ADDRESS_TYPES ('' when the form is none of them). */
+  type: string;
+  /** Some coins came to it (in the history). */
+  used: boolean;
+  /** Everything it received, in the history (not conflicted or abandoned). */
+  received: bigint;
+  /** The time of the last payment to it; 0 when none. */
+  lastUsed: number;
+}
+
+/**
+ * The receiving addresses of the address book, with what the history says of each: received, how
+ * much, and when last (the records "Received with" and "Mined" name the address; a payment to one's
+ * own address is such a record too).
+ */
+export function receivingAddresses(entries: readonly AddressEntry[], records: readonly TxRecord[], typeOf: (address: string) => string): ReceivingAddress[] {
+  const seen = new Map<string, { received: bigint; last: number }>();
+  for (const r of records) {
+    if ((r.type !== 'recv' && r.type !== 'mined') || r.credit <= 0n || !r.address) continue;
+    if (r.status === 'conflicted' || r.status === 'abandoned' || r.abandoned) continue;
+    const s = seen.get(r.address) ?? { received: 0n, last: 0 };
+    s.received += r.credit;
+    s.last = Math.max(s.last, r.time);
+    seen.set(r.address, s);
+  }
+  return entries
+    .filter((e) => e.purpose === 'receive')
+    .map((e) => {
+      const s = seen.get(e.address);
+      return { address: e.address, label: e.label, type: typeOf(e.address), used: !!s, received: s?.received ?? 0n, lastUsed: s?.last ?? 0 };
+    });
+}
+
+/** The name of an address type (ADDRESS_TYPES), in the language shown. */
+export function addressTypeText(type: string): string {
+  const known = ADDRESS_TYPES.find((a) => a.id === type);
+  return known ? t(known.label) : t('Other');
+}
+
 /** TransactionTableModel TxPlainTextRole: the line "Copy full transaction details" copies. */
 export function plainText(r: TxRecord, unit: Unit): string {
   const d = new Date(r.time * 1000);

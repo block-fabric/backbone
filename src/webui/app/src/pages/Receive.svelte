@@ -1,6 +1,7 @@
 <script lang="ts">
   // Receive (ReceiveCoinsDialog): a request with a new address, a label, an amount and a message,
-  // and the requests made before (RecentRequestsTableModel), kept in the wallet.
+  // and the requests made before (RecentRequestsTableModel), kept in the wallet. Its Addresses tab: the
+  // receiving addresses of the wallet (there is no Addresses page: user decision, 2026-10-15).
   import { t } from '../lib/i18n.svelte';
   import SafeText from '../components/SafeText.svelte';
   import Amount from '../components/Amount.svelte';
@@ -8,7 +9,9 @@
   import ContextMenu, { type ContextItem } from '../components/ContextMenu.svelte';
   import DataTable from '../components/DataTable.svelte';
   import Icon from '../components/Icon.svelte';
+  import ReceivingAddresses from '../components/ReceivingAddresses.svelte';
   import RequestDialog from '../components/RequestDialog.svelte';
+  import { nav } from '../lib/nav.svelte';
   import { errorText, inform, withUnlock } from '../lib/dialogs.svelte';
   import { formatTime } from '../lib/format';
   import { host } from '../lib/rpc';
@@ -36,6 +39,12 @@
   let menu = $state({ open: false, x: 0, y: 0 });
   let sortKey: string | null = $state('date');
   let sortDir: 'asc' | 'desc' = $state('desc');
+
+  const TABS = [
+    { id: '', label: 'Requests' },
+    { id: 'addresses', label: 'Addresses' },
+  ];
+  const tab = $derived(nav.tab === 'addresses' ? 'addresses' : '');
 
   const types = $derived(ADDRESS_TYPES.filter((t) => !t.taproot || info?.taproot));
   const typeTip = $derived(types.find((ty) => ty.id === addressType)?.tip ?? '');
@@ -131,7 +140,15 @@
 
 <div class="page receive">
   <header class="page-head"><h1>Receive</h1></header>
+  <div class="tabs" role="tablist" aria-label="Receive">
+    {#each TABS as tb (tb.id)}
+      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
+    {/each}
+  </div>
 
+  {#if tab === 'addresses'}
+    <ReceivingAddresses />
+  {:else}
   <div class="layout">
     <section class="panel form" aria-labelledby="request-title">
       <div class="panel-head"><h2 id="request-title">New payment request</h2></div>
@@ -207,6 +224,7 @@
       </div>
     </section>
   </div>
+  {/if}
 </div>
 
 {#if wallet !== null}

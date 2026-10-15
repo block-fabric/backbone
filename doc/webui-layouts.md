@@ -8,8 +8,8 @@ three: only the navigation, the menus and the frame around the page change.
 
 | Layout | Id | What it looks like |
 |--------|----|--------------------|
-| Workspace tabs | `workspace` | Five areas across the top — **Wallet**, **Chain**, **Sidechains**, **Tools**, **Node** — each with a strip of sub-tabs (Wallet: Overview, Send, Receive, History, Addresses, Wallets; Chain: Explorer, Mine; Sidechains: Sidechains, Sidechain nodes; Tools: Messages, PSBT, Proof of funds, Multisig, Timestamp, Crypto tools; Node: Console, Peers, Info, Traffic, Settings). What concerns the chain comes before the tools, here as in the sidebars and the menus. The wallet selector, the palette field and a **Menus** button sit at the right of the top bar. A **detail panel** opens at the right of the page when a row is selected (a transaction in the history; blocks, peers and sidechains as their pages publish them). The status bar stays. |
-| Dashboard | `dashboard` (default) | A **Home**: a row of quick actions; four summary cards — **Balance** (available, pending, immature; Send, Receive), **Network** (sync, height, peers, mempool; Peers, Console, network on/off), **Sidechains** (active, pending bundles, escrow, proposals; Deposit, Votes), **Mining** (hash rate, difficulty, last block, BMM; Solo mine, Timestamp); the **Wallet balance** chart (timeframes 1D 7D 1M 1Y All, its change, axes); **Blind merged mining** (blocks of the last 24 that committed to each sidechain); then tables in tabs — **Transactions** (Details, Bump fee, Copy), **Sidechains** (Deposit, Withdrawals, View), **Blocks** (View, Copy), **Peers** (View) — with sortable headers, status pills and small trends. Each card's arrow opens its full page; the name of a row opens the detail panel. **Send** and **Receive** open a side panel at the right of the home (one recipient and a big Send button; a new address with its QR code); the Send and Receive pages stay for the rest (several recipients, coin control, PSBT, the requests). The sidebar: a card of the wallet shown (its name, its lock, the unit) at the top, every page (Home first) in groups, the theme, the text size and the **Menus** at its foot, then Close wallet and Quit apart. The bar above the page: where you are, the palette, the wallet, the notifications, the light/dark switch. On a narrow window the sidebar is a drawer. |
+| Workspace tabs | `workspace` | Five areas across the top — **Wallet**, **Chain**, **Sidechains**, **Tools**, **Node** — each with a strip of sub-tabs (Wallet: Overview, Send, Receive, History, Wallets; Chain: Explorer, Mine; Sidechains: Sidechains, Sidechain nodes; Tools: Messages, PSBT, Proof of funds, Multisig, Timestamp, Crypto tools; Node: Console, Peers, Info, Traffic, Settings). What concerns the chain comes before the tools, here as in the sidebars and the menus. The wallet selector, the palette field and a **Menus** button sit at the right of the top bar. A **detail panel** opens at the right of the page when a row is selected (a transaction in the history; blocks, peers and sidechains as their pages publish them). The status bar stays. |
+| Dashboard | `dashboard` (default) | A **Home**: a row of quick actions; four summary cards — **Balance** (available, pending, immature; Send, Receive), **Network** (sync, height, peers, mempool; Peers, Console, network on/off), **Sidechains** (active, pending bundles, escrow, proposals; Deposit, Votes), **Mining** (hash rate, difficulty, last block, BMM; Solo mine, Timestamp); the **Wallet balance** chart (timeframes 1D 7D 1M 1Y All, its change, axes); **Blind merged mining** (blocks of the last 24 that committed to each sidechain); then tables in tabs — **Transactions** (Details, Bump fee, Copy), **Sidechains** (Deposit, Withdrawals, View), **Blocks** (View, Copy), **Peers** (View) — with sortable headers, status pills and small trends. Each card's arrow opens its full page; the name of a row opens the detail panel. **Send** and **Receive** open a side panel at the right of the home (one recipient and a big Send button; a new address with its QR code); the Send and Receive pages stay for the rest (several recipients, choosing the coins, PSBT, the requests, the receiving addresses). The sidebar: a card of the wallet shown (its name, its lock, the unit) at the top, every page (Home first) in groups, the theme, the text size and the **Menus** at its foot, then Close wallet and Quit apart. The bar above the page: where you are, the palette, the wallet, the notifications, the light/dark switch. On a narrow window the sidebar is a drawer. |
 | Compact sidebar | `sidebar` | The window of chains-qt, refined: an icon rail with tooltips that shows the names on demand (clicking the logo, or the toggle at its foot, grows and shrinks it; kept in `prefs.sidebarExpanded`); no menu bar — its items are in the pages, the rail's **Menus** button and the palette; denser pages and tables (29 px rows); the status bar. |
 
 Whatever the layout:
@@ -149,12 +149,31 @@ the look and the layout chosen in Appearance show at once and go back on Cancel;
 sub-tabs are those tabs. A new menu action goes in `buildCommands()` only: the
 palette, the Menus buttons, the tests and this table follow from it.
 
+## The addresses and the coins (user decision, 2026-10-15)
+
+- **No Addresses page.** The receiving addresses are the **Addresses** tab of the Receive page (the requests stay
+  its main tab): label, address, type, used or not, amount received, last used; search, copy, QR code, edit the
+  label, export, and **Generate new address** with a label and a type (bech32, bech32m when the wallet has
+  taproot, p2sh-segwit, legacy). The old page id `addresses` is `tabOf { page: 'receive', tab: 'addresses' }`
+  (as Sidechain nodes is a tab of Sidechains): the menu item "Receiving addresses", the palette and the Wallets
+  page open the tab.
+- **No sending addresses**: no menu item, no address book button on the recipient field of Send, none in the
+  verify form of Sign and verify.
+- **Choose coins** on the Send page: a switch in the "Coins to spend" panel, between the recipients and the fee
+  (kept as the coin control setting of Settings → Wallet). On, the coins of the wallet show in the page
+  (components/CoinPanel.svelte, a virtual list): tick the coins to spend, sort, filter, select all or none, see
+  what they hold against the amount to send (a warning when it is not enough), lock and unlock them, and the
+  custom change address. Off, the wallet chooses the coins as before.
+
 ## Every item of the old menu bar
 
 Every item is also in the **Menus** button of each layout (the workspace's top
 bar, the foot of each sidebar), under the name of its old menu, and in the
 **palette** (Ctrl+K) under the same name. The table says where else it lives.
 `test/layouts.test.ts` checks that each item below is a command of its menu.
+
+**Addresses (user decision, 2026-10-15):** "Sending addresses" is gone; "Receiving addresses" opens the
+Addresses tab of Receive (see above). `test/layouts.test.ts` checks both.
 
 **Menus (user decision, 2026-10-14):** the menus are regrouped so that what concerns the chain comes
 before the tools: *Your wallet*, *Banking*, **Chains** (Sidechains, Sidechain nodes, Solo mine,
@@ -174,8 +193,8 @@ the status tip of chains-qt in the status bar, and a page of a sidebar its summa
 | Your wallet | Close all wallets… | `wallet.closeAll` | Wallet ▸ Wallets (Close all) | Sidebar Wallets | Rail Wallets |
 | Your wallet | Migrate wallet… | `wallet.migrate` | Wallet ▸ Wallets (Migrate) | Sidebar Wallets | Rail Wallets |
 | Your wallet | Restore and migrate wallet file… | `wallet.restoreMigrate` | Wallet ▸ Wallets | Sidebar Wallets | Rail Wallets |
-| Your wallet | Sending addresses | `wallet.sendingAddresses` | Wallet ▸ Addresses (Sending) | Sidebar Addresses | Rail Addresses |
-| Your wallet | Receiving addresses | `wallet.receivingAddresses` | Wallet ▸ Addresses (Receiving) | Sidebar Addresses | Rail Addresses |
+| Your wallet | Sending addresses | — | Gone (user decision, 2026-10-15: no sending addresses) | — | — |
+| Your wallet | Receiving addresses | `wallet.receivingAddresses` | Wallet ▸ Receive (Addresses tab) | Sidebar Receive (Addresses tab); Wallets page | Rail Receive (Addresses tab) |
 | Your wallet | Backup wallet… | `wallet.backup` | Wallet ▸ Wallets (Backup) | Sidebar Wallets | Rail Wallets |
 | Your wallet | Restore wallet… | `wallet.restore` | Wallet ▸ Wallets (Restore) | Sidebar Wallets | Rail Wallets |
 | Your wallet | Export watch-only wallet… | `wallet.exportWatchOnly` | Wallet ▸ Wallets | Sidebar Wallets | Rail Wallets |

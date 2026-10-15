@@ -1,7 +1,8 @@
 // The wallet pages of chains-app on regtest, driven through the page as a user would: create
 // wallets (one encrypted), receive, mine, send with the passphrase, the history and its details,
 // a fee bump, a PSBT made, saved, loaded, signed and broadcast, encryption, unlocking for a while,
-// a new passphrase, messages signed and verified, the address book, backups, coin control, and
+// a new passphrase, messages signed and verified, the receiving addresses (a tab of Receive),
+// backups, choosing the coins in the Send page, and
 // pictures of every wallet page and dialog.
 (async () => {
   const { host, rpc, sleep, log, T, waitFor, check, snapshot, text, finish } = E2E;
@@ -266,23 +267,42 @@
     await check('verify a message, and a changed one fails', true);
     await snapshot('messages-verify-light');
 
-    // --- The address book ---
-    await go('addresses', 'send');
-    await click('New');
-    d = await dialogTitled('New sending address');
-    set($('#edit-label', d), 'Carol');
-    set($('#edit-address', d), await rpc('getnewaddress', [], 'bob'));
+    // --- The receiving addresses: a tab of Receive (no Addresses page, no sending addresses) ---
+    await check('no sending addresses in the menus', !T().buildCommands().some((c) => /sending address/i.test(c.label)));
+    T().buildCommands().find((c) => c.label === 'Receiving addresses').run();
+    await sleep(150);
+    await check('receiving addresses open the tab of Receive', T().nav.page === 'receive' && T().nav.tab === 'addresses', `${T().nav.page}/${T().nav.tab}`);
+    const grid = await waitFor('receiving addresses', () => {
+      const g = $('[role="grid"][aria-label="Receiving addresses"]');
+      return g && g.textContent.includes('Mining') ? g : null;
+    }, 30000);
+    await check('receiving addresses: labels, used, received', grid.textContent.includes('signing') && grid.textContent.includes('Used') && grid.textContent.includes('Unused'), grid.textContent.slice(0, 300));
+    set($('#addr-new-label'), 'Savings');
+    set($('#addr-new-type'), 'bech32m');
+    await click('Generate new address');
+    // A locked wallet asks for its passphrase only when it has no address ready.
+    const unlockAsked = await waitFor('the new address or the passphrase', () => (grid.textContent.includes('Savings') ? 'done' : $('#passphrase-form') ? 'ask' : null), 30000);
+    if (unlockAsked === 'ask') await passphrase('Unlock wallet', { pass1: PASS });
+    await waitFor('the new address', () => grid.textContent.includes('Savings') && grid.textContent.includes('Bech32m'), 30000);
+    const book2 = await host('wallet.addresses', { wallet: 'alice' });
+    const savings = book2.find((e) => e.label === 'Savings');
+    await check('receiving addresses: a new taproot address with its label', !!savings && savings.purpose === 'receive' && savings.address.startsWith('rchn1p'), JSON.stringify(savings));
+    await click('Copy', () => $('.addresses .toolbar'));
+    await waitFor('copied', () => text('.toasts').includes('Address'));
+    await click('Edit label', () => $('.addresses .toolbar'));
+    d = await dialogTitled('Edit receiving address');
+    set($('#edit-label', d), 'Rainy day');
     await click('OK', d);
-    await waitFor('the entry', () => text('.addresses').includes('Carol'));
-    await check('address book: a new sending address', true);
-    await snapshot('addresses-send-light');
-    await host('test.fileAnswer', { path: `${DIR}/sending.csv` });
+    await waitFor('the new label', () => grid.textContent.includes('Rainy day'), 20000);
+    await check('receiving addresses: copy and a new label', true);
+    await snapshot('receive-addresses-light');
+    await click('QR code', () => $('.addresses .toolbar'));
+    d = await waitFor('the QR code', () => { const x = openDialog(); return x && $('svg.qr', x) ? x : null; });
+    await snapshot('receive-addresses-qr-light');
+    await click('Close', d);
+    await host('test.fileAnswer', { path: `${DIR}/receiving.csv` });
     await click('Export', () => $('.addresses .toolbar'));
-    await waitFor('exported', () => text('.toasts').includes('sending.csv'));
-    await go('addresses', 'receive');
-    await waitFor('receiving addresses', () => text('.addresses').includes('Mining'));
-    await check('address book: receiving addresses with labels', text('.addresses').includes('signing'));
-    await snapshot('addresses-receive-light');
+    await waitFor('exported', () => text('.toasts').includes('receiving.csv'));
 
     // --- Backup, watch-only export ---
     await host('test.fileAnswer', { path: `${DIR}/alice-backup.dat` });
@@ -312,25 +332,58 @@
     await check('close and open a wallet', true);
     T().selectWallet('alice');
 
-    // --- Coin control ---
-    T().savePrefs({ coinControl: true });
-    await go('send');
-    await click('Inputs');
-    d = await dialogTitled('Coin selection');
-    await waitFor('the coins', () => $$('tr.group', d).length > 0, 20000);
-    $$('tr.group input[type="checkbox"]', d)[0].click();
-    await waitFor('the estimate', () => d.textContent.includes('Quantity'), 20000);
-    await check('coin control: coins and their estimate', true);
-    await snapshot('coin-control-light');
-    await click('OK', d);
-    await waitFor('the estimate on the page', () => text('.coin-control').includes('Quantity'));
-    await snapshot('send-coin-control-light');
+    // --- Choose coins: the coins of the wallet in the Send page ---
     T().savePrefs({ coinControl: false });
+    await go('send');
+    await check('choose coins: off, the wallet chooses', text('.coins').includes('Coins are chosen automatically'));
+    $('.coins input[role="switch"]').click();
+    await sleep(100);
+    const coinGrid = await waitFor('the coins', () => {
+      const g = $('[role="grid"][aria-label="Coins of the wallet"]');
+      return g && $$('input[type="checkbox"]', g).length > 1 ? g : null;
+    }, 20000);
+    await check('choose coins: in the page, no dialog', T().prefs.coinControl && !openDialog());
+    set($('input[id^="pay-to-"]'), bobAddress);
+    set($('input[id^="amount-"]'), '1000');
+    $$('input[type="checkbox"]', coinGrid)[0].click();
+    await waitFor('not enough', () => text('.coins [role="alert"]').includes('Not enough'), 20000);
+    await check('choose coins: one coin is not enough for 1000', true);
+    await snapshot('send-coins-short-light');
+    set($('input[id^="amount-"]'), '1');
+    await waitFor('the estimate', () => text('.coins').includes('Quantity') && !$('.coins [role="alert"]'), 20000);
+    await check('choose coins: the coins chosen and their estimate', true);
+    // Lock a coin that is not chosen, then unlock it.
+    const lockable = $$('[role="row"]', coinGrid).find((r) => $('button[aria-label="Lock coin"]', r) && !$('input[type="checkbox"]', r).checked);
+    if (lockable) {
+      $('button[aria-label="Lock coin"]', lockable).click();
+      await waitFor('locked', () => $('button[aria-label="Unlock coin"]', coinGrid), 20000);
+      const n = (await rpc('listlockunspent', [], 'alice')).length;
+      await check('choose coins: lock a coin', n === 1, String(n));
+      $('button[aria-label="Unlock coin"]', coinGrid).click();
+      await waitFor('unlocked', () => !$('button[aria-label="Unlock coin"]', coinGrid), 20000);
+    }
+    await snapshot('send-coins-light');
+    T().savePrefs({ theme: 'dark' });
+    await sleep(300);
+    await snapshot('send-coins-dark');
+    T().savePrefs({ theme: 'light' });
+    // Spend only the coin chosen.
+    const chosenRow = $$('[role="row"]', coinGrid).find((r) => { const b = $('input[type="checkbox"]', r); return b && b.checked; });
+    const chosenAmount = chosenRow ? chosenRow.querySelectorAll('[role="gridcell"]')[1].textContent.trim() : '';
+    await click('Send', () => $('.actions'));
+    await passphrase('Unlock wallet', { pass1: PASS });
+    d = await dialogTitled('Confirm send coins');
+    await click('Cancel', d);
+    await check('choose coins: the send takes the coin chosen', !!chosenAmount, chosenAmount);
+    $('.coins input[role="switch"]').click();
+    await sleep(100);
+    await check('choose coins: off again', !$('[role="grid"][aria-label="Coins of the wallet"]'));
+    await click('Clear all');
 
     // --- Pictures of the wallet pages, light and dark ---
     for (const theme of ['light', 'dark']) {
       T().savePrefs({ theme });
-      for (const [page, tab] of [['overview', ''], ['send', ''], ['receive', ''], ['transactions', ''], ['addresses', 'send'], ['addresses', 'receive'], ['messages', 'sign'], ['messages', 'verify'], ['psbt', ''], ['wallets', ''], ['settings', 'wallet']]) {
+      for (const [page, tab] of [['overview', ''], ['send', ''], ['receive', ''], ['transactions', ''], ['receive', 'addresses'], ['messages', 'sign'], ['messages', 'verify'], ['psbt', ''], ['wallets', ''], ['settings', 'wallet']]) {
         await go(page, tab);
         await sleep(500);
         await snapshot(`w-${page}${tab ? '-' + tab : ''}-${theme}`);

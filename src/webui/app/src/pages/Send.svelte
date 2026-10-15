@@ -1,14 +1,13 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte';
   import SafeText from '../components/SafeText.svelte';
-  // Send coins (SendCoinsDialog, SendCoinsEntry): several recipients, the fee, coin control, a
-  // confirmation with a delay, unsigned transactions (PSBT) and hardware wallets.
+  // Send coins (SendCoinsDialog, SendCoinsEntry): several recipients, the fee, coin control ("Choose
+  // coins": the coins of the wallet in the page), a confirmation with a delay, unsigned transactions
+  // (PSBT) and hardware wallets. No sending address book (user decision, 2026-10-15).
   import AddressInput from '../components/AddressInput.svelte';
-  import AddressPicker from '../components/AddressPicker.svelte';
   import Amount from '../components/Amount.svelte';
   import AmountInput from '../components/AmountInput.svelte';
-  import CoinControlDialog from '../components/CoinControlDialog.svelte';
-  import CoinSummary from '../components/CoinSummary.svelte';
+  import CoinPanel from '../components/CoinPanel.svelte';
   import Dialog from '../components/Dialog.svelte';
   import Icon from '../components/Icon.svelte';
   import { checkAddress } from '../lib/address';
@@ -20,7 +19,7 @@
   import { app, node, prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
   import { formatAmount, UNITS, type Unit } from '../lib/units';
   import { parsePaymentUri } from '../lib/uri';
-  import { CONF_TARGETS, isDust, nearestConfTarget, psbtFileName, walletApi, walletDisplayName, type CoinSummary as Summary, type Outpoint, type Prepared } from '../lib/wallet';
+  import { CONF_TARGETS, isDust, nearestConfTarget, psbtFileName, walletApi, walletDisplayName, type Outpoint, type Prepared } from '../lib/wallet';
   import { current, refreshInfo } from '../lib/walletdata.svelte';
 
   interface Entry {
@@ -48,18 +47,15 @@
 
   let entries: Entry[] = $state([newEntry()]);
   let selected: Outpoint[] = $state([]);
-  let coinDialog = $state(false);
   let customChange = $state(false);
   let changeAddress = $state('');
   let changeStatus = $state({ text: '', bad: false, accepted: '' });
-  let picker = $state({ open: false, entry: 0 });
   let uriDialog = $state(false);
   let uriText = $state('');
   let uriError = $state('');
   let busy = $state(false);
   let smart = $state<{ feePerK: number; fallback: boolean; target?: number; requiredFeePerK: number } | null>(null);
   let customFee: bigint | null = $state(BigInt(prefs.customFee || 0));
-  let summary: Summary | null = $state(null);
 
   const wallet = $derived(wallets.current);
   const api = $derived(wallet === null ? null : walletApi(wallet));
@@ -127,21 +123,7 @@
     if (customFee !== null && Number(customFee) !== prefs.customFee) savePrefs({ customFee: Number(customFee) });
   });
 
-  // Coin control: the estimate of the coins chosen (coinControlUpdateLabels).
-  $effect(() => {
-    const list = selected;
-    const amounts = entries.map((e) => e.amount ?? 0n);
-    const subtract = entries.some((e) => e.subtractFee);
-    const fee = feeChoice;
-    if (!api || list.length === 0 || !prefs.coinControl) {
-      summary = null;
-      return;
-    }
-    const timer = setTimeout(() => api.coinSummary({ selected: list }, amounts, subtract, fee).then((s) => (summary = s)).catch(() => (summary = null)), 150);
-    return () => clearTimeout(timer);
-  });
-
-  // Coin control turned off: nothing chosen any more.
+  // "Choose coins" turned off: nothing chosen any more, the wallet chooses.
   $effect(() => {
     if (!prefs.coinControl) {
       selected = [];
@@ -426,38 +408,11 @@
     </button>
   {/if}
 
-  {#if prefs.coinControl}
-    <section class="panel coin-control" aria-labelledby="cc-title">
-      <div class="panel-head">
-        <h2 id="cc-title">Coin control</h2>
-        <button type="button" class="btn small" onclick={() => (coinDialog = true)}><Icon name="coins" size={16} /> Inputs…</button>
-      </div>
-      <div class="panel-body cc-body">
-        {#if selected.length === 0}
-          <p class="muted">Inputs: automatically selected</p>
-        {:else}
-          <CoinSummary {summary} />
-          {#if summary?.insufficient}<p class="error">Insufficient funds!</p>{/if}
-        {/if}
-        <div class="change">
-          <label class="check" title="If this is activated, but the change address is empty or invalid, change will be sent to a newly generated address.">
-            <input type="checkbox" bind:checked={customChange} />
-            <span>Custom change address</span>
-          </label>
-          <div class="row grow">
-            <input type="text" class="mono grow" aria-label="Custom change address" placeholder="Enter a Chains address" spellcheck="false" autocomplete="off" disabled={!customChange} bind:value={changeAddress} />
-            {#if changeStatus.text}<span class:error={changeStatus.bad} class="change-label"><SafeText text={changeStatus.text} /></span>{/if}
-          </div>
-        </div>
-      </div>
-    </section>
-  {/if}
-
   <div class="entries">
     {#each entries as e, i (e.id)}
       <section class="panel entry" aria-label="Recipient {i + 1}">
         <div class="entry-grid">
-          <AddressInput id="pay-to-{e.id}" label="Pay to" bind:value={e.address} bind:valid={e.valid} onbook={() => (picker = { open: true, entry: e.id })} />
+          <AddressInput id="pay-to-{e.id}" label="Pay to" bind:value={e.address} bind:valid={e.valid} />
           <div class="field">
             <label for="label-{e.id}">Label</label>
             <input id="label-{e.id}" type="text" bind:value={e.label} placeholder="Enter a label for this address to add it to the list of used addresses" autocomplete="off" />
@@ -482,6 +437,34 @@
       </section>
     {/each}
   </div>
+
+  <section class="panel coins" aria-labelledby="coins-title">
+    <div class="panel-head">
+      <h2 id="coins-title">Coins to spend</h2>
+      <label class="switch" title="See the coins of the wallet and choose the ones this transaction spends">
+        <input type="checkbox" role="switch" checked={prefs.coinControl} onchange={(ev) => savePrefs({ coinControl: (ev.currentTarget as HTMLInputElement).checked })} />
+        <span class="track" aria-hidden="true"></span>
+        <span>Choose coins</span>
+      </label>
+    </div>
+    <div class="panel-body cc-body">
+      {#if !prefs.coinControl || wallet === null}
+        <p class="muted auto">Coins are chosen automatically. Turn on "Choose coins" to see the coins of the wallet and pick the ones to spend.</p>
+      {:else}
+        <CoinPanel {wallet} bind:selected amounts={entries.map((e) => e.amount ?? 0n)} subtractFee={entries.some((e) => e.subtractFee)} fee={feeChoice} />
+        <div class="change">
+          <label class="check" title="If this is activated, but the change address is empty or invalid, change will be sent to a newly generated address.">
+            <input type="checkbox" bind:checked={customChange} />
+            <span>Custom change address</span>
+          </label>
+          <div class="row grow">
+            <input type="text" class="mono grow" aria-label="Custom change address" placeholder="Enter a Chains address" spellcheck="false" autocomplete="off" disabled={!customChange} bind:value={changeAddress} />
+            {#if changeStatus.text}<span class:error={changeStatus.bad} class="change-label"><SafeText text={changeStatus.text} /></span>{/if}
+          </div>
+        </div>
+      {/if}
+    </div>
+  </section>
 
   <section class="panel fee" aria-labelledby="fee-title">
     <div class="panel-head">
@@ -545,27 +528,6 @@
   </footer>
 </div>
 
-{#if wallet !== null}
-  <CoinControlDialog
-    bind:open={coinDialog}
-    {wallet}
-    bind:selected
-    amounts={entries.map((e) => e.amount ?? 0n)}
-    subtractFee={entries.some((e) => e.subtractFee)}
-    fee={feeChoice}
-  />
-  <AddressPicker
-    bind:open={picker.open}
-    purpose="send"
-    onchoose={(a) => {
-      const e = entries.find((x) => x.id === picker.entry);
-      if (e) {
-        e.address = a.address;
-        e.label = a.label;
-      }
-    }}
-  />
-{/if}
 
 <Dialog bind:open={uriDialog} title="Open URI">
   <form
@@ -649,6 +611,60 @@
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
+  }
+  .auto {
+    margin: 0;
+  }
+  .switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .switch input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+  .track {
+    position: relative;
+    width: 2.4rem;
+    height: 1.35rem;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    transition: background 0.15s;
+  }
+  .track::after {
+    content: '';
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 0.95rem;
+    height: 0.95rem;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: transform 0.15s;
+  }
+  .switch input:checked + .track {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .switch input:checked + .track::after {
+    transform: translateX(1.05rem);
+    background: var(--on-accent);
+  }
+  .switch input:focus-visible + .track {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .track,
+    .track::after {
+      transition: none;
+    }
   }
   .change {
     display: flex;

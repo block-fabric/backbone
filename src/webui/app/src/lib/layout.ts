@@ -77,7 +77,6 @@ export const AREAS: readonly Area[] = [
       { page: 'send' },
       { page: 'receive' },
       { page: 'transactions', label: 'History' },
-      { page: 'addresses' },
       { page: 'wallets' },
     ],
   },
@@ -184,7 +183,7 @@ export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
 
 /** The sidebars (dashboard, compact): every page, in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
-  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'addresses', 'wallets'] },
+  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets'] },
   // What concerns the chain before the tools.
   { title: 'Chain', pages: ['sidechains', 'mine', 'explorer'] },
   { title: 'Tools', pages: ['messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto'] },

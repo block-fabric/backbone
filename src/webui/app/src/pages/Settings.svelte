@@ -280,7 +280,7 @@
           <input type="checkbox" checked={prefs.coinControl} onchange={(e) => stagePrefs({ coinControl: (e.currentTarget as HTMLInputElement).checked })} />
           <span>Enable coin control features</span>
         </label>
-        <p class="hint">Show the coin control section of the send page: choose the coins a transaction spends, and a custom change address.</p>
+        <p class="hint">"Choose coins" turned on in the Send page (it is there to turn on and off too): the coins of the wallet in the page, to choose the ones a transaction spends, and a custom change address.</p>
         <label class="check" title={ignored('spendzeroconfchange') ? overriddenTip : undefined}>
           <input type="checkbox" checked={options.spendZeroConf} disabled={ignored('spendzeroconfchange')} onchange={(e) => set('spendZeroConf', (e.currentTarget as HTMLInputElement).checked)} />
           <span>Spend unconfirmed change</span>

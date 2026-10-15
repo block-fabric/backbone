@@ -11,7 +11,7 @@ comes from. A line is ticked once `chains-app` does it and a test or a screensho
 shows it.
 
 Legend: `[x]` done in chains-app, `[~]` partly done (the note says what is left),
-`[ ]` not done yet. IDs are stable: later commits and tests refer to them.
+`[ ]` not done yet, `[–]` left out by a decision of the user (the note says which). IDs are stable: later commits and tests refer to them.
 
 How chains-app is built and tested: doc/webui.md. Tests that cover an item:
 unit tests of the host (`test_chains-app`: bridge, events, app settings, assets,
@@ -20,7 +20,7 @@ units, addresses, URIs, sync label, tables, bridge, state, components) and the
 end-to-end smoke test (src/webui/test/e2e: A05, A12, B01, D01, D04, D05, E11,
 E12, F01, F05, T01–T03, the bridge and the escaping of chain text), and the
 end-to-end wallet test (src/webui/test/e2e/wallet.js: E01–E04, E06–E10, F02, G01–G05,
-G07, G08, H01–H03, I01–I06, J01, J02, K01–K03, N02). The wallet functions of the
+G07, G08, H01–H03, I01–I06, J02, K01–K03, N02). The wallet functions of the
 host are tested in `test_chains-app` (walletapi_tests: the same calls as chains-qt,
 its rules and messages), the pages in `npm test` (wallet, dialogs, send page,
 transactions page). The node window, the options, the tools and the sidechain nodes of
@@ -81,7 +81,7 @@ options journal) and `npm test` (audit-ui, history, rpcpolicy, contrast, i18n).
 |----|----------|-----------|--------|
 | C01 | Sidebar: Wallet (Overview, Send, Receive, Transactions), Chain (Sidechains, Sidechain Nodes, Mine, Block Explorer), Node (Node Window, Settings), Theme | bitcoingui.cpp `createToolBars` | [x] shell; pages land in later phases |
 | C02 | Shortcuts Alt+1..5 for the pages, Ctrl+Q quit, Ctrl+Shift+C console, Ctrl+Shift+D node window, Ctrl+Shift+M mask values, Ctrl+M minimize, Ctrl+W closes a dialog, Ctrl+/Ctrl- font size | bitcoingui.cpp, guiutil.cpp | [x] pages, quit, console, node window and its tabs (Ctrl+I/T/N/P), mask, Ctrl+M, font size, Esc closes dialogs (lib/keyboard.ts) |
-| C03 | Menu "Your Wallet": create, open (list of wallets on disk), close, close all, migrate (list + restore-and-migrate a file), sending addresses, receiving addresses, backup, restore, export watch-only, encrypt, change passphrase, mask values | bitcoingui.cpp `createMenuBar`, `createActions` | [x] lib/commands.svelte.ts (the menus in every layout and the palette, doc/webui-layouts.md) → pages/Wallets.svelte, pages/Addresses.svelte |
+| C03 | Menu "Your Wallet": create, open (list of wallets on disk), close, close all, migrate (list + restore-and-migrate a file), receiving addresses (sending addresses left out: J01), backup, restore, export watch-only, encrypt, change passphrase, mask values | bitcoingui.cpp `createMenuBar`, `createActions` | [x] lib/commands.svelte.ts (the menus in every layout and the palette, doc/webui-layouts.md) → pages/Wallets.svelte, Receive → Addresses |
 | C04 | Menu "Banking": send, receive, transactions, open URI, proof of funds, multisig lounge, load PSBT from file, from clipboard | bitcoingui.cpp | [x] send, receive, transactions, open URI, PSBT from file/clipboard (pages/Psbt.svelte), proof of funds (pages/Proof.svelte), multisig lounge (pages/Multisig.svelte) |
 | C05 | Menu "Use Chains": timestamp file, sign message, verify message, sidechains | bitcoingui.cpp | [x] timestamp file (pages/Timestamp.svelte), sign and verify message (pages/Messages.svelte), sidechains (pages/Sidechains.svelte) |
 | C06 | Menu "Chains": sidechain nodes, solo mine, sidechain proposals and votes | bitcoingui.cpp | [x] sidechain nodes (pages/SidechainNodes.svelte), solo mine (pages/Mine.svelte), proposals and withdrawal votes (pages/Sidechains.svelte) |
@@ -144,9 +144,9 @@ options journal) and `npm test` (audit-ui, history, rpcpolicy, contrast, i18n).
 
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| G01 | Several recipients: address (validated, paste, address book), label, amount, subtract fee, use available balance, remove entry | sendcoinsentry.cpp, sendcoinsdialog.cpp | [x] pages/Send.svelte (address book, paste, label, unit, subtract fee, use available balance, remove; URI message shown) |
+| G01 | Several recipients: address (validated, paste, address book), label, amount, subtract fee, use available balance, remove entry | sendcoinsentry.cpp, sendcoinsdialog.cpp | [x] pages/Send.svelte (paste, label, unit, subtract fee, use available balance, remove; URI message shown). **User decision (2026-10-15):** no address book button on the recipient field (no sending addresses, J01) |
 | G02 | Fee: recommended with confirmation target, custom fee per kvB, minimum fee warning, fee section collapsible | sendcoinsdialog.cpp | [x] pages/Send.svelte (folding fee section, targets 2–1008 blocks, smart fee and its fallback warning, custom fee per kvB not below the required fee), src/webui/walletapi.cpp `wallet.fee` |
-| G03 | Coin control: inputs dialog (tree/list, lock/unlock, copy), custom change address, quantity/bytes/amount/fee/after fee/change labels with copy | coincontroldialog.cpp, sendcoinsdialog.cpp | [x] components/CoinControlDialog.svelte (tree/list, sort, (un)select all, lock/unlock, copy), components/CoinSummary.svelte, custom change address with its checks, src/webui/walletapi.cpp `wallet.coins`/`wallet.coinControl.summary` |
+| G03 | Coin control: inputs dialog (tree/list, lock/unlock, copy), custom change address, quantity/bytes/amount/fee/after fee/change labels with copy | coincontroldialog.cpp, sendcoinsdialog.cpp | [x] **User decision (2026-10-15):** in the Send page, not in a dialog nor behind a setting: a **Choose coins** switch (kept as `prefs.coinControl`, the setting of Settings → Wallet) opens components/CoinPanel.svelte inline — the coins of the wallet in a virtual list (checkbox, amount with dimmed decimals, address, label, confirmations, age, lock), sorted by any column, filtered (search of address/label/transaction; all, spendable, unconfirmed, locked), select all/none, what the coins chosen hold against the amount to send with a warning when they are not enough (also for the fee, from the host's estimate), lock/unlock in the row and its menu, copies; only the coins chosen are spent; components/CoinSummary.svelte; custom change address with its checks; switched off, the wallet chooses. The tree mode of the dialog is gone. src/webui/walletapi.cpp `wallet.coins`/`wallet.coins.lock`/`wallet.coinControl.summary` |
 | G04 | Confirmation dialog with total, fee and a send delay | sendcoinsdialog.cpp `SendConfirmationDialog` | [x] pages/Send.svelte → components/DialogHost.svelte (fee, kvB, total in every unit, recipients, 3 s delay) |
 | G05 | Create unsigned (PSBT): copy or save | sendcoinsdialog.cpp | [x] pages/Send.svelte `presentPsbt` (copied, save as binary .psbt), src/webui/walletapi.cpp `wallet.send.psbt` |
 | G06 | External signer (hardware wallet) sign on device | sendcoinsdialog.cpp | [x] src/webui/walletapi.cpp `wallet.send.commit` signs on the device as Qt (fill, sign, finalize; partial → PSBT), "Sign on device" button; tested end to end with the mock signer of the functional tests (run_audit.py) |
@@ -174,10 +174,17 @@ options journal) and `npm test` (audit-ui, history, rpcpolicy, contrast, i18n).
 
 ## J. Address book
 
+**User decision (2026-10-15):** no Addresses page and no sending addresses. The receiving addresses are a
+tab (**Addresses**) of the Receive page; the menu item "Receiving addresses", the palette, the old page id
+`addresses` (`PageInfo.tabOf`) and the Wallets page lead to it. "Sending addresses" is gone from the menus,
+the palette, the Send page (the button of the recipient field) and the verify form of Sign and verify. The
+host keeps `wallet.addressBook.*` (a label typed on the Send page still goes in the book of the wallet;
+the label of a sent payment can be edited in the history).
+
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
-| J01 | Sending addresses: list, new, edit, delete, copy, choose (for the send page), export CSV | addressbookpage.cpp, editaddressdialog.cpp | [x] pages/Addresses.svelte, components/EditAddressDialog.svelte, components/AddressPicker.svelte, src/webui/walletapi.cpp `wallet.addressBook.*` (rules and messages of EditAddressDialog) |
-| J02 | Receiving addresses: list, edit label, copy, export CSV | addressbookpage.cpp | [x] pages/Addresses.svelte (receiving: label only) |
+| J01 | Sending addresses: list, new, edit, delete, copy, choose (for the send page), export CSV | addressbookpage.cpp, editaddressdialog.cpp | [–] Left out (user decision above). Was pages/Addresses.svelte; components/EditAddressDialog.svelte stays (labels of the receiving addresses and of the history), src/webui/walletapi.cpp `wallet.addressBook.*` stays |
+| J02 | Receiving addresses: list, edit label, copy, export CSV | addressbookpage.cpp | [x] Receive → Addresses (components/ReceivingAddresses.svelte): label, address, type, used or not, amount received and last payment (from the history: lib/wallet.ts `receivingAddresses`), search, copy, QR code, edit label, export CSV, sign a message; **Generate new address** with a label and an address type (as H01) |
 
 ## K. Messages, PSBT
 
@@ -217,7 +224,7 @@ options journal) and `npm test` (audit-ui, history, rpcpolicy, contrast, i18n).
 | ID | Function | Qt source | Status |
 |----|----------|-----------|--------|
 | N01 | Main: start on system login, prune and size, database cache, script verification threads, open configuration file, overridden-by-command-line list | optionsdialog.cpp, optionsmodel.cpp | [x] pages/Settings.svelte "Main" + src/webui/options.cpp (rules of OptionsModel): start on login (autostart entry), prune and size (prune-prev), dbcache, par, RPC server, open the configuration file, the options overridden on the command line |
-| N02 | Wallet: coin control, spend unconfirmed change, PSBT controls, subtract fee by default, external signer path | optionsdialog.cpp | [x] pages/Settings.svelte "Wallet" (coin control, spend unconfirmed change and signer path in settings.json, PSBT controls, subtract fee by default) |
+| N02 | Wallet: coin control, spend unconfirmed change, PSBT controls, subtract fee by default, external signer path | optionsdialog.cpp | [x] pages/Settings.svelte "Wallet" (coin control: the "Choose coins" switch of the Send page, on at the start, spend unconfirmed change and signer path in settings.json, PSBT controls, subtract fee by default) |
 | N03 | Network: map port (PCP/NAT-PMP), listen, RPC server, SOCKS5 proxy, separate Tor proxy, reachable networks | optionsdialog.cpp | [x] pages/Settings.svelte "Network": map port (natpmp, at once), listen, SOCKS5 proxy and separate Tor proxy (proxy-prev, onion-prev, addresses checked as ProxyAddressValidator), the networks the proxy is used for |
 | N04 | Window: show tray icon, minimize to tray, minimize on close | optionsdialog.cpp | [x] pages/Settings.svelte "Window": show tray icon, minimize to the tray, minimize on close (kept in the preferences of the app, used by the host) |
 | N05 | Display: language, unit, third-party tx URLs, money font, colours, font, size, themed frame | optionsdialog.cpp, theme.cpp | [x] pages/Settings.svelte "Display": unit, third-party transaction URLs, font of amounts (embedded or the monospaced one of the system), colours, a font apart from them, size; the language (the languages of chains-qt, by their own names; applied with Apply), and "Use the title bar of the desktop" (instead of the integrated title bar of C16; it waits for Apply as the other settings) |

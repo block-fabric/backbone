@@ -28,7 +28,6 @@
   let verifyMessage = $state('');
   let verifySignature = $state('');
   let verifyStatus = $state({ text: '', ok: false, field: '' });
-  let verifyPicker = $state(false);
 
   // An address given with the tab ("sign:<address>", from the address book).
   $effect(() => {
@@ -150,7 +149,6 @@
           <label for="verify-address">Address</label>
           <div class="row">
             <input id="verify-address" type="text" class="mono grow" placeholder="The Chains address the message was signed with" spellcheck="false" autocomplete="off" bind:value={verifyAddress} aria-invalid={verifyStatus.field === 'address' ? 'true' : undefined} />
-            <button type="button" class="btn icon" title="Choose previously used address" aria-label="Choose previously used address" onclick={() => (verifyPicker = true)}><Icon name="book" /></button>
             <button type="button" class="btn icon" title="Paste address from clipboard" aria-label="Paste address from clipboard" onclick={() => paste('verify')}><Icon name="paste" /></button>
           </div>
         </div>
@@ -179,8 +177,8 @@
   {/if}
 </div>
 
+<!-- No sending address book (user decision, 2026-10-15): the address to verify is typed or pasted. -->
 <AddressPicker bind:open={signPicker} purpose="receive" singleKey onchoose={(a) => (signAddress = a.address)} />
-<AddressPicker bind:open={verifyPicker} purpose="send" onchoose={(a) => (verifyAddress = a.address)} />
 
 <style>
   .messages {
