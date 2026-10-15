@@ -399,6 +399,7 @@ describe('tools', () => {
       getblock: () => ({ height: 130, time: 1_700_000_000, nTx: 1, size: 250, weight: 1000, difficulty: 4.6e-10, hash, tx: ['c0'.repeat(32)], merkleroot: 'c0'.repeat(32), confirmations: 1, bits: '207fffff', nonce: 1, version: 536870912, mediantime: 1_700_000_000, chainwork: '00' }),
       getrawmempool: () => ({}),
       getblockhash: () => hash,
+      'explorer.blocks': () => [[130, hash, 1_700_000_000, 1, 4.6e-10]],
     });
     prefs.explorerCount = 10;
     render(Explorer);
@@ -418,13 +419,17 @@ describe('tools', () => {
         return { height: h, time: 1_700_000_000 + h, nTx: 1 + (h % 7), size: 250, weight: 1000, difficulty: 1, hash: hashOf(h), previousblockhash: h > 0 ? hashOf(h - 1) : undefined, tx: [] };
       },
       getrawmempool: () => ({}),
+      // The list from the block index: the latest `count` blocks (0: all 31), newest first.
+      'explorer.blocks': (r) => {
+        const count = (r.params as { count: number }).count || 31;
+        return Array.from({ length: Math.min(count, 31) }, (_, i) => 30 - i).map((h) => [h, hashOf(h), 1_700_000_000 + h, 1 + (h % 7), 1]);
+      },
     });
     prefs.explorerCount = 25;
     prefs.explorerPageSize = 10;
     render(Explorer);
     await waitFor(() => screen.getByText(/1–10 of 25/));
     expect((screen.getByLabelText('Blocks listed') as HTMLSelectElement).value).toBe('25');
-    expect([...(screen.getByLabelText('Blocks listed') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['25', '50', '100', '250', '500', '1000']);
     expect([...(screen.getByLabelText('Rows per page') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['10', '25', '50', '100']);
     // Newest first: block 30 on the first page, block 6 (the 25th) on the last.
     expect(screen.queryAllByText(hashOf(30)).length).toBeGreaterThan(0);
@@ -436,6 +441,14 @@ describe('tools', () => {
     await fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '25' } });
     await waitFor(() => screen.getByText(/1–25 of 25/));
     expect(prefs.explorerPageSize).toBe(25);
+    // The size of the blocks shown, read with them.
+    await waitFor(() => expect(document.querySelector('.table-box')?.textContent).toContain('250 B'));
+    // All the blocks of the chain (user decision: 10 000, 50 000, All).
+    const listed = [...(screen.getByLabelText('Blocks listed') as HTMLSelectElement).options];
+    expect(listed.map((o) => o.value)).toEqual(['25', '50', '100', '250', '500', '1000', '10000', '50000', '0']);
+    expect(listed.at(-1)?.textContent).toBe('All');
+    await fireEvent.change(screen.getByLabelText('Blocks listed'), { target: { value: '0' } });
+    await waitFor(() => screen.getByText(/1–25 of 31/));
   });
 
   it('hashes text and hexadecimal', async () => {
