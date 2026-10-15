@@ -201,7 +201,7 @@ def main():
             env_dir = to_win(base / "webview2")
             os.environ["WEBVIEW2_USER_DATA_FOLDER"] = env_dir
             os.environ["WSLENV"] = "WEBVIEW2_USER_DATA_FOLDER/w"
-            common = ["-regtest", f"-port={port}", f"-rpcport={port + 1}", "-listen=0", "-dnsseed=0", "-fixedseeds=0", "-fallbackfee=0.0002",
+            common = ["-regtest", f"-port={port}", f"-rpcport={port + 1}", "-listen=0", "-dnsseed=0", "-fixedseeds=0", "-fallbackfee=0.0002", "-webuiregisteruri=0",
                       f"-datadir={to_win(datadir)}", f"-webuiconfig={to_win(base / 'chains-app.json')}"]
             run = Run(exe, common + [f"-webuitestshots={to_win(base / 'shots')}", f"-webuitestscript={to_win(base / (name + '.js'))}"], base / "app.log", datadir)
             if name == "smoke":
