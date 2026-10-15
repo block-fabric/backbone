@@ -171,6 +171,13 @@ void Bridge::Reply(Request& request, int status, const std::string& json)
     // A request is answered once: a cancelled one is answered when it is cancelled, and what it
     // returns afterwards is dropped.
     if (request.answered.exchange(true)) return;
+    // The request leaves the list before its answer goes out: whoever has the answer sees it gone
+    // (Pending() is 0 once every answer is in, and the rid can be used again at once).
+    {
+        LOCK(m_mutex);
+        const auto it{m_requests.find(request.rid)};
+        if (it != m_requests.end() && it->second.get() == &request) m_requests.erase(it);
+    }
     m_reply(request.call_id, status, ValidUtf8(json));
 }
 
@@ -249,16 +256,23 @@ void Bridge::Handle(const std::string& call_id, const std::string& args_json)
 
     // Requests without an id of their own cannot be cancelled; they are tracked under the call id.
     request->rid = rid.isStr() ? rid.get_str() : "\x01" + call_id;
+    bool stopped{false}, duplicate{false};
     {
         LOCK(m_mutex);
         if (m_stopped) {
-            ReplyError(*request, BRIDGE_STOPPED, "The app is shutting down");
-            return;
+            stopped = true;
+        } else if (!m_requests.emplace(request->rid, request).second) {
+            duplicate = true;
         }
-        if (!m_requests.emplace(request->rid, request).second) {
-            ReplyError(*request, BRIDGE_INVALID_REQUEST, strprintf("A request with rid %s is under way already", request->rid));
-            return;
-        }
+    }
+    // Answered outside the lock: Reply takes it to remove the request.
+    if (stopped) {
+        ReplyError(*request, BRIDGE_STOPPED, "The app is shutting down");
+        return;
+    }
+    if (duplicate) {
+        ReplyError(*request, BRIDGE_INVALID_REQUEST, strprintf("A request with rid %s is under way already", request->rid));
+        return;
     }
 
     Run(request, body);

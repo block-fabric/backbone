@@ -151,8 +151,9 @@ private:
         std::atomic<bool> answered{false};
     };
 
-    void Reply(Request& request, int status, const std::string& json);
-    void ReplyError(Request& request, int code, const std::string& message);
+    //! Answers a request once; the request leaves the list of pending ones before the answer is sent.
+    void Reply(Request& request, int status, const std::string& json) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    void ReplyError(Request& request, int code, const std::string& message) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void Run(const std::shared_ptr<Request>& request, const UniValue& body) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void Finish(const std::shared_ptr<Request>& request) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 

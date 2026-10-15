@@ -5,6 +5,7 @@
 #include <interfaces/node.h>
 #include <rpc/protocol.h>
 #include <rpc/server.h>
+#include <tinyformat.h>
 #include <test/util/setup_common.h>
 #include <validation.h>
 #include <webui/bridge.h>
@@ -314,6 +315,61 @@ BOOST_AUTO_TEST_CASE(cancel)
     // Cancelling what is not there.
     bridge.Handle("c4", R"([{"kind":"cancel","rid":"nothing"}])");
     BOOST_CHECK_EQUAL(replies.Wait("c4").value.get_bool(), false);
+    BOOST_CHECK_EQUAL(bridge.Pending(), 0U);
+}
+
+BOOST_AUTO_TEST_CASE(request_gone_before_its_answer)
+{
+    // The answer of a request goes out only after the request left the list of pending ones: when
+    // the page (or a test) has the answer, Pending() no longer counts it, on every path.
+    UiQueue ui;
+    webui::Bridge* bridge_ptr{nullptr};
+    std::mutex mutex;
+    std::map<std::string, size_t> pending_at_answer;
+    std::condition_variable cv;
+    webui::Bridge bridge{[&](const std::string& id, int, const std::string&) {
+                             const size_t pending{bridge_ptr->Pending()};
+                             {
+                                 std::lock_guard lock{mutex};
+                                 pending_at_answer[id] = pending;
+                             }
+                             cv.notify_all();
+                         },
+                         ui.Fn(), 2, 2};
+    bridge_ptr = &bridge;
+    bridge.SetRpc([](const std::string& method, const UniValue&, const std::string&) -> UniValue {
+        if (method == "fails") throw JSONRPCError(RPC_MISC_ERROR, "no");
+        return UniValue{method};
+    });
+    bridge.RegisterHost("worker", [](const UniValue&) { return UniValue{1}; });
+    bridge.RegisterHost("long", [](const UniValue&) { return UniValue{2}; }, webui::Bridge::Thread::LONG);
+    bridge.RegisterHost("ui", [](const UniValue&) { return UniValue{3}; }, webui::Bridge::Thread::UI);
+    bridge.RegisterHost("throws", [](const UniValue&) -> UniValue { throw std::runtime_error{"boom"}; });
+
+    const auto wait{[&](const std::string& id) {
+        std::unique_lock lock{mutex};
+        BOOST_REQUIRE_MESSAGE(cv.wait_for(lock, 10s, [&] { return pending_at_answer.contains(id); }), "no answer for " + id);
+        return pending_at_answer.at(id);
+    }};
+    // One at a time, so that nothing else is pending when an answer goes out.
+    for (int round{0}; round < 50; ++round) {
+        const std::string n{strprintf("%d-", round)};
+        bridge.Handle(n + "a", Request("rpc", "ok", UniValue{UniValue::VARR}, "ra"));
+        BOOST_CHECK_EQUAL(wait(n + "a"), 0U);
+        bridge.Handle(n + "b", Request("rpc", "fails"));
+        BOOST_CHECK_EQUAL(wait(n + "b"), 0U);
+        bridge.Handle(n + "c", Request("host", "worker", UniValue{UniValue::VARR}, "rc"));
+        BOOST_CHECK_EQUAL(wait(n + "c"), 0U);
+        bridge.Handle(n + "d", Request("host", "long"));
+        BOOST_CHECK_EQUAL(wait(n + "d"), 0U);
+        bridge.Handle(n + "e", Request("host", "throws"));
+        BOOST_CHECK_EQUAL(wait(n + "e"), 0U);
+        bridge.Handle(n + "f", Request("host", "missing"));
+        BOOST_CHECK_EQUAL(wait(n + "f"), 0U);
+        bridge.Handle(n + "g", Request("host", "ui"));
+        ui.RunAll();
+        BOOST_CHECK_EQUAL(wait(n + "g"), 0U);
+    }
     BOOST_CHECK_EQUAL(bridge.Pending(), 0U);
 }
 
