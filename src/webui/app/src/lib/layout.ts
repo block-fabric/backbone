@@ -1,9 +1,9 @@
-// The layouts of the main window: the same pages and actions, arranged three ways
+// The layouts of the main window: the same pages and actions, arranged two ways
 // (doc/webui-layouts.md). Only data here; the shells are in views/layouts.
 import type { IconName } from '../components/Icon.svelte';
 import { PAGES, type PageId } from './nav.svelte';
 
-export type LayoutId = 'workspace' | 'dashboard' | 'sidebar';
+export type LayoutId = 'workspace' | 'dashboard';
 
 export interface LayoutInfo {
   id: LayoutId;
@@ -13,12 +13,11 @@ export interface LayoutInfo {
 }
 
 export const LAYOUTS: readonly LayoutInfo[] = [
-  { id: 'workspace', name: 'Workspace tabs', icon: 'tabs', summary: 'Four areas across the top, each with its own tabs, and a detail panel on the right' },
+  { id: 'workspace', name: 'Workspace tabs', icon: 'tabs', summary: 'Home and five areas across the top, each with its own tabs, and a detail panel on the right' },
   { id: 'dashboard', name: 'Dashboard', icon: 'dashboard', summary: 'A home of live cards with quick actions, and every page in the sidebar' },
-  { id: 'sidebar', name: 'Compact sidebar', icon: 'sidebar', summary: 'An icon sidebar that opens on demand, dense tables, the status bar' },
 ];
 
-/** The layout of a first start: the one closest to the window of chains-qt. */
+/** The layout of a first start, and of a saved layout no longer known (the compact sidebar, gone). */
 export const DEFAULT_LAYOUT: LayoutId = 'dashboard';
 
 export function isLayout(value: unknown): value is LayoutId {
@@ -59,17 +58,19 @@ export function isAt(place: Place, page: PageId, tab: string): boolean {
 }
 
 export interface Area {
-  id: 'wallet' | 'chain' | 'sidechains' | 'tools' | 'node';
+  id: 'home' | 'wallet' | 'chain' | 'sidechains' | 'tools' | 'node';
   label: string;
   icon: IconName;
   tabs: Place[];
 }
 
 /**
- * The workspace layout: five areas, each with its sub-tabs. Every page is in one. What concerns the
- * chain (its explorer, mining, the sidechains) comes before the tools.
+ * The workspace layout: Home, then five areas, each with its sub-tabs. Every page is in one. What
+ * concerns the chain (its explorer, mining, the sidechains) comes before the tools.
  */
 export const AREAS: readonly Area[] = [
+  // The home of live cards (views/home/Home.svelte), first in every layout.
+  { id: 'home', label: 'Home', icon: 'home', tabs: [{ page: 'home' }] },
   {
     id: 'wallet',
     label: 'Wallet',
@@ -119,12 +120,11 @@ export const AREAS: readonly Area[] = [
   },
 ];
 
-/** The area a page is in (the interface kit and home: the node and the wallet). */
+/** The area a page is in (a page in none: the wallet's). */
 export function areaOf(page: PageId): Area {
-  if (page === 'home') return AREAS[0];
   const into = PAGES[page].tabOf;
   if (into) return areaOf(into.page);
-  return AREAS.find((a) => a.tabs.some((t) => t.page === page)) ?? AREAS[0];
+  return AREAS.find((a) => a.tabs.some((t) => t.page === page)) ?? AREAS[1];
 }
 
 export function placeLabel(place: Place): string {
@@ -184,7 +184,7 @@ export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
   { label: 'Load PSBT', icon: 'paste', page: 'psbt' },
 ];
 
-/** The sidebars (dashboard, compact): every page, in the sections of the areas. */
+/** The dashboard's sidebar: every page (after Home), in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
   { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets', 'advanced'] },
   // What concerns the chain before the tools.

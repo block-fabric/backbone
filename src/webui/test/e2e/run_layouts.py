@@ -6,8 +6,8 @@
 
 Starts chains-app on regtest with a temporary data directory, in a virtual
 display, and has it run layouts.js in its page: a wallet with a history, two
-sidechains, then pictures of the workspace, dashboard and compact sidebar
-layouts in the light and dark themes (home, send, the history with the detail
+sidechains, then pictures of the workspace and dashboard layouts in the
+light and dark themes (Home, send, the history with the detail
 panel, sidechains, settings, the command palette).
 
     run_layouts.py --app build/bin/chains-app --tmp <dir> --shots <dir>
