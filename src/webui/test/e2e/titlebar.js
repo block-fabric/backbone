@@ -74,6 +74,7 @@
     }
     await snapshot('titlebar-system-light');
     box.querySelector('input').click();
+    await waitFor('Apply, for the way back', () => !applyButton().disabled, 5000);
     applyButton().click();
     const back = await waitFor('the integrated title bar again', async () => {
       const s = await host('window.state');

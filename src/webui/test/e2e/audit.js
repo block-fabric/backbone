@@ -212,6 +212,7 @@
     frameState = await host('window.state');
     await check('C16 the option gives the frame back to the desktop', frameState.titleBar === 'system' && frameState.frameless === false, JSON.stringify(frameState));
     useSystem.querySelector('input').click();
+    await waitFor('Apply, for the way back', () => !applyButton().disabled, 5000);
     applyButton().click();
     await waitFor('the integrated title bar again', () => !!$('.titlestrip, .top.titlebar'), 5000);
     frameState = await host('window.state');

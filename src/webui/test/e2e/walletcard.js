@@ -24,8 +24,12 @@
       fits = ctx.measureText(text).width <= room + 0.5;
     } else {
       text = el.textContent;
+      // The text as laid out against its box, both in the same units (scrollWidth rounds under a zoom).
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const box = el.getBoundingClientRect().width;
       room = el.clientWidth;
-      fits = el.scrollWidth <= el.clientWidth + 0.5;
+      fits = range.getBoundingClientRect().width <= box + 0.5;
     }
     const a = el.getBoundingClientRect();
     const b = unit.getBoundingClientRect();
