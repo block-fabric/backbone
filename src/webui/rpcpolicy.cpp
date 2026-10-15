@@ -30,6 +30,7 @@ const std::map<std::string, Bridge::Thread>& Methods()
         {"getpeerinfo", WORKER},
         {"getrawmempool", WORKER},
         {"getrawtransaction", WORKER},
+        {"gettxout", WORKER},
         {"help", WORKER},
         {"listbanned", WORKER},
         {"uptime", WORKER},
