@@ -32,6 +32,8 @@ export interface WalletInfo {
   locked: boolean;
   privateKeysDisabled: boolean;
   externalSigner: boolean;
+  /** The path of a signer script is set (-signer): a hardware wallet can sign. */
+  signerConfigured?: boolean;
   hd: boolean;
   canGetAddresses: boolean;
   taproot: boolean;
@@ -205,10 +207,23 @@ export function walletApi(wallet: string) {
     lock: () => call<boolean>('wallet.lock', w),
     backup: (file: string) => call<string>('wallet.backup', { ...w, file }),
     exportWatchOnly: (file: string) => call<string>('wallet.exportWatchOnly', { ...w, file }),
+    /** The whole history. */
     transactions: async () => {
-      const raw = await call<{ height: number; hash: string; records: unknown[][] }>('wallet.transactions', w);
-      return { height: raw.height, hash: raw.hash, records: parseRecords(raw.records) };
+      const raw = await call<{ height: number; hash: string; maturity?: number; records: unknown[][] }>('wallet.transactions', w);
+      return { height: raw.height, hash: raw.hash, maturity: raw.maturity ?? 0, records: parseRecords(raw.records) };
     },
+    /** The records of some transactions, and the ids of those no longer in the wallet. */
+    transactionsOf: async (txids: string[]) => {
+      const raw = await call<{ height: number; hash: string; maturity?: number; records: unknown[][]; gone?: string[] }>('wallet.transactions', { ...w, txids });
+      return { height: raw.height, hash: raw.hash, maturity: raw.maturity ?? 0, records: parseRecords(raw.records), gone: raw.gone ?? [] };
+    },
+    /** At least `count` of the newest records (the overview), newest first. */
+    latest: async (count: number) => {
+      const raw = await call<{ height: number; maturity?: number; records: unknown[][] }>('wallet.transactions', { ...w, latest: count });
+      return sortNewestFirst(parseRecords(raw.records)).slice(0, count);
+    },
+    /** The balance after each transaction, oldest first, at most `points` of them (the chart of the overview). */
+    balanceHistory: async (points = 400) => (await call<[number, number][]>('wallet.balanceHistory', { ...w, points })).map(([time, balance]) => ({ time, balance: n(balance) })),
     transaction: (txid: string, idx: number, address: string) => call<TxDetails>('wallet.transaction', { ...w, txid, idx, address }),
     txActions: (txid: string) => call<{ canAbandon: boolean; canBump: boolean; hex: string }>('wallet.txActions', { ...w, txid }),
     abandon: (txid: string) => call<boolean>('wallet.abandon', { ...w, txid }),
@@ -300,6 +315,11 @@ export const messages = {
   verify: (address: string, signature: string, message: string) => call<{ ok: boolean; message: string; field?: 'address' | 'signature' }>('message.verify', { address, signature, message }),
 };
 
+/** GUIUtil::isDust: an output of this amount to this address would be dust. */
+export function isDust(address: string, amount: bigint): Promise<boolean> {
+  return call<boolean>('send.isDust', { address, amount: Number(amount) });
+}
+
 export const psbt = {
   fromClipboardText: (base64: string) => call<{ psbt: string }>('psbt.decode', { base64 }),
   fromFile: (fileBase64: string) => call<{ psbt: string }>('psbt.decode', { fileBase64 }),
@@ -335,6 +355,14 @@ export interface TxRecord {
   maturesIn: number;
   countsForBalance: boolean;
   sortKey: string;
+  /** Height of the block of the transaction (of the conflict, for a conflicted one); -1 out of a block. */
+  blockHeight: number;
+  /** In a block (c), conflicted by one (x), or neither (u); null when the host did not say. */
+  state: 'c' | 'x' | 'u' | null;
+  coinbase: boolean;
+  abandoned: boolean;
+  /** Whether the wallet trusts it, as the host said (what matters for a transaction out of a block). */
+  trusted: boolean;
 }
 
 /** The records as the host sends them: one array each (RecordJson in walletapi.cpp). */
@@ -358,8 +386,55 @@ export function parseRecords(raw: unknown[][]): TxRecord[] {
       maturesIn: Number(r[10]),
       countsForBalance: Boolean(r[11]),
       sortKey: String(r[12]),
+      blockHeight: r.length > 13 ? Number(r[13]) : -1,
+      state: r.length > 14 && (r[14] === 'c' || r[14] === 'x' || r[14] === 'u') ? r[14] : null,
+      coinbase: Boolean(r[15]),
+      abandoned: Boolean(r[16]),
+      trusted: r.length > 17 ? Boolean(r[17]) : Boolean(r[11]),
     };
   });
+}
+
+/** Newest first, as the overview and the table sort by date (time, then the sort key of TransactionRecord). */
+export function sortNewestFirst<T extends Pick<TxRecord, 'time' | 'sortKey'>>(records: readonly T[]): T[] {
+  return [...records].sort((a, b) => b.time - a.time || b.sortKey.localeCompare(a.sortKey));
+}
+
+/**
+ * TransactionRecord::updateStatus, from the height of the wallet: the confirmations, the maturity and
+ * whether the record counts for the balance (`maturity`: blocks a coinbase needs, its own included).
+ * The same record comes back when nothing changed; one the host gave no state for is kept as it is.
+ */
+export function withStatus(r: TxRecord, height: number, maturity: number): TxRecord {
+  if (r.state === null || maturity <= 0) return r;
+  const depth = r.state === 'c' ? height - r.blockHeight + 1 : r.state === 'x' ? -(height - r.blockHeight + 1) : 0;
+  const toMaturity = r.coinbase ? Math.max(0, maturity - depth) : 0;
+  const trusted = depth >= 1 ? true : depth < 0 ? false : r.trusted;
+  const countsForBalance = trusted && !(toMaturity > 0);
+  let status: TxStatus;
+  let maturesIn = 0;
+  if (r.type === 'mined') {
+    if (toMaturity > 0) {
+      if (r.state === 'c') {
+        status = 'immature';
+        maturesIn = toMaturity;
+      } else {
+        status = 'notaccepted';
+      }
+    } else {
+      status = 'confirmed';
+    }
+  } else if (depth < 0) {
+    status = 'conflicted';
+  } else if (depth === 0) {
+    status = r.abandoned ? 'abandoned' : 'unconfirmed';
+  } else if (depth < RECOMMENDED_CONFIRMATIONS) {
+    status = 'confirming';
+  } else {
+    status = 'confirmed';
+  }
+  if (status === r.status && depth === r.depth && maturesIn === r.maturesIn && countsForBalance === r.countsForBalance) return r;
+  return { ...r, status, depth, maturesIn, countsForBalance };
 }
 
 export const RECOMMENDED_CONFIRMATIONS = 6;
@@ -505,6 +580,19 @@ export interface TxFilter {
 }
 
 /** TransactionFilterProxy::filterAcceptsRow. The search looks in the address, the label and the txid. */
+// What the search looks in, lower case, made once per record: kept by the key of the record, as a new
+// block makes new record objects (their status) but not new text.
+const haystacks = new Map<string, { label: string; text: string }>();
+
+function haystack(r: TxRecord): string {
+  const kept = haystacks.get(r.key);
+  if (kept && kept.label === r.label) return kept.text;
+  const text = `${r.address}\n${r.label}\n${r.txid}`.toLowerCase();
+  if (haystacks.size > 500_000) haystacks.clear();
+  haystacks.set(r.key, { label: r.label, text });
+  return text;
+}
+
 export function filterRecords(records: readonly TxRecord[], f: TxFilter): TxRecord[] {
   const types = new Set(TYPE_FILTERS.find((t) => t.id === f.type)?.types ?? []);
   const search = f.search.trim().toLowerCase();
@@ -513,7 +601,7 @@ export function filterRecords(records: readonly TxRecord[], f: TxFilter): TxReco
     if (!types.has(r.type)) return false;
     if (f.from !== undefined && r.time < f.from) return false;
     if (f.to !== undefined && r.time >= f.to) return false;
-    if (search && !r.address.toLowerCase().includes(search) && !r.label.toLowerCase().includes(search) && !r.txid.toLowerCase().includes(search)) return false;
+    if (search && !haystack(r).includes(search)) return false;
     const abs = r.amount < 0n ? -r.amount : r.amount;
     return abs >= f.minAmount;
   });

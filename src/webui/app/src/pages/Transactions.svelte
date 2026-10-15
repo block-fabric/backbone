@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { thirdPartyLinks } from '../lib/tools';
   // The history of the wallet (TransactionView, TransactionTableModel, TransactionFilterProxy):
   // filters, a long sortable table, details, fee bumps, abandoning, copying, the CSV export.
   import Amount from '../components/Amount.svelte';
@@ -11,7 +12,7 @@
   import { errorText, inform } from '../lib/dialogs.svelte';
   import { FILTERS, saveTextAs } from '../lib/files';
   import { formatTime } from '../lib/format';
-  import { nav } from '../lib/nav.svelte';
+  import { go, nav } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
   import { prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
   import type { Column } from '../lib/table';
@@ -73,7 +74,18 @@
   });
   const minInvalid = $derived(minText.trim() !== '' && !parseAmount(minText, prefs.unit).ok);
   const range = $derived(dateRange(dateFilter, new Date(), rangeFrom ? new Date(`${rangeFrom}T00:00`) : undefined, rangeTo ? new Date(`${rangeTo}T00:00`) : undefined));
-  const shown = $derived(filterRecords(current.records, { ...range, type: typeFilter, search, minAmount, showInactive: true }));
+  // The search waits for a pause in the typing when the history is long (TransactionView waits too).
+  let searchApplied = $state('');
+  $effect(() => {
+    const text = search;
+    if (current.records.length < 2000) {
+      searchApplied = text;
+      return;
+    }
+    const t = setTimeout(() => (searchApplied = text), 250);
+    return () => clearTimeout(t);
+  });
+  const shown = $derived(filterRecords(current.records, { ...range, type: typeFilter, search: searchApplied, minAmount, showInactive: true }));
   const chosen = $derived(shown.find((r) => r.key === selected) ?? current.records.find((r) => r.key === selected) ?? null);
 
   // Totals of what the filters show (an addition to chains-qt).
@@ -107,13 +119,34 @@
     if (chosenKey !== null && detail.follow) untrack(() => chosen && inPanel(chosen));
   });
 
-  const columns: Column<TxRecord>[] = $derived([
-    { key: 'status', label: '', value: (r) => r.sortKey, width: '2.6rem', align: 'center', noFilter: true },
-    { key: 'date', label: 'Date', value: (r) => r.time, width: '11.5rem' },
-    { key: 'type', label: 'Type', value: (r) => typeText(r.type), width: '10rem' },
-    { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(14rem, 1fr)' },
-    { key: 'amount', label: `Amount (${prefs.unit})`, value: (r) => r.amount, width: '12rem', align: 'end' },
-  ]);
+  // A narrow window: the type goes in front of the label, and the columns are tighter, so that the
+  // amount stays in view.
+  let pageWidth = $state(1000);
+  let pageEl: HTMLDivElement | undefined = $state();
+  $effect(() => {
+    if (!pageEl || typeof ResizeObserver === 'undefined') return;
+    const o = new ResizeObserver(() => pageEl && (pageWidth = pageEl.clientWidth));
+    o.observe(pageEl);
+    pageWidth = pageEl.clientWidth;
+    return () => o.disconnect();
+  });
+  const narrow = $derived(pageWidth < 760);
+  const columns: Column<TxRecord>[] = $derived(
+    narrow
+      ? [
+          { key: 'status', label: '', value: (r) => r.sortKey, width: '2.2rem', align: 'center', noFilter: true },
+          { key: 'date', label: 'Date', value: (r) => r.time, width: '8.6rem' },
+          { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(0, 1fr)' },
+          { key: 'amount', label: `Amount (${prefs.unit})`, value: (r) => r.amount, width: '9.5rem', align: 'end' },
+        ]
+      : [
+          { key: 'status', label: '', value: (r) => r.sortKey, width: '2.6rem', align: 'center', noFilter: true },
+          { key: 'date', label: 'Date', value: (r) => r.time, width: '11.5rem' },
+          { key: 'type', label: 'Type', value: (r) => typeText(r.type), width: '10rem' },
+          { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(14rem, 1fr)' },
+          { key: 'amount', label: `Amount (${prefs.unit})`, value: (r) => r.amount, width: '12rem', align: 'end' },
+        ],
+  );
 
   async function copy(text: string, what: string) {
     try {
@@ -159,6 +192,8 @@
           { label: 'Increase transaction fee', action: () => wallet !== null && bump(chosen.txid), disabled: !actions.canBump, separator: true },
           { label: 'Abandon transaction', action: () => wallet !== null && abandon(wallet, chosen.txid), disabled: !actions.canAbandon, danger: true },
           { label: 'Edit address label', action: () => editLabel(chosen), disabled: !chosen.address, separator: true },
+          { label: 'Show in block explorer', action: () => go('explorer', `search:${chosen.txid}`), separator: true },
+          ...thirdPartyLinks(prefs.thirdPartyTxUrls, chosen.txid).map((l) => ({ label: l.label, action: () => host.open('url', l.url).catch(() => undefined) })),
         ]
       : [],
   );
@@ -187,7 +222,7 @@
   }
 </script>
 
-<div class="page transactions">
+<div class="page transactions" bind:this={pageEl}>
   <header class="page-head">
     <h1>Transactions</h1>
     <div class="row">
@@ -239,6 +274,7 @@
           bind:sortKey
           bind:sortDir
           label="Transactions"
+          fit={narrow}
           empty={current.recordsLoaded ? 'No transactions yet' : 'Loading…'}
           onactivate={(r) => (detail.follow ? inPanel(r) : (details = r))}
           oncontext={(r, e) => openMenu(r, e)}
@@ -246,9 +282,9 @@
           {#snippet cell(row, column)}
             <span class="cellwrap {rowClass(row)}" title={column.key === 'label' ? `${statusText(row)}\n${typeText(row.type)} ${addressText(row, true)}` : undefined}>
               {#if column.key === 'status'}<TxStatusIcon record={row} />
-              {:else if column.key === 'date'}{formatTime(row.time)}
+              {:else if column.key === 'date'}{narrow ? formatTime(row.time, true) : formatTime(row.time)}
               {:else if column.key === 'type'}<span class="type {row.type}"><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /> {typeText(row.type) || 'Other'}</span>
-              {:else if column.key === 'label'}<span class:bare={!row.label}>{addressText(row)}</span>
+              {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeText(row.type) || 'Other'}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span> {/if}<span class:bare={!row.label} translate="no">{addressText(row)}</span>
               {:else if column.key === 'amount'}
                 {#if prefs.mask}<Amount sats={row.amount} showUnit={false} />
                 {:else}<span class="amt" class:neg={row.amount < 0n}>{amountText(row, prefs.unit)}</span>{/if}
@@ -355,7 +391,7 @@
     gap: 1rem;
     align-items: flex-start;
     padding: 1.4rem;
-    color: var(--accent);
+    color: var(--accent-fg);
   }
   .masked div {
     color: var(--text);

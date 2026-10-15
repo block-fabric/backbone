@@ -13,6 +13,7 @@
 
   let prefersDark = $state(false);
   $effect(() => {
+    if (typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     prefersDark = media.matches;
     const onChange = (e: MediaQueryListEvent) => (prefersDark = e.matches);

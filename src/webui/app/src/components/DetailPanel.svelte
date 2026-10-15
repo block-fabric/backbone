@@ -7,7 +7,7 @@
   import TxDetailsView from './TxDetailsView.svelte';
   import { closeDetail, detail, showDetail, type DetailItem } from '../lib/detail.svelte';
   import { formatBytes, formatCount, formatTime, niceTimeOffset, shortHash } from '../lib/format';
-  import { go } from '../lib/nav.svelte';
+  import { go, goTo } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
   import { coinsToSats } from '../lib/units';
 
@@ -121,6 +121,12 @@
     closeDetail();
     go(page, tab);
   }
+
+  /** Open the page of the item, with the item selected in it. */
+  function openAt(page: Parameters<typeof go>[0], tab: string, key: string) {
+    closeDetail();
+    goTo(page, tab, key);
+  }
 </script>
 
 <svelte:window {onkeydown} />
@@ -156,7 +162,7 @@
             {#each block.tx.slice(0, 25) as txid (txid)}<li class="mono" title={txid}>{shortHash(txid, 12)}</li>{/each}
           </ul>
           {#if block.tx.length > 25}<p class="muted">and {formatCount(block.tx.length - 25)} more</p>{/if}
-          <button type="button" class="btn" onclick={() => open('explorer')}>Open the block explorer</button>
+          <button type="button" class="btn" onclick={() => block && open('explorer', `search:${block.hash}`)}>Open in the block explorer</button>
         {/if}
       {:else if item.kind === 'peer'}
         {#if !peer}<p class="muted">Loading…</p>{:else}
@@ -172,7 +178,7 @@
             <dt>Sent / received</dt><dd>{formatBytes(peer.bytessent)} / {formatBytes(peer.bytesrecv)}</dd>
             <dt>Connected since</dt><dd>{formatTime(peer.conntime)}</dd>
           </dl>
-          <button type="button" class="btn" onclick={() => open('node', 'peers')}>Open the peers tab</button>
+          <button type="button" class="btn" onclick={() => peer && openAt('node', 'peers', String(peer.id))}>Open the peers tab</button>
         {/if}
       {:else if item.kind === 'sidechain'}
         {#if !sidechain}<p class="muted">Loading…</p>{:else}
@@ -203,8 +209,8 @@
             </ul>
           {/if}
           <div class="nav">
-            <button type="button" class="btn" onclick={() => open('sidechains')}>Open sidechains</button>
-            <button type="button" class="btn" onclick={() => open('sidechains', 'withdrawals')}>Vote on bundles</button>
+            <button type="button" class="btn" onclick={() => openAt('sidechains', 'sidechains', String(s.slot))}>Deposit</button>
+            <button type="button" class="btn" onclick={() => openAt('sidechains', 'withdrawals', String(s.slot))}>Vote on bundles</button>
           </div>
         {/if}
       {/if}

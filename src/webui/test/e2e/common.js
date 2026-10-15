@@ -49,11 +49,16 @@ const E2E = (() => {
     return [...root.querySelectorAll('button')].find((b) => b.textContent.trim() === label);
   }
 
+  /** Say how the test went (the runner reads it), without ending the app. */
+  async function report() {
+    await log(`RESULT ${JSON.stringify({ passed: passed.length, failures, shots })}`);
+  }
+
   async function finish(error) {
     if (error) failures.push(`script error: ${error && error.stack ? error.stack : error}`);
-    await log(`RESULT ${JSON.stringify({ passed: passed.length, failures, shots })}`);
+    await report();
     await host('test.exit', { code: failures.length ? 1 : 0 });
   }
 
-  return { host, rpc, sleep, log, T, waitFor, check, snapshot, text, buttonByText, finish };
+  return { host, rpc, sleep, log, T, waitFor, check, snapshot, text, buttonByText, report, finish };
 })();

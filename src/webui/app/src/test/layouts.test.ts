@@ -31,7 +31,7 @@ const OLD_MENUS: Record<string, string[]> = {
   ],
   Banking: ['Send', 'Receive', 'Transactions', 'Open URI…', 'Proof of funds', 'Multisig lounge', 'Load PSBT from file…', 'Load PSBT from clipboard…'],
   'Use Chains': ['Timestamp file', 'Sign message…', 'Verify message…', 'Sidechains'],
-  Chains: ['Sidechain nodes', 'Solo mine', 'Sidechain proposals and votes'],
+  Chains: ['Sidechain nodes', 'Solo mine', 'Sidechain proposals', 'Withdrawal votes'],
   'Crypto tools': ['Block explorer', 'Hash calculator', 'Merkle tree', 'Address decoder'],
   Window: ['Minimize', 'Information', 'Console', 'Network traffic', 'Peers'],
   'This node': [
@@ -58,14 +58,20 @@ const calls: BridgeRequest[] = [];
 async function fakeNode(r: BridgeRequest): Promise<unknown> {
   calls.push(r);
   switch (r.method) {
+    case 'listbanned':
+      return [];
     case 'getpeerinfo':
       return [{ id: 7, addr: '10.0.0.7:8333', inbound: false, pingtime: 0.05, synced_blocks: 10, network: 'ipv4', connection_type: 'outbound-full-relay', subver: '/Chains:32/', version: 70016, startingheight: 1, synced_headers: 10, bytessent: 1, bytesrecv: 2, conntime: 1, lastsend: 1, lastrecv: 1 }];
     case 'getblockheader':
       return { height: 10, time: 1_700_000_000, nTx: 1 };
     case 'getmininginfo':
-      return { blocks: 10, difficulty: 1, networkhashps: 12345, pooledtx: 0 };
+      return { blocks: 10, difficulty: 1, networkhashps: 12345, pooledtx: 0, chain: 'regtest', next: { height: 11, bits: '207fffff', difficulty: 1, target: '7f'.padEnd(64, 'f') } };
     case 'getdrivechaininfo':
-      return { activesidechains: 1, proposals: 0, pendingbundles: 0, escrowtotal: 2.5, withdrawalperiod: 100 };
+      return { activesidechains: 1, proposals: 0, pendingbundles: 0, escrowtotal: 2.5, withdrawalperiod: 100, maxsidechains: 256, withdrawalminscore: 13150 };
+    case 'listsidechainproposals':
+      return { pending: [], queued: [] };
+    case 'listsidechaindeposits':
+      return [];
     case 'listactivesidechains':
       return [{ slot: 2, title: 'Thunder', description: 'Fast payments', version: 0, hashid1: '00', hashid2: '00', activationheight: 5, escrow: { txid: 'aa', n: 0, amount: 2.5 }, pendingbundles: 0 }];
     case 'listwithdrawalbundles':
@@ -237,6 +243,36 @@ describe('the layouts', () => {
     // Every page in the sidebar, Home first.
     const side = screen.getByRole('navigation', { name: 'Pages' });
     expect(within(side).getAllByRole('button', { name: /Home|Overview|Wallets|Crypto tools|Settings/ }).length).toBeGreaterThanOrEqual(5);
+  }, 20000);
+
+  it('dashboard: the Deposit and Withdrawals of a sidechain open the real tabs, the sidechain chosen', async () => {
+    prefs.layout = 'dashboard';
+    go('home');
+    render(Shell);
+    for (const [action, tab] of [['Deposit', 'sidechains'], ['Withdrawals', 'withdrawals']] as const) {
+      go('home');
+      const tabs = await waitFor(() => screen.getByRole('tablist', { name: 'Activity' }));
+      await fireEvent.click(within(tabs).getByRole('tab', { name: /Sidechains/ }));
+      const row = (await waitFor(() => screen.getByRole('button', { name: /Thunder/ }))).closest('tr')!;
+      await fireEvent.click(within(row).getByRole('button', { name: action }));
+      expect(nav.page).toBe('sidechains');
+      expect(nav.tab).toBe(tab);
+      // The Sidechains page took the sidechain it was opened for.
+      await waitFor(() => expect(nav.focus).toBeNull());
+      await waitFor(() => screen.getByRole('tab', { name: tab === 'sidechains' ? 'Sidechains' : 'Withdrawals', selected: true }));
+    }
+  }, 20000);
+
+  it('workspace: a peer chosen in the node window shows in the detail panel, and back', async () => {
+    prefs.layout = 'workspace';
+    go('node', 'peers');
+    render(Shell);
+    const peer = await waitFor(() => screen.getByText('10.0.0.7:8333'));
+    await fireEvent.click(peer.closest('[role="row"]')!);
+    await waitFor(() => expect(detail.item).toEqual({ kind: 'peer', id: 7 }));
+    // From the panel, the peers tab with that peer chosen.
+    await fireEvent.click(await waitFor(() => screen.getByRole('button', { name: 'Open the peers tab' })));
+    expect(nav.page).toBe('node');
   }, 20000);
 
   it('dashboard: Send and Receive in the side panel, the full pages a click away', async () => {

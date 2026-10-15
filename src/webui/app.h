@@ -36,6 +36,7 @@ class NodeApi;
 class SidechainNodes;
 class EventHub;
 class NodeEvents;
+class OptionsJournal;
 class SingleInstance;
 class WalletApi;
 
@@ -65,6 +66,9 @@ public:
 
     /** Ask for the app to stop (from any thread). */
     void RequestShutdown() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** Whether the user asked for the app to start again after it stopped (Settings). */
+    bool RestartRequested() const { return m_restart_requested.load(); }
+
     /** The user closes the window: the app stops, or the window is minimized (options). UI thread. */
     void CloseRequested() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
@@ -99,11 +103,23 @@ private:
      * Without an answer (the app stops), `fallback`.
      */
     UniValue Ask(UniValue dialog, UniValue fallback) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /** Take back the changes of the options never applied (OptionsJournal), with the restart flag they set. */
+    void UndoOptions(interfaces::Node& node, const std::string& why) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** Choose the language again (-lang, the option, the system), for the page and the node; an event if it changed. */
+    void UpdateLanguage() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void Fatal(const std::string& title, const std::string& message, const std::vector<std::string>& details = {}) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     interfaces::Init& m_init;
     ArgsManager& m_args;
+    //! The debug options, from the command line only.
+    const bool m_devtools;
+    const std::string m_test_script;
+    const std::string m_test_shots;
+    const std::string m_config_path;
     std::unique_ptr<AppConfig> m_config;
+    //! The changes of the Settings page waiting for Apply.
+    std::unique_ptr<OptionsJournal> m_options_journal;
     std::unique_ptr<interfaces::Node> m_node;
     std::unique_ptr<Window> m_window;
     std::unique_ptr<EventHub> m_hub;
@@ -117,6 +133,7 @@ private:
     //! The nodes of sidechains run from here.
     std::unique_ptr<SidechainNodes> m_sidechain_nodes;
     std::thread m_node_thread;
+    std::atomic<bool> m_restart_requested{false};
     //! Messages and questions of the node.
     std::vector<std::unique_ptr<interfaces::Handler>> m_node_handlers;
 
@@ -126,6 +143,8 @@ private:
     UniValue m_phase_data GUARDED_BY(m_mutex){UniValue::VOBJ};
     std::string m_network GUARDED_BY(m_mutex);
     std::string m_wallet_title GUARDED_BY(m_mutex);
+    //! The language of the interface ("" for English).
+    std::string m_language GUARDED_BY(m_mutex);
     bool m_shutdown_requested GUARDED_BY(m_mutex){false};
     bool m_page_ready GUARDED_BY(m_mutex){false};
     std::vector<std::string> m_pending_uris GUARDED_BY(m_mutex);

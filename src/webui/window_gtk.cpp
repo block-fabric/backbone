@@ -8,6 +8,7 @@
 
 #include <webui/assets.h>
 #include <webui/tray_gtk.h>
+#include <support/cleanse.h>
 #include <webui/window.h>
 
 #include <logging.h>
@@ -20,6 +21,8 @@
 
 #include <atomic>
 #include <cstring>
+#include <map>
+#include <string>
 #include <utility>
 
 namespace webui {
@@ -171,6 +174,8 @@ public:
 
         m_webview->bind("__chains", [this](std::string id, std::string args, void*) {
             if (m_callbacks.call) m_callbacks.call(id, args);
+            // The request may hold a passphrase: not left in freed memory (the bridge took what it needs).
+            memory_cleanse(args.data(), args.size());
         }, nullptr);
         m_webview->navigate(std::string{ORIGIN} + "/index.html");
     }
@@ -212,6 +217,15 @@ public:
     void Eval(const std::string& script) override { m_webview->eval(script); }
 
     void SetTitle(const std::string& title) override { gtk_window_set_title(GTK_WINDOW(m_window), title.c_str()); }
+
+    void SetNetwork(const std::string& network) override
+    {
+        SetIconTint(TintOf(network));
+        if (GdkPixbuf* icon{AppIcon(128)}) {
+            gtk_window_set_icon(GTK_WINDOW(m_window), icon);
+            g_object_unref(icon);
+        }
+    }
 
     void Show(bool minimized) override
     {

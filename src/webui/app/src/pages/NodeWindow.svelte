@@ -1,45 +1,65 @@
 <script lang="ts">
   // The node window (rpcconsole.cpp): information, console, network traffic, peers.
+  import ConsoleView from '../components/ConsoleView.svelte';
+  import PeersView from '../components/PeersView.svelte';
+  import TrafficGraph from '../components/TrafficGraph.svelte';
+  import { errorText, inform } from '../lib/dialogs.svelte';
   import { formatBytes, formatCount, formatTime } from '../lib/format';
   import { nav } from '../lib/nav.svelte';
-  import { rpc, type BlockchainInfo, type MempoolInfo, type NetworkInfo } from '../lib/rpc';
+  import { host, rpc, type BlockchainInfo, type NetworkInfo } from '../lib/rpc';
   import { app, node, wallets } from '../lib/state.svelte';
+  import { walletDisplayName } from '../lib/wallet';
 
   const TABS = [
-    { id: 'info', label: 'Information' },
-    { id: 'console', label: 'Console' },
-    { id: 'traffic', label: 'Network traffic' },
-    { id: 'peers', label: 'Peers' },
+    { id: 'info', label: 'Information', key: 'Ctrl+I' },
+    { id: 'console', label: 'Console', key: 'Ctrl+T' },
+    { id: 'traffic', label: 'Network traffic', key: 'Ctrl+N' },
+    { id: 'peers', label: 'Peers', key: 'Ctrl+P' },
   ];
   const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'info');
 
   let chain: BlockchainInfo | null = $state(null);
   let net: NetworkInfo | null = $state(null);
-  let mempool: MempoolInfo | null = $state(null);
   let startup: number | null = $state(null);
+  let paths: { datadir: string; blocksdir: string; debuglog: string; config: string } | null = $state(null);
 
   $effect(() => {
     void node.tip?.height;
     void node.connections;
     if (tab !== 'info') return;
-    Promise.all([rpc.call('getblockchaininfo', []), rpc.call('getnetworkinfo', []), rpc.call('getmempoolinfo', []), rpc.call('uptime', [])])
-      .then(([c, n, m, up]) => {
+    Promise.all([rpc.call('getblockchaininfo', []), rpc.call('getnetworkinfo', []), rpc.call('uptime', [])])
+      .then(([c, n, up]) => {
         chain = c;
         net = n;
-        mempool = m;
         startup = Math.floor(Date.now() / 1000) - up;
       })
       .catch(() => undefined);
   });
+  $effect(() => {
+    host.paths().then((p) => (paths = p)).catch(() => undefined);
+  });
+
+  async function openLog() {
+    try {
+      await host.open('debuglog');
+    } catch (e) {
+      await inform('Debug log file', errorText(e), 'warning');
+    }
+  }
+
+  const warnings = $derived(node.warnings.filter(Boolean));
 </script>
 
 <div class="page">
   <header class="page-head"><h1>Node window</h1></header>
   <div class="tabs" role="tablist" aria-label="Node window">
     {#each TABS as t (t.id)}
-      <button type="button" role="tab" aria-selected={tab === t.id} onclick={() => (nav.tab = t.id)}>{t.label}</button>
+      <button type="button" role="tab" aria-selected={tab === t.id} title={t.key} onclick={() => (nav.tab = t.id)}>{t.label}</button>
     {/each}
   </div>
+  {#if warnings.length}
+    <p class="alert" role="alert">{warnings.join(' ')}</p>
+  {/if}
 
   {#if tab === 'info'}
     <div class="grid">
@@ -48,9 +68,10 @@
         <dl class="facts panel-body">
           <dt>Client version</dt><dd>{app.info?.version}</dd>
           <dt>User agent</dt><dd class="mono">{net?.subversion ?? '–'}</dd>
-          <dt>Datadir</dt><dd class="mono">{app.info?.datadir}</dd>
+          <dt>Datadir</dt><dd class="mono">{paths?.datadir ?? app.info?.datadir}</dd>
+          <dt>Blocksdir</dt><dd class="mono">{paths?.blocksdir ?? '–'}</dd>
           <dt>Startup time</dt><dd>{startup ? formatTime(startup) : '–'}</dd>
-          <dt>Wallet</dt><dd>{wallets.current === null ? 'None' : wallets.current === '' ? 'default wallet' : wallets.current}</dd>
+          <dt>Wallet</dt><dd>{wallets.current === null ? 'None' : walletDisplayName(wallets.current)}</dd>
         </dl>
       </section>
       <section class="panel">
@@ -75,26 +96,43 @@
       <section class="panel">
         <div class="panel-head"><h2>Memory pool</h2></div>
         <dl class="facts panel-body">
-          <dt>Current number of transactions</dt><dd class="num">{mempool ? formatCount(mempool.size) : '–'}</dd>
-          <dt>Memory usage</dt><dd>{mempool ? formatBytes(mempool.usage) : '–'}</dd>
+          <dt>Current number of transactions</dt><dd class="num">{formatCount(node.mempool.size)}</dd>
+          <dt>Memory usage</dt><dd>{formatBytes(node.mempool.usage)}{node.mempool.max ? ` (${formatBytes(node.mempool.max)} max)` : ''}</dd>
         </dl>
       </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Debug log file</h2></div>
+        <div class="panel-body">
+          <p class="muted">Open the debug log file of the current data directory. This can take a few seconds for large log files.</p>
+          <p class="mono break small">{paths?.debuglog ?? ''}</p>
+          <button type="button" class="btn" onclick={openLog}>Open</button>
+        </div>
+      </section>
     </div>
+  {:else if tab === 'console'}
+    <ConsoleView />
+  {:else if tab === 'traffic'}
+    <TrafficGraph />
   {:else}
-    <div class="panel planned">
-      <p>The {TABS.find((t) => t.id === tab)?.label.toLowerCase()} tab is being rebuilt for the new interface.</p>
-    </div>
+    <PeersView />
   {/if}
 </div>
 
 <style>
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
     gap: 1rem;
   }
-  .planned {
-    padding: 1.5rem;
-    color: var(--text-muted);
+  .alert {
+    max-width: none;
+    padding: 0.6rem 0.9rem;
+    border-radius: var(--radius-s);
+    background: var(--warning-soft);
+    color: var(--warning);
+    font-weight: 550;
+  }
+  .small {
+    font-size: 0.85rem;
   }
 </style>

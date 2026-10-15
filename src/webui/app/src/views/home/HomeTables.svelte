@@ -9,7 +9,7 @@
   import { errorText } from '../../lib/dialogs.svelte';
   import { detail, showDetail } from '../../lib/detail.svelte';
   import { formatCount, formatTime, niceTimeOffset, shortHash } from '../../lib/format';
-  import { go } from '../../lib/nav.svelte';
+  import { go, goTo } from '../../lib/nav.svelte';
   import { host } from '../../lib/rpc';
   import { prefs, toast, wallets } from '../../lib/state.svelte';
   import { bumpFee } from '../../lib/txactions';
@@ -302,8 +302,8 @@
                   </span>
                 </td>
                 <td class="end actions">
-                  <button type="button" class="btn small" disabled={pageDisabled('sidechains')} onclick={() => go('sidechains', 'deposit')}>Deposit</button>
-                  <button type="button" class="btn small ghost" disabled={pageDisabled('sidechains')} onclick={() => go('sidechains', 'withdrawals')}>Withdrawals</button>
+                  <button type="button" class="btn small" disabled={pageDisabled('sidechains')} onclick={() => goTo('sidechains', 'sidechains', String(s.slot))}>Deposit</button>
+                  <button type="button" class="btn small ghost" disabled={pageDisabled('sidechains')} onclick={() => goTo('sidechains', 'withdrawals', String(s.slot))}>Withdrawals</button>
                   <button type="button" class="btn small ghost" onclick={() => showDetail({ kind: 'sidechain', slot: s.slot })}>View</button>
                 </td>
               </tr>

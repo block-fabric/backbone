@@ -3,11 +3,11 @@
   import Icon from './Icon.svelte';
   import { css } from '../lib/actions';
   import { formatCount, formatTime, shortHash } from '../lib/format';
-  import { host } from '../lib/rpc';
-  import { app, node, prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
+  import { host, rpc } from '../lib/rpc';
+  import { app, node, prefs, savePrefs, statusTip, toast, wallets } from '../lib/state.svelte';
   import { syncStatus } from '../lib/sync';
   import { UNITS, type Unit } from '../lib/units';
-  import { go } from '../lib/nav.svelte';
+  import { go, nav } from '../lib/nav.svelte';
 
   let now = $state(Math.floor(Date.now() / 1000));
   $effect(() => {
@@ -39,6 +39,20 @@
 
   let netMenu = $state(false);
 
+  // The proxy the node uses to reach IPv4 peers (BitcoinGUI::updateProxyIcon), checked again when the peers change.
+  let proxy = $state('');
+  $effect(() => {
+    void node.connections;
+    void node.networkActive;
+    rpc
+      .call('getnetworkinfo', [])
+      .then((n) => {
+        const ipv4 = (n as unknown as { networks?: { name: string; proxy: string }[] }).networks?.find((x) => x.name === 'ipv4');
+        proxy = ipv4?.proxy ?? '';
+      })
+      .catch(() => undefined);
+  });
+
   async function toggleNetwork() {
     netMenu = false;
     try {
@@ -50,8 +64,12 @@
 </script>
 
 <footer class="statusbar">
-  <div class="sync" title={status?.detail}>
-    {#if busy}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="sync" title={status?.detail} onclick={() => { if (status && !status.upToDate) nav.dialog = 'sync'; }}>
+    {#if statusTip.text}
+      <!-- The status tip of the menu item under the pointer (QStatusBar::showMessage of a status tip). -->
+      <span class="label tip" role="status">{statusTip.text}</span>
+    {:else if busy}
       <span class="label">{busy.title}</span>
       <progress max="100" value={busy.progress} aria-label={busy.title}></progress>
     {:else if status && !status.upToDate}
@@ -87,6 +105,9 @@
   {#if node.warnings.length}
     <span class="badge warning" title={node.warnings.join('\n')}><Icon name="alert" size={14} /> Warning</span>
   {/if}
+  {#if proxy}
+    <span class="proxy" id="proxy-status" title="Proxy is enabled: {proxy}" aria-label="Proxy is enabled: {proxy}"><Icon name="shield" size={15} /></span>
+  {/if}
 
   <div class="net">
     <button
@@ -118,6 +139,9 @@
   </label>
 
   {#if wallet}
+    {#if !wallet.privateKeysDisabled}
+      <span class="hd" class:off={!wallet.hd} title={wallet.hd ? 'HD key generation is enabled' : 'HD key generation is disabled'} aria-label={wallet.hd ? 'HD key generation is enabled' : 'HD key generation is disabled'}>HD</span>
+    {/if}
     {#if wallet.encrypted}
       <span class="lock" title={wallet.locked ? 'Wallet is encrypted and currently locked' : 'Wallet is encrypted and currently unlocked'}>
         <Icon name={wallet.locked ? 'lock' : 'unlock'} size={16} label={wallet.locked ? 'Wallet locked' : 'Wallet unlocked'} />
@@ -132,14 +156,20 @@
 <style>
   .statusbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.9rem;
+    gap: 0.2rem 0.9rem;
     min-height: 2.4rem;
-    padding: 0 0.6rem 0 0.9rem;
+    padding: 0.15rem 0.6rem 0.15rem 0.9rem;
     border-top: 1px solid var(--line);
     background: color-mix(in srgb, var(--bg) 75%, transparent);
     color: var(--text-muted);
     font-size: 0.86rem;
+  }
+  .proxy {
+    display: inline-flex;
+    align-items: center;
+    color: var(--accent-fg);
   }
   .sync {
     display: flex;
@@ -262,14 +292,29 @@
     background: var(--surface-2);
     font-size: 0.86rem;
   }
+  .hd {
+    padding: 0 0.3rem;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent-fg);
+  }
+  .hd.off {
+    color: var(--text-faint);
+    text-decoration: line-through;
+  }
   .lock {
     display: inline-flex;
     color: var(--text-muted);
   }
+  /* A narrow window: everything stays, on two lines if it must (the height of the chain, how far behind). */
   @media (max-width: 760px) {
-    .chain,
-    .behind {
-      display: none;
+    progress {
+      width: 5rem;
+    }
+    .statusbar {
+      gap: 0.2rem 0.6rem;
     }
   }
 </style>

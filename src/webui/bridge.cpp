@@ -5,6 +5,7 @@
 #include <webui/bridge.h>
 
 #include <logging.h>
+#include <support/cleanse.h>
 #include <tinyformat.h>
 
 #include <exception>
@@ -34,6 +35,88 @@ std::string WalletUri(const std::string& wallet_name)
     return "/wallet/" + PercentEncode(wallet_name);
 }
 
+std::string ValidUtf8(std::string_view text)
+{
+    static constexpr std::string_view REPLACEMENT{"\xEF\xBF\xBD"};
+    std::string out;
+    out.reserve(text.size());
+    const auto byte{[&](size_t i) { return static_cast<unsigned char>(text[i]); }};
+    size_t i{0};
+    while (i < text.size()) {
+        const unsigned char c{byte(i)};
+        if (c < 0x80) {
+            out += static_cast<char>(c);
+            ++i;
+            continue;
+        }
+        // The length of the sequence, and the range of its second byte (Table 3-7 of the Unicode standard).
+        size_t length{0};
+        unsigned char low{0x80}, high{0xBF};
+        if (c >= 0xC2 && c <= 0xDF) {
+            length = 2;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            length = 3;
+            if (c == 0xE0) low = 0xA0;
+            if (c == 0xED) high = 0x9F;
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            length = 4;
+            if (c == 0xF0) low = 0x90;
+            if (c == 0xF4) high = 0x8F;
+        }
+        if (length == 0) {
+            // Not a lead byte at all.
+            out += REPLACEMENT;
+            ++i;
+            continue;
+        }
+        size_t valid{1};
+        while (valid < length && i + valid < text.size()) {
+            const unsigned char next{byte(i + valid)};
+            if (valid == 1 ? (next < low || next > high) : (next < 0x80 || next > 0xBF)) break;
+            ++valid;
+        }
+        if (valid == length) {
+            out.append(text.substr(i, length));
+        } else {
+            // The maximal subpart is one replacement; the byte that broke it starts over.
+            out += REPLACEMENT;
+        }
+        i += valid;
+    }
+    return out;
+}
+
+namespace {
+bool IsSecretKey(const std::string& key)
+{
+    return key == "passphrase" || key == "old" || key == "new";
+}
+
+void Wipe(const UniValue& value)
+{
+    // The string belongs to a UniValue we own and may change: only its bytes are overwritten.
+    std::string& text{const_cast<std::string&>(value.get_str())};
+    if (!text.empty()) memory_cleanse(text.data(), text.size());
+}
+} // namespace
+
+void CleanseSecrets(UniValue& value)
+{
+    if (value.isObject()) {
+        const std::vector<std::string>& keys{value.getKeys()};
+        const std::vector<UniValue>& values{value.getValues()};
+        for (size_t i{0}; i < values.size(); ++i) {
+            if (values[i].isStr()) {
+                if (IsSecretKey(keys[i])) Wipe(values[i]);
+            } else {
+                CleanseSecrets(const_cast<UniValue&>(values[i]));
+            }
+        }
+    } else if (value.isArray()) {
+        for (const UniValue& item : value.getValues()) CleanseSecrets(const_cast<UniValue&>(item));
+    }
+}
+
 UniValue ErrorObject(int code, const std::string& message)
 {
     UniValue error{UniValue::VOBJ};
@@ -42,9 +125,10 @@ UniValue ErrorObject(int code, const std::string& message)
     return error;
 }
 
-Bridge::Bridge(ReplyFn reply, UiRunner ui, int workers) : m_reply(std::move(reply)), m_ui(std::move(ui))
+Bridge::Bridge(ReplyFn reply, UiRunner ui, int workers, int long_workers) : m_reply(std::move(reply)), m_ui(std::move(ui))
 {
     m_pool.Start(workers);
+    m_long_pool.Start(long_workers);
 }
 
 Bridge::~Bridge()
@@ -56,6 +140,18 @@ void Bridge::SetRpc(RpcFn rpc)
 {
     LOCK(m_mutex);
     m_rpc = std::move(rpc);
+}
+
+void Bridge::SetInternalError(InternalErrorFn fn)
+{
+    LOCK(m_mutex);
+    m_internal_error = std::move(fn);
+}
+
+void Bridge::SetRpcPolicy(RpcPolicy policy)
+{
+    LOCK(m_mutex);
+    m_rpc_policy = std::move(policy);
 }
 
 void Bridge::RegisterHost(const std::string& name, HostFn fn, Thread thread)
@@ -75,7 +171,7 @@ void Bridge::Reply(Request& request, int status, const std::string& json)
     // A request is answered once: a cancelled one is answered when it is cancelled, and what it
     // returns afterwards is dropped.
     if (request.answered.exchange(true)) return;
-    m_reply(request.call_id, status, json);
+    m_reply(request.call_id, status, ValidUtf8(json));
 }
 
 void Bridge::ReplyError(Request& request, int code, const std::string& message)
@@ -166,18 +262,35 @@ void Bridge::Handle(const std::string& call_id, const std::string& args_json)
     }
 
     Run(request, body);
+    // Run took copies of what it needs.
+    CleanseSecrets(args);
 }
 
 void Bridge::Run(const std::shared_ptr<Request>& request, const UniValue& body)
 {
     const bool rpc{body.find_value("kind").get_str() == "rpc"};
     const std::string method{body.find_value("method").get_str()};
-    const UniValue params{body.find_value("params").isNull() ? UniValue{UniValue::VARR} : body.find_value("params")};
+    auto params{std::make_shared<UniValue>(body.find_value("params").isNull() ? UniValue{UniValue::VARR} : body.find_value("params"))};
     const std::string uri{body.find_value("wallet").isStr() ? WalletUri(body.find_value("wallet").get_str()) : "/"};
 
     // What the request does, on the thread it runs on.
     std::function<void()> work;
+    Thread thread{Thread::WORKER};
     if (rpc) {
+        RpcPolicy policy;
+        {
+            LOCK(m_mutex);
+            policy = m_rpc_policy;
+        }
+        if (policy) {
+            const std::optional<Thread> lane{policy(method)};
+            if (!lane) {
+                ReplyError(*request, BRIDGE_METHOD_NOT_FOUND, strprintf("The interface does not call %s (use the console)", method));
+                Finish(request);
+                return;
+            }
+            thread = *lane == Thread::LONG ? Thread::LONG : Thread::WORKER;
+        }
         work = [this, request, method, params, uri] {
             RpcFn rpc_fn;
             {
@@ -189,7 +302,7 @@ void Bridge::Run(const std::shared_ptr<Request>& request, const UniValue& body)
                 return;
             }
             try {
-                const UniValue result{rpc_fn(method, params, uri)};
+                const UniValue result{rpc_fn(method, *params, uri)};
                 Reply(*request, 0, result.write());
             } catch (const UniValue& error) {
                 if (error.isObject() && error.find_value("code").isNum() && error.find_value("message").isStr()) {
@@ -213,9 +326,10 @@ void Bridge::Run(const std::shared_ptr<Request>& request, const UniValue& body)
             Finish(request);
             return;
         }
-        work = [this, request, host, params] {
+        thread = host.thread;
+        work = [this, request, host, params, method] {
             try {
-                const UniValue result{host.fn(params)};
+                const UniValue result{host.fn(*params)};
                 Reply(*request, 0, result.write());
             } catch (const HostError& e) {
                 ReplyError(*request, e.code, e.what());
@@ -223,18 +337,25 @@ void Bridge::Run(const std::shared_ptr<Request>& request, const UniValue& body)
                 ReplyError(*request, BRIDGE_HOST_ERROR, error.write());
             } catch (const std::exception& e) {
                 ReplyError(*request, BRIDGE_HOST_ERROR, e.what());
+                InternalErrorFn internal;
+                {
+                    LOCK(m_mutex);
+                    internal = m_internal_error;
+                }
+                if (internal) internal(method, e.what());
             }
         };
         if (host.thread == Thread::UI) {
-            m_ui([this, request, work] {
+            m_ui([this, request, work, params] {
                 if (!request->answered) work();
+                CleanseSecrets(*params);
                 Finish(request);
             });
             return;
         }
     }
 
-    auto task{[this, request, work] {
+    auto task{[this, request, work, params] {
         bool stopped;
         {
             LOCK(m_mutex);
@@ -246,9 +367,10 @@ void Bridge::Run(const std::shared_ptr<Request>& request, const UniValue& body)
             // Not cancelled while it waited.
             work();
         }
+        CleanseSecrets(*params);
         Finish(request);
     }};
-    if (!m_pool.Submit(std::move(task))) {
+    if (!(thread == Thread::LONG ? m_long_pool : m_pool).Submit(std::move(task))) {
         ReplyError(*request, BRIDGE_STOPPED, "The app is shutting down");
         Finish(request);
     }
@@ -263,6 +385,7 @@ void Bridge::Stop()
     }
     // Waits for the requests that run; the ones that wait are answered with BRIDGE_STOPPED.
     m_pool.Stop();
+    m_long_pool.Stop();
     LogDebug(BCLog::RPC, "webui: bridge stopped\n");
 }
 

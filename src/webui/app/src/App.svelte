@@ -8,8 +8,9 @@
   import TitleStrip from './components/TitleStrip.svelte';
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
+  import { followLocale, installTranslator, loadLocale } from './lib/i18n.svelte';
   import { handleShortcut } from './lib/keyboard';
-  import { go, nav } from './lib/nav.svelte';
+  import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
   import { app, applySnapshot, loadPrefs, prefs, subscribe, toast } from './lib/state.svelte';
   import { applyTheme } from './lib/themes';
@@ -24,7 +25,7 @@
   let connectError = $state('');
 
   $effect(() => {
-    applyTheme(document, prefs.theme, prefs.fontAdjust, prefersDark);
+    applyTheme(document, prefs.theme, prefs.fontAdjust, prefersDark, prefs.fontFamily, prefs.moneyFont);
   });
 
   async function refreshNode() {
@@ -48,16 +49,10 @@
       if (phase === 'ready') refreshNode();
       if (phase === 'init' || phase === 'ready') loadPrefs();
     });
-    const offUri = on<{ uri: string }>('uri', ({ uri }) => {
-      const parsed = parsePaymentUri(uri);
-      if (!parsed.ok) {
-        toast('error', 'Payment request error', parsed.error);
-        return;
-      }
-      nav.pendingUri = uri;
-      nav.uriSeq++;
-      go('send');
-      toast('info', 'Payment request', `Pay to ${parsed.request.address}`);
+    const offUri = on<{ uri: string }>('uri', ({ uri }) => handleUri(uri));
+    // The tray menu, or another part of the app, asks for a page.
+    const offNavigate = on<{ page: PageId; tab: string }>('navigate', ({ page, tab }) => {
+      if (page in PAGES) go(page, tab);
     });
 
     (async () => {
@@ -67,6 +62,10 @@
       }
       try {
         const hello = await host.hello();
+        // The language first: the page shows in it from its first frame on.
+        installTranslator();
+        followLocale();
+        await loadLocale();
         app.info = hello.info;
         app.dialogs = hello.dialogs;
         app.phaseData = hello.phaseData;
@@ -77,7 +76,8 @@
           const navigation = await import('./lib/nav.svelte');
           const dialogs = await import('./lib/dialogs.svelte');
           const walletdata = await import('./lib/walletdata.svelte');
-          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current };
+          const i18n = await import('./lib/i18n.svelte');
+          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current, i18n: i18n.i18n, t: i18n.t };
         }
         offWindow = watchWindow();
         await loadPrefs();
@@ -92,8 +92,48 @@
       offPhase();
       offUri();
       offWindow?.();
+      offNavigate();
     };
   });
+
+  /** A payment URI: from another start of the app, or dropped on the window (BitcoinGUI::dropEvent). */
+  function handleUri(uri: string) {
+    const parsed = parsePaymentUri(uri);
+    if (!parsed.ok) {
+      toast('error', 'Payment request error', parsed.error);
+      return;
+    }
+    nav.pendingUri = uri;
+    nav.uriSeq++;
+    go('send');
+    toast('info', 'Payment request', `Pay to ${parsed.request.address}`);
+  }
+
+  function droppedUris(e: DragEvent): string[] {
+    const data = e.dataTransfer;
+    if (!data) return [];
+    const text = data.getData('text/uri-list') || data.getData('text/plain') || '';
+    return text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#') && /^chains:/i.test(l));
+  }
+
+  function ondragover(e: DragEvent) {
+    if (app.phase !== 'ready' || !e.dataTransfer) return;
+    // A link dropped on the window would load in it: the app takes payment links, and nothing else.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = [...e.dataTransfer.types].some((t) => t === 'text/uri-list' || t === 'text/plain') ? 'copy' : 'none';
+  }
+
+  function ondrop(e: DragEvent) {
+    if (app.phase !== 'ready') return;
+    const target = e.target as HTMLElement | null;
+    // Text dropped into a field stays the business of the field.
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+    e.preventDefault();
+    for (const uri of droppedUris(e)) handleUri(uri);
+  }
 
   function onkeydown(e: KeyboardEvent) {
     if (app.phase !== 'ready' || e.defaultPrevented) return;
@@ -101,7 +141,7 @@
   }
 </script>
 
-<svelte:window {onkeydown} />
+<svelte:window {onkeydown} {ondragover} {ondrop} />
 
 {#if connectError || app.phase !== 'ready'}
   <!-- Before the node runs: the integrated title bar alone (the layouts have theirs). -->

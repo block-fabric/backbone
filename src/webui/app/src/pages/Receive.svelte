@@ -197,8 +197,8 @@
           {#snippet cell(row, column)}
             {#if column.key === 'date'}{formatTime(row.time)}
             {:else if column.key === 'amount'}{#if row.amount > 0n}<Amount sats={row.amount} showUnit={false} />{:else}<span class="faint">(no amount requested)</span>{/if}
-            {:else if column.key === 'label'}<span class:faint={!row.label}>{row.label || '(no label)'}</span>
-            {:else}<span class:faint={!row.message}>{row.message || '(no message)'}</span>{/if}
+            {:else if column.key === 'label'}<span class:faint={!row.label} translate={row.label ? 'no' : undefined}>{row.label || '(no label)'}</span>
+            {:else}<span class:faint={!row.message} translate={row.message ? 'no' : undefined}>{row.message || '(no message)'}</span>{/if}
           {/snippet}
         </DataTable>
       </div>

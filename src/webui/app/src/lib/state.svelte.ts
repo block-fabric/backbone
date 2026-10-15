@@ -1,6 +1,8 @@
 // The state of the app as the page knows it: what the host says in its events,
 // kept in Svelte state that the components read.
 import { on } from './bridge';
+import { addSample } from './traffic.svelte';
+import { addProgressSample, type ProgressSample } from './syncoverlay';
 import { host, type AppInfo, type Dialog, type NodeSnapshot, type Phase, type WalletSummary } from './rpc';
 import { isUnit, type Unit } from './units';
 import { clampFontAdjust, DEFAULT_THEME, isTheme, type ThemeId } from './themes';
@@ -44,6 +46,10 @@ export const node = $state({
   /** The latest blocks seen, newest last (the chain in the status bar). */
   recent: [] as { height: number; hash: string; time: number }[],
   bansChanged: 0,
+  /** The mempool: transactions, memory used, and the most it may use (ClientModel::mempoolSizeChanged). */
+  mempool: { size: 0, usage: 0, max: 0 },
+  /** Samples of the verification progress, the newest first (for the sync overlay). */
+  progressSamples: [] as ProgressSample[],
 });
 
 export const wallets = $state({
@@ -56,8 +62,10 @@ export const wallets = $state({
   txVersion: 0,
   /** Bumped on every change of the address book of the current wallet. */
   addressVersion: 0,
-  /** Transactions new in a wallet since the page loaded, oldest first (for the notices): wallet and txid. */
+  /** The latest transactions new in a wallet, oldest first (for the notices): wallet and txid; at most 100. */
   newTxs: [] as { wallet: string; txid: string }[],
+  /** How many new transactions there were since the page loaded (newTxs keeps the latest 100 of them). */
+  newTxTotal: 0,
 });
 
 export const prefs = $state({
@@ -81,6 +89,28 @@ export const prefs = $state({
   customFee: 0,
   /** Coin control shows coins by address (tree) or in a list. */
   coinTree: true,
+  /** The size of the text of the console, in pixels (consoleFontSize). */
+  consoleFont: 13,
+  /** The window: an icon in the tray, minimized to it, minimized when closed (OptionsModel). */
+  showTray: true,
+  minimizeToTray: false,
+  minimizeOnClose: false,
+  /** Web pages of third-party explorers for a transaction, %s for its id, separated by | (strThirdPartyTxUrls). */
+  thirdPartyTxUrls: '',
+  /** The font of amounts: the embedded monospaced one, or the one of the system (FontForMoney). */
+  moneyFont: 'embedded' as 'embedded' | 'system',
+  /** A font chosen apart from the look ('' for the font of the look). */
+  fontFamily: '' as '' | 'inter' | 'nunito' | 'mono' | 'system',
+  /** The range of the traffic graph, in minutes. */
+  trafficRange: 30,
+  /** Solo mining: the address of the rewards and the threads, as last started (MiningAddress, MiningThreads). */
+  miningAddress: '',
+  miningThreads: 1,
+  /** Block explorer: how many of the latest blocks are listed. */
+  explorerCount: 50,
+  /** Multisig lounge: keys and shared addresses (MultisigKeys, MultisigAddresses), name and value. */
+  multisigKeys: [] as { name: string; value: string }[],
+  multisigAddresses: [] as { name: string; value: string }[],
   loaded: false,
 });
 
@@ -89,14 +119,19 @@ export interface Toast {
   kind: 'info' | 'success' | 'warning' | 'error';
   title: string;
   message?: string;
+  /** Buttons of the notice; each dismisses it. */
+  actions?: { label: string; run: () => void }[];
 }
 
 export const toasts = $state({ list: [] as Toast[] });
+
+/** The status tip of the menu item or the entry under the pointer (QAction::statusTip), shown in the status bar. */
+export const statusTip = $state({ text: '' });
 let nextToast = 1;
 
-export function toast(kind: Toast['kind'], title: string, message?: string, timeoutMs = kind === 'error' ? 9000 : 4500): number {
+export function toast(kind: Toast['kind'], title: string, message?: string, timeoutMs = kind === 'error' ? 9000 : 4500, actions?: Toast['actions']): number {
   const id = nextToast++;
-  toasts.list.push({ id, kind, title, message });
+  toasts.list.push({ id, kind, title, message, actions });
   if (toasts.list.length > 5) toasts.list.splice(0, toasts.list.length - 5);
   if (timeoutMs > 0) setTimeout(() => dismissToast(id), timeoutMs);
   return id;
@@ -111,6 +146,7 @@ const RECENT_BLOCKS = 7;
 
 function setTip(tip: Tip): void {
   node.tip = tip;
+  addProgressSample(node.progressSamples, { t: Date.now(), progress: tip.progress });
   const last = node.recent[node.recent.length - 1];
   if (!last || last.hash !== tip.hash) {
     // A reorganisation or a jump: the chain shown starts again from the new tip.
@@ -122,6 +158,17 @@ function setTip(tip: Tip): void {
 
 function sats(n: unknown): bigint {
   return typeof n === 'number' ? BigInt(Math.round(n)) : 0n;
+}
+
+/** Whether the node has wallets at all (not with -disablewallet). */
+export function walletsEnabled(): boolean {
+  return app.info?.walletEnabled !== false;
+}
+
+/** What to tell the user who needs a wallet and has none open. */
+export function noWalletText(why = ''): string {
+  if (!walletsEnabled()) return 'This node runs without wallets (-disablewallet).';
+  return `Open or create a wallet first${why ? `: ${why}` : '.'}`;
 }
 
 export function selectWallet(name: string | null): void {
@@ -193,6 +240,10 @@ export function subscribe(): void {
     node.bansChanged++;
   });
   on<Tip>('tip', (tip) => setTip(tip));
+  on<{ recv: number; sent: number; time: number }>('traffic', ({ recv, sent, time }) => addSample({ t: time, recv, sent }));
+  on<{ size: number; usage: number; max: number }>('mempool', (m) => {
+    node.mempool = m;
+  });
   on<{ height: number; time: number; presync: boolean }>('headerTip', (h) => {
     if (h.presync) node.presync = { height: h.height, time: h.time };
     else {
@@ -219,6 +270,7 @@ export function subscribe(): void {
   on<{ name: string; txid: string; change: string }>('wallet.tx', ({ name, txid, change }) => {
     if (name === wallets.current) wallets.txVersion++;
     if (change === 'new') {
+      wallets.newTxTotal++;
       wallets.newTxs.push({ wallet: name, txid });
       if (wallets.newTxs.length > 100) wallets.newTxs.splice(0, wallets.newTxs.length - 100);
     }
@@ -237,12 +289,23 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (typeof raw.mask === 'boolean') prefs.mask = raw.mask;
   if (isLayout(raw.layout)) prefs.layout = raw.layout;
   if (typeof raw.lastWallet === 'string') prefs.lastWallet = raw.lastWallet;
-  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'sidebarExpanded'] as const) {
+  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'sidebarExpanded', 'showTray', 'minimizeToTray', 'minimizeOnClose'] as const) {
     if (typeof raw[key] === 'boolean') prefs[key] = raw[key];
   }
   if (raw.feeMode === 'smart' || raw.feeMode === 'custom') prefs.feeMode = raw.feeMode;
   if (typeof raw.confTarget === 'number' && raw.confTarget >= 0) prefs.confTarget = Math.floor(raw.confTarget);
   if (typeof raw.customFee === 'number' && raw.customFee >= 0) prefs.customFee = Math.floor(raw.customFee);
+  if (typeof raw.consoleFont === 'number' && raw.consoleFont >= 8 && raw.consoleFont <= 28) prefs.consoleFont = Math.floor(raw.consoleFont);
+  if (typeof raw.thirdPartyTxUrls === 'string') prefs.thirdPartyTxUrls = raw.thirdPartyTxUrls;
+  if (typeof raw.miningAddress === 'string') prefs.miningAddress = raw.miningAddress;
+  if (typeof raw.miningThreads === 'number' && raw.miningThreads >= 1) prefs.miningThreads = Math.floor(raw.miningThreads);
+  if (typeof raw.explorerCount === 'number' && raw.explorerCount >= 10 && raw.explorerCount <= 1000) prefs.explorerCount = Math.floor(raw.explorerCount);
+  const entries = (v: unknown) => (Array.isArray(v) ? v.filter((e): e is { name: string; value: string } => !!e && typeof e.name === 'string' && typeof e.value === 'string') : []);
+  if (Array.isArray(raw.multisigKeys)) prefs.multisigKeys = entries(raw.multisigKeys);
+  if (Array.isArray(raw.multisigAddresses)) prefs.multisigAddresses = entries(raw.multisigAddresses);
+  if (raw.moneyFont === 'embedded' || raw.moneyFont === 'system') prefs.moneyFont = raw.moneyFont;
+  if (raw.fontFamily === '' || raw.fontFamily === 'inter' || raw.fontFamily === 'nunito' || raw.fontFamily === 'mono' || raw.fontFamily === 'system') prefs.fontFamily = raw.fontFamily;
+  if (typeof raw.trafficRange === 'number' && raw.trafficRange >= 5 && raw.trafficRange <= 1440) prefs.trafficRange = Math.round(raw.trafficRange / 5) * 5;
   prefs.loaded = true;
 }
 

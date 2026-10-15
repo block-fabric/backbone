@@ -55,8 +55,11 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   appconfig.cpp
   assets.cpp
   bridge.cpp
+  rpcpolicy.cpp
   console.cpp
   events.cpp
+  i18n.cpp
+  icontint.cpp
   nodeapi.cpp
   nodeevents.cpp
   options.cpp
@@ -137,6 +140,18 @@ elseif(APPLE)
   target_link_libraries(chains-app "-framework WebKit" "-framework Cocoa")
 endif()
 install_binary_component(chains-app)
+if(NOT WIN32 AND NOT APPLE)
+  # The desktop entry: the app in the menus of the desktop, and the handler of chains: links (BIP 21).
+  install(FILES ${PROJECT_SOURCE_DIR}/share/chains-app.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+    COMPONENT chains-app
+  )
+  install(FILES ${PROJECT_SOURCE_DIR}/share/pixmaps/bitcoin256.png
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/256x256/apps
+    RENAME chains.png
+    COMPONENT chains-app
+  )
+endif()
 
 # The Windows release: a zip and an installer (NSIS) with chains-app and the programs of the node.
 if(MINGW AND TARGET bitcoind AND TARGET bitcoin-cli AND TARGET bitcoin-tx AND TARGET bitcoin-wallet AND TARGET bitcoin-util)

@@ -6,6 +6,7 @@
   import Sidebar from '../../components/Sidebar.svelte';
   import StatusBar from '../../components/StatusBar.svelte';
   import { nav } from '../../lib/nav.svelte';
+  import SyncOverlay from '../../components/SyncOverlay.svelte';
   import PageView from '../PageView.svelte';
 </script>
 
@@ -13,6 +14,8 @@
   <Sidebar rail />
   <div class="main">
     <div class="body">
+      <!-- Before the page: the dialogs a page opens come after it, above it. -->
+      <SyncOverlay />
       <main class="content" id="content" tabindex="-1" data-page={nav.page}>
         <PageView />
       </main>
@@ -34,6 +37,7 @@
     flex-direction: column;
   }
   .body {
+    position: relative;
     flex: 1;
     min-height: 0;
     display: flex;

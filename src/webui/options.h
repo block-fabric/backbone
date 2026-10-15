@@ -5,6 +5,7 @@
 #ifndef BITCOIN_WEBUI_OPTIONS_H
 #define BITCOIN_WEBUI_OPTIONS_H
 
+#include <sync.h>
 #include <univalue.h>
 
 #include <functional>
@@ -32,7 +33,13 @@ public:
     //! Remembers that a restart is needed (OptionsModel fRestartRequired), and tells whether it is.
     using RestartFlag = std::function<bool(std::optional<bool> set)>;
 
-    NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart);
+    /**
+     * Told the name of a setting of settings.json just before it changes ("@startAtLogin" for the
+     * start at login), so that the change can be taken back (the Cancel of the Settings page).
+     */
+    using Journal = std::function<void(const std::string& setting)>;
+
+    NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal = {});
 
     /**
      * Every option with its value, as the Settings page shows them:
@@ -58,6 +65,46 @@ private:
     interfaces::Node& m_node;
     ArgsManager& m_args;
     RestartFlag m_restart;
+    Journal m_journal;
+};
+
+class AppConfig;
+
+/**
+ * The changes of the Settings page wait for Apply (the OK of the options dialog of chains-qt). Each is
+ * written to settings.json at once (NodeOptions), and what it replaced is kept here, in the settings of
+ * the app (so that neither a crash nor a quit loses it): Commit forgets it, Undo puts it back. The app
+ * undoes at start what was never applied, before the node reads its settings: a stray click never takes
+ * effect.
+ */
+class OptionsJournal
+{
+public:
+    //! The key of the journal in the settings of the app (one per network).
+    using KeyFn = std::function<std::string()>;
+
+    OptionsJournal(AppConfig& config, ArgsManager& args, KeyFn key);
+
+    /** A setting (or "@startAtLogin") is about to change: keep what it is, the first time. */
+    void Record(interfaces::Node& node, const std::string& setting, bool restart_required) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /** The number of settings changed and not applied. */
+    size_t Pending() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /** Apply: the changes stay. */
+    void Commit() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /**
+     * Cancel: every setting back as it was (port mapping too, the one option that took effect at once),
+     * and the restart flag as it was, through `restart`. @return the number of settings put back
+     */
+    size_t Undo(interfaces::Node& node, const std::function<void(bool)>& restart) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+private:
+    AppConfig& m_config;
+    ArgsManager& m_args;
+    const KeyFn m_key;
+    mutable Mutex m_mutex;
 };
 
 } // namespace webui

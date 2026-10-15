@@ -8,7 +8,22 @@ import { clampFontAdjust } from './themes';
 /** Ctrl+letter: the tabs of the node window (the Window menu of chains-qt). */
 const NODE_TABS: Record<string, string> = { i: 'info', t: 'console', n: 'traffic', p: 'peers' };
 const PAGE_KEYS: Record<string, PageId> = { '1': 'overview', '2': 'send', '3': 'receive', '4': 'transactions', '5': 'sidechains' };
-const WALLET_PAGES = new Set<PageId>(['send', 'receive', 'transactions', 'sidechains']);
+const WALLET_PAGES = new Set<PageId>(['send', 'receive', 'transactions']);
+
+/** Close what is on top: the newest open dialog (as Escape does), else the node window. */
+export function closeTop(): boolean {
+  const open = [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')];
+  const top = open[open.length - 1];
+  if (top) {
+    top.dispatchEvent(new Event('cancel', { cancelable: true }));
+    return true;
+  }
+  if (nav.page === 'node') {
+    go('overview');
+    return true;
+  }
+  return false;
+}
 
 /** Handle a key press; true if it was a shortcut. */
 export function handleShortcut(e: KeyboardEvent): boolean {
@@ -38,6 +53,8 @@ export function handleShortcut(e: KeyboardEvent): boolean {
     openPalette();
     return true;
   }
+  // Ctrl+W closes the dialog on top (GUIUtil::handleCloseWindowShortcut), or the node window.
+  if (key === 'w') return closeTop();
   if (NODE_TABS[key]) {
     go('node', NODE_TABS[key]);
     return true;

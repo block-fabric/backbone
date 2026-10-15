@@ -15,6 +15,7 @@
   import { AREAS, areaOf, isAt, placeLabel, type Area, type Place } from '../../lib/layout';
   import { go, nav, PAGES } from '../../lib/nav.svelte';
   import { frame, titleBarDoubleClick, titleBarMouseDown } from '../../lib/windowframe.svelte';
+  import SyncOverlay from '../../components/SyncOverlay.svelte';
   import PageView from '../PageView.svelte';
 
   // The top bar is the integrated title bar too: its empty part moves the window, the buttons of
@@ -66,7 +67,7 @@
     <div class="tools">
       <WalletPicker pill />
       <PaletteButton />
-      <MenuButton label="Menus of chains-qt: wallet, banking, tools, window, node" text="Menus" icon="menu" {sections} />
+      <MenuButton label="Menus of chains-qt: wallet, banking, chains, tools, window, node" text="Menus" icon="menu" {sections} />
       <TopActions />
     </div>
     {#if frame.integrated}<WindowControls />{/if}
@@ -89,6 +90,8 @@
   </nav>
 
   <div class="body">
+    <!-- Before the page: the dialogs a page opens come after it, above it. -->
+    <SyncOverlay />
     <main class="content" id="content" tabindex="-1" data-page={nav.page}>
       <PageView />
     </main>
@@ -197,6 +200,7 @@
     color: var(--text-faint);
   }
   .body {
+    position: relative;
     flex: 1;
     min-height: 0;
     display: flex;

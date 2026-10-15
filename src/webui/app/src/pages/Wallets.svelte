@@ -432,7 +432,7 @@
   <div class="grid">
     <section class="panel current" aria-labelledby="current-title">
       <div class="panel-head">
-        <h2 id="current-title">{name === null ? 'No wallet loaded' : walletDisplayName(name)}</h2>
+        <h2 id="current-title" translate={name === null || name === '' ? undefined : 'no'}>{name === null ? 'No wallet loaded' : walletDisplayName(name)}</h2>
         {#if summary}
           <div class="badges">
             {#if summary.privateKeysDisabled}<span class="badge">watch-only</span>{/if}
@@ -609,7 +609,7 @@
   }
   .actions {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr));
     gap: 0.5rem;
   }
   .action {

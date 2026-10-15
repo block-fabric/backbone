@@ -95,6 +95,8 @@ public:
     virtual void Eval(const std::string& script) = 0;
 
     virtual void SetTitle(const std::string& title) = 0;
+    /** The network of the node: the icon of the window and of the tray takes its colours (NetworkStyle). */
+    virtual void SetNetwork(const std::string& network) = 0;
     virtual void Show(bool minimized) = 0;
     /** Bring the window to the front (a second start of the app asks for it). */
     virtual void Present() = 0;

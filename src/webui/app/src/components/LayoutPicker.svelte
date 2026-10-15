@@ -1,9 +1,20 @@
 <script lang="ts">
-  // Settings → Appearance: the layout of the window, switched at once (also in the palette).
+  // Settings → Appearance: the layout of the window, shown at once (also in the palette). On the
+  // Settings page (staged) it waits for Apply as the other settings do, and Cancel takes it back.
   import Icon from './Icon.svelte';
   import { setLayout } from '../lib/commands.svelte';
-  import { LAYOUTS } from '../lib/layout';
+  import { closeDetail } from '../lib/detail.svelte';
+  import { LAYOUTS, type LayoutId } from '../lib/layout';
   import { prefs } from '../lib/state.svelte';
+  import { stagePrefs } from '../lib/settingsdraft.svelte';
+
+  let { staged = false }: { staged?: boolean } = $props();
+
+  function choose(id: LayoutId) {
+    if (!staged) return setLayout(id);
+    closeDetail();
+    stagePrefs({ layout: id });
+  }
 </script>
 
 <fieldset class="field">
@@ -11,7 +22,7 @@
   <div class="layouts">
     {#each LAYOUTS as l (l.id)}
       <label class="layout" class:chosen={prefs.layout === l.id}>
-        <input type="radio" name="layout" class="sr-only" value={l.id} checked={prefs.layout === l.id} onchange={() => setLayout(l.id)} />
+        <input type="radio" name="layout" class="sr-only" value={l.id} checked={prefs.layout === l.id} onchange={() => choose(l.id)} />
         <span class="sketch {l.id}" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
         <span class="name"><Icon name={l.icon} size={16} /> {l.name}</span>
         <span class="summary">{l.summary}.</span>

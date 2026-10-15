@@ -15,7 +15,8 @@
   import { buildCommands, menuSections, pageAvailable, pageDisabled, type Command } from '../lib/commands.svelte';
   import { NAV_SECTIONS, pageIcon } from '../lib/layout';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
-  import { prefs, savePrefs, selectWallet, wallets } from '../lib/state.svelte';
+  import { prefs, savePrefs, selectWallet, statusTip, wallets } from '../lib/state.svelte';
+  import { pendingNow } from '../lib/settingsdraft.svelte';
   import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
   import { UNITS, type Unit } from '../lib/units';
   import { frame } from '../lib/windowframe.svelte';
@@ -24,6 +25,7 @@
 
   let narrow = $state(false);
   $effect(() => {
+    if (typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia('(max-width: 760px)');
     narrow = media.matches;
     const onChange = (e: MediaQueryListEvent) => (narrow = e.matches);
@@ -135,14 +137,21 @@
             disabled={pageDisabled(id)}
             title={collapsed ? undefined : page.summary}
             onclick={() => visit(id)}
-            onpointerenter={(e) => showTip(e, tipText)}
-            onpointerleave={hideTip}
+            onpointerenter={(e) => {
+              showTip(e, tipText);
+              statusTip.text = page.summary;
+            }}
+            onpointerleave={() => {
+              hideTip();
+              statusTip.text = '';
+            }}
             onfocus={(e) => showTip(e, tipText)}
             onblur={hideTip}
           >
             <Icon name={pageIcon(id)} size={19} />
             {#if !collapsed}<span class="grow">{page.title}</span>{/if}
             {#if !collapsed && !page.ready}<span class="soon" title="Being rebuilt">•</span>{/if}
+            {#if id === 'settings' && pendingNow() > 0}<span class="pending" title="Changes of the settings wait for Apply" aria-label="Changes wait for Apply"></span>{/if}
           </button>
         {/each}
       </div>
@@ -156,12 +165,12 @@
     {/if}
     {#if collapsed}
       <PaletteButton compact />
-      <MenuButton label="Menus of chains-qt: wallet, banking, tools, window, node" sections={menus} placement="right" icon="menu" />
+      <MenuButton label="Menus of chains-qt: wallet, banking, chains, tools, window, node" sections={menus} placement="right" icon="menu" />
       <MenuButton label="Theme" icon="sun" sections={looks} placement="right" />
     {:else}
       <div class="row">
         {#if rail}<PaletteButton compact />{/if}
-        <MenuButton label="Menus of chains-qt: wallet, banking, tools, window, node" sections={menus} placement="above" text="Menus" icon="menu" align="start" />
+        <MenuButton label="Menus of chains-qt: wallet, banking, chains, tools, window, node" sections={menus} placement="above" text="Menus" icon="menu" align="start" />
         <select class="look" aria-label="Theme" title="Theme" value={prefs.theme} onchange={(e) => savePrefs({ theme: (e.currentTarget as HTMLSelectElement).value as ThemeId })}>
           {#each THEMES as theme (theme.id)}
             <option value={theme.id}>{theme.name}</option>
@@ -409,6 +418,18 @@
   }
   .soon {
     color: var(--text-faint);
+  }
+  .pending {
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--warning);
+  }
+  .collapsed .pending {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.3rem;
   }
   .foot {
     display: flex;

@@ -134,7 +134,18 @@ For the pages: a page with a selectable list publishes its selection with
 `showDetail(…)` when `detail.follow` is on (the workspace layout), and keeps its
 dialog otherwise — pages/Transactions.svelte does so (a click selects and shows
 the transaction in the panel; the context menu's "Show transaction details" keeps
-the dialog). The node window's own tabs are hidden in the workspace, whose Node
+the dialog), and so do the blocks of pages/Explorer.svelte, the peers of the node
+window (components/PeersView.svelte) and the sidechains of pages/Sidechains.svelte.
+The other way, the panel and the rows of the dashboard open the real pages with
+the item chosen in them (`goTo(page, tab, key)`, taken once by the page with
+`takeFocus`): a block opens in the explorer, a peer is selected in the peers tab,
+**Deposit** opens the Sidechains tab with that sidechain chosen and the deposit
+form focused, **Withdrawals** the Withdrawals tab with its first bundle chosen.
+
+The sync overlay (components/SyncOverlay.svelte) covers the page area of each
+layout. The Settings page waits for Apply in every tab (doc/webui-audit.md M7):
+the look and the layout chosen in Appearance show at once and go back on Cancel;
+"Use the title bar of the desktop" is kept by the host at once, as before. The node window's own tabs are hidden in the workspace, whose Node
 sub-tabs are those tabs. A new menu action goes in `buildCommands()` only: the
 palette, the Menus buttons, the tests and this table follow from it.
 
@@ -147,9 +158,12 @@ bar, the foot of each sidebar), under the name of its old menu, and in the
 
 **Menus (user decision, 2026-10-14):** the menus are regrouped so that what concerns the chain comes
 before the tools: *Your wallet*, *Banking*, **Chains** (Sidechains, Sidechain nodes, Solo mine,
-Sidechain proposals and votes, Block explorer), **Tools** (Timestamp file, Sign message, Verify
+Sidechain proposals, Withdrawal votes, Block explorer), **Tools** (Timestamp file, Sign message, Verify
 message, Hash calculator, Merkle tree, Address decoder), *Window*, *This node*. The table below keeps
-the menus of chains-qt as they were (first column); every item is still in a menu.
+the menus of chains-qt as they were (first column); every item is still in a menu. With
+`-disablewallet` the wallet menus, and the items that need a wallet, are not shown (as chains-qt
+builds no wallet UI then), nor are the wallet pages. Under the pointer (or the focus) an item shows
+the status tip of chains-qt in the status bar, and a page of a sidebar its summary.
 
 
 | Old menu | Item | Command id | Workspace tabs | Dashboard | Compact sidebar |
@@ -183,7 +197,8 @@ the menus of chains-qt as they were (first column); every item is still in a men
 | Use Chains | Sidechains (Alt+5) | `use.sidechains` | Sidechains ▸ Sidechains | Sidebar Sidechains; Sidechains card; Home: "Deposit", Sidechains tab (Deposit, Withdrawals) | Rail Sidechains |
 | Chains | Sidechain nodes | `chains.nodes` | Sidechains ▸ Sidechain nodes | Sidebar Sidechain nodes; BMM card | Rail Sidechain nodes |
 | Chains | Solo mine | `chains.mine` | Chain ▸ Mine | Sidebar Mine; Mining card; Home: "Mine" | Rail Mine |
-| Chains | Sidechain proposals and votes | `chains.proposals` | Sidechains ▸ Sidechains (Proposals tab); sidechain panel "Vote on bundles" | Sidechains card "Votes" | Sidechains page (Proposals tab) |
+| Chains | Sidechain proposals | `chains.proposals` | Sidechains ▸ Sidechains (Proposals tab) | Sidechains card "Votes" | Sidechains page (Proposals tab) |
+| Chains | Withdrawal votes | `chains.withdrawals` | Sidechains ▸ Sidechains (Withdrawals tab); sidechain panel "Vote on bundles" | Sidechains tab "Withdrawals" of a row | Sidechains page (Withdrawals tab) |
 | Crypto tools | Block explorer | `tools.explorer` | Chain ▸ Explorer | Sidebar Block explorer; Blocks tab "Block explorer"; Home quick action | Rail Block explorer; Overview "Block explorer" |
 | Crypto tools | Hash calculator | `tools.hash` | Chain ▸ Crypto tools (Hash) | Sidebar Crypto tools | Rail Crypto tools |
 | Crypto tools | Merkle tree | `tools.merkle` | Chain ▸ Crypto tools (Merkle) | Sidebar Crypto tools | Rail Crypto tools |
@@ -195,6 +210,7 @@ the menus of chains-qt as they were (first column); every item is still in a men
 | Window | Peers (Ctrl+P) | `window.peers` | Node ▸ Peers; status bar peers menu | Network card "Peers"; Peers tab (a row → panel); status bar | Node window tab; status bar peers menu |
 | This node | Node window (Ctrl+Shift+D) | `node.window` | Node area | Sidebar Node window | Rail Node window |
 | This node | Options… | `node.options` | Node ▸ Settings | Sidebar Settings | Rail Settings |
+| This node | Sync status… | `node.sync` | Menus; status bar (out of sync) | Menus; Home "out of sync" | Menus; status bar |
 | This node | Theme ▸ (each look) | `node.theme.*` | Node ▸ Settings ▸ Appearance; Menus; sun/moon of the top bar | Sidebar theme selector; Settings; sun/moon | Rail theme button (sun); Settings; sun/moon |
 | This node | Theme ▸ Custom… | `node.themeCustom` | Node ▸ Settings ▸ Appearance | Settings ▸ Appearance | Settings ▸ Appearance |
 | This node | Increase font size (Ctrl++) | `node.fontUp` | Settings ▸ Appearance; Ctrl++ | Sidebar A+; Ctrl++ | Rail A+; Ctrl++ |

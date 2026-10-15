@@ -4,6 +4,7 @@
   import Icon, { type IconName } from './Icon.svelte';
   import { css } from '../lib/actions';
   import type { Command } from '../lib/commands.svelte';
+  import { statusTip } from '../lib/state.svelte';
 
   let {
     label,
@@ -62,6 +63,7 @@
   }
 
   function close(refocus = true) {
+    statusTip.text = '';
     open = false;
     if (refocus) button?.focus();
   }
@@ -131,6 +133,11 @@
             aria-checked={c.checked === undefined ? undefined : c.checked}
             disabled={c.disabled}
             tabindex="-1"
+            title={c.tip}
+            onmouseenter={() => (statusTip.text = c.tip ?? '')}
+            onmouseleave={() => (statusTip.text = '')}
+            onfocus={() => (statusTip.text = c.tip ?? '')}
+            onblur={() => (statusTip.text = '')}
             onclick={() => run(c)}
           >
             <span class="mark" aria-hidden="true">{c.checked ? '✓' : ''}</span>

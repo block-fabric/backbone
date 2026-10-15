@@ -14,6 +14,7 @@
   import { closeQuick } from '../../lib/quick.svelte';
   import { NAV_SECTIONS } from '../../lib/layout';
   import { go, nav, PAGES } from '../../lib/nav.svelte';
+  import SyncOverlay from '../../components/SyncOverlay.svelte';
   import PageView from '../PageView.svelte';
 
   let drawer = $state(false);
@@ -48,6 +49,8 @@
       <TopActions />
     </header>
     <div class="body">
+      <!-- Before the page: the dialogs a page opens come after it, above it. -->
+      <SyncOverlay />
       <main class="content" id="content" tabindex="-1" data-page={nav.page}>
         <PageView />
       </main>
@@ -113,6 +116,7 @@
     letter-spacing: -0.01em;
   }
   .body {
+    position: relative;
     flex: 1;
     min-height: 0;
     display: flex;

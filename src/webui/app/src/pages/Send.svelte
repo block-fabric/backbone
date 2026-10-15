@@ -18,7 +18,7 @@
   import { app, node, prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
   import { formatAmount, UNITS, type Unit } from '../lib/units';
   import { parsePaymentUri } from '../lib/uri';
-  import { CONF_TARGETS, nearestConfTarget, psbtFileName, walletApi, walletDisplayName, type CoinSummary as Summary, type Outpoint, type Prepared } from '../lib/wallet';
+  import { CONF_TARGETS, isDust, nearestConfTarget, psbtFileName, walletApi, walletDisplayName, type CoinSummary as Summary, type Outpoint, type Prepared } from '../lib/wallet';
   import { current, refreshInfo } from '../lib/walletdata.svelte';
 
   interface Entry {
@@ -30,6 +30,10 @@
     unit: Unit;
     subtractFee: boolean;
     message: string;
+    /** What is wrong with the amount typed (AmountInput). */
+    amountError: string;
+    /** The amount to the address would be dust (GUIUtil::isDust). */
+    dust: boolean;
   }
 
   /** Seconds before the send button of the confirmation can be pressed (SEND_CONFIRM_DELAY). */
@@ -37,7 +41,7 @@
 
   let nextId = 1;
   function newEntry(): Entry {
-    return { id: nextId++, address: '', valid: false, label: '', amount: null, unit: prefs.unit, subtractFee: prefs.subtractFeeDefault, message: '' };
+    return { id: nextId++, address: '', valid: false, label: '', amount: null, unit: prefs.unit, subtractFee: prefs.subtractFeeDefault, message: '', amountError: '', dust: false };
   }
 
   let entries: Entry[] = $state([newEntry()]);
@@ -63,8 +67,40 @@
   const confTarget = $derived(nearestConfTarget(prefs.confTarget || info?.confirmTarget || 6));
   const requiredFee = $derived(BigInt(smart?.requiredFeePerK ?? info?.requiredFeePerK ?? 1000));
   const feeChoice = $derived(prefs.feeMode === 'custom' && customFee !== null ? { confTarget, feeRate: Number(customFee) } : { confTarget });
-  const canSend = $derived(!!info && (!info.privateKeysDisabled || info.externalSigner));
+  // A hardware wallet needs the path of its signer script (SendCoinsDialog::setModel).
+  const signerMissing = $derived(!!info?.externalSigner && info.signerConfigured === false);
+  const canSend = $derived(!!info && (!info.privateKeysDisabled || info.externalSigner) && !signerMissing);
   const sendLabel = $derived(info?.externalSigner ? 'Sign on device' : info?.privateKeysDisabled ? 'Create Unsigned' : 'Send');
+  const sendTip = $derived(
+    info?.externalSigner
+      ? signerMissing
+        ? 'Set external signer script path in Options -> Wallet'
+        : 'Connect your hardware wallet first.'
+      : info?.privateKeysDisabled
+        ? `Creates a Partially Signed Transaction (PSBT) for use with e.g. an offline ${app.info?.name ?? 'Chains'} wallet, or a PSBT-compatible hardware wallet.`
+        : 'Confirm the send action',
+  );
+  /** A custom fee that is not an amount, or below the minimum: nothing is sent with it (the smart fee is not taken in its place). */
+  const customFeeInvalid = $derived(prefs.feeMode === 'custom' && customFee === null);
+
+  // Dust, checked with the node as the amount and the address are typed (SendCoinsEntry::validate).
+  $effect(() => {
+    const checks = entries.map((e) => ({ e, address: e.address.trim(), amount: e.amount, valid: e.valid }));
+    const t = setTimeout(() => {
+      for (const { e, address, amount, valid } of checks) {
+        if (!valid || amount === null || amount <= 0n) {
+          e.dust = false;
+          continue;
+        }
+        isDust(address, amount)
+          .then((d) => {
+            if (e.address.trim() === address && e.amount === amount) e.dust = d;
+          })
+          .catch(() => undefined);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  });
 
   $effect(() => {
     if (wallet !== null) refreshInfo();
@@ -241,7 +277,7 @@
   });
 
   const smartLabel = $derived(smart ? `${formatAmount(BigInt(smart.feePerK), prefs.unit, { withUnit: true })}/kvB` : '–');
-  const feeSummary = $derived(prefs.feeMode === 'smart' ? smartLabel : `${formatAmount(customFee ?? 0n, prefs.unit, { withUnit: true })}/kvB`);
+  const feeSummary = $derived(prefs.feeMode === 'smart' ? smartLabel : customFee === null ? 'Custom fee not valid' : `${formatAmount(customFee, prefs.unit, { withUnit: true })}/kvB`);
 
   function alternatives(total: bigint): string {
     return UNITS.filter((u) => u.id !== prefs.unit)
@@ -277,9 +313,23 @@
       }
       if (e.amount === null || e.amount <= 0n) {
         document.getElementById(`amount-${e.id}`)?.focus();
-        toast('warning', 'Send Coins', 'The amount to pay must be larger than 0.');
+        // What the field says of the text typed (too many decimals, out of range...), or an amount of zero.
+        toast('warning', 'Send Coins', e.amount === null && e.amountError ? e.amountError : 'The amount to pay must be larger than 0.');
         return;
       }
+      if (await isDust(e.address.trim(), e.amount).catch(() => false)) {
+        e.dust = true;
+        document.getElementById(`amount-${e.id}`)?.focus();
+        toast('warning', 'Send Coins', 'The amount is too small to send: the output would be dust.');
+        return;
+      }
+    }
+    if (customFeeInvalid) {
+      // QDoubleSpinBox of chains-qt cannot go below the minimum: here the send waits for a valid fee.
+      if (prefs.feeMinimized) savePrefs({ feeMinimized: false });
+      queueMicrotask(() => document.getElementById('custom-fee')?.focus());
+      toast('warning', 'Send Coins', `Enter a custom fee of at least ${formatAmount(requiredFee, prefs.unit, { withUnit: true })}/kvB, or choose the recommended fee.`);
+      return;
     }
     const recipients = entries.map((e) => ({ address: e.address.trim(), label: e.label, amount: e.amount!, subtractFee: e.subtractFee, message: e.message }));
     const cc = prefs.coinControl ? { selected, changeAddress: customChange && changeStatus.accepted ? changeStatus.accepted : undefined } : {};
@@ -411,7 +461,7 @@
             <input id="label-{e.id}" type="text" bind:value={e.label} placeholder="Enter a label for this address to add it to the list of used addresses" autocomplete="off" />
           </div>
           <div class="amount-row">
-            <div class="grow"><AmountInput id="amount-{e.id}" label="Amount" bind:value={e.amount} bind:unit={e.unit} /></div>
+            <div class="grow"><AmountInput id="amount-{e.id}" label="Amount" bind:value={e.amount} bind:unit={e.unit} bind:invalid={e.amountError} extraError={e.dust ? 'The amount is too small to send: the output would be dust.' : ''} /></div>
             <label class="check" title="The fee will be deducted from the amount being sent. The recipient will receive less coins than you enter in the amount field. If multiple recipients are selected, the fee is split equally.">
               <input type="checkbox" bind:checked={e.subtractFee} />
               <span>Subtract fee from amount</span>
@@ -420,7 +470,7 @@
           </div>
           {#if e.message}
             <p class="message" title="A message that was attached to the chains: URI which will be stored with the transaction for your reference. Note: This message will not be sent over the Chains network.">
-              <strong>Message:</strong> <span class="break">{e.message}</span>
+              <strong>Message:</strong> <span class="break" translate="no">{e.message}</span>
             </p>
           {/if}
         </div>
@@ -436,7 +486,7 @@
       <h2 id="fee-title">Transaction fee</h2>
       {#if prefs.feeMinimized}
         <div class="row">
-          <span class="muted" class:warn={smart?.fallback && prefs.feeMode === 'smart'}>{feeSummary}</span>
+          <span class="muted" class:warn={(smart?.fallback && prefs.feeMode === 'smart') || customFeeInvalid}>{feeSummary}</span>
           <button type="button" class="btn small" onclick={() => savePrefs({ feeMinimized: false })}>Choose…</button>
         </div>
       {:else}
@@ -482,11 +532,12 @@
   </section>
 
   <footer class="actions panel">
-    <button type="button" class="btn primary" disabled={busy || !info || (!canSend && !info.privateKeysDisabled)} onclick={send} title={info?.externalSigner ? 'Sign the transaction on your hardware wallet' : info?.privateKeysDisabled ? 'Creates a Partially Signed Transaction (PSBT) for use with e.g. an offline wallet, or a PSBT-compatible hardware wallet.' : 'Confirm the send action'}>
+    <button type="button" class="btn primary" disabled={busy || !info || signerMissing || (!canSend && !info.privateKeysDisabled)} onclick={send} title={sendTip}>
       <Icon name="send" size={17} /> {busy ? 'Working…' : sendLabel}
     </button>
     <button type="button" class="btn" onclick={clearAll} title="Clear all fields of the form.">Clear all</button>
     <button type="button" class="btn" onclick={addEntry} title="Send to multiple recipients at once"><Icon name="plus" size={16} /> Add recipient</button>
+    {#if signerMissing}<span class="hint warn" id="signer-hint">Set external signer script path in Options -> Wallet</span>{/if}
     <span class="grow"></span>
     <span class="balance">{info?.externalSigner ? 'External balance:' : 'Balance:'} <strong><Amount sats={balance} /></strong></span>
   </footer>

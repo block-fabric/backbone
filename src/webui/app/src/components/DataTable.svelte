@@ -22,6 +22,7 @@
     onactivate,
     oncontext,
     cell,
+    fit = false,
   }: {
     rows: readonly T[];
     columns: readonly Column<T>[];
@@ -36,6 +37,8 @@
     onactivate?: (row: T) => void;
     oncontext?: (row: T, event: MouseEvent) => void;
     cell?: Snippet<[T, Column<T>]>;
+    /** The columns share the width of the table (a narrow window): no scrolling sideways, long text cut. */
+    fit?: boolean;
   } = $props();
 
   let scroller: HTMLDivElement | undefined = $state();
@@ -108,6 +111,7 @@
 
 <div
   class="table"
+  class:fit
   role="grid"
   aria-label={label}
   aria-rowcount={shown.length + 1}
@@ -123,7 +127,7 @@
         {#if column.sortable === false}
           <span>{column.label}</span>
         {:else}
-          <button type="button" tabindex="-1" onclick={() => sortBy(column)}>
+          <button type="button" title="Sort by {column.label || 'status'}" onclick={() => sortBy(column)}>
             {column.label}
             <span class="arrow" aria-hidden="true">{sortKey === column.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
           </button>
@@ -142,7 +146,7 @@
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
           <div
             id="{gridId}-row-{index}"
-            class="row"
+            class="dt-row"
             class:odd={index % 2 === 1}
             class:selected={selected === key(row)}
             role="row"
@@ -215,6 +219,10 @@
     font-size: 0.65rem;
     min-width: 0.7rem;
   }
+  /* An amount column: the arrow goes before the label, so that the label ends where the values end. */
+  .cell.end button {
+    flex-direction: row-reverse;
+  }
   .body {
     position: relative;
     min-width: max-content;
@@ -224,22 +232,23 @@
     inset: 0 0 auto 0;
     will-change: transform;
   }
-  .row {
+  /* Not .row: that is the flex row of base.css, whose gap would widen every column of the rows (not of the head). */
+  .dt-row {
     display: grid;
     min-width: max-content;
     width: 100%;
     cursor: default;
   }
-  .row {
+  .dt-row {
     border-radius: var(--radius-m);
   }
-  .row.odd {
+  .dt-row.odd {
     background: color-mix(in srgb, var(--surface-2) 60%, transparent);
   }
-  .row:hover {
+  .dt-row:hover {
     background: var(--raised);
   }
-  .row.selected {
+  .dt-row.selected {
     background: var(--accent-soft);
     box-shadow:
       inset 3px 0 0 var(--accent),
@@ -264,6 +273,14 @@
   .cell.mono {
     font-family: var(--font-mono);
     font-size: 0.88rem;
+  }
+  .fit .head,
+  .fit .body,
+  .fit .dt-row {
+    min-width: 0;
+  }
+  .fit {
+    overflow-x: hidden;
   }
   .empty {
     padding: 2rem 1rem;

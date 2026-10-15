@@ -8,6 +8,7 @@
 #include <interfaces/wallet.h>
 #include <key_io.h>
 #include <node/context.h>
+#include <rpc/server.h>
 #include <txmempool.h>
 #include <script/script.h>
 #include <test/util/setup_common.h>
@@ -501,6 +502,135 @@ BOOST_AUTO_TEST_CASE(registered_in_the_bridge)
     BOOST_CHECK(replies["2"].second.find("-18") != std::string::npos);
     lock.unlock();
     bridge.Stop();
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+// --- The fixes of the audit of chains-app (doc/webui-audit.md) ---
+
+namespace {
+/** A node without wallets (-disablewallet): no wallet loader. */
+struct NoWalletSetup : TestingSetup {
+    std::unique_ptr<interfaces::Node> node;
+    std::unique_ptr<webui::WalletApi> api;
+    NoWalletSetup()
+    {
+        node = interfaces::MakeNode(m_node);
+        api = std::make_unique<webui::WalletApi>([this]() -> interfaces::Node& { return *node; });
+    }
+};
+} // namespace
+
+BOOST_FIXTURE_TEST_SUITE(webui_walletapi_audit_tests, WalletApiSetup)
+
+BOOST_FIXTURE_TEST_CASE(wallets_disabled, NoWalletSetup)
+{
+    // C1: with -disablewallet the Wallets page called the wallet loader, and the app aborted on an assertion.
+    BOOST_REQUIRE(!m_node.wallet_loader);
+    for (const char* method : {"wallets.list", "wallets.open", "wallets.create", "wallets.close", "wallets.isEncrypted", "wallet.info",
+                               "wallet.transactions", "wallet.withKeys"}) {
+        try {
+            api->Call(method, Obj({{"name", "w"}, {"wallet", "w"}}));
+            BOOST_ERROR(std::string{method} + " answered");
+        } catch (const webui::HostError& e) {
+            BOOST_CHECK_MESSAGE(e.code == webui::WalletApi::WALLETS_DISABLED || e.code == webui::BRIDGE_INVALID_REQUEST, method);
+        }
+    }
+    try {
+        api->Call("wallets.list", Obj({}));
+    } catch (const webui::HostError& e) {
+        BOOST_CHECK_EQUAL(e.code, webui::WalletApi::WALLETS_DISABLED);
+        BOOST_CHECK(std::string{e.what()}.find("disablewallet") != std::string::npos);
+    }
+    // What needs no wallet still works.
+    BOOST_CHECK(!api->Call("message.verify", Obj({{"address", "x"}, {"signature", "y"}, {"message", "z"}}))["ok"].get_bool());
+}
+
+BOOST_AUTO_TEST_CASE(history_in_parts)
+{
+    // H2: the page loads the history once, then only the transactions an event names, and the newest ones
+    // for the overview; it brings the status of the others up to date with each block by itself.
+    Call("wallets.create", Obj({{"name", "h"}}));
+    const std::string a{Call("wallet.newAddress", Obj({{"wallet", "h"}})).get_str()};
+    Mine(3, GetScriptForDestination(DecodeDestination(a)));
+    Mine(2, CScript{} << OP_TRUE);
+    const UniValue all{Call("wallet.transactions", Obj({{"wallet", "h"}}))};
+    BOOST_CHECK_EQUAL(all["records"].size(), 3U);
+    BOOST_CHECK_EQUAL(all["height"].getInt<int>(), 105);
+    BOOST_CHECK_EQUAL(all["maturity"].getInt<int>(), 101);
+    // The fields the status follows from: block height, state, coinbase, abandoned, trusted.
+    const UniValue& first{all["records"][0]};
+    BOOST_REQUIRE_EQUAL(first.size(), 18U);
+    const int height{first[13].getInt<int>()};
+    BOOST_CHECK(height >= 101 && height <= 103);
+    BOOST_CHECK_EQUAL(first[14].get_str(), "c");
+    BOOST_CHECK(first[15].get_bool());
+    BOOST_CHECK(!first[16].get_bool());
+    BOOST_CHECK(first[17].get_bool());
+    BOOST_CHECK_EQUAL(first[9].getInt<int>(), 105 - height + 1);
+
+    // Some transactions only, and the ids no longer in the wallet.
+    const std::string txid{first[0].get_str()};
+    const std::string unknown{std::string(64, 'a')};
+    const UniValue some{Call("wallet.transactions", Obj({{"wallet", "h"}, {"txids", List({UniValue{txid}, UniValue{unknown}})}}))};
+    BOOST_CHECK_EQUAL(some["records"].size(), 1U);
+    BOOST_CHECK_EQUAL(some["records"][0][0].get_str(), txid);
+    BOOST_REQUIRE_EQUAL(some["gone"].size(), 1U);
+    BOOST_CHECK_EQUAL(some["gone"][0].get_str(), unknown);
+    BOOST_CHECK_EQUAL(Call("wallet.transactions", Obj({{"wallet", "h"}, {"txids", List({})}}))["records"].size(), 0U);
+    BOOST_CHECK_EQUAL(ErrorOf("wallet.transactions", Obj({{"wallet", "h"}, {"txids", List({UniValue{"zz"}})}})), webui::BRIDGE_INVALID_REQUEST);
+
+    // The newest: at least as many as asked, from the end of the history.
+    const UniValue latest{Call("wallet.transactions", Obj({{"wallet", "h"}, {"latest", 2}}))};
+    BOOST_CHECK(latest["records"].size() >= 2U);
+    BOOST_CHECK_EQUAL(latest["height"].getInt<int>(), 105);
+
+    // The balance chart, made on the host from the amounts the wallet keeps.
+    const UniValue chart{Call("wallet.balanceHistory", Obj({{"wallet", "h"}}))};
+    BOOST_REQUIRE(chart.size() >= 1U);
+    CAmount total{0};
+    for (const UniValue& r : all["records"].getValues()) total += r[6].getInt<int64_t>() + r[7].getInt<int64_t>();
+    BOOST_CHECK_EQUAL(chart[chart.size() - 1][1].getInt<int64_t>(), total);
+    const UniValue two{Call("wallet.balanceHistory", Obj({{"wallet", "h"}, {"points", 2}}))};
+    BOOST_CHECK(two.size() <= 3U);
+    BOOST_CHECK_EQUAL(two[two.size() - 1][1].getInt<int64_t>(), total);
+}
+
+BOOST_AUTO_TEST_CASE(keys_for_one_call)
+{
+    // M2: deposits, stamps, multisig signing and proofs unlocked the wallet for ten minutes, and the page
+    // had to lock it again. wallet.withKeys unlocks it for its calls alone, in the host.
+    if (RPCIsInWarmup(nullptr)) SetRPCWarmupFinished();
+    loader->registerRpcs();
+    Call("wallets.create", Obj({{"name", "k"}, {"passphrase", "pw"}}));
+    const std::string a{Call("wallet.newAddress", Obj({{"wallet", "k"}, {"type", "legacy"}, {"passphrase", "pw"}})).get_str()};
+    Mine(1, GetScriptForDestination(DecodeDestination(a)));
+    BOOST_CHECK(Call("wallet.info", Obj({{"wallet", "k"}}))["locked"].get_bool());
+
+    const UniValue sign{Obj({{"method", "signmessage"}, {"params", List({UniValue{a}, UniValue{"I own this"}})}})};
+    BOOST_CHECK_EQUAL(ErrorOf("wallet.withKeys", Obj({{"wallet", "k"}, {"calls", List({sign})}})), webui::WalletApi::UNLOCK_NEEDED);
+    BOOST_CHECK_EQUAL(ErrorOf("wallet.withKeys", Obj({{"wallet", "k"}, {"calls", List({sign})}, {"passphrase", "bad"}})), webui::WalletApi::PASSPHRASE_INCORRECT);
+    const UniValue bad_call{Obj({{"method", "signmessage"}, {"params", List({UniValue{"not an address"}, UniValue{"x"}})}})};
+    const UniValue answers{Call("wallet.withKeys", Obj({{"wallet", "k"}, {"calls", List({sign, bad_call})}, {"passphrase", "pw"}}))};
+    BOOST_REQUIRE_EQUAL(answers.size(), 2U);
+    BOOST_CHECK(answers[0]["result"].isStr());
+    BOOST_CHECK(answers[1]["error"]["code"].isNum());
+    // Locked again at once, whatever the page does next.
+    BOOST_CHECK(Call("wallet.info", Obj({{"wallet", "k"}}))["locked"].get_bool());
+    // Only the methods that need keys, no others.
+    const UniValue dump{Obj({{"method", "dumpwallet"}, {"params", List({UniValue{"/tmp/x"}})}})};
+    BOOST_CHECK_EQUAL(ErrorOf("wallet.withKeys", Obj({{"wallet", "k"}, {"calls", List({dump})}, {"passphrase", "pw"}})), webui::BRIDGE_METHOD_NOT_FOUND);
+    BOOST_CHECK(Call("wallet.info", Obj({{"wallet", "k"}}))["locked"].get_bool());
+}
+
+BOOST_AUTO_TEST_CASE(dust)
+{
+    // L4: the send form refuses dust as chains-qt does (GUIUtil::isDust), before the wallet does.
+    Call("wallets.create", Obj({{"name", "d"}}));
+    const std::string a{Call("wallet.newAddress", Obj({{"wallet", "d"}})).get_str()};
+    BOOST_CHECK(Call("send.isDust", Obj({{"address", a}, {"amount", 100}})).get_bool());
+    BOOST_CHECK(!Call("send.isDust", Obj({{"address", a}, {"amount", 100000}})).get_bool());
+    BOOST_CHECK(!Call("send.isDust", Obj({{"address", "nonsense"}, {"amount", 1}})).get_bool());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

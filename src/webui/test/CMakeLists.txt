@@ -10,6 +10,8 @@ add_executable(test_chains-app
   assets_tests.cpp
   bridge_tests.cpp
   events_tests.cpp
+  hardening_tests.cpp
+  i18n_tests.cpp
   nodeapi_tests.cpp
   nodeevents_tests.cpp
   singleinstance_tests.cpp
@@ -48,6 +50,15 @@ if(XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
   )
   set_tests_properties(webui_e2e_smoke PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
   if(ENABLE_WALLET)
+    # The fixes of the audit (doc/webui-audit.md): chain text that is not UTF-8, long calls, a long history,
+    # keys for one call, contrast, narrow windows, settings that wait for Apply, -disablewallet, a language.
+    add_test(NAME webui_e2e_audit
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_audit.py
+        --app $<TARGET_FILE:chains-app>
+        --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-audit
+        --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+    )
+    set_tests_properties(webui_e2e_audit PROPERTIES TIMEOUT 3000 RUN_SERIAL TRUE)
     # The wallet pages, driven as a user would (also saves pictures of them in e2e-shots).
     add_test(NAME webui_e2e_wallet
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_wallet.py
@@ -56,5 +67,17 @@ if(XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
         --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
     )
     set_tests_properties(webui_e2e_wallet PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+    # The node and Chains pages, with a pretend desktop (tray, notifications) on a private session
+    # bus and a second node as a peer (also saves pictures of these pages in e2e-shots).
+    find_program(DBUS_DAEMON_EXECUTABLE dbus-daemon)
+    if(DBUS_DAEMON_EXECUTABLE)
+      add_test(NAME webui_e2e_node
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_node.py
+          --app $<TARGET_FILE:chains-app>
+          --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-node
+          --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+      )
+      set_tests_properties(webui_e2e_node PROPERTIES TIMEOUT 2000 RUN_SERIAL TRUE)
+    endif()
   endif()
 endif()

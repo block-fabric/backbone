@@ -20,15 +20,22 @@
 #include <util/strencodings.h>
 #include <util/threadnames.h>
 #include <util/translation.h>
+#include <util/syserror.h>
 #include <webui/app.h>
+#include <webui/i18n.h>
+
+#ifndef WIN32
+#include <cerrno>
+#include <unistd.h>
+#endif
 
 #include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
 
-//! The messages of the node are not translated: the interface of chains-app is in English for now.
-const TranslateFn G_TRANSLATION_FUN{nullptr};
+//! The messages of the node, in the language of the interface (the catalogs of chains-qt, webui/i18n.h).
+const TranslateFn G_TRANSLATION_FUN{[](const char* message) { return webui::TranslateCore(message); }};
 
 namespace {
 //! The scheme of payment URIs (BIP 21) of this chain.
@@ -100,7 +107,21 @@ MAIN_FUNCTION
 
     try {
         webui::App app{*init, gArgs, std::move(uris)};
-        return app.Run();
+        const int status{app.Run()};
+#ifndef WIN32
+        if (app.RestartRequested() && status == EXIT_SUCCESS) {
+            // Start again as the user asked (Settings: restart), with the same options, once the node stopped.
+            // The payment URIs given at start were handled already.
+            std::vector<char*> args;
+            for (int i{0}; i < argc; ++i) {
+                if (!StartsWithScheme(argv[i])) args.push_back(argv[i]);
+            }
+            args.push_back(nullptr);
+            execv("/proc/self/exe", args.data());
+            tfm::format(std::cerr, "%s: could not start again: %s\n", CLIENT_NAME, SysErrorString(errno));
+        }
+#endif
+        return status;
     } catch (const std::exception& e) {
         PrintExceptionContinue(&e, "Runaway exception");
         tfm::format(std::cerr, "%s: %s\n", CLIENT_NAME, e.what());

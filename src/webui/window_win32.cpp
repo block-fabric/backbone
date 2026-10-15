@@ -12,9 +12,11 @@
 // the shadow, the rounded corners and snapping.
 
 #include <webui/assets.h>
+#include <webui/icontint.h>
 #include <webui/window.h>
 
 #include <logging.h>
+#include <support/cleanse.h>
 #include <univalue.h>
 #include <util/fs.h>
 #include <util/fs_helpers.h>
@@ -29,9 +31,12 @@
 #include <shobjidl.h>
 
 #include <atomic>
+#include <cstring>
 #include <map>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 namespace webui {
 namespace {
@@ -140,6 +145,51 @@ bool OwnUri(std::string_view uri)
 HICON AppIcon(int size)
 {
     return static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(ICON_ID), IMAGE_ICON, size, size, LR_DEFAULTCOLOR));
+}
+
+//! The icon of the app in the colours of a network (NetworkStyle: testnet, signet and regtest), or as it is.
+HICON AppIcon(int size, IconTint tint)
+{
+    HICON base{AppIcon(size)};
+    if (!base || tint.None()) return base;
+    ICONINFO info{};
+    if (!GetIconInfo(base, &info)) return base;
+    HICON out{nullptr};
+    BITMAP bm{};
+    if (info.hbmColor && GetObjectW(info.hbmColor, sizeof(bm), &bm) && bm.bmWidth > 0 && bm.bmHeight > 0) {
+        const int width{bm.bmWidth}, height{bm.bmHeight};
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+        bmi.bmiHeader.biWidth = width;
+        bmi.bmiHeader.biHeight = -height; // top-down
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        std::vector<unsigned char> pixels(static_cast<size_t>(width) * height * 4);
+        HDC dc{GetDC(nullptr)};
+        if (GetDIBits(dc, info.hbmColor, 0, height, pixels.data(), &bmi, DIB_RGB_COLORS) == height) {
+            // BGRA to RGBA, tinted, and back.
+            for (size_t i{0}; i + 3 < pixels.size(); i += 4) std::swap(pixels[i], pixels[i + 2]);
+            TintPixels(pixels, 4, static_cast<size_t>(width), static_cast<size_t>(height), static_cast<size_t>(width) * 4, tint);
+            for (size_t i{0}; i + 3 < pixels.size(); i += 4) std::swap(pixels[i], pixels[i + 2]);
+            void* bits{nullptr};
+            if (HBITMAP color{CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0)}) {
+                std::memcpy(bits, pixels.data(), pixels.size());
+                ICONINFO tinted{};
+                tinted.fIcon = TRUE;
+                tinted.hbmMask = info.hbmMask;
+                tinted.hbmColor = color;
+                out = CreateIconIndirect(&tinted);
+                DeleteObject(color);
+            }
+        }
+        ReleaseDC(nullptr, dc);
+    }
+    if (info.hbmColor) DeleteObject(info.hbmColor);
+    if (info.hbmMask) DeleteObject(info.hbmMask);
+    if (!out) return base;
+    DestroyIcon(base);
+    return out;
 }
 
 //! A file:// address of the app (the debug log, the configuration file) as a path, or nothing.
@@ -261,6 +311,8 @@ public:
 
         m_webview->bind("__chains", [this](std::string id, std::string args, void*) {
             if (m_callbacks.call) m_callbacks.call(id, args);
+            // The request may hold a passphrase: not left in freed memory (the bridge took what it needs).
+            memory_cleanse(args.data(), args.size());
         }, nullptr);
         // Where the maximize button of the page is (for the snap layouts): measured by the page
         // itself, sent here; the page knows nothing of it.
@@ -280,6 +332,9 @@ public:
         if (m_hwnd) {
             SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, 0);
             DestroyWindow(m_hwnd);
+        }
+        for (HICON icon : {m_window_icon, m_window_icon_small, m_tray_icon}) {
+            if (icon) DestroyIcon(icon);
         }
         if (m_com_ok) CoUninitialize();
     }
@@ -301,6 +356,24 @@ public:
     void Reply(const std::string& call_id, int status, const std::string& json) override { m_webview->resolve(call_id, status, json); }
     void Eval(const std::string& script) override { m_webview->eval(script); }
     void SetTitle(const std::string& title) override { SetWindowTextW(m_hwnd, widen_string(title).c_str()); }
+
+    void SetNetwork(const std::string& network) override
+    {
+        // The icons of the window and of the tray in the colours of the network (NetworkStyle).
+        m_tint = TintOf(network);
+        for (auto [which, metric, icon] : {std::tuple{ICON_BIG, SM_CXICON, &m_window_icon}, std::tuple{ICON_SMALL, SM_CXSMICON, &m_window_icon_small}}) {
+            HICON tinted{AppIcon(GetSystemMetrics(metric), m_tint)};
+            if (!tinted) continue;
+            SendMessageW(m_hwnd, WM_SETICON, which, reinterpret_cast<LPARAM>(tinted));
+            if (*icon) DestroyIcon(*icon);
+            *icon = tinted;
+        }
+        if (m_tray_icon) {
+            DestroyIcon(m_tray_icon);
+            m_tray_icon = nullptr;
+        }
+        if (m_tray_added) AddOrUpdateTray(false);
+    }
 
     void Show(bool minimized) override
     {
@@ -849,7 +922,7 @@ private:
         NOTIFYICONDATAW nid{TrayData()};
         nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
         nid.uCallbackMessage = WM_APP_TRAY;
-        if (!m_tray_icon) m_tray_icon = AppIcon(GetSystemMetrics(SM_CXSMICON));
+        if (!m_tray_icon) m_tray_icon = AppIcon(GetSystemMetrics(SM_CXSMICON), m_tint);
         nid.hIcon = m_tray_icon;
         const std::string tip{m_tray.tooltip.empty() ? std::string{"Chains"} : m_tray.tooltip};
         wcsncpy(nid.szTip, widen_string(tip).c_str(), std::size(nid.szTip) - 1);
@@ -984,6 +1057,10 @@ private:
     Tray m_tray;
     bool m_tray_added{false};
     HICON m_tray_icon{nullptr};
+    //! The tint of the network, and the icons of the window made with it (destroyed with the window).
+    IconTint m_tint;
+    HICON m_window_icon{nullptr};
+    HICON m_window_icon_small{nullptr};
     uint64_t m_notify_icon_until{0};
 };
 

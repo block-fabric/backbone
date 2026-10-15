@@ -29,9 +29,12 @@
 #include <webui/appconfig.h>
 #include <webui/bridge.h>
 #include <webui/events.h>
+#include <webui/i18n.h>
+#include <webui/assets.h>
 #include <webui/nodeapi.h>
 #include <webui/nodeevents.h>
 #include <webui/options.h>
+#include <webui/rpcpolicy.h>
 #include <webui/sidechainnodes.h>
 #include <webui/singleinstance.h>
 #ifdef WIN32
@@ -125,7 +128,13 @@ void SetupUIArgs(ArgsManager& argsman)
 }
 
 App::App(interfaces::Init& init, ArgsManager& args, std::vector<std::string> uris)
-    : m_init(init), m_args(args)
+    : m_init(init), m_args(args),
+      // The debug options of the app are taken from the command line alone (only it is read yet): a
+      // chains.conf cannot run a script in the page, nor open the inspector.
+      m_devtools(args.GetBoolArg("-webuidevtools", false)),
+      m_test_script(args.GetArg("-webuitestscript", "")),
+      m_test_shots(args.GetArg("-webuitestshots", "")),
+      m_config_path(args.GetArg("-webuiconfig", ""))
 {
     LOCK(m_mutex);
     m_pending_uris = std::move(uris);
@@ -170,8 +179,12 @@ UniValue App::Info()
 #else
     info.pushKV("walletEnabled", false);
 #endif
-    info.pushKV("devtools", m_args.GetBoolArg("-webuidevtools", false));
-    info.pushKV("test", !m_args.GetArg("-webuitestscript", "").empty());
+    info.pushKV("devtools", m_devtools);
+    {
+        LOCK(m_mutex);
+        info.pushKV("language", m_language);
+    }
+    info.pushKV("test", !m_test_script.empty());
 #if defined(__linux__)
     info.pushKV("platform", "linux");
 #elif defined(WIN32)
@@ -248,6 +261,20 @@ void App::Fatal(const std::string& title, const std::string& message, const std:
     }
     m_window->Post([this] { m_window->Show(false); });
     SetPhase("fatal", std::move(data));
+}
+
+void App::UpdateLanguage()
+{
+    const std::string language{ChooseLanguage(BuiltinAssets(), m_args.GetArg("-lang", ""))};
+    {
+        LOCK(m_mutex);
+        if (language == m_language) return;
+        m_language = language;
+    }
+    SetCoreCatalog(LoadCatalog(BuiltinAssets(), language));
+    UniValue data{UniValue::VOBJ};
+    data.pushKV("code", language);
+    if (m_hub) m_hub->Emit("locale", std::move(data));
 }
 
 void App::CloseRequested()
@@ -410,6 +437,17 @@ bool App::StartNode()
         LOCK(m_mutex);
         m_network = ChainTypeToString(m_args.GetChainType());
     }
+    // The language option is in settings.json: the page and the node follow it from now on.
+    UpdateLanguage();
+    // The icon of the window in the colours of the network (NetworkStyle).
+    m_window->Post([this, network = ChainTypeToString(m_args.GetChainType())] { m_window->SetNetwork(network); });
+
+    // The debug options come from the command line alone: what chains.conf says of them is ignored.
+    const std::vector<std::pair<std::string, std::string>> command_line{{"-webuitestscript", m_test_script}, {"-webuitestshots", m_test_shots}, {"-webuiconfig", m_config_path}};
+    for (const auto& [arg, value] : command_line) {
+        if (m_args.GetArg(arg, "") != value) LogWarning("webui: %s is taken from the command line only; the configuration file sets it, and is ignored", arg);
+    }
+    if (m_args.GetBoolArg("-webuidevtools", false) != m_devtools) LogWarning("webui: -webuidevtools is taken from the command line only; the configuration file sets it, and is ignored");
 
     // One app per data directory: a second start hands its URIs to the first one.
     std::vector<std::string> uris;
@@ -467,6 +505,10 @@ bool App::StartNode()
         const UniValue answer{Ask(std::move(dialog), UniValue{false})};
         return answer.isBool() && answer.get_bool();
     }));
+
+    // Changes of the Settings page never applied (the app stopped first): taken back before the node
+    // reads its settings, as the Cancel of the options dialog would.
+    UndoOptions(*m_node, "never applied");
 
     if (m_args.GetBoolArg("-resetguisettings", false)) {
         // As OptionsModel::Reset: settings.json is backed up and reset, and the preferences of the interface too.
@@ -702,6 +744,21 @@ void App::OnTrayMenu(const std::string& id)
     m_hub->Emit("navigate", std::move(data));
 }
 
+void App::UndoOptions(interfaces::Node& node, const std::string& why)
+{
+    const size_t count{m_options_journal->Undo(node, [this](bool restart) {
+        UniValue change{UniValue::VOBJ};
+        change.pushKV("restartRequired", restart ? UniValue{true} : UniValue{});
+        std::string network;
+        {
+            LOCK(m_mutex);
+            network = m_network;
+        }
+        m_config->UpdatePrefs(network, change);
+    })};
+    if (count > 0) LogInfo("webui: %d changes of the options taken back (%s)", count, why);
+}
+
 void App::RegisterHostMethods()
 {
     Bridge& b{*m_bridge};
@@ -721,7 +778,7 @@ void App::RegisterHostMethods()
         out.pushKV("dialogs", std::move(dialogs));
         out.pushKV("info", Info());
         m_hub->SetReady(true);
-        const std::string script_path{m_args.GetArg("-webuitestscript", "")};
+        const std::string script_path{m_test_script};
         if (first_hello && !script_path.empty()) {
             std::ifstream file{static_cast<const std::filesystem::path&>(fs::PathFromString(script_path))};
             std::stringstream script;
@@ -733,7 +790,41 @@ void App::RegisterHostMethods()
         return out;
     });
     b.RegisterHost("app.info", [this](const UniValue&) { return Info(); });
+    // The language of the interface, with its catalog (the messages of the page), and the languages there are.
+    b.RegisterHost("app.locale", [this](const UniValue&) {
+        std::string language;
+        {
+            LOCK(m_mutex);
+            language = m_language;
+        }
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("code", language);
+        if (auto catalog{LoadCatalog(BuiltinAssets(), language)}) {
+            out.pushKV("name", catalog->find_value("name"));
+            out.pushKV("rtl", catalog->find_value("rtl"));
+            out.pushKV("messages", catalog->find_value("gui"));
+        } else {
+            out.pushKV("name", "English");
+            out.pushKV("rtl", false);
+            out.pushKV("messages", UniValue{UniValue::VOBJ});
+        }
+        return out;
+    });
+    b.RegisterHost("app.languages", [](const UniValue&) { return Languages(BuiltinAssets()); });
+    // The language option changed (Settings, applied): the page and the node follow it at once.
+    b.RegisterHost("app.updateLanguage", [this](const UniValue&) {
+        UpdateLanguage();
+        LOCK(m_mutex);
+        return UniValue{m_language};
+    });
     b.RegisterHost("app.quit", [this](const UniValue&) {
+        RequestShutdown();
+        return UniValue{true};
+    });
+    // Stop, and start again with the same options (a change of the options needs it).
+    b.RegisterHost("app.restart", [this](const UniValue&) {
+        if (!m_test_script.empty()) throw HostError("No restart in the tests");
+        m_restart_requested = true;
         RequestShutdown();
         return UniValue{true};
     });
@@ -844,13 +935,6 @@ void App::RegisterHostMethods()
         out.pushKV("ignored", node.isSettingIgnored(name));
         return out;
     });
-    b.RegisterHost("node.setSetting", [need_node](const UniValue& params) {
-        interfaces::Node& node{need_node()};
-        const std::string name{ParamStr(params, "name")};
-        node.updateRwSetting(name, Param(params, "value"));
-        return UniValue{true};
-    });
-
     b.RegisterHost("window.setWallet", [this](const UniValue& params) {
         const UniValue name{Param(params, "name")};
         {
@@ -914,7 +998,7 @@ void App::RegisterHostMethods()
         }
         const auto chosen{Choose(dialog)};
         return chosen ? UniValue{*chosen} : UniValue{};
-    });
+    }, Bridge::Thread::LONG);
     b.RegisterHost("file.read", [this](const UniValue& params) {
         const std::string path{ParamStr(params, "path")};
         {
@@ -1007,12 +1091,33 @@ void App::RegisterHostMethods()
                 return *set;
             }
             return PrefFlag("restartRequired", false);
+        }, [this](const std::string& setting) {
+            interfaces::Node* node;
+            {
+                LOCK(m_mutex);
+                node = m_node.get();
+            }
+            if (node) m_options_journal->Record(*node, setting, PrefFlag("restartRequired", false));
         }};
     }};
-    b.RegisterHost("options.get", [options](const UniValue&) { return options().Get(); });
-    b.RegisterHost("options.set", [options](const UniValue& params) {
+    const auto with_pending{[this](UniValue out) {
+        // The changes waiting for Apply (the restart flag they may have set is not one).
+        out.pushKV("pending", static_cast<int64_t>(m_options_journal->Pending()));
+        return out;
+    }};
+    b.RegisterHost("options.get", [options, with_pending](const UniValue&) { return with_pending(options().Get()); });
+    b.RegisterHost("options.apply", [this, need_node, options, with_pending](const UniValue&) {
+        need_node();
+        m_options_journal->Commit();
+        return with_pending(options().Get());
+    });
+    b.RegisterHost("options.cancel", [this, need_node, options, with_pending](const UniValue&) {
+        UndoOptions(need_node(), "cancelled");
+        return with_pending(options().Get());
+    });
+    b.RegisterHost("options.set", [options, with_pending](const UniValue& params) {
         try {
-            return options().Set(ParamStr(params, "name"), Param(params, "value"));
+            return with_pending(options().Set(ParamStr(params, "name"), Param(params, "value")));
         } catch (const std::runtime_error& e) {
             throw HostError(BRIDGE_INVALID_REQUEST, e.what());
         }
@@ -1036,6 +1141,7 @@ void App::RegisterHostMethods()
             LogWarning("webui: cannot back up the settings of the app: %s", e.what());
         }
         m_config->ResetPrefs(network);
+        m_options_journal->Commit();
         m_config->SetResetPending(true);
         if (NodeOptions::StartAtLogin(m_args)) NodeOptions::SetStartAtLogin(m_args, false);
         RequestShutdown();
@@ -1083,7 +1189,7 @@ void App::RegisterHostMethods()
         const bool ok{future.get()};
         if (!ok && what == "config") throw HostError("The configuration file could not be opened.");
         return UniValue{ok};
-    });
+    }, Bridge::Thread::LONG);
 
     // Notifications of the desktop (Notificator) and the tray.
     b.RegisterHost("app.notify", [this](const UniValue& params) {
@@ -1119,7 +1225,7 @@ void App::RegisterHostMethods()
     m_wallet_api->Register(b);
 #endif
 
-    if (!m_args.GetArg("-webuitestscript", "").empty()) {
+    if (!m_test_script.empty()) {
         // The hooks of the tests of the app (only with the debug option -webuitestscript).
         b.RegisterHost("test.log", [](const UniValue& params) {
             const std::string message{params.isObject() && params.find_value("message").isStr() ? params.find_value("message").get_str() : params.write()};
@@ -1133,7 +1239,7 @@ void App::RegisterHostMethods()
             if (name.empty() || name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos) {
                 throw HostError(BRIDGE_INVALID_REQUEST, "name: letters, digits, '.', '_' and '-'");
             }
-            const fs::path dir{fs::PathFromString(m_args.GetArg("-webuitestshots", ""))};
+            const fs::path dir{fs::PathFromString(m_test_shots)};
             if (dir.empty()) throw HostError("No -webuitestshots folder");
             fs::create_directories(dir);
             const std::string path{fs::PathToString(dir / fs::PathFromString(name + ".png"))};
@@ -1142,7 +1248,7 @@ void App::RegisterHostMethods()
             auto future{done->get_future()};
             if (future.wait_for(30s) != std::future_status::ready || !future.get()) throw HostError("The snapshot failed");
             return UniValue{path};
-        });
+        }, Bridge::Thread::LONG);
         b.RegisterHost("test.fileAnswer", [this](const UniValue& params) {
             // The answer of the next file chooser: a path, or null for "cancelled".
             LOCK(m_mutex);
@@ -1180,9 +1286,22 @@ void App::RegisterHostMethods()
 int App::Run()
 {
     g_ui_thread = std::this_thread::get_id();
-    const std::string config_path{m_args.GetArg("-webuiconfig", "")};
+    const std::string config_path{m_config_path};
     m_config = std::make_unique<AppConfig>(config_path.empty() ? AppConfig::DefaultPath() : fs::PathFromString(config_path));
     m_config->Load();
+    // The language from the command line or the system, until settings.json is read (-lang there).
+    {
+        const std::string language{ChooseLanguage(BuiltinAssets(), m_args.GetArg("-lang", ""))};
+        {
+            LOCK(m_mutex);
+            m_language = language;
+        }
+        SetCoreCatalog(LoadCatalog(BuiltinAssets(), language));
+    }
+    m_options_journal = std::make_unique<OptionsJournal>(*m_config, m_args, [this] {
+        LOCK(m_mutex);
+        return "optionsUndo:" + (m_network.empty() ? ChainTypeToString(m_args.GetChainType()) : m_network);
+    });
 
 #ifdef WIN32
     // The payment URIs of the chain (the installer of chains-qt registers them for all users).
@@ -1191,7 +1310,7 @@ int App::Run()
 
     Window::Options options;
     options.title = CLIENT_NAME;
-    options.devtools = m_args.GetBoolArg("-webuidevtools", false);
+    options.devtools = m_devtools;
     // The size the window had last time (MainWindowGeometry).
     if (const UniValue geometry{m_config->Value("window")}; geometry.isObject()) {
         const UniValue& width{geometry.find_value("width")};
@@ -1235,6 +1354,30 @@ int App::Run()
     m_bridge = std::make_unique<Bridge>(
         [this](const std::string& id, int status, const std::string& json) { m_window->Reply(id, status, json); },
         [this](std::function<void()> fn) { m_window->Post(std::move(fn)); });
+    // An exception a host method did not expect: the internal error dialog of chains-qt (handleNonFatalException).
+    m_bridge->SetInternalError([this](const std::string& method, const std::string& what) {
+        LogWarning("webui: internal error in %s: %s", method, what);
+        UniValue dialog{UniValue::VOBJ};
+        dialog.pushKV("kind", "message");
+        dialog.pushKV("level", "error");
+        dialog.pushKV("title", "Internal error");
+        dialog.pushKV("message", strprintf("An internal error occurred. %s will attempt to continue safely. This is an unexpected bug which can be reported as described below.", CLIENT_NAME));
+        UniValue details{UniValue::VARR};
+        details.push_back(strprintf("%s: %s", method, what));
+        details.push_back(CLIENT_BUGREPORT);
+        dialog.pushKV("details", std::move(details));
+        m_hub->Emit("dialog", std::move(dialog));
+    });
+    // The pages call the RPC methods they need, and no other (the console runs any command). A test
+    // script (-webuitestscript, a debug option of the command line) drives the node itself, as the
+    // console would: with it, the other methods run too, apart from the quick calls.
+    if (m_test_script.empty()) {
+        m_bridge->SetRpcPolicy(PageRpcPolicy);
+    } else {
+        m_bridge->SetRpcPolicy([](const std::string& method) -> std::optional<Bridge::Thread> {
+            return PageRpcPolicy(method).value_or(Bridge::Thread::LONG);
+        });
+    }
     RegisterHostMethods();
 
     m_node_thread = std::thread([this] { NodeThread(); });

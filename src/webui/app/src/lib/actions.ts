@@ -19,3 +19,28 @@ export function css(node: HTMLElement, props: Record<string, string | number | n
   apply(props);
   return { update: apply };
 }
+
+/**
+ * A row of a table that is chosen by a click: the keyboard reaches it (Tab) and chooses it with Enter
+ * or Space, as the mouse does.
+ */
+export function selectable(node: HTMLElement, choose: () => void) {
+  let fn = choose;
+  node.tabIndex = 0;
+  const onkey = (e: KeyboardEvent) => {
+    if (e.target !== node) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fn();
+    }
+  };
+  node.addEventListener('keydown', onkey);
+  return {
+    update(next: () => void) {
+      fn = next;
+    },
+    destroy() {
+      node.removeEventListener('keydown', onkey);
+    },
+  };
+}

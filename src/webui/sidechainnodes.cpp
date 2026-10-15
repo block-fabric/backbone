@@ -470,7 +470,10 @@ void SidechainNodes::Register(Bridge& bridge)
     for (const char* method : {"sidechainNodes.list", "sidechainNodes.status", "sidechainNodes.locate", "sidechainNodes.download", "sidechainNodes.add",
                                "sidechainNodes.remove", "sidechainNodes.start", "sidechainNodes.startWallet", "sidechainNodes.stop", "sidechainNodes.mineOnce",
                                "sidechainNodes.mining", "sidechainNodes.log"}) {
-        bridge.RegisterHost(method, [this, name = std::string{method}](const UniValue& params) { return Call(name, params); });
+        // Downloads, folder choosers, and the nodes started, stopped and asked: apart from the quick calls.
+        const std::string name{method};
+        const bool quick{name == "sidechainNodes.list" || name == "sidechainNodes.log"};
+        bridge.RegisterHost(name, [this, name](const UniValue& params) { return Call(name, params); }, quick ? Bridge::Thread::WORKER : Bridge::Thread::LONG);
     }
 }
 

@@ -5,6 +5,7 @@
 #ifndef BITCOIN_WEBUI_TRAY_GTK_H
 #define BITCOIN_WEBUI_TRAY_GTK_H
 
+#include <webui/icontint.h>
 #include <webui/window.h>
 
 #include <functional>
@@ -43,6 +44,9 @@ void DesktopNotify(const std::string& title, const std::string& body, const std:
 
 /** The icon of the app (built into the program), or null. Owned by the caller. */
 GdkPixbuf* AppIcon(int size);
+
+/** The tint of the icon of the app from now on (the network: NetworkStyle). */
+void SetIconTint(IconTint tint);
 
 } // namespace webui
 

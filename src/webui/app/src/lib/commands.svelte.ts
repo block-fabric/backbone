@@ -6,7 +6,7 @@ import { closeDetail } from './detail.svelte';
 import { LAYOUTS, pageIcon, type LayoutId } from './layout';
 import { go, nav, PAGES, type PageId } from './nav.svelte';
 import { host } from './rpc';
-import { app, node, prefs, savePrefs, toast, wallets } from './state.svelte';
+import { app, node, prefs, savePrefs, toast, wallets, walletsEnabled } from './state.svelte';
 import { clampFontAdjust, THEMES } from './themes';
 import { UNITS } from './units';
 
@@ -31,6 +31,8 @@ export interface Command {
   keywords?: string;
   /** In a menu: a line above it. */
   separator?: boolean;
+  /** The status tip of chains-qt (QAction::statusTip): shown in the status bar under the pointer. */
+  tip?: string;
 }
 
 export const palette = $state({ open: false });
@@ -50,6 +52,8 @@ export function setLayout(id: LayoutId): void {
 
 /** The pages that can be shown now (the kit only for tests and developers, home only on the dashboard). */
 export function pageAvailable(id: PageId): boolean {
+  // With -disablewallet there are no wallet pages (chains-qt builds no wallet UI then).
+  if ((PAGES[id].wallet || id === 'wallets') && !walletsEnabled()) return false;
   if (id === 'kit') return !!(app.info?.test || app.info?.devtools);
   if (id === 'home') return prefs.layout === 'dashboard';
   return true;
@@ -83,40 +87,41 @@ export function buildCommands(): Command[] {
 
   const menus: Command[] = [
     // Your wallet
-    { id: 'wallet.create', group: 'Your wallet', label: 'Create wallet…', run: to('wallets', 'create'), keywords: 'new' },
-    { id: 'wallet.open', group: 'Your wallet', label: 'Open wallet…', run: to('wallets', 'open'), keywords: 'load' },
-    { id: 'wallet.close', group: 'Your wallet', label: 'Close wallet…', run: to('wallets', 'close'), disabled: noWallet, keywords: 'unload' },
-    { id: 'wallet.closeAll', group: 'Your wallet', label: 'Close all wallets…', run: to('wallets', 'close-all'), disabled: noWallet },
-    { id: 'wallet.migrate', group: 'Your wallet', label: 'Migrate wallet…', run: to('wallets', 'migrate'), keywords: 'legacy descriptor' },
+    { id: 'wallet.create', group: 'Your wallet', label: 'Create wallet…', run: to('wallets', 'create'), keywords: 'new', tip: 'Create a new wallet' },
+    { id: 'wallet.open', group: 'Your wallet', label: 'Open wallet…', run: to('wallets', 'open'), keywords: 'load', tip: 'Open a wallet' },
+    { id: 'wallet.close', group: 'Your wallet', label: 'Close wallet…', run: to('wallets', 'close'), disabled: noWallet, keywords: 'unload', tip: 'Close wallet' },
+    { id: 'wallet.closeAll', group: 'Your wallet', label: 'Close all wallets…', run: to('wallets', 'close-all'), disabled: noWallet, tip: 'Close all wallets' },
+    { id: 'wallet.migrate', group: 'Your wallet', label: 'Migrate wallet…', run: to('wallets', 'migrate'), keywords: 'legacy descriptor', tip: 'Migrate a wallet' },
     { id: 'wallet.restoreMigrate', group: 'Your wallet', label: 'Restore and migrate wallet file…', run: to('wallets', 'restore-migrate'), keywords: 'legacy' },
-    { id: 'wallet.sendingAddresses', group: 'Your wallet', label: 'Sending addresses', run: to('addresses', 'send'), disabled: noWallet, separator: true, keywords: 'address book contacts' },
-    { id: 'wallet.receivingAddresses', group: 'Your wallet', label: 'Receiving addresses', run: to('addresses', 'receive'), disabled: noWallet, keywords: 'address book' },
-    { id: 'wallet.backup', group: 'Your wallet', label: 'Backup wallet…', run: to('wallets', 'backup'), disabled: noWallet, separator: true, keywords: 'save copy' },
-    { id: 'wallet.restore', group: 'Your wallet', label: 'Restore wallet…', run: to('wallets', 'restore'), keywords: 'backup file' },
-    { id: 'wallet.exportWatchOnly', group: 'Your wallet', label: 'Export watch-only wallet…', run: to('wallets', 'export'), disabled: noWallet || watchOnly },
-    { id: 'wallet.encrypt', group: 'Your wallet', label: 'Encrypt wallet…', run: to('wallets', 'encrypt'), disabled: noWallet || encrypted || watchOnly, separator: true, keywords: 'passphrase password' },
-    { id: 'wallet.passphrase', group: 'Your wallet', label: 'Change passphrase…', run: to('wallets', 'passphrase'), disabled: noWallet || !encrypted, keywords: 'password' },
+    { id: 'wallet.sendingAddresses', group: 'Your wallet', label: 'Sending addresses', run: to('addresses', 'send'), disabled: noWallet, separator: true, keywords: 'address book contacts', tip: 'Show the list of used sending addresses and labels' },
+    { id: 'wallet.receivingAddresses', group: 'Your wallet', label: 'Receiving addresses', run: to('addresses', 'receive'), disabled: noWallet, keywords: 'address book', tip: 'Show the list of used receiving addresses and labels' },
+    { id: 'wallet.backup', group: 'Your wallet', label: 'Backup wallet…', run: to('wallets', 'backup'), disabled: noWallet, separator: true, keywords: 'save copy', tip: 'Backup wallet to another location' },
+    { id: 'wallet.restore', group: 'Your wallet', label: 'Restore wallet…', run: to('wallets', 'restore'), keywords: 'backup file', tip: 'Restore a wallet from a backup file' },
+    { id: 'wallet.exportWatchOnly', group: 'Your wallet', label: 'Export watch-only wallet…', run: to('wallets', 'export'), disabled: noWallet || watchOnly, tip: 'Export a watch-only version of the current wallet that can be restored onto another node.' },
+    { id: 'wallet.encrypt', group: 'Your wallet', label: 'Encrypt wallet…', run: to('wallets', 'encrypt'), disabled: noWallet || encrypted || watchOnly, separator: true, keywords: 'passphrase password', tip: 'Encrypt the private keys that belong to your wallet' },
+    { id: 'wallet.passphrase', group: 'Your wallet', label: 'Change passphrase…', run: to('wallets', 'passphrase'), disabled: noWallet || !encrypted, keywords: 'password', tip: 'Change the passphrase used for wallet encryption' },
     { id: 'wallet.unlock', group: 'Your wallet', label: 'Unlock wallet for a while…', run: to('wallets', 'unlock'), disabled: noWallet || !encrypted, keywords: 'passphrase' },
-    { id: 'wallet.mask', group: 'Your wallet', label: 'Mask values', run: () => savePrefs({ mask: !prefs.mask }), checked: prefs.mask, shortcut: 'Ctrl+Shift+M', keywords: 'privacy hide amounts' },
+    { id: 'wallet.mask', group: 'Your wallet', label: 'Mask values', run: () => savePrefs({ mask: !prefs.mask }), checked: prefs.mask, shortcut: 'Ctrl+Shift+M', keywords: 'privacy hide amounts', tip: 'Mask the values in the Overview tab' },
     // Banking
-    { id: 'banking.send', group: 'Banking', label: 'Send', run: to('send'), shortcut: 'Alt+2', disabled: noWallet, keywords: 'pay' },
-    { id: 'banking.receive', group: 'Banking', label: 'Receive', run: to('receive'), shortcut: 'Alt+3', disabled: noWallet, keywords: 'request address qr' },
-    { id: 'banking.transactions', group: 'Banking', label: 'Transactions', run: to('transactions'), shortcut: 'Alt+4', disabled: noWallet || prefs.mask, keywords: 'history' },
-    { id: 'banking.openUri', group: 'Banking', label: 'Open URI…', run: to('send', 'uri'), disabled: noWallet, keywords: 'payment link chains:' },
+    { id: 'banking.send', group: 'Banking', label: 'Send', run: to('send'), shortcut: 'Alt+2', disabled: noWallet, keywords: 'pay', tip: 'Send coins to a Chains address' },
+    { id: 'banking.receive', group: 'Banking', label: 'Receive', run: to('receive'), shortcut: 'Alt+3', disabled: noWallet, keywords: 'request address qr', tip: 'Request payments (generates QR codes and chains: URIs)' },
+    { id: 'banking.transactions', group: 'Banking', label: 'Transactions', run: to('transactions'), shortcut: 'Alt+4', disabled: noWallet || prefs.mask, keywords: 'history', tip: 'Browse transaction history' },
+    { id: 'banking.openUri', group: 'Banking', label: 'Open URI…', run: to('send', 'uri'), disabled: noWallet, keywords: 'payment link chains:', tip: 'Open a chains: URI' },
     { id: 'banking.proof', group: 'Banking', label: 'Proof of funds', run: to('proof'), disabled: noWallet, separator: true },
     { id: 'banking.multisig', group: 'Banking', label: 'Multisig lounge', run: to('multisig'), disabled: noWallet },
-    { id: 'banking.psbtFile', group: 'Banking', label: 'Load PSBT from file…', run: to('psbt', 'file'), disabled: noWallet, separator: true, keywords: 'partially signed' },
-    { id: 'banking.psbtClipboard', group: 'Banking', label: 'Load PSBT from clipboard…', run: to('psbt', 'clipboard'), disabled: noWallet, keywords: 'partially signed paste' },
+    { id: 'banking.psbtFile', group: 'Banking', label: 'Load PSBT from file…', run: to('psbt', 'file'), disabled: noWallet, separator: true, keywords: 'partially signed', tip: 'Load Partially Signed Chains Transaction' },
+    { id: 'banking.psbtClipboard', group: 'Banking', label: 'Load PSBT from clipboard…', run: to('psbt', 'clipboard'), disabled: noWallet, keywords: 'partially signed paste', tip: 'Load Partially Signed Chains Transaction from clipboard' },
     // Chains: what concerns the chain, before the tools
-    { id: 'use.sidechains', group: 'Chains', label: 'Sidechains', run: to('sidechains'), shortcut: 'Alt+5', disabled: noWallet, keywords: 'deposit' },
-    { id: 'chains.nodes', group: 'Chains', label: 'Sidechain nodes', run: to('sidechain-nodes'), keywords: 'bmm merged mining start' },
-    { id: 'chains.mine', group: 'Chains', label: 'Solo mine', run: to('mine') },
-    { id: 'chains.proposals', group: 'Chains', label: 'Sidechain proposals and votes', run: to('sidechains', 'proposals'), disabled: noWallet, keywords: 'ack withdrawal bundle vote' },
+    { id: 'use.sidechains', group: 'Chains', label: 'Sidechains', run: to('sidechains'), shortcut: 'Alt+5', keywords: 'deposit', tip: 'Deposit to sidechains, and manage sidechain proposals and withdrawal votes' },
+    { id: 'chains.nodes', group: 'Chains', label: 'Sidechain nodes', run: to('sidechain-nodes'), keywords: 'bmm merged mining start', tip: 'Install, start and stop the nodes of sidechains, and watch them' },
+    { id: 'chains.mine', group: 'Chains', label: 'Solo mine', run: to('mine'), tip: 'Mine blocks with the processor of this computer' },
+    { id: 'chains.proposals', group: 'Chains', label: 'Sidechain proposals', run: to('sidechains', 'proposals'), keywords: 'ack acknowledge vote', tip: 'Propose sidechains, acknowledge proposals and vote on withdrawals in the blocks this node mines' },
+    { id: 'chains.withdrawals', group: 'Chains', label: 'Withdrawal votes', run: to('sidechains', 'withdrawals'), keywords: 'bundle withdrawal vote upvote' },
     { id: 'tools.explorer', group: 'Chains', label: 'Block explorer', run: to('explorer'), keywords: 'blocks search' },
     // Tools
     { id: 'use.timestamp', group: 'Tools', label: 'Timestamp file', run: to('timestamp'), keywords: 'proof of existence' },
-    { id: 'use.sign', group: 'Tools', label: 'Sign message…', run: to('messages', 'sign'), disabled: noWallet, separator: true },
-    { id: 'use.verify', group: 'Tools', label: 'Verify message…', run: to('messages', 'verify'), disabled: noWallet },
+    { id: 'use.sign', group: 'Tools', label: 'Sign message…', run: to('messages', 'sign'), disabled: noWallet, separator: true, tip: 'Sign messages with your Chains addresses to prove you own them' },
+    { id: 'use.verify', group: 'Tools', label: 'Verify message…', run: to('messages', 'verify'), disabled: noWallet, tip: 'Verify messages to ensure they were signed with specified Chains addresses' },
     { id: 'tools.hash', group: 'Tools', label: 'Hash calculator', run: to('crypto', 'hash'), keywords: 'sha256' },
     { id: 'tools.merkle', group: 'Tools', label: 'Merkle tree', run: to('crypto', 'merkle') },
     { id: 'tools.address', group: 'Tools', label: 'Address decoder', run: to('crypto', 'address') },
@@ -127,16 +132,17 @@ export function buildCommands(): Command[] {
     { id: 'window.traffic', group: 'Window', label: 'Network traffic', run: to('node', 'traffic'), shortcut: 'Ctrl+N' },
     { id: 'window.peers', group: 'Window', label: 'Peers', run: to('node', 'peers'), shortcut: 'Ctrl+P', keywords: 'connections ban' },
     // This node
-    { id: 'node.window', group: 'This node', label: 'Node window', run: to('node'), shortcut: 'Ctrl+Shift+D' },
-    { id: 'node.options', group: 'This node', label: 'Options…', run: to('settings', 'main'), keywords: 'settings preferences' },
+    { id: 'node.window', group: 'This node', label: 'Node window', run: to('node'), shortcut: 'Ctrl+Shift+D', tip: 'Open node debugging and diagnostic console' },
+    { id: 'node.options', group: 'This node', label: 'Options…', run: to('settings', 'main'), keywords: 'settings preferences', tip: 'Modify configuration options for Chains' },
+    { id: 'node.sync', group: 'This node', label: 'Sync status…', run: () => (nav.dialog = 'sync'), keywords: 'synchronizing progress blocks left' },
     ...THEMES.map((t): Command => ({ id: `node.theme.${t.id}`, group: 'This node', label: `Theme: ${t.name}`, run: () => savePrefs({ theme: t.id }), checked: prefs.theme === t.id, keywords: 'look colours' })),
     { id: 'node.themeCustom', group: 'This node', label: 'Theme: Custom…', run: to('settings', 'display'), keywords: 'look colours font' },
     { id: 'node.fontUp', group: 'This node', label: 'Increase font size', run: font(1), shortcut: 'Ctrl++', keywords: 'text larger zoom' },
     { id: 'node.fontDown', group: 'This node', label: 'Decrease font size', run: font(-1), shortcut: 'Ctrl+−', keywords: 'text smaller zoom' },
-    { id: 'node.help', group: 'This node', label: 'Command-line options', run: () => (nav.dialog = 'help'), keywords: 'help arguments' },
-    { id: 'node.about', group: 'This node', label: `About ${app.info?.name ?? 'Chains'}`, run: () => (nav.dialog = 'about'), separator: true, keywords: 'version licence' },
+    { id: 'node.help', group: 'This node', label: 'Command-line options', run: () => (nav.dialog = 'help'), keywords: 'help arguments', tip: 'Show the Chains help message to get a list with possible Chains command-line options' },
+    { id: 'node.about', group: 'This node', label: `About ${app.info?.name ?? 'Chains'}`, run: () => (nav.dialog = 'about'), separator: true, keywords: 'version licence', tip: `Show information about ${app.info?.name ?? 'Chains'}` },
     ...(pageAvailable('kit') ? [{ id: 'node.kit', group: 'This node', label: 'Interface kit', run: to('kit') } satisfies Command] : []),
-    { id: 'node.exit', group: 'This node', label: 'Exit', run: () => void host.quit().catch(() => undefined), shortcut: 'Ctrl+Q', separator: true, keywords: 'quit shut down' },
+    { id: 'node.exit', group: 'This node', label: 'Exit', run: () => void host.quit().catch(() => undefined), shortcut: 'Ctrl+Q', separator: true, keywords: 'quit shut down', tip: 'Quit application' },
   ];
 
   const extra: Command[] = [
@@ -156,12 +162,16 @@ export function buildCommands(): Command[] {
     },
   ];
 
-  return [...pages, ...menus, ...extra];
+  // With -disablewallet: no wallet menus, nor the items that need a wallet (chains-qt builds no wallet UI).
+  const walletOnly = new Set(['Your wallet', 'Banking']);
+  const shown = walletsEnabled() ? menus : menus.filter((c) => !walletOnly.has(c.group) && c.id !== 'use.sign' && c.id !== 'use.verify');
+  return [...pages, ...shown, ...extra];
 }
 
 /** The commands of the old menu bar, by menu (the overflow menus of the layouts). */
 export function menuSections(all: readonly Command[]): { title: MenuGroup; items: Command[] }[] {
-  return MENU_GROUPS.map((title) => ({ title, items: all.filter((c) => c.group === title) }));
+  // A menu with nothing in it (the wallet menus with -disablewallet) is not shown.
+  return MENU_GROUPS.map((title) => ({ title, items: all.filter((c) => c.group === title) })).filter((m) => m.items.length > 0);
 }
 
 function norm(text: string): string {

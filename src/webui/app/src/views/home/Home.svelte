@@ -16,7 +16,7 @@
   import { formatCount, niceTimeOffset } from '../../lib/format';
   import { go, type PageId } from '../../lib/nav.svelte';
   import { host, rpc } from '../../lib/rpc';
-  import { app, node, prefs, toast, wallets } from '../../lib/state.svelte';
+  import { app, node, noWalletText, prefs, toast, wallets, walletsEnabled } from '../../lib/state.svelte';
   import { syncStatus } from '../../lib/sync';
   import { coinsToSats, formatAmount } from '../../lib/units';
   import { openQuick } from '../../lib/quick.svelte';
@@ -265,7 +265,9 @@
 
   <div class="stats">
     <Card title="Balance" icon="wallet" open={() => go('overview')} openLabel="Open the overview" stat>
-      {#if wallets.current === null}
+      {#if !walletsEnabled()}
+        <p class="muted">{noWalletText()}</p>
+      {:else if wallets.current === null}
         <p class="muted">No wallet is loaded. Create one, or open one of the wallets of this node.</p>
       {:else}
         <span class="value big-amount" class:long={longTotal}><Amount sats={total} /></span>
@@ -276,7 +278,9 @@
         </dl>
       {/if}
       {#snippet actions()}
-        {#if wallets.current === null}
+        {#if !walletsEnabled()}
+          <!-- No wallets on this node: nothing to create. -->
+        {:else if wallets.current === null}
           <button type="button" class="btn primary" onclick={() => go('wallets', 'create')}>Create or open a wallet</button>
         {:else}
           <button type="button" class="btn primary grow" disabled={pageDisabled('send')} onclick={() => openQuick('send')}><Icon name="send" size={16} /> Send</button>

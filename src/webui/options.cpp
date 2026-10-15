@@ -6,6 +6,8 @@
 
 #include <webui/options.h>
 
+#include <webui/appconfig.h>
+
 #include <common/args.h>
 #include <common/settings.h>
 #include <common/system.h>
@@ -146,8 +148,8 @@ struct ComScope {
 #endif
 } // namespace
 
-NodeOptions::NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart)
-    : m_node(node), m_args(args), m_restart(std::move(restart))
+NodeOptions::NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal)
+    : m_node(node), m_args(args), m_restart(std::move(restart)), m_journal(std::move(journal))
 {
 }
 
@@ -269,7 +271,9 @@ UniValue NodeOptions::Get()
     for (const char* name : {"dbcache", "par", "spendzeroconfchange", "signer", "natpmp", "listen", "server", "prune", "proxy", "onion", "lang"}) {
         if (!m_node.isSettingIgnored(name)) continue;
         ignored.pushKV(name, true);
-        overridden += strprintf("-%s=%s ", name, m_args.GetArg(std::string{"-"} + name, ""));
+        // A flag given without a value ("-server") shows as it was given.
+        const std::string value{m_args.GetArg(std::string{"-"} + name, "")};
+        overridden += value.empty() ? strprintf("-%s ", name) : strprintf("-%s=%s ", name, value);
     }
     out.pushKV("ignored", std::move(ignored));
     out.pushKV("overridden", overridden);
@@ -312,6 +316,7 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
     // OptionsModel UpdateRwSetting: these numbers are written as strings, for the versions that read them so.
     const auto update{[&](const std::string& n, const common::SettingsValue& v) {
         const bool as_string{v.isNum() && (n.starts_with("dbcache") || n.starts_with("par") || n.starts_with("prune"))};
+        if (m_journal) m_journal(n);
         m_node.updateRwSetting(n, as_string ? common::SettingsValue{v.getValStr()} : v);
     }};
     const auto restart{[&] { m_restart(true); }};
@@ -429,11 +434,79 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
     } else if (name == "lang") {
         set_text("lang", Str(value));
     } else if (name == "startAtLogin") {
+        if (m_journal && Bool(value) != StartAtLogin(m_args)) m_journal("@startAtLogin");
         if (!SetStartAtLogin(m_args, Bool(value))) throw std::runtime_error("The app could not be set to start at login");
     } else {
         throw std::runtime_error("No option " + name);
     }
     return Get();
+}
+
+OptionsJournal::OptionsJournal(AppConfig& config, ArgsManager& args, KeyFn key) : m_config(config), m_args(args), m_key(std::move(key)) {}
+
+namespace {
+constexpr const char* RESTART_KEY{"@restartRequired"};
+} // namespace
+
+void OptionsJournal::Record(interfaces::Node& node, const std::string& setting, bool restart_required)
+{
+    LOCK(m_mutex);
+    const std::string key{m_key()};
+    UniValue undo{m_config.Value(key)};
+    if (!undo.isObject()) undo = UniValue{UniValue::VOBJ};
+    if (undo.exists(setting)) return;
+    if (!undo.exists(RESTART_KEY)) undo.pushKV(RESTART_KEY, restart_required);
+    if (setting == "@startAtLogin") {
+        undo.pushKV(setting, NodeOptions::StartAtLogin(m_args));
+    } else {
+        UniValue entry{UniValue::VOBJ};
+        entry.pushKV("value", node.getPersistentSetting(setting));
+        undo.pushKV(setting, std::move(entry));
+    }
+    m_config.SetValue(key, undo);
+}
+
+size_t OptionsJournal::Pending() const
+{
+    LOCK(m_mutex);
+    const UniValue undo{m_config.Value(m_key())};
+    if (!undo.isObject()) return 0;
+    return undo.size() - (undo.exists(RESTART_KEY) ? 1 : 0);
+}
+
+void OptionsJournal::Commit()
+{
+    LOCK(m_mutex);
+    m_config.SetValue(m_key(), UniValue{});
+}
+
+size_t OptionsJournal::Undo(interfaces::Node& node, const std::function<void(bool)>& restart)
+{
+    LOCK(m_mutex);
+    const std::string key{m_key()};
+    const UniValue undo{m_config.Value(key)};
+    if (!undo.isObject() || undo.empty()) return 0;
+    std::optional<bool> natpmp;
+    size_t count{0};
+    for (size_t i{0}; i < undo.size(); ++i) {
+        const std::string& setting{undo.getKeys()[i]};
+        const UniValue& old{undo.getValues()[i]};
+        if (setting == RESTART_KEY) {
+            if (restart) restart(old.isBool() && old.get_bool());
+            continue;
+        }
+        ++count;
+        if (setting == "@startAtLogin") {
+            if (old.isBool()) NodeOptions::SetStartAtLogin(m_args, old.get_bool());
+            continue;
+        }
+        const UniValue& value{old.find_value("value")};
+        node.updateRwSetting(setting, value);
+        if (setting == "natpmp") natpmp = value.isBool() ? value.get_bool() : m_args.GetBoolArg("-natpmp", DEFAULT_NATPMP);
+    }
+    if (natpmp) node.mapPort(*natpmp);
+    m_config.SetValue(key, UniValue{});
+    return count;
 }
 
 } // namespace webui
