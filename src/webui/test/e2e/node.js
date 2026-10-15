@@ -23,7 +23,9 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
   const openDialog = () => $$('dialog[open]').pop();
-  const button = (label, root = document) => $$('button', root).find((b) => b.textContent.trim().replace(/\s+/g, ' ').startsWith(label));
+  const byText = (label, root) => $$('button', root).find((b) => b.textContent.trim().replace(/\s+/g, ' ').startsWith(label));
+  // The page first: the frame of the layout has buttons of its own (the palette's "Search…").
+  const button = (label, root) => (root ? byText(label, root) : byText(label, $('#content') || document) || byText(label, document));
   async function click(label, root) {
     const b = await waitFor(`the button "${label}"`, () => {
       const el = button(label, typeof root === 'function' ? root() : root);
@@ -229,8 +231,8 @@
     const waiting = await rpc('sendtoaddress', [payTo, 0.5], 'miner');
     set($('#explorer-search'), waiting);
     await click('Search');
-    await waitFor('the waiting transaction', () => text('.detail').includes('Waiting to be mined'));
-    await check('explorer: a transaction of the mempool by its id', text('.detail').includes(waiting));
+    await waitFor('the waiting transaction', () => text('#content .detail').includes('Waiting to be mined'));
+    await check('explorer: a transaction of the mempool by its id', text('#content .detail').includes(waiting));
     await snapshot('explorer-tx-light');
     // Dark: a transaction of a block (the one of the mempool is mined by then).
     both.push({ name: 'explorer-tx', page: 'explorer', tab: 'search:3', prepare: async () => { await waitFor('block 3', () => text('#explorer-title') === 'Block 3'); $('[aria-label="Transactions of the block"] button').click(); await waitFor('tx', () => text('#explorer-title').startsWith('Transaction')); } });
@@ -409,8 +411,8 @@
     await go('node', 'peers');
     const peerRow = await waitFor('the peer in the table', () => $$('[aria-label="Peers"] [role="row"]').find((r) => r.textContent.includes('127.0.0.1')), 30000);
     peerRow.click();
-    await waitFor('the details', () => text('.detail').includes('(peer:'), 10000);
-    await check('peers: details', text('.detail').includes('Synced Headers') && text('.detail').includes('User Agent'));
+    await waitFor('the details', () => text('#content .detail').includes('(peer:'), 10000);
+    await check('peers: details', text('#content .detail').includes('Synced Headers') && text('#content .detail').includes('User Agent'));
     await snapshot('node-peers-light');
     both.push({ name: 'node-peers', page: 'node', tab: 'peers', prepare: async () => { const r = await waitFor('peer', () => $$('[aria-label="Peers"] [role="row"]').find((x) => x.textContent.includes('127.0.0.1')), 30000).catch(() => null); if (r) r.click(); await sleep(300); } });
     peerRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 }));
