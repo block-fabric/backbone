@@ -171,7 +171,7 @@
   <div class="output mono" bind:this={output} role="log" aria-live="polite" aria-label="Console output" use:css={{ 'font-size': `${fontSize}px` }}>
     {#each consoleState.lines as line (line.id)}
       <div class="line {line.kind}">
-        <span class="time">{timeText(line.time)}</span>
+        <span class="time" translate="no">{timeText(line.time)}</span>
         <span class="mark" aria-hidden="true">{line.kind === 'request' ? '›' : line.kind === 'error' ? '!' : line.kind === 'reply' ? '‹' : '·'}</span>
         <pre class="text">{line.text}</pre>
       </div>

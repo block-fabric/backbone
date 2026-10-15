@@ -15,6 +15,8 @@ export interface Column<T> {
   mono?: boolean;
   /** Not searched by the filter. */
   noFilter?: boolean;
+  /** The values are words of the app (a type, a state), translated where shown; otherwise they are data, shown as they are (SafeText). */
+  words?: boolean;
 }
 
 export type SortDir = 'asc' | 'desc';

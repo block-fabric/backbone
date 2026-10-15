@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { untrack } from 'svelte';
   // Overview: the balances of the wallet, and the chain as it grows (overviewpage.cpp, chainactivity.cpp).
   import Amount from '../components/Amount.svelte';
@@ -232,7 +233,7 @@
                   <TxStatusIcon record={r} />
                   <span class="what">
                     <span class="addr" class:muted={!r.label} translate="no">{addressText(r)}</span>
-                    <span class="faint small">{typeText(r.type) || 'Other'} · {formatTime(r.time)}</span>
+                    <span class="faint small">{t(typeText(r.type) || 'Other')} · {formatTime(r.time)}</span>
                   </span>
                   <span class:pending={!r.countsForBalance} title={r.countsForBalance ? undefined : 'Not counted in the balance yet'}><Amount sats={r.amount} colored plus /></span>
                 </button>

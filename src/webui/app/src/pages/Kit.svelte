@@ -1,5 +1,6 @@
 <script lang="ts">
   // The shared components, together: for the tests of the app and for working on them.
+  import SafeText from '../components/SafeText.svelte';
   import AddressInput from '../components/AddressInput.svelte';
   import Amount from '../components/Amount.svelte';
   import AmountInput from '../components/AmountInput.svelte';
@@ -85,8 +86,8 @@
         {#snippet cell(row, column)}
           {#if column.key === 'amount'}<Amount sats={row.amount} colored plus />
           {:else if column.key === 'time'}{formatTime(row.time)}
-          {:else if column.key === 'label'}{row.label} <span class="faint mono">{shortHash(`${row.id}a1b2c3d4e5f60718293a4b5c6d7e8f90`, 4)}</span>
-          {:else}{column.value(row)}{/if}
+          {:else if column.key === 'label'}<SafeText text={row.label} /> <span class="faint mono">{shortHash(`${row.id}a1b2c3d4e5f60718293a4b5c6d7e8f90`, 4)}</span>
+          {:else}<SafeText text={String(column.value(row) ?? '')} />{/if}
         {/snippet}
       </DataTable>
     </div>

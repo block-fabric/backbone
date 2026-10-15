@@ -1,5 +1,6 @@
 <script lang="ts">
   // The dialogs of the app itself: about, command-line options.
+  import SafeText from './SafeText.svelte';
   import Dialog from './Dialog.svelte';
   import { host } from '../lib/rpc';
   import { nav } from '../lib/nav.svelte';
@@ -19,7 +20,7 @@
 
 {#if nav.dialog === 'about'}
   <Dialog open={true} title="About {about?.name ?? 'Chains'}" onclose={close}>
-    <p class="version">{about?.name} version {about?.version}</p>
+    <p class="version"><SafeText text={about?.name} /> version {about?.version}</p>
     <pre class="license">{about?.license}</pre>
     <p class="muted credits">
       The interface runs in a native web view (webview/webview, MIT), and is built with Svelte. Its themes follow the ones of chains-qt;

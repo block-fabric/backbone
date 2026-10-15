@@ -3,6 +3,8 @@
   // deposits to them, the proposals of new sidechains with their acks, and the withdrawal bundles
   // with the votes of the miners. Richer than Qt: an overview of the slots, the progress of each
   // proposal and bundle, and the deposits of a sidechain.
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from '../components/SafeText.svelte';
   import AmountInput from '../components/AmountInput.svelte';
   import Amount from '../components/Amount.svelte';
   import CopyButton from '../components/CopyButton.svelte';
@@ -246,16 +248,16 @@
 <div class="page sidechains">
   <header class="page-head"><h1>Sidechains</h1></header>
   {#if dc}
-    <p class="summary muted">{summaryText(dc.info, formatAmount(escrowTotal, prefs.unit, { withUnit: true }))}</p>
+    <p class="summary muted">{t(summaryText(dc.info, formatAmount(escrowTotal, prefs.unit, { withUnit: true })))}</p>
   {:else}
     <p class="summary muted">{loadError || 'The drivechain state is not available yet.'}</p>
   {/if}
   <div class="tabs" role="tablist" aria-label="Sidechains">
-    {#each TABS as t (t.id)}
-      <button type="button" role="tab" aria-selected={tab === t.id} onclick={() => (nav.tab = t.id)}>
-        {t.label}
-        {#if t.id === 'proposals' && dc && dc.proposals.pending.length + dc.proposals.queued.length}<span class="badge accent">{dc.proposals.pending.length + dc.proposals.queued.length}</span>{/if}
-        {#if t.id === 'withdrawals' && dc && dc.bundles.length}<span class="badge accent">{dc.bundles.length}</span>{/if}
+    {#each TABS as tb (tb.id)}
+      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>
+        {t(tb.label)}
+        {#if tb.id === 'proposals' && dc && dc.proposals.pending.length + dc.proposals.queued.length}<span class="badge accent">{dc.proposals.pending.length + dc.proposals.queued.length}</span>{/if}
+        {#if tb.id === 'withdrawals' && dc && dc.bundles.length}<span class="badge accent">{dc.bundles.length}</span>{/if}
       </button>
     {/each}
   </div>
@@ -319,7 +321,7 @@
         <form class="panel-body form" onsubmit={(e) => { e.preventDefault(); deposit(); }}>
           <div class="field">
             <span class="label">Sidechain</span>
-            <span class="target">{selected ? `${selected.title} (slot ${selected.slot})` : 'Select a sidechain in the list'}</span>
+            <span class="target">{#if selected}<SafeText text={selected.title} /> (slot {selected.slot}){:else}Select a sidechain in the list{/if}</span>
           </div>
           <div class="field">
             <label for="deposit-destination">Destination</label>
@@ -338,12 +340,12 @@
     {#if selected}
       <section class="panel detail">
         <div class="panel-head">
-          <h2>{selected.title} <span class="muted">slot {selected.slot}</span></h2>
+          <h2><SafeText text={selected.title} /> <span class="muted">slot {selected.slot}</span></h2>
           <span class="badge accent">version {selected.version}</span>
         </div>
         <div class="panel-body detail-grid">
           <dl class="facts">
-            <dt>Description</dt><dd>{selected.description || '–'}</dd>
+            <dt>Description</dt><dd>{#if selected.description}<SafeText text={selected.description} />{:else}–{/if}</dd>
             <dt>Active since</dt><dd class="num">block {formatCount(selected.activationheight)}</dd>
             <dt>Escrow</dt><dd>{#if selected.escrow}<Amount sats={escrowOf(selected)} /> <span class="mono faint">{shortHash(selected.escrow.txid)}:{selected.escrow.n}</span>{:else}no deposits yet{/if}</dd>
             <dt>Escrow script</dt><dd class="mono">{selected.escrowscript}</dd>
@@ -455,7 +457,7 @@
         </div>
         {#if formErrors.length}<ul class="errors wide" role="alert">{#each formErrors as err (err)}<li>{err}</li>{/each}</ul>{/if}
         <div class="row wide"><button type="submit" class="btn primary">Propose</button>
-          {#if slots[form.slot] && slots[form.slot].state !== 'free'}<span class="warn">Slot {form.slot} holds {slots[form.slot].title}: this proposal would replace it.</span>{/if}
+          {#if slots[form.slot] && slots[form.slot].state !== 'free'}<span class="warn">Slot {form.slot} holds <SafeText text={slots[form.slot].title} />: this proposal would replace it.</span>{/if}
         </div>
       </form>
     </section>
@@ -482,12 +484,12 @@
           <tbody>
             {#each dc.bundles as b (b.hash)}
               <tr class:chosen={b.hash === selectedBundle} onclick={() => (selectedBundle = b.hash)} use:selectable={() => (selectedBundle = b.hash)}>
-                <td><span class="num">{b.slot}</span> <span class="muted">{sidechainTitle(b.slot)}</span></td>
+                <td><span class="num">{b.slot}</span> <SafeText class="muted" text={sidechainTitle(b.slot)} /></td>
                 <td><Meter value={b.score} max={dc.info.withdrawalminscore} label="Score of bundle {shortHash(b.hash)}" text="{b.score} of {dc.info.withdrawalminscore}" tone={b.payable ? 'positive' : bundleCanPass(b, dc.info) ? 'accent' : 'negative'} /></td>
                 <td class="end num">{b.blocksleft}</td>
                 <td>{#if b.payable}<span class="yes"><Icon name="check" size={14} /> yes</span>{:else}no{/if}</td>
                 <td>{b.known ? 'yes' : 'no'}</td>
-                <td><span class="badge" class:accent={b.vote === 'upvote'} class:warning={b.vote === 'downvote'}>{voteText(b.vote)}</span></td>
+                <td><span class="badge" class:accent={b.vote === 'upvote'} class:warning={b.vote === 'downvote'}>{t(voteText(b.vote))}</span></td>
                 <td class="mono">{shortHash(b.hash)}</td>
               </tr>
               {#if b.hash === selectedBundle && b.payouts}

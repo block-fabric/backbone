@@ -1,6 +1,8 @@
 <script lang="ts">
   // The details of a transaction of the wallet (TransactionDesc::toHTML): in the dialog of the
   // transactions page, or in the detail panel of the workspace layout.
+  import { t, tx } from '../lib/i18n.svelte';
+  import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
   import CopyButton from './CopyButton.svelte';
   import { formatTime } from '../lib/format';
@@ -24,16 +26,18 @@
 
 {#snippet value(row: DetailRow)}
   {#if row.address !== undefined}
-    {#if row.label}<span translate="no">{row.label}</span>{/if}
+    {#if row.label}<SafeText text={row.label} />{/if}
     <span class="mono break">{row.address}</span>
     {#if row.own}<span class="badge accent">own address</span>{/if}
   {:else if row.sats !== undefined}
     <Amount sats={row.sats} plus={row.plus} colored={row.k === 'Net amount'} />
-    {#if row.note}<span class="muted">({row.note})</span>{/if}
+    {#if row.note}<span class="muted">({t(row.note)})</span>{/if}
   {:else if row.time !== undefined}
     {row.time ? formatTime(row.time) : ''}
+  {:else if row.k === 'Status'}
+    <span class="break">{tx(row.text ?? '')}</span>
   {:else}
-    <span class="break">{row.text}</span>
+    <SafeText class="break" text={row.text} />
   {/if}
 {/snippet}
 
@@ -45,34 +49,34 @@
   <div class="details" data-txid={details.txid}>
     <dl class="facts">
       {#each details.rows as row, i (i)}
-        <dt>{row.k}</dt>
+        <dt>{t(row.k)}</dt>
         <dd>{@render value(row)}</dd>
       {/each}
     </dl>
     {#each details.notes as note, i (i)}
-      <h3>{note.k}</h3>
+      <h3>{t(note.k)}</h3>
       <p class="pre break" translate="no">{note.text}</p>
     {/each}
     {#each details.messages as m, i (i)}
       <h3>Message</h3>
-      <p class="pre break">{m}</p>
+      <p class="pre break" translate="no">{m}</p>
     {/each}
     <dl class="facts ids">
       {#each details.ids as row, i (i)}
-        <dt>{row.k}</dt>
+        <dt>{t(row.k)}</dt>
         <dd>
-          <span class:mono={row.k === 'Transaction ID'} class="break">{row.text}</span>
+          <SafeText class={row.k === 'Transaction ID' ? 'mono break' : 'break'} text={row.text} />
           {#if row.k === 'Transaction ID'}<CopyButton text={row.text ?? ''} label="Copy transaction ID" />{/if}
         </dd>
       {/each}
     </dl>
-    {#if details.coinbaseNote}<p class="muted note">{details.coinbaseNote}</p>{/if}
+    {#if details.coinbaseNote}<p class="muted note">{tx(details.coinbaseNote)}</p>{/if}
     {#if details.debug}
       <details class="debug">
         <summary>Debug information</summary>
         <dl class="facts">
           {#each details.debug.amounts as row, i (i)}
-            <dt>{row.k}</dt>
+            <dt>{t(row.k)}</dt>
             <dd>{@render value(row)}</dd>
           {/each}
         </dl>
@@ -82,7 +86,7 @@
         <ul>
           {#each details.debug.inputs as input, i (i)}
             <li>
-              {#if input.label}{input.label}{/if} <span class="mono">{input.address ?? ''}</span> Amount=<Amount sats={input.sats} /> IsMine={input.mine ? 'true' : 'false'}
+              {#if input.label}<SafeText text={input.label} />{/if} <span class="mono">{input.address ?? ''}</span> Amount=<Amount sats={input.sats} /> IsMine={input.mine ? 'true' : 'false'}
             </li>
           {/each}
         </ul>

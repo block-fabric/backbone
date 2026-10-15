@@ -5,6 +5,7 @@
   // At its top a card of the wallet shown (its name, its lock, the unit); the pages in groups; at its
   // foot the menus of chains-qt, the theme, the text size (and the palette in the rail), then
   // Close wallet and Quit, apart. The dashboard's current page is a filled pill; the rail's a bar.
+  import { t } from '../lib/i18n.svelte';
   import Brand from './Brand.svelte';
   import Icon from './Icon.svelte';
   import MenuButton from './MenuButton.svelte';
@@ -114,7 +115,7 @@
           {#each UNITS as u (u.id)}<option value={u.id}>{u.short}</option>{/each}
         </select>
       </div>
-      {#if lock}<div class="wc-foot"><span class="badge {lock.tone}" title={lock.title}><Icon name={lock.icon} size={12} /> {lock.label}</span></div>{/if}
+      {#if lock}<div class="wc-foot"><span class="badge {lock.tone}" title={t(lock.title)}><Icon name={lock.icon} size={12} /> {t(lock.label)}</span></div>{/if}
     </section>
   {:else if collapsed && wallets.list.length > 1}
     <div class="center"><MenuButton label="Wallet shown: {wallets.current || 'default wallet'}" icon="wallet" align="start" sections={walletChoices} /></div>
@@ -122,8 +123,8 @@
 
   <div class="scroll">
     {#each sections as section (section.title)}
-      <div class="section" role="group" aria-label={section.title || 'Home'}>
-        {#if section.title && !collapsed}<div class="caption caps">{section.title}</div>{/if}
+      <div class="section" role="group" aria-label={t(section.title || 'Home')}>
+        {#if section.title && !collapsed}<div class="caption caps">{t(section.title)}</div>{/if}
         {#if section.title && collapsed}<div class="rule" aria-hidden="true"></div>{/if}
         {#each section.pages as id (id)}
           {@const page = PAGES[id]}
@@ -149,7 +150,7 @@
             onblur={hideTip}
           >
             <Icon name={pageIcon(id)} size={19} />
-            {#if !collapsed}<span class="grow">{page.title}</span>{/if}
+            {#if !collapsed}<span class="grow">{t(page.title)}</span>{/if}
             {#if !collapsed && !page.ready}<span class="soon" title="Being rebuilt">•</span>{/if}
             {#if id === 'settings' && pendingNow() > 0}<span class="pending" title="Changes of the settings wait for Apply" aria-label="Changes wait for Apply"></span>{/if}
           </button>
@@ -173,7 +174,7 @@
         <MenuButton label="Menus of chains-qt: wallet, banking, chains, tools, window, node" sections={menus} placement="above" text="Menus" icon="menu" align="start" />
         <select class="look" aria-label="Theme" title="Theme" value={prefs.theme} onchange={(e) => savePrefs({ theme: (e.currentTarget as HTMLSelectElement).value as ThemeId })}>
           {#each THEMES as theme (theme.id)}
-            <option value={theme.id}>{theme.name}</option>
+            <option value={theme.id}>{t(theme.name)}</option>
           {/each}
         </select>
       </div>
@@ -213,7 +214,7 @@
 </nav>
 
 {#if tip}
-  <div class="tip" role="tooltip" use:css={{ top: `${tip.top}px`, left: `${tip.left}px` }}>{tip.text}</div>
+  <div class="tip" role="tooltip" use:css={{ top: `${tip.top}px`, left: `${tip.left}px` }}>{t(tip.text)}</div>
 {/if}
 
 <style>

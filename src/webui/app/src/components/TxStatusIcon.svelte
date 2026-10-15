@@ -1,5 +1,6 @@
 <script lang="ts">
   // The status of a transaction as a ring that fills with the confirmations (the transaction_N icons of chains-qt).
+  import { t } from '../lib/i18n.svelte';
   import { confirmationProgress, statusText, type TxRecord } from '../lib/wallet';
 
   let { record, size = 18 }: { record: Pick<TxRecord, 'status' | 'depth' | 'maturesIn'>; size?: number } = $props();
@@ -10,7 +11,7 @@
 </script>
 
 <svg class="status {record.status}" width={size} height={size} viewBox="0 0 18 18" role="img" aria-label={statusText(record)}>
-  <title>{statusText(record)}</title>
+  <title>{t(statusText(record))}</title>
   {#if record.status === 'conflicted' || record.status === 'notaccepted'}
     <circle cx="9" cy="9" r={R} class="track" />
     <path d="M6 6l6 6M12 6l-6 6" class="mark" />

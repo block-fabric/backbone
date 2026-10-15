@@ -1,6 +1,8 @@
 <script lang="ts">
   // The bell of the top bars: the new transactions since the app started, a dot while some are not
   // seen. A notice of the wallet shown opens its transaction in the detail panel.
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
   import Icon from './Icon.svelte';
   import { showDetail } from '../lib/detail.svelte';
@@ -69,7 +71,7 @@
                 <span class="ic" class:in={r && r.amount >= 0n}><Icon name={r && r.amount < 0n ? 'send' : 'receive'} size={15} /></span>
                 <span class="what">
                   <span class="title">{r ? (r.amount >= 0n ? 'Incoming transaction' : 'Sent transaction') : 'New transaction'}</span>
-                  <span class="faint small">{r ? `${addressText(r) || typeText(r.type)} · ${formatTime(r.time)}` : `In wallet ${walletDisplayName(n.wallet)}`}</span>
+                  <span class="faint small">{#if r}{#if addressText(r)}<SafeText text={addressText(r)} />{:else}{t(typeText(r.type))}{/if} · {formatTime(r.time)}{:else}In wallet <SafeText text={walletDisplayName(n.wallet)} />{/if}</span>
                 </span>
                 {#if r}<Amount sats={r.amount} colored plus showUnit={false} />{/if}
               </button>

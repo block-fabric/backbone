@@ -1,6 +1,8 @@
 <script lang="ts">
   // Receive (ReceiveCoinsDialog): a request with a new address, a label, an amount and a message,
   // and the requests made before (RecentRequestsTableModel), kept in the wallet.
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from '../components/SafeText.svelte';
   import Amount from '../components/Amount.svelte';
   import AmountInput from '../components/AmountInput.svelte';
   import ContextMenu, { type ContextItem } from '../components/ContextMenu.svelte';
@@ -158,9 +160,9 @@
           <div class="field">
             <label for="req-type">Address type</label>
             <select id="req-type" bind:value={addressType}>
-              {#each types as t (t.id)}<option value={t.id} title={t.tip}>{t.label}</option>{/each}
+              {#each types as tb (tb.id)}<option value={tb.id} title={t(tb.tip)}>{t(tb.label)}</option>{/each}
             </select>
-            <span class="hint">{types.find((t) => t.id === addressType)?.tip ?? ''}</span>
+            <span class="hint">{t(types.find((ty) => ty.id === addressType)?.tip ?? '')}</span>
           </div>
           <div class="row">
             <button type="submit" class="btn primary" disabled={busy || !info?.canGetAddresses} title={info && !info.canGetAddresses ? 'This wallet cannot give out new addresses' : undefined}>
@@ -197,8 +199,8 @@
           {#snippet cell(row, column)}
             {#if column.key === 'date'}{formatTime(row.time)}
             {:else if column.key === 'amount'}{#if row.amount > 0n}<Amount sats={row.amount} showUnit={false} />{:else}<span class="faint">(no amount requested)</span>{/if}
-            {:else if column.key === 'label'}<span class:faint={!row.label} translate={row.label ? 'no' : undefined}>{row.label || '(no label)'}</span>
-            {:else}<span class:faint={!row.message} translate={row.message ? 'no' : undefined}>{row.message || '(no message)'}</span>{/if}
+            {:else if column.key === 'label'}{#if row.label}<SafeText text={row.label} />{:else}<span class="faint">(no label)</span>{/if}
+            {:else if row.message}<SafeText text={row.message} />{:else}<span class="faint">(no message)</span>{/if}
           {/snippet}
         </DataTable>
       </div>

@@ -1,6 +1,7 @@
 <script lang="ts">
   // The detail panel at the right of the page: the transaction, block, peer or sidechain selected.
   // On a narrow window it covers the page. Escape closes it.
+  import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
   import CopyButton from './CopyButton.svelte';
   import Icon from './Icon.svelte';
@@ -170,7 +171,7 @@
           <dl class="facts">
             <dt>Direction</dt><dd>{peer.inbound ? 'Inbound' : 'Outbound'} · {peer.connection_type}</dd>
             <dt>Network</dt><dd>{peer.network}</dd>
-            <dt>User agent</dt><dd class="mono">{peer.subver}</dd>
+            <dt>User agent</dt><dd class="mono"><SafeText text={peer.subver} /></dd>
             <dt>Version</dt><dd>{peer.version}</dd>
             <dt>Starting block</dt><dd class="num">{formatCount(peer.startingheight)}</dd>
             <dt>Synced headers / blocks</dt><dd class="num">{formatCount(peer.synced_headers)} / {formatCount(peer.synced_blocks)}</dd>
@@ -183,8 +184,8 @@
       {:else if item.kind === 'sidechain'}
         {#if !sidechain}<p class="muted">Loading…</p>{:else}
           {@const s = sidechain.info}
-          <p class="big">{s.title} <span class="badge">slot {s.slot}</span></p>
-          <p class="muted">{s.description}</p>
+          <p class="big"><SafeText text={s.title} /> <span class="badge">slot {s.slot}</span></p>
+          <p class="muted"><SafeText text={s.description} /></p>
           <dl class="facts">
             <dt>Escrow</dt><dd>{#if s.escrow}<Amount sats={coinsToSats(s.escrow.amount)} />{:else}empty{/if}</dd>
             <dt>Active since block</dt><dd class="num">{formatCount(s.activationheight)}</dd>

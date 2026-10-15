@@ -8,7 +8,7 @@
   import { host, type NodeOptions, type NodeOptionValues } from '../lib/rpc';
   import { app, prefs, toast } from '../lib/state.svelte';
   import { applyChanges, askOnLeave, cancelChanges, draft, noteBaseline, pendingCount, stagePrefs } from '../lib/settingsdraft.svelte';
-  import { loadLocale } from '../lib/i18n.svelte';
+  import { loadLocale, t } from '../lib/i18n.svelte';
 
   const draftBaselineLang = () => draft.baseline?.lang ?? '';
   import { clampFontAdjust, FONTS, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type FontChoice, type ThemeId } from '../lib/themes';
@@ -216,8 +216,8 @@
 <div class="page">
   <header class="page-head"><h1>Settings</h1></header>
   <div class="tabs" role="tablist" aria-label="Settings">
-    {#each TABS as t (t.id)}
-      <button type="button" role="tab" aria-selected={tab === t.id} onclick={() => (nav.tab = t.id)}>{t.label}</button>
+    {#each TABS as tb (tb.id)}
+      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
     {/each}
   </div>
 
@@ -395,7 +395,7 @@
               <label class="theme" class:chosen={prefs.theme === theme.id} data-swatch={theme.id}>
                 <input type="radio" name="theme" class="sr-only" checked={prefs.theme === theme.id} onchange={() => stagePrefs({ theme: theme.id as ThemeId })} />
                 <span class="swatch" aria-hidden="true"><span></span><span></span><span></span></span>
-                <span>{theme.name}</span>
+                <span>{t(theme.name)}</span>
               </label>
             {/each}
           </div>
@@ -405,7 +405,7 @@
           <div class="field">
             <label for="opt-font">Font</label>
             <select id="opt-font" value={prefs.fontFamily} onchange={(e) => stagePrefs({ fontFamily: (e.currentTarget as HTMLSelectElement).value as FontChoice })}>
-              {#each FONTS as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
+              {#each FONTS as f (f.id)}<option value={f.id} translate="no">{f.name}</option>{/each}
             </select>
             <span class="hint">Any font goes with any colours.</span>
           </div>

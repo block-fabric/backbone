@@ -98,7 +98,9 @@ describe('the sidechain page', () => {
     await waitFor(() => screen.getByText(/1 of 256 sidechain slots in use, holding 3.00000000 CHN in escrow/));
     expect(document.querySelectorAll('.slot').length).toBe(256);
     expect(document.querySelector('.slot.active')?.getAttribute('aria-label')).toBe('Slot 1, Testchain, active');
-    await waitFor(() => screen.getByText('Testchain (slot 1)'));
+    // The title of the sidechain is text of the chain (SafeText), in the sentence of the app.
+    await waitFor(() => expect(document.querySelector('.target')?.textContent).toBe('Testchain (slot 1)'));
+    expect(document.querySelector('.target [translate="no"]')?.textContent).toBe('Testchain');
     await waitFor(() => screen.getByText('s1_erin_b91ea9'));
 
     await fireEvent.input(screen.getByLabelText('Destination'), { target: { value: 's1_erin_b91ea9' } });
@@ -120,7 +122,9 @@ describe('the sidechain page', () => {
     const calls = drivechain();
     render(DialogHost);
     render(Sidechains);
-    await waitFor(() => screen.getByText('Testchain (slot 1)'));
+    // The title of the sidechain is text of the chain (SafeText), in the sentence of the app.
+    await waitFor(() => expect(document.querySelector('.target')?.textContent).toBe('Testchain (slot 1)'));
+    expect(document.querySelector('.target [translate="no"]')?.textContent).toBe('Testchain');
     await fireEvent.input(screen.getByLabelText('Destination'), { target: { value: 's1_eric_b91ea9' } });
     await waitFor(() => screen.getByText('This deposit address has a typing error in it.'));
     await fireEvent.input(screen.getByLabelText('Amount'), { target: { value: '1' } });

@@ -2,6 +2,7 @@
   // Workspace tabs: four areas across the top (Wallet, Chain, Sidechains, Node), each with its
   // sub-tabs; the actions of the old menu bar in the "More" menu and the palette; the detail panel
   // at the right of the page; the status bar.
+  import { t } from '../../lib/i18n.svelte';
   import Brand from '../../components/Brand.svelte';
   import DetailPanel from '../../components/DetailPanel.svelte';
   import Icon from '../../components/Icon.svelte';
@@ -60,7 +61,7 @@
       {#each AREAS as a, i (a.id)}
         <button type="button" class="area" aria-current={area.id === a.id ? 'true' : undefined} onclick={() => enter(a)} onkeydown={(e) => areaKey(e, i)}>
           <Icon name={a.icon} size={18} />
-          <span class="label">{a.label}</span>
+          <span class="label">{t(a.label)}</span>
         </button>
       {/each}
     </nav>
@@ -74,17 +75,17 @@
   </header>
 
   <nav class="subtabs" aria-label="{area.label} pages">
-    {#each tabs as t (t.page + (t.tab ?? ''))}
-      {@const current = isAt(t, nav.page, nav.tab)}
+    {#each tabs as tb (tb.page + (tb.tab ?? ''))}
+      {@const current = isAt(tb, nav.page, nav.tab)}
       <button
         type="button"
         aria-current={current ? 'page' : undefined}
-        disabled={pageDisabled(t.page)}
-        title={PAGES[t.page].shortcut ? `${PAGES[t.page].summary} (${PAGES[t.page].shortcut})` : PAGES[t.page].summary}
-        onclick={() => go(t.page, t.tab ?? '')}
+        disabled={pageDisabled(tb.page)}
+        title={PAGES[tb.page].shortcut ? `${t(PAGES[tb.page].summary)} (${PAGES[tb.page].shortcut})` : t(PAGES[tb.page].summary)}
+        onclick={() => go(tb.page, tb.tab ?? '')}
       >
-        {placeLabel(t)}
-        {#if !PAGES[t.page].ready}<span class="soon" aria-label="(being rebuilt)">•</span>{/if}
+        {t(placeLabel(tb))}
+        {#if !PAGES[tb.page].ready}<span class="soon" aria-label="(being rebuilt)">•</span>{/if}
       </button>
     {/each}
   </nav>

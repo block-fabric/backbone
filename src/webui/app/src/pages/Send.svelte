@@ -1,6 +1,7 @@
 <script lang="ts">
   // Send coins (SendCoinsDialog, SendCoinsEntry): several recipients, the fee, coin control, a
   // confirmation with a delay, unsigned transactions (PSBT) and hardware wallets.
+  import { tx } from '../lib/i18n.svelte';
   import AddressInput from '../components/AddressInput.svelte';
   import AddressPicker from '../components/AddressPicker.svelte';
   import Amount from '../components/Amount.svelte';
@@ -444,7 +445,7 @@
           </label>
           <div class="row grow">
             <input type="text" class="mono grow" aria-label="Custom change address" placeholder="Enter a Chains address" spellcheck="false" autocomplete="off" disabled={!customChange} bind:value={changeAddress} />
-            {#if changeStatus.text}<span class:error={changeStatus.bad} class="change-label">{changeStatus.text}</span>{/if}
+            {#if changeStatus.text}<span class:error={changeStatus.bad} class="change-label">{tx(changeStatus.text)}</span>{/if}
           </div>
         </div>
       </div>

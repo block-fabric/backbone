@@ -11,6 +11,7 @@
 
 <script lang="ts">
   // A menu at the pointer (right click on a row), or under a button. Arrows move, Enter runs, Escape closes.
+  import { t } from '../lib/i18n.svelte';
   import { tick } from 'svelte';
   import { css } from '../lib/actions';
 
@@ -77,7 +78,7 @@
   <div class="context-menu" role="menu" aria-label={label} tabindex="-1" bind:this={menu} use:css={{ left: `${pos.left}px`, top: `${pos.top}px` }} {onkeydown}>
     {#each items as item, i (i)}
       {#if item.separator}<div class="sep" role="separator"></div>{/if}
-      <button type="button" role="menuitem" class="item" class:danger={item.danger} disabled={item.disabled} onclick={() => run(item)}>{item.label}</button>
+      <button type="button" role="menuitem" class="item" class:danger={item.danger} disabled={item.disabled} onclick={() => run(item)}>{t(item.label)}</button>
     {/each}
   </div>
 {/if}

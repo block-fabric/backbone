@@ -3,9 +3,11 @@
 import { defineConfig } from 'vitest/config';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+// The words of the templates, opted in to translation (src/lib/i18n.svelte.ts).
+import i18nPreprocess from './scripts/i18n-preprocess.mjs';
 
 export default defineConfig({
-  plugins: [svelte(), svelteTesting()],
+  plugins: [svelte({ preprocess: [i18nPreprocess()] }), svelteTesting()],
   base: '/',
   build: {
     outDir: 'dist',

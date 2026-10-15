@@ -2,6 +2,8 @@
   // A table for long lists (transactions, peers, blocks): sorting by column, filtering by
   // text, and only the rows in view drawn, so 100 000 rows scroll as fast as 10.
   // Keyboard: arrows, Page Up/Down, Home/End move the selection; Enter opens the row.
+  import SafeText from './SafeText.svelte';
+  import { t } from '../lib/i18n.svelte';
   import type { Snippet } from 'svelte';
   import { css } from '../lib/actions';
   import { filterAndSort, visibleRange, type Column, type SortDir } from '../lib/table';
@@ -125,10 +127,10 @@
     {#each columns as column (column.key)}
       <div role="columnheader" aria-sort={ariaSort(column)} class="cell {column.align ?? 'start'}">
         {#if column.sortable === false}
-          <span>{column.label}</span>
+          <span>{t(column.label)}</span>
         {:else}
           <button type="button" title="Sort by {column.label || 'status'}" onclick={() => sortBy(column)}>
-            {column.label}
+            {t(column.label)}
             <span class="arrow" aria-hidden="true">{sortKey === column.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}</span>
           </button>
         {/if}
@@ -165,7 +167,7 @@
           >
             {#each columns as column (column.key)}
               <div role="gridcell" class="cell {column.align ?? 'start'}" class:mono={column.mono}>
-                {#if cell}{@render cell(row, column)}{:else}{String(column.value(row) ?? '')}{/if}
+                {#if cell}{@render cell(row, column)}{:else if column.words}{t(String(column.value(row) ?? ''))}{:else}<SafeText text={String(column.value(row) ?? '')} />{/if}
               </div>
             {/each}
           </div>

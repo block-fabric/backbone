@@ -8,7 +8,7 @@
   import TitleStrip from './components/TitleStrip.svelte';
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
-  import { followLocale, installTranslator, loadLocale } from './lib/i18n.svelte';
+  import { followLocale, loadLocale } from './lib/i18n.svelte';
   import { handleShortcut } from './lib/keyboard';
   import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
@@ -63,7 +63,6 @@
       try {
         const hello = await host.hello();
         // The language first: the page shows in it from its first frame on.
-        installTranslator();
         followLocale();
         await loadLocale();
         app.info = hello.info;

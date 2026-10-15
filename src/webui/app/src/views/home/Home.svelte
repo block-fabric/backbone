@@ -4,6 +4,8 @@
   // its timeframes; blind merged mining; then tables of the recent transactions, the sidechains,
   // the latest blocks and the peers, with the actions of each row. A row opens the detail panel;
   // Send and Receive open the side panel (components/QuickPanel.svelte).
+  import { t } from '../../lib/i18n.svelte';
+  import SafeText from '../../components/SafeText.svelte';
   import { untrack } from 'svelte';
   import Amount from '../../components/Amount.svelte';
   import BalanceChart from '../../components/BalanceChart.svelte';
@@ -246,12 +248,12 @@
     <div>
       <h1>Home</h1>
       <p class="muted sub">
-        {#if status}{status.upToDate ? 'Up to date' : status.label}, block {formatCount(node.tip?.height ?? 0)}, {node.networkActive ? `${node.connections} peer${node.connections === 1 ? '' : 's'}` : 'network off'}{:else}Starting…{/if}
+        {#if status}{status.upToDate ? 'Up to date' : t(status.label)}, block {formatCount(node.tip?.height ?? 0)}, {node.networkActive ? `${node.connections} peer${node.connections === 1 ? '' : 's'}` : 'network off'}{:else}Starting…{/if}
       </p>
     </div>
     <nav class="quick" aria-label="Quick actions">
       {#each quickLinks as q (q.label)}
-        <button type="button" class="pill action" disabled={pageDisabled(q.page)} onclick={() => (q.panel ? openQuick(q.panel) : go(q.page, q.tab ?? ''))}><Icon name={q.icon} size={15} /> {q.label}</button>
+        <button type="button" class="pill action" disabled={pageDisabled(q.page)} onclick={() => (q.panel ? openQuick(q.panel) : go(q.page, q.tab ?? ''))}><Icon name={q.icon} size={15} /> {t(q.label)}</button>
       {/each}
       <button type="button" class="pill action ghost" onclick={openPalette}><Icon name="search" size={15} /> All actions <kbd>Ctrl K</kbd></button>
     </nav>
@@ -266,7 +268,7 @@
   <div class="stats">
     <Card title="Balance" icon="wallet" open={() => go('overview')} openLabel="Open the overview" stat>
       {#if !walletsEnabled()}
-        <p class="muted">{noWalletText()}</p>
+        <p class="muted">{t(noWalletText())}</p>
       {:else if wallets.current === null}
         <p class="muted">No wallet is loaded. Create one, or open one of the wallets of this node.</p>
       {:else}
@@ -292,7 +294,7 @@
     <Card title="Network" icon="peers" open={() => go('node', 'info')} openLabel="Open the node window" stat>
       <span class="value">
         {#if status}
-          <span class="state" class:ok={status.upToDate}><Icon name={status.upToDate ? 'check' : 'history'} size={16} /> {status.upToDate ? 'Up to date' : status.label}</span>
+          <span class="state" class:ok={status.upToDate}><Icon name={status.upToDate ? 'check' : 'history'} size={16} /> {status.upToDate ? 'Up to date' : t(status.label)}</span>
         {:else}<span class="muted">Starting…</span>{/if}
       </span>
       {#if status && !status.upToDate}<progress max="1" value={status.progress} aria-label="Verification progress"></progress>{/if}
@@ -348,7 +350,7 @@
                 <span class="delta" class:up={change > 0n} class:down={change < 0n}>
                   <Icon name={change < 0n ? 'down' : 'up'} size={13} />
                   <Amount sats={change} plus showUnit={false} />{#if changePct !== null}&nbsp;({changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%){/if}
-                  <span class="faint">{frameInfo.name}</span>
+                  <span class="faint">{t(frameInfo.name)}</span>
                 </span>
               {/if}
             </div>
@@ -356,7 +358,7 @@
         </div>
         <div class="frames" role="group" aria-label="Timeframe">
           {#each FRAMES as f (f.id)}
-            <button type="button" aria-pressed={frame === f.id} title={f.name} onclick={() => (frame = f.id)}>{f.label}</button>
+            <button type="button" aria-pressed={frame === f.id} title={t(f.name)} onclick={() => (frame = f.id)}>{t(f.label)}</button>
           {/each}
         </div>
       </header>
@@ -384,7 +386,7 @@
             <li>
               <span class="slot num">{s.slot}</span>
               <span class="grow">
-                <span class="meter-head"><span class="ellipsis">{s.title}</span><span class="num">{n}/{bmmWindow}</span></span>
+                <span class="meter-head"><span class="ellipsis"><SafeText text={s.title} /></span><span class="num">{n}/{bmmWindow}</span></span>
                 <span class="meter" aria-hidden="true"><span use:css={{ width: `${bmmWindow ? (100 * n) / bmmWindow : 0}%` }}></span></span>
               </span>
               <Sparkline values={bmmSeries[s.slot] ?? []} width={64} height={26} tone={n ? 'up' : 'flat'} />

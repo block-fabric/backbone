@@ -1,5 +1,6 @@
 <script lang="ts">
   // Sign and verify messages (SignVerifyMessageDialog).
+  import { tx } from '../lib/i18n.svelte';
   import AddressPicker from '../components/AddressPicker.svelte';
   import CopyButton from '../components/CopyButton.svelte';
   import Icon from '../components/Icon.svelte';
@@ -127,7 +128,7 @@
               signStatus = { text: '', ok: false };
             }}>Clear All</button
           >
-          {#if signStatus.text}<span class="status" class:ok={signStatus.ok} class:bad={!signStatus.ok} role="status">{signStatus.text}</span>{/if}
+          {#if signStatus.text}<span class="status" class:ok={signStatus.ok} class:bad={!signStatus.ok} role="status">{tx(signStatus.text)}</span>{/if}
         </div>
       </form>
     </section>
@@ -170,7 +171,7 @@
               verifyStatus = { text: '', ok: false, field: '' };
             }}>Clear All</button
           >
-          {#if verifyStatus.text}<span class="status" class:ok={verifyStatus.ok} class:bad={!verifyStatus.ok} role="status">{verifyStatus.text}</span>{/if}
+          {#if verifyStatus.text}<span class="status" class:ok={verifyStatus.ok} class:bad={!verifyStatus.ok} role="status">{tx(verifyStatus.text)}</span>{/if}
         </div>
       </form>
     </section>

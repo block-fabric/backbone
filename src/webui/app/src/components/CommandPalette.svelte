@@ -1,6 +1,7 @@
 <script lang="ts">
   // The command palette (Ctrl+K): every page and every item of the old menu bar, found by name.
   // Up/Down choose, Enter runs, Escape closes.
+  import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import { buildCommands, palette, searchCommands, type Command } from '../lib/commands.svelte';
 
@@ -115,7 +116,7 @@
         <p class="none">Nothing is called “{query}”.</p>
       {/if}
       {#each groups as group (group.title)}
-        <div class="group" role="presentation">{group.title}</div>
+        <div class="group" role="presentation">{t(group.title)}</div>
         {#each group.items as c (c.id)}
           {@const index = flat.indexOf(c)}
           <!-- The input keeps the keyboard (aria-activedescendant); a click runs the command. -->
@@ -135,8 +136,8 @@
             }}
           >
             <span class="icon">{#if c.icon}<Icon name={c.icon} size={16} />{:else if c.checked}<Icon name="check" size={16} />{/if}</span>
-            <span class="grow label">{c.label}</span>
-            {#if query.trim()}<span class="where">{c.group}</span>{/if}
+            <span class="grow label">{t(c.label)}</span>
+            {#if query.trim()}<span class="where">{t(c.group)}</span>{/if}
             {#if c.checked && c.icon}<Icon name="check" size={14} />{/if}
             {#if c.shortcut}<kbd>{c.shortcut}</kbd>{/if}
           </div>

@@ -2,6 +2,7 @@
   // The block explorer (BlockExplorer of chains-qt): search by height, block hash or transaction id;
   // the latest blocks and the transactions waiting in the mempool; a block with its transactions; a
   // transaction with its inputs and outputs. The raw JSON of the node is there too.
+  import { t } from '../lib/i18n.svelte';
   import Amount from '../components/Amount.svelte';
   import CopyButton from '../components/CopyButton.svelte';
   import DataTable from '../components/DataTable.svelte';
@@ -237,8 +238,8 @@
   </form>
 
   <div class="tabs" role="tablist" aria-label="Lists">
-    {#each TABS as t (t.id)}
-      <button type="button" role="tab" aria-selected={list === t.id} onclick={() => (list = t.id as 'blocks' | 'mempool')}>{t.id === 'mempool' ? `${t.label} (${mempoolTotal})` : t.label}</button>
+    {#each TABS as tb (tb.id)}
+      <button type="button" role="tab" aria-selected={list === tb.id} onclick={() => (list = tb.id as 'blocks' | 'mempool')}>{tb.id === 'mempool' ? `${t(tb.label)} (${mempoolTotal})` : t(tb.label)}</button>
     {/each}
   </div>
   <div class="table-box">

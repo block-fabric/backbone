@@ -1,5 +1,6 @@
 <script lang="ts">
   // Coin control: choose the coins a transaction spends (CoinControlDialog), by address or in a list.
+  import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
   import ContextMenu, { type ContextItem } from './ContextMenu.svelte';
   import Dialog from './Dialog.svelte';
@@ -268,7 +269,7 @@
                   <input type="checkbox" aria-label="Spend the coins of this address" checked={state === 'all'} indeterminate={state === 'some'} onchange={() => toggleGroup(g)} />
                 </td>
                 <td class="num end"><Amount sats={g.coins.reduce((s, c) => s + c.sats, 0n)} showUnit={false} /></td>
-                <td>{g.label || '(no label)'}</td>
+                <td>{#if g.label}<SafeText text={g.label} />{:else}(no label){/if}</td>
                 <td class="mono addr">
                   <button type="button" class="expander" aria-expanded={expanded.has(g.address)} onclick={() => toggleOpen(g)}>
                     <span aria-hidden="true">{expanded.has(g.address) ? '▾' : '▸'}</span> {g.address} <span class="muted">({g.coins.length})</span>

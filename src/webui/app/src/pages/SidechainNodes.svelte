@@ -2,6 +2,8 @@
   // The Sidechain Nodes window of chains-qt: run the nodes of sidechains from here. Their programs
   // are located on this computer or downloaded (with a hash check); a node started here follows
   // this node, mines its blocks through the miners of this chain, and holds what is deposited.
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from '../components/SafeText.svelte';
   import Icon from '../components/Icon.svelte';
   import { confirm, errorText, inform, prompt } from '../lib/dialogs.svelte';
   import { formatCount } from '../lib/format';
@@ -161,10 +163,10 @@
       {@const st = status[s.stem]}
       <button type="button" role="radio" aria-checked={selected === s.stem} class="card panel" class:chosen={selected === s.stem} onclick={() => (selected = s.stem)} title={s.description}>
         <span class="top">
-          <strong>{s.name}</strong>
-          <span class="state {nodeText(s)}"><span class="dot"></span>{nodeText(s)}</span>
+          <strong><SafeText text={s.name} /></strong>
+          <span class="state {nodeText(s)}"><span class="dot"></span>{t(nodeText(s))}</span>
         </span>
-        <span class="muted desc">{s.description}</span>
+        <span class="muted desc">{t(s.description)}</span>
         <span class="facts-row">
           <span><span class="faint">Slot</span> <span class="num">{s.slot}</span></span>
           {#if st?.running}<span><span class="faint">Blocks</span> <span class="num">{formatCount(st.blocks ?? 0)}</span></span>{/if}

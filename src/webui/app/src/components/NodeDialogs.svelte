@@ -1,5 +1,6 @@
 <script lang="ts">
   // Messages and questions of the node that wait for the user (errors at start, a reindex to confirm...).
+  import SafeText from './SafeText.svelte';
   import Dialog from './Dialog.svelte';
   import { host } from '../lib/rpc';
   import { app } from '../lib/state.svelte';
@@ -23,7 +24,7 @@
 {#if current}
   <Dialog open={true} title={current.title} dismissable={current.kind === 'message'} onclose={() => answer(current.kind === 'question' ? false : null)}>
     <div class="body" class:error={current.level === 'error'}>
-      <p class="break">{current.message}</p>
+      <p class="break"><SafeText text={current.message} /></p>
       {#if current.question}<p>{current.question}</p>{/if}
       {#if current.details?.length}
         <ul>

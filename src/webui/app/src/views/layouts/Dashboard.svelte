@@ -2,6 +2,7 @@
   // Dashboard: a home of live cards (views/home/Home.svelte), every page in the sidebar, a light
   // bar above the page (where you are, the palette, the wallet, the notifications, the light/dark
   // switch), the detail panel or the Send/Receive side panel, the status bar.
+  import { t } from '../../lib/i18n.svelte';
   import DetailPanel from '../../components/DetailPanel.svelte';
   import Icon from '../../components/Icon.svelte';
   import PaletteButton from '../../components/PaletteButton.svelte';
@@ -41,7 +42,7 @@
           <button type="button" class="link" onclick={() => go('home')}><Icon name="home" size={15} /> Home</button>
           <span class="sep" aria-hidden="true">/</span>
           {#if section}<span class="muted">{section}</span><span class="sep" aria-hidden="true">/</span>{/if}
-          <span class="here" aria-current="page">{PAGES[nav.page].title}</span>
+          <span class="here" aria-current="page">{t(PAGES[nav.page].title)}</span>
         {/if}
       </nav>
       <PaletteButton />

@@ -1,6 +1,8 @@
 <script lang="ts">
   // The peers tab of the node window: the peers (PeerTableModel) with the details of the one
   // selected, a menu to disconnect or ban it, and the banned addresses (BanTableModel) to unban.
+  import SafeText from './SafeText.svelte';
+  import { t } from '../lib/i18n.svelte';
   import ContextMenu, { type ContextItem } from './ContextMenu.svelte';
   import DataTable from './DataTable.svelte';
   import Icon from './Icon.svelte';
@@ -133,11 +135,11 @@
       <DataTable rows={peers} {columns} key={(p) => String(p.id)} bind:selected bind:sortKey bind:sortDir label="Peers" empty="No peers connected" oncontext={(p, e) => (menu = { open: true, x: e.clientX, y: e.clientY, peer: p })}>
         {#snippet cell(p, column)}
           {#if column.key === 'age'}{shortDuration(now - p.conntime)}
-          {:else if column.key === 'ping'}{pingText(p.pingtime)}
+          {:else if column.key === 'ping'}{t(pingText(p.pingtime))}
           {:else if column.key === 'sent'}{formatBytes(p.bytessent)}
           {:else if column.key === 'recv'}{formatBytes(p.bytesrecv)}
           {:else if column.key === 'direction'}<span class="dir" class:inbound={p.inbound}><Icon name={p.inbound ? 'down' : 'up'} size={13} /> {p.inbound ? 'Inbound' : 'Outbound'}</span>
-          {:else}{String(column.value(p) ?? '')}{/if}
+          {:else}<SafeText text={String(column.value(p) ?? '')} />{/if}
         {/snippet}
       </DataTable>
     </div>
@@ -165,7 +167,7 @@
         <button type="button" class="btn ghost small icon" aria-label="Hide the details" title="Hide" onclick={() => (selected = null)}><Icon name="x" size={16} /></button>
       </div>
       <dl class="facts panel-body">
-        {#each peerDetails(peer, now) as row (row.label)}<dt>{row.label}</dt><dd>{row.value}</dd>{/each}
+        {#each peerDetails(peer, now) as row (row.label)}<dt>{t(row.label)}</dt><dd translate="no">{row.value}</dd>{/each}
       </dl>
       <div class="panel-body row actions">
         <button type="button" class="btn small" onclick={() => disconnect(peer)}>Disconnect</button>

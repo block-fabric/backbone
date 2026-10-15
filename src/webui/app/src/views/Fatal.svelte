@@ -1,5 +1,6 @@
 <script lang="ts">
   // An error the app cannot go on after: what happened, and quit.
+  import { t, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import { host } from '../lib/rpc';
 
@@ -8,8 +9,8 @@
 
 <main class="fatal">
   <div class="card" role="alertdialog" aria-labelledby="fatal-title" aria-describedby="fatal-message">
-    <h1 id="fatal-title">{data.title ?? 'Error'}</h1>
-    <p id="fatal-message" class="break">{data.message}</p>
+    <h1 id="fatal-title">{t(data.title ?? 'Error')}</h1>
+    <p id="fatal-message" class="break">{tx(data.message ?? '')}</p>
     {#if data.details?.length}
       <ul class="details">
         {#each data.details as d, i (i)}<li class="mono break">{d}</li>{/each}

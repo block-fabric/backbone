@@ -1,6 +1,7 @@
 <script lang="ts">
   // What a page that needs a wallet shows without one: how to get one, or that this node runs without
   // wallets (-disablewallet), as chains-qt then shows no wallet pages at all.
+  import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import { go, type PageInfo } from '../lib/nav.svelte';
   import { walletsEnabled } from '../lib/state.svelte';
@@ -9,11 +10,11 @@
 </script>
 
 <div class="page no-wallet">
-  <header class="page-head"><h1>{page.title}</h1></header>
+  <header class="page-head"><h1>{t(page.title)}</h1></header>
   <div class="panel body">
     <Icon name={page.icon} size={40} />
     <div>
-      <p class="summary">{page.summary}.</p>
+      <p class="summary">{t(page.summary)}.</p>
       {#if walletsEnabled()}
         <p class="muted">This page needs a wallet, and none is open. Create a new wallet, or open one of the wallets of this node.</p>
         <div class="actions">

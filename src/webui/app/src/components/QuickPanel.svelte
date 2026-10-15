@@ -2,6 +2,8 @@
   // Send and Receive at the right of the dashboard's home (lib/quick.svelte.ts): one recipient and
   // a big Send button; a new address with its QR code. The Send and Receive pages stay for the
   // rest (several recipients, coin control, PSBT, the requests made before). Escape closes it.
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from './SafeText.svelte';
   import AddressInput from './AddressInput.svelte';
   import Amount from './Amount.svelte';
   import AmountInput from './AmountInput.svelte';
@@ -124,7 +126,7 @@
     <header>
       <div class="modes" role="tablist" aria-label="Send or receive">
         {#each MODES as m (m.id)}
-          <button type="button" role="tab" aria-selected={quick.mode === m.id} onclick={() => (quick.mode = m.id)}><Icon name={m.icon} size={16} /> {m.label}</button>
+          <button type="button" role="tab" aria-selected={quick.mode === m.id} onclick={() => (quick.mode = m.id)}><Icon name={m.icon} size={16} /> {t(m.label)}</button>
         {/each}
       </div>
       <button type="button" class="btn round" aria-label="Close" title="Close (Esc)" onclick={closeQuick}><Icon name="x" size={16} /></button>
@@ -143,7 +145,7 @@
         <section class="box from">
           <div class="line">
             <span class="caps">From</span>
-            <span class="pill"><Icon name="wallet" size={14} /> {walletDisplayName(wallet)}</span>
+            <span class="pill"><Icon name="wallet" size={14} /> <SafeText text={walletDisplayName(wallet)} /></span>
           </div>
           <div class="line">
             <span class="muted">Available</span>
@@ -196,7 +198,7 @@
               <CopyButton text={uri} label="Copy URI" iconOnly={false} />
             </div>
             {#if made.label || made.amount}
-              <p class="muted small center">{made.label}{made.label && made.amount ? ' · ' : ''}{#if made.amount}<Amount sats={made.amount} />{/if}</p>
+              <p class="muted small center"><SafeText text={made.label} />{made.label && made.amount ? ' · ' : ''}{#if made.amount}<Amount sats={made.amount} />{/if}</p>
             {/if}
           </section>
         {/if}

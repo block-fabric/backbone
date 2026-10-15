@@ -1,5 +1,7 @@
 <script lang="ts">
   // The dialogs a page waits for (lib/dialogs.svelte.ts): questions, a line of text, passphrases.
+  import SafeText from './SafeText.svelte';
+  import { t, tx } from '../lib/i18n.svelte';
   import { onDestroy } from 'svelte';
   import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
@@ -86,12 +88,12 @@
 
 {#if current?.kind === 'question'}
   {@const q = current}
-  <Dialog open={true} title={q.title} onclose={close}>
+  <Dialog open={true} title={t(q.title)} onclose={close}>
     <div class="question {q.level ?? 'info'}">
       <span class="mark" aria-hidden="true"><Icon name={q.level === 'error' || q.level === 'warning' ? 'alert' : q.level === 'question' ? 'info' : 'info'} size={26} /></span>
       <div class="grow">
-        <p class="message break">{q.message}</p>
-        {#if q.informative}<p class="informative break">{q.informative}</p>{/if}
+        <p class="message break">{tx(q.message)}</p>
+        {#if q.informative}<p class="informative break">{tx(q.informative)}</p>{/if}
         {#if q.code}
           <div class="code">
             <pre class="mono break">{q.code}</pre>
@@ -101,7 +103,7 @@
         {#if q.checkbox}
           <label class="check" title={q.checkbox.tip}>
             <input type="checkbox" bind:checked />
-            <span>{q.checkbox.label}</span>
+            <span>{t(q.checkbox.label)}</span>
           </label>
         {/if}
         {#if q.details?.length}
@@ -127,7 +129,7 @@
           data-choice={c.id}
           onclick={() => answer(q.id, { choice: c.id, checked })}
         >
-          {c.label}{left(c.delay) > 0 ? ` (${left(c.delay)})` : ''}
+          {t(c.label)}{left(c.delay) > 0 ? ` (${left(c.delay)})` : ''}
         </button>
       {/each}
     {/snippet}
@@ -143,9 +145,9 @@
         answer(p.id, text);
       }}
     >
-      {#if p.message}<p class="break">{p.message}</p>{/if}
+      {#if p.message}<p class="break">{tx(p.message)}</p>{/if}
       <div class="field">
-        <label for="prompt-input">{p.label}</label>
+        <label for="prompt-input">{t(p.label)}</label>
         <!-- svelte-ignore a11y_autofocus -->
         <input id="prompt-input" type="text" bind:value={text} autocomplete="off" spellcheck="false" autofocus />
       </div>
@@ -157,7 +159,7 @@
   </Dialog>
 {:else if current?.kind === 'passphrase'}
   {@const d = current}
-  <Dialog open={true} title={d.title} onclose={close}>
+  <Dialog open={true} title={t(d.title)} onclose={close}>
     <form
       class="stack"
       id="passphrase-form"
@@ -167,7 +169,7 @@
       }}
     >
       {#if d.error}<p class="error-box break" role="alert">{d.error}</p>{/if}
-      {#if d.wallet !== undefined}<p class="muted">Wallet: <strong>{walletDisplayName(d.wallet)}</strong></p>{/if}
+      {#if d.wallet !== undefined}<p class="muted">Wallet: <strong><SafeText text={walletDisplayName(d.wallet)} /></strong></p>{/if}
       {#if d.mode === 'encrypt'}
         <p>Enter the new passphrase for the wallet.<br />Please use a passphrase of <strong>ten or more random characters</strong>, or <strong>eight or more words</strong>.</p>
       {:else if d.mode === 'change'}

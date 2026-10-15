@@ -1,6 +1,7 @@
 <script lang="ts">
   // The address book (AddressBookPage): sending addresses to add, edit and delete; receiving
   // addresses whose label can be edited. Both searchable and exported as CSV.
+  import SafeText from '../components/SafeText.svelte';
   import ContextMenu, { type ContextItem } from '../components/ContextMenu.svelte';
   import DataTable from '../components/DataTable.svelte';
   import EditAddressDialog, { type EditMode } from '../components/EditAddressDialog.svelte';
@@ -95,7 +96,7 @@
 
 <div class="page addresses">
   <header class="page-head">
-    <h1>{tab === 'send' ? 'Sending addresses' : 'Receiving addresses'}{wallet !== null && wallets.list.length > 1 ? ` - ${walletDisplayName(wallet)}` : ''}</h1>
+    <h1>{tab === 'send' ? 'Sending addresses' : 'Receiving addresses'}{#if wallet !== null && wallets.list.length > 1} - <SafeText text={walletDisplayName(wallet)} />{/if}</h1>
   </header>
   <div class="tabs" role="tablist" aria-label="Addresses">
     <button type="button" role="tab" aria-selected={tab === 'send'} onclick={() => setTab('send')}>Sending</button>
@@ -135,7 +136,7 @@
       oncontext={(r, e) => (menu = { open: true, x: e.clientX, y: e.clientY })}
     >
       {#snippet cell(row, column)}
-        {#if column.key === 'label'}<span class:faint={!row.label} translate={row.label ? 'no' : undefined}>{row.label || '(no label)'}</span>{:else}{row.address}{/if}
+        {#if column.key === 'label'}{#if row.label}<SafeText text={row.label} />{:else}<span class="faint">(no label)</span>{/if}{:else}<SafeText text={row.address} />{/if}
       {/snippet}
     </DataTable>
   </div>

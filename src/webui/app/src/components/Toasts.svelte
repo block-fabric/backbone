@@ -1,5 +1,6 @@
 <script lang="ts">
   // Short notices in a corner: copied, sent, a warning of the node.
+  import { t, tx } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import { dismissToast, toasts } from '../lib/state.svelte';
 
@@ -13,21 +14,21 @@
   {#if hidden > 0}
     <button type="button" class="more" onclick={() => dismissToast(toasts.list[0].id)} title="Dismiss the oldest">{hidden} more</button>
   {/if}
-  {#each shown as t (t.id)}
-    <div class="toast {t.kind}">
-      <Icon name={t.kind === 'success' ? 'check' : t.kind === 'info' ? 'info' : 'alert'} size={18} />
+  {#each shown as toast (toast.id)}
+    <div class="toast {toast.kind}">
+      <Icon name={toast.kind === 'success' ? 'check' : toast.kind === 'info' ? 'info' : 'alert'} size={18} />
       <div class="grow">
-        <strong>{t.title}</strong>
-        {#if t.message}<p class="break">{t.message}</p>{/if}
-        {#if t.actions?.length}
+        <strong>{t(toast.title)}</strong>
+        {#if toast.message}<p class="break">{tx(toast.message)}</p>{/if}
+        {#if toast.actions?.length}
           <div class="acts">
-            {#each t.actions as a (a.label)}
-              <button type="button" class="btn small" onclick={() => { dismissToast(t.id); a.run(); }}>{a.label}</button>
+            {#each toast.actions as a (a.label)}
+              <button type="button" class="btn small" onclick={() => { dismissToast(toast.id); a.run(); }}>{t(a.label)}</button>
             {/each}
           </div>
         {/if}
       </div>
-      <button type="button" class="btn ghost icon small" aria-label="Dismiss" onclick={() => dismissToast(t.id)}>✕</button>
+      <button type="button" class="btn ghost icon small" aria-label="Dismiss" onclick={() => dismissToast(toast.id)}>✕</button>
     </div>
   {/each}
 </div>

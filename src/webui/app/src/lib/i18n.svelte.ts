@@ -1,12 +1,22 @@
 // The language of the interface. The messages come from the catalogs of chains-qt (made into
 // public/locales by scripts/i18n.mjs), as the host gives them (app.locale).
 //
-// The interface is written in English. What it shows is translated where it is shown: a translator
-// follows the page (a MutationObserver) and puts in place of each text, tooltip, placeholder and label
-// that is a message of the catalog its translation, also when the message has numbers or names in it
-// ("%1 behind", "%n GB of space available"). Text from the chain, the wallet or the user is never
-// translated: it is shown inside elements marked translate="no". Code that builds text itself can use
-// t() and tn().
+// The interface is written in English, and only its own words are translated: translation is opt-in.
+// - The text written in the templates of the components (static text, and the title, placeholder,
+//   aria-label and alt attributes, with what is put in them) is made into calls of t() when the
+//   components are compiled (scripts/i18n-preprocess.mjs). Only the template is looked up in the
+//   catalog; the values put in it are spliced in as they are, never translated nor matched.
+// - Words of the app held in code (the labels of tabs and menus, the titles of dialogs) are translated
+//   where they are shown, with t() or tn().
+// - Text from the chain, peers, the wallet or the user is never translated: it is shown with SafeText
+//   (components/SafeText.svelte, translate="no"), and a test (i18n-lint.test.ts) finds the places that
+//   show such fields without it.
+// Nothing looks at the page (no MutationObserver): a label that reads like a message of the app is shown
+// as it is, in every language.
+//
+// Messages with placeholders ("%1 behind", "%n GB of space available") are matched by a token matcher,
+// not a regular expression: the literal parts are found with indexOf from left to right, without
+// backtracking, in text of at most MAX_MATCHED characters.
 import { on, request } from './bridge';
 
 export type Message = string | string[];
@@ -21,9 +31,13 @@ export interface Locale {
 /** The language shown ('' for English), for the parts of the interface that follow it. */
 export const i18n = $state({ code: '', name: 'English', rtl: false, version: 0 });
 
+/** The longest text tried against the messages with placeholders. */
+export const MAX_MATCHED = 300;
+
 interface Pattern {
   source: string;
-  re: RegExp;
+  /** The literal parts of the message, around its placeholders: holders.length + 1 of them. */
+  parts: string[];
   /** The placeholders of the message, in the order they come in it ("%1", "%n"...). */
   holders: string[];
   value: Message;
@@ -33,23 +47,34 @@ let exact = new Map<string, Message>();
 /** The same, by the message in lower case: the interface writes "Pay to" where chains-qt wrote "Pay To". */
 let folded = new Map<string, Message>();
 let patterns: Pattern[] = [];
-const cache = new Map<string, string | null>();
+let bySource = new Map<string, Pattern>();
 
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** What a template of the app becomes: the message found and what its placeholders hold (in the template). */
+interface Resolved {
+  value: Message;
+  values: Record<string, string>;
 }
+const templateCache = new Map<string, Resolved | null>();
+const textCache = new Map<string, string | null>();
+
+const HOLDER = /%[0-9n]/g;
+/** A number as the interface writes it, with its separators (for %n). Linear: no nested repetition. */
+const NUMBER = /^-?\d[\d   ,.]*$/;
 
 /** Use a catalog (null: English). */
 export function setCatalog(locale: Locale | null): void {
   exact = new Map();
   folded = new Map();
   patterns = [];
-  cache.clear();
+  bySource = new Map();
+  templateCache.clear();
+  textCache.clear();
   i18n.code = locale?.code ?? '';
   i18n.name = locale?.name ?? 'English';
   i18n.rtl = !!locale?.rtl;
   for (const [source, value] of Object.entries(locale?.messages ?? {})) {
-    if (!/%[0-9n]/.test(source)) {
+    const holders = source.match(HOLDER) ?? [];
+    if (holders.length === 0) {
       if (typeof value === 'string') {
         exact.set(source, value);
         const key = source.toLowerCase();
@@ -57,21 +82,15 @@ export function setCatalog(locale: Locale | null): void {
       }
       continue;
     }
-    const holders: string[] = [];
-    const re = source
-      .split(/(%[0-9n])/)
-      .map((part) => {
-        if (/^%[0-9n]$/.test(part)) {
-          holders.push(part);
-          return part === '%n' ? '(-?\\d[\\d\\u202f\\u00a0 ,.]*)' : '(.+?)';
-        }
-        return escapeRe(part);
-      })
-      .join('');
-    patterns.push({ source, re: new RegExp(`^${re}$`, 's'), holders, value });
+    const parts = source.split(HOLDER);
+    // Two placeholders side by side cannot be told apart in a text: such a message is only used by its source.
+    const pattern = { source, parts, holders, value };
+    bySource.set(source, pattern);
+    if (parts.slice(1, -1).every((p) => p !== '')) patterns.push(pattern);
   }
-  // The longer messages first: "%1 behind" must not take what a longer one would.
-  patterns.sort((a, b) => b.re.source.length - a.re.source.length);
+  // The messages with the most literal text first: "%1 behind" must not take what a longer one would.
+  const literal = (p: Pattern) => p.parts.reduce((n, s) => n + s.length, 0);
+  patterns.sort((a, b) => literal(b) - literal(a));
   i18n.version++;
 }
 
@@ -91,182 +110,129 @@ export function pluralIndex(code: string, n: number, count: number): number {
   return Math.max(0, Math.min(index, count - 1));
 }
 
+/** Put the values in place of the placeholders, in one pass: what the values hold is not looked at again. */
 function fill(text: string, values: Record<string, string>): string {
-  return text.replace(/%[0-9n]/g, (h) => values[h] ?? h);
+  return text.replace(HOLDER, (h) => values[h] ?? h);
 }
 
 function numberOf(text: string): number {
   return Number(text.replace(/[^\d-]/g, ''));
 }
 
-/** The translation of a text the page shows, or null when it is no message of the catalog. */
+/**
+ * The values of the placeholders of a message in a text, or null when the text is not that message.
+ * The literal parts are found from left to right (the first place each fits), with no going back: the
+ * time is linear in the length of the text.
+ */
+export function matchMessage(text: string, parts: string[]): string[] | null {
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const holders = parts.length - 1;
+  if (text.length < first.length + last.length + holders) return null;
+  if (!text.startsWith(first) || !text.endsWith(last)) return null;
+  const values: string[] = [];
+  let pos = first.length;
+  const end = text.length - last.length;
+  for (let i = 1; i < parts.length; i++) {
+    let next: number;
+    if (i === parts.length - 1) {
+      next = end;
+    } else {
+      next = text.indexOf(parts[i], pos + 1);
+      if (next < 0 || next + parts[i].length > end) return null;
+    }
+    // Every placeholder holds something.
+    if (next <= pos) return null;
+    values.push(text.slice(pos, next));
+    pos = next + parts[i].length;
+  }
+  return values;
+}
+
+function choose(value: Message, n: () => number): string {
+  return Array.isArray(value) ? value[pluralIndex(i18n.code, n(), value.length)] : value;
+}
+
+/** A message of the catalog that a text of the app is, with what its placeholders hold. */
+function resolve(text: string, numeric: (value: string) => boolean): Resolved | null {
+  const direct = exact.get(text) ?? (/\s/.test(text) ? folded.get(text.toLowerCase()) : undefined);
+  if (typeof direct === 'string') return { value: direct, values: {} };
+  const own = bySource.get(text);
+  if (own) return { value: own.value, values: Object.fromEntries(own.holders.map((h) => [h, h])) };
+  if (text.length > MAX_MATCHED) return null;
+  for (const p of patterns) {
+    const found = matchMessage(text, p.parts);
+    if (!found) continue;
+    const values: Record<string, string> = {};
+    p.holders.forEach((h, i) => (values[h] = found[i]));
+    if (values['%n'] !== undefined && !numeric(values['%n'])) continue;
+    return { value: p.value, values };
+  }
+  return null;
+}
+
+/**
+ * The translation of a text that the app made itself (the message of a dialog, a notice), or null when it
+ * is no message of the catalog. Never for text from the chain, peers or the user. Text longer than
+ * MAX_MATCHED is only looked up as a whole.
+ */
 export function translateText(text: string): string | null {
   if (exact.size === 0 && patterns.length === 0) return null;
-  const cached = cache.get(text);
+  const cached = textCache.get(text);
   if (cached !== undefined) return cached;
-  let out: string | null = null;
-  const direct = exact.get(text) ?? (/\s/.test(text) ? folded.get(text.toLowerCase()) : undefined);
-  if (typeof direct === 'string') {
-    out = direct;
-  } else {
-    for (const p of patterns) {
-      const m = text.match(p.re);
-      if (!m) continue;
-      const values: Record<string, string> = {};
-      p.holders.forEach((h, i) => (values[h] = m[i + 1]));
-      const form = Array.isArray(p.value) ? p.value[pluralIndex(i18n.code, numberOf(values['%n'] ?? '0'), p.value.length)] : p.value;
-      out = fill(form, values);
-      break;
-    }
-  }
-  if (cache.size > 20000) cache.clear();
-  cache.set(text, out);
+  const found = resolve(text, (v) => NUMBER.test(v.trim()));
+  const out = found ? fill(choose(found.value, () => numberOf(found.values['%n'] ?? '0')), found.values) : null;
+  if (textCache.size > 5000) textCache.clear();
+  textCache.set(text, out);
   return out;
 }
 
-/** A message in the language shown, with %1, %2... filled in. */
-export function t(source: string, ...args: (string | number)[]): string {
+/** translateText, or the text itself. */
+export function tx(text: string): string {
   void i18n.version;
-  const value = exact.get(source) ?? patterns.find((p) => p.source === source)?.value;
-  const text = typeof value === 'string' ? value : source;
-  return fill(text, Object.fromEntries(args.map((a, i) => [`%${i + 1}`, String(a)])));
+  return translateText(text) ?? text;
+}
+
+function template(source: string): Resolved | null {
+  const cached = templateCache.get(source);
+  if (cached !== undefined) return cached;
+  // A template of the app: its placeholders (%1, %2...) stand for values; the number of %n is in them.
+  const found = exact.size === 0 && patterns.length === 0 ? null : resolve(source, () => true);
+  // Templates of the app are few; words of the app put together in code (t(label)) can be more.
+  if (templateCache.size > 5000) templateCache.clear();
+  templateCache.set(source, found);
+  return found;
+}
+
+/**
+ * A message of the app in the language shown, with %1, %2... filled in. The source is looked up in the
+ * catalog (also as a part of a longer message of the catalog: "%1 hours behind" is "%1 behind"); the
+ * values are put in as they are.
+ */
+export function t(source: string, ...args: unknown[]): string {
+  void i18n.version;
+  const values: Record<string, string> = Object.fromEntries(args.map((a, i) => [`%${i + 1}`, a === null || a === undefined ? '' : String(a)]));
+  const found = template(source);
+  if (!found) return fill(source, values);
+  const form = choose(found.value, () => numberOf(fill(found.values['%n'] ?? '0', values)));
+  return fill(fill(form, found.values), values);
 }
 
 /** A message with plural forms (%n), in the language shown. */
-export function tn(source: string, n: number, ...args: (string | number)[]): string {
+export function tn(source: string, n: number, ...args: unknown[]): string {
   void i18n.version;
-  const values = { '%n': String(n), ...Object.fromEntries(args.map((a, i) => [`%${i + 1}`, String(a)])) };
-  const pattern = patterns.find((p) => p.source === source);
-  if (pattern && Array.isArray(pattern.value)) return fill(pattern.value[pluralIndex(i18n.code, n, pattern.value.length)], values);
-  return translateText(fill(source, values)) ?? fill(source, values);
+  const values: Record<string, string> = { '%n': String(n), ...Object.fromEntries(args.map((a, i) => [`%${i + 1}`, a === null || a === undefined ? '' : String(a)])) };
+  const found = template(source);
+  if (!found) return fill(source, values);
+  const form = choose(found.value, () => n);
+  return fill(fill(form, found.values), values);
 }
 
-// --- The translator of the page ---
-
-const ATTRIBUTES = ['title', 'placeholder', 'aria-label', 'alt'];
-/** Elements whose text is never translated (code, the text typed in a field); their attributes still are. */
-const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'CODE', 'PRE']);
-/** The English a text node or an attribute showed, before it was translated. */
-const textOriginal = new WeakMap<Node, string>();
-const textWritten = new WeakMap<Node, string>();
-const attrOriginal = new WeakMap<Element, Map<string, string>>();
-const attrWritten = new WeakMap<Element, Map<string, string>>();
-let observer: MutationObserver | null = null;
-
-/** Whether the text of an element is not to be translated. */
-function excluded(el: Element | null): boolean {
-  for (let e = el; e; e = e.parentElement) {
-    if (SKIP.has(e.tagName) || e.getAttribute('translate') === 'no' || (e as HTMLElement).isContentEditable) return true;
-  }
-  return false;
-}
-
-/** Whether the attributes of an element are not to be translated (only translate="no" says so). */
-function excludedAttributes(el: Element): boolean {
-  for (let e: Element | null = el; e; e = e.parentElement) if (e.getAttribute('translate') === 'no' || e.tagName === 'SCRIPT' || e.tagName === 'STYLE') return true;
-  return false;
-}
-
-function translateTextNode(node: Text): void {
-  const current = node.nodeValue ?? '';
-  if (textWritten.get(node) === current) return;
-  // New text from the page: English, as it is written.
-  textOriginal.set(node, current);
-  apply(node, current);
-}
-
-function apply(node: Text, original: string): void {
-  const core = original.trim();
-  let next = original;
-  if (core && /\p{L}/u.test(core)) {
-    const tr = translateText(core);
-    if (tr !== null) next = original.replace(core, tr);
-  }
-  if (node.nodeValue !== next) {
-    textWritten.set(node, next);
-    node.nodeValue = next;
-  } else {
-    textWritten.set(node, next);
-  }
-}
-
-function translateAttribute(el: Element, name: string): void {
-  const current = el.getAttribute(name);
-  if (current === null) return;
-  if (attrWritten.get(el)?.get(name) === current) return;
-  let originals = attrOriginal.get(el);
-  if (!originals) attrOriginal.set(el, (originals = new Map()));
-  originals.set(name, current);
-  applyAttribute(el, name, current);
-}
-
-function applyAttribute(el: Element, name: string, original: string): void {
-  const tr = original.trim() ? translateText(original.trim()) : null;
-  const next = tr ?? original;
-  let written = attrWritten.get(el);
-  if (!written) attrWritten.set(el, (written = new Map()));
-  written.set(name, next);
-  if (el.getAttribute(name) !== next) el.setAttribute(name, next);
-}
-
-function walk(root: Node): void {
-  if (root.nodeType === Node.TEXT_NODE) {
-    if (!excluded(root.parentElement)) translateTextNode(root as Text);
-    return;
-  }
-  if (root.nodeType !== Node.ELEMENT_NODE) return;
-  const el = root as Element;
-  if (excludedAttributes(el)) return;
-  for (const a of ATTRIBUTES) if (el.hasAttribute(a)) translateAttribute(el, a);
-  for (const child of el.childNodes) walk(child);
-}
-
-/** Translate everything again from the English it showed (the language changed). */
-function retranslate(root: Node): void {
-  if (root.nodeType === Node.TEXT_NODE) {
-    const original = textOriginal.get(root);
-    if (original !== undefined && !excluded(root.parentElement)) apply(root as Text, original);
-    else if (!excluded(root.parentElement)) translateTextNode(root as Text);
-    return;
-  }
-  if (root.nodeType !== Node.ELEMENT_NODE) return;
-  const el = root as Element;
-  if (excludedAttributes(el)) return;
-  const originals = attrOriginal.get(el);
-  for (const a of ATTRIBUTES) {
-    const original = originals?.get(a);
-    if (original !== undefined && el.getAttribute(a) === attrWritten.get(el)?.get(a)) applyAttribute(el, a, original);
-    else if (el.hasAttribute(a)) translateAttribute(el, a);
-  }
-  for (const child of el.childNodes) retranslate(child);
-}
-
-/** Follow the page and translate it (from now on, and what it shows already). */
-export function installTranslator(root: Element = document.body): void {
-  if (typeof MutationObserver === 'undefined') return;
-  observer?.disconnect();
-  observer = new MutationObserver((records) => {
-    if (exact.size === 0 && patterns.length === 0) return;
-    for (const r of records) {
-      if (r.type === 'characterData') {
-        if (!excluded(r.target.parentElement)) translateTextNode(r.target as Text);
-      } else if (r.type === 'attributes') {
-        if (r.attributeName && !excludedAttributes(r.target as Element)) translateAttribute(r.target as Element, r.attributeName);
-      } else {
-        for (const n of r.addedNodes) walk(n);
-      }
-    }
-  });
-  observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ATTRIBUTES });
-  retranslate(root);
-}
-
-/** Show the page in the language of the catalog now (after setCatalog). */
-export function refreshPage(root: Element = document.body): void {
+/** Show the page in the language of the catalog now (after setCatalog): its language and direction. */
+export function refreshPage(): void {
   if (typeof document === 'undefined') return;
   document.documentElement.lang = i18n.code ? i18n.code.replace('_', '-') : 'en';
   document.documentElement.dir = i18n.rtl ? 'rtl' : 'ltr';
-  retranslate(root);
 }
 
 /** The language of the host, now; and again whenever it changes (the language option, applied). */

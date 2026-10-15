@@ -1,6 +1,7 @@
 <script lang="ts">
   // Partially signed transactions (WalletFrame::gotoLoadPSBT, PSBTOperationsDialog): loaded from a
   // file, the clipboard or pasted; signed with the wallet; broadcast; copied or saved.
+  import { tx } from '../lib/i18n.svelte';
   import Amount from '../components/Amount.svelte';
   import Icon from '../components/Icon.svelte';
   import { errorText, withUnlock } from '../lib/dialogs.svelte';
@@ -181,7 +182,7 @@
           </p>
         {/if}
         {#if ps.unsignedInputs > 0}<p>Transaction has {ps.unsignedInputs} unsigned input{ps.unsignedInputs === 1 ? '' : 's'}.</p>{/if}
-        {#if status}<p class="status {status.level}" role="status">{status.text}</p>{/if}
+        {#if status}<p class="status {status.level}" role="status">{tx(status.text)}</p>{/if}
         <div class="row buttons">
           <button type="button" class="btn primary" disabled={busy || !ps.canSign || wallet === null} onclick={sign}><Icon name="edit" size={16} /> Sign Tx</button>
           <button type="button" class="btn primary" disabled={busy || !ps.canBroadcast} onclick={broadcast}><Icon name="send" size={16} /> Broadcast Tx</button>

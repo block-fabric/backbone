@@ -1,5 +1,6 @@
 <script lang="ts">
   // The wallet shown, when the node has wallets loaded. As a pill in the top bars (`pill`).
+  import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import { selectWallet, wallets } from '../lib/state.svelte';
 
@@ -12,7 +13,7 @@
     {#if pill}<span class="wicon" aria-hidden="true"><Icon name="wallet" size={13} /></span>{/if}
     <select class:pill title="The wallet shown" value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
       {#each wallets.list as w (w.name)}
-        <option value={w.name}>{w.name === '' ? 'default wallet' : w.name}</option>
+        <option value={w.name} translate="no">{w.name === '' ? t('default wallet') : w.name}</option>
       {/each}
     </select>
   </label>

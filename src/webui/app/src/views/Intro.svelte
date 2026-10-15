@@ -1,5 +1,6 @@
 <script lang="ts">
   // The first start: where the node keeps its data, and whether it keeps every block (intro.cpp).
+  import { tx } from '../lib/i18n.svelte';
   import { host, type IntroData, type Space } from '../lib/rpc';
   import { app } from '../lib/state.svelte';
   import { backupDays, pathMessage } from '../lib/intro';
@@ -93,7 +94,7 @@
     </fieldset>
 
     <div class="space">
-      {#if pathState}<p class:error={pathState.error} class:muted={!pathState.error} id="intro-path">{pathState.text}</p>{/if}
+      {#if pathState}<p class:error={pathState.error} class:muted={!pathState.error} id="intro-path">{tx(pathState.text)}</p>{/if}
       {#if space?.error}
         <!-- No room to tell. -->
       {:else if freeGB !== null}

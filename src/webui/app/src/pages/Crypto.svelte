@@ -1,6 +1,7 @@
 <script lang="ts">
   // Crypto tools (CryptoToolsDialog of chains-qt): a hash calculator, a merkle tree of transaction
   // ids (or of a block), and an address decoder.
+  import { t } from '../lib/i18n.svelte';
   import CopyButton from '../components/CopyButton.svelte';
   import { errorText } from '../lib/dialogs.svelte';
   import { nav } from '../lib/nav.svelte';
@@ -103,8 +104,8 @@
 <div class="page crypto">
   <header class="page-head"><h1>Crypto tools</h1></header>
   <div class="tabs" role="tablist" aria-label="Crypto tools">
-    {#each TABS as t (t.id)}
-      <button type="button" role="tab" aria-selected={tab === t.id} onclick={() => (nav.tab = t.id)}>{t.label}</button>
+    {#each TABS as tb (tb.id)}
+      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
     {/each}
   </div>
 
@@ -121,7 +122,7 @@
         {:else if hashes}
           <dl class="hashes" id="hash-output">
             {#each HASH_ROWS as row (row.key)}
-              <dt>{row.label}</dt>
+              <dt>{t(row.label)}</dt>
               <dd><code class="break">{hashes[row.key]}</code><CopyButton text={String(hashes[row.key])} label="Copy {row.label}" /></dd>
             {/each}
           </dl>

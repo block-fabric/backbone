@@ -1,5 +1,6 @@
 <script lang="ts">
   // The bar at the bottom: sync, the chain as it grows, peers, the unit of amounts, the lock of the wallet.
+  import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import { css } from '../lib/actions';
   import { formatCount, formatTime, shortHash } from '../lib/format';
@@ -68,13 +69,13 @@
   <div class="sync" title={status?.detail} onclick={() => { if (status && !status.upToDate) nav.dialog = 'sync'; }}>
     {#if statusTip.text}
       <!-- The status tip of the menu item under the pointer (QStatusBar::showMessage of a status tip). -->
-      <span class="label tip" role="status">{statusTip.text}</span>
+      <span class="label tip" role="status">{t(statusTip.text)}</span>
     {:else if busy}
-      <span class="label">{busy.title}</span>
+      <span class="label">{t(busy.title)}</span>
       <progress max="100" value={busy.progress} aria-label={busy.title}></progress>
     {:else if status && !status.upToDate}
       <Icon name="history" size={16} />
-      <span class="label">{status.label}</span>
+      <span class="label">{t(status.label)}</span>
       <progress max="1" value={status.progress} aria-label="Verification progress"></progress>
       <span class="behind num">{status.behind}</span>
     {:else if status}

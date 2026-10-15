@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
   import { thirdPartyLinks } from '../lib/tools';
   // The history of the wallet (TransactionView, TransactionTableModel, TransactionFilterProxy):
   // filters, a long sortable table, details, fee bumps, abandoning, copying, the CSV export.
@@ -243,14 +244,14 @@
   {:else}
     <div class="filters" role="search">
       <select aria-label="Date" bind:value={dateFilter}>
-        {#each DATE_FILTERS as f (f.id)}<option value={f.id}>{f.label}</option>{/each}
+        {#each DATE_FILTERS as f (f.id)}<option value={f.id}>{t(f.label)}</option>{/each}
       </select>
       {#if dateFilter === 'range'}
         <label class="range">From <input type="date" bind:value={rangeFrom} /></label>
         <label class="range">to <input type="date" bind:value={rangeTo} /></label>
       {/if}
       <select aria-label="Type" bind:value={typeFilter}>
-        {#each TYPE_FILTERS as f (f.id)}<option value={f.id}>{f.label}</option>{/each}
+        {#each TYPE_FILTERS as f (f.id)}<option value={f.id}>{t(f.label)}</option>{/each}
       </select>
       <input type="search" class="grow search" placeholder="Enter address, transaction id, or label to search" aria-label="Search" bind:value={search} />
       <input type="text" class="min num" placeholder="Min amount" aria-label="Minimum amount" inputmode="decimal" bind:value={minText} aria-invalid={minInvalid ? 'true' : undefined} />
@@ -283,11 +284,11 @@
             <span class="cellwrap {rowClass(row)}" title={column.key === 'label' ? `${statusText(row)}\n${typeText(row.type)} ${addressText(row, true)}` : undefined}>
               {#if column.key === 'status'}<TxStatusIcon record={row} />
               {:else if column.key === 'date'}{narrow ? formatTime(row.time, true) : formatTime(row.time)}
-              {:else if column.key === 'type'}<span class="type {row.type}"><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /> {typeText(row.type) || 'Other'}</span>
+              {:else if column.key === 'type'}<span class="type {row.type}"><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /> {t(typeText(row.type) || 'Other')}</span>
               {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeText(row.type) || 'Other'}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span> {/if}<span class:bare={!row.label} translate="no">{addressText(row)}</span>
               {:else if column.key === 'amount'}
                 {#if prefs.mask}<Amount sats={row.amount} showUnit={false} />
-                {:else}<span class="amt" class:neg={row.amount < 0n}>{amountText(row, prefs.unit)}</span>{/if}
+                {:else}<span class="amt" class:neg={row.amount < 0n} translate="no">{amountText(row, prefs.unit)}</span>{/if}
               {/if}
             </span>
           {/snippet}

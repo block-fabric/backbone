@@ -2,6 +2,8 @@
   // The tables of the dashboard's home, in tabs: the recent transactions, the sidechains, the latest
   // blocks, the peers. Sortable headers, the state of each row as a coloured pill, a small trend,
   // and the actions of each row. The name of a row opens it in the detail panel.
+  import { t } from '../../lib/i18n.svelte';
+  import SafeText from '../../components/SafeText.svelte';
   import Amount from '../../components/Amount.svelte';
   import Icon from '../../components/Icon.svelte';
   import Sparkline from '../../components/Sparkline.svelte';
@@ -195,19 +197,19 @@
 <section class="panel tables" aria-label="Activity">
   <header>
     <div class="tabs-row" role="tablist" aria-label="Activity">
-      {#each TABS as t, i (t.id)}
+      {#each TABS as tb, i (tb.id)}
         <button
           type="button"
           role="tab"
-          id="home-tab-{t.id}"
-          aria-selected={tab === t.id}
+          id="home-tab-{tb.id}"
+          aria-selected={tab === tb.id}
           aria-controls="home-panel"
-          tabindex={tab === t.id ? 0 : -1}
-          onclick={() => (tab = t.id)}
+          tabindex={tab === tb.id ? 0 : -1}
+          onclick={() => (tab = tb.id)}
           onkeydown={(e) => tabKey(e, i)}
         >
-          {t.label}
-          {#if counts[t.id]}<span class="count">{counts[t.id]}</span>{/if}
+          {t(tb.label)}
+          {#if counts[tb.id]}<span class="count">{counts[tb.id]}</span>{/if}
         </button>
       {/each}
     </div>
@@ -240,13 +242,13 @@
                   <button type="button" class="row-name" disabled={prefs.mask} title={prefs.mask ? 'Hidden: privacy mode' : 'Show the details'} onclick={() => details(r)}>
                     <span class="bubble" class:in={r.amount >= 0n}><Icon name={r.type === 'mined' ? 'mine' : r.amount < 0n ? 'send' : 'receive'} size={16} /></span>
                     <span class="what">
-                      <span class="ellipsis strong">{addressText(r) || typeText(r.type) || 'Other'}</span>
-                      <span class="faint small">{typeText(r.type) || 'Other'}</span>
+                      <span class="ellipsis strong">{#if addressText(r)}<SafeText text={addressText(r)} />{:else}{t(typeText(r.type) || 'Other')}{/if}</span>
+                      <span class="faint small">{t(typeText(r.type) || 'Other')}</span>
                     </span>
                   </button>
                 </td>
                 <td class="muted small nowrap">{formatTime(r.time)}</td>
-                <td><span class="status {st.tone}">{st.label}</span></td>
+                <td><span class="status {st.tone}">{t(st.label)}</span></td>
                 <td class="trend-col"><Sparkline values={prefs.mask ? [] : trend(r)} tone={r.amount >= 0n ? 'up' : 'down'} /></td>
                 <td class="end"><Amount sats={r.amount} colored plus /></td>
                 <td class="end actions">
@@ -280,7 +282,7 @@
                 <td class="name">
                   <button type="button" class="row-name" onclick={() => showDetail({ kind: 'sidechain', slot: s.slot })}>
                     <span class="bubble slot num">{s.slot}</span>
-                    <span class="what"><span class="ellipsis strong">{s.title}</span><span class="faint small">Slot {s.slot}</span></span>
+                    <span class="what"><span class="ellipsis strong"><SafeText text={s.title} /></span><span class="faint small">Slot {s.slot}</span></span>
                   </button>
                 </td>
                 <td class="end"><Amount sats={coinsToSats(s.escrow?.amount ?? 0)} /></td>

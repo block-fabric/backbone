@@ -1,6 +1,7 @@
 <script lang="ts">
   // The multisig lounge (MultisigDialog of chains-qt): collect the keys of partners, make shared
   // addresses that need several signatures, and spend from them by passing a PSBT around.
+  import { t } from '../lib/i18n.svelte';
   import CopyButton from '../components/CopyButton.svelte';
   import Icon from '../components/Icon.svelte';
   import { confirm, errorText, inform, prompt, walletRpc } from '../lib/dialogs.svelte';
@@ -238,8 +239,8 @@
 <div class="page multisig">
   <header class="page-head"><h1>Multisig lounge</h1></header>
   <div class="tabs" role="tablist" aria-label="Multisig lounge">
-    {#each TABS as t (t.id)}
-      <button type="button" role="tab" aria-selected={tab === t.id} onclick={() => (nav.tab = t.id)}>{t.label}</button>
+    {#each TABS as tb (tb.id)}
+      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
     {/each}
   </div>
 
@@ -302,7 +303,7 @@
         {#each prefs.multisigAddresses as entry, i (entry.value)}
           <li class:chosen={selectedAddress === i}>
             <label class="pick"><input type="radio" name="address" checked={selectedAddress === i} onchange={() => (selectedAddress = i)} /> <strong translate="no">{entry.name}</strong></label>
-            <span class="badge accent">{signersText(entry.value)}</span>
+            <span class="badge accent">{t(signersText(entry.value))}</span>
             <span class="balance num">{balances[entry.value] ?? '?'} CHN</span>
             <code class="break">{addressOf[entry.value] ?? '…'}</code>
             <span class="copies">

@@ -1,6 +1,7 @@
 <script lang="ts">
   // A button that opens a menu of commands in sections (the menus of chains-qt, in one place).
   // Keyboard: Enter or Down opens it on its first item, arrows move, Home/End, Escape closes.
+  import { t } from '../lib/i18n.svelte';
   import Icon, { type IconName } from './Icon.svelte';
   import { css } from '../lib/actions';
   import type { Command } from '../lib/commands.svelte';
@@ -122,8 +123,8 @@
 {#if open}
   <div class="menu" id={menuId} role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown} use:css={{ left: `${pos.left}px`, top: `${pos.top}px`, 'max-height': `${pos.maxHeight}px` }}>
     {#each sections as section (section.title)}
-      <div class="section" role="group" aria-label={section.title}>
-        <div class="title" aria-hidden="true">{section.title}</div>
+      <div class="section" role="group" aria-label={t(section.title)}>
+        <div class="title" aria-hidden="true">{t(section.title)}</div>
         {#each section.items as c (c.id)}
           {#if c.separator}<div class="sep" role="separator"></div>{/if}
           <button
@@ -141,7 +142,7 @@
             onclick={() => run(c)}
           >
             <span class="mark" aria-hidden="true">{c.checked ? '✓' : ''}</span>
-            <span class="grow">{c.label}</span>
+            <span class="grow">{t(c.label)}</span>
             {#if c.shortcut}<kbd>{c.shortcut}</kbd>{/if}
           </button>
         {/each}

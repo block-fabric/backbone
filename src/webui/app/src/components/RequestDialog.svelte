@@ -1,5 +1,6 @@
 <script lang="ts">
   // A payment request: the QR code, the link, the address (ReceiveRequestDialog, QRImageWidget).
+  import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
   import CopyButton from './CopyButton.svelte';
   import Dialog from './Dialog.svelte';
@@ -69,11 +70,11 @@
         {/if}
         {#if request.label}
           <dt>Label</dt>
-          <dd class="break">{request.label}</dd>
+          <dd class="break"><SafeText text={request.label} /></dd>
         {/if}
         {#if request.message}
           <dt>Message</dt>
-          <dd class="break">{request.message}</dd>
+          <dd class="break"><SafeText text={request.message} /></dd>
         {/if}
         {#if wallet}
           <dt>Wallet</dt>

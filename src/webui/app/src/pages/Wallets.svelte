@@ -1,6 +1,7 @@
 <script lang="ts">
   // Wallets (WalletController and its activities, the wallet menu of chains-qt): create, open, close,
   // restore, migrate; encrypt, change the passphrase, unlock for a while, back up, export watch-only.
+  import SafeText from '../components/SafeText.svelte';
   import Dialog from '../components/Dialog.svelte';
   import Icon from '../components/Icon.svelte';
   import { ask, askPassphrase, confirm, errorText, inform, prompt } from '../lib/dialogs.svelte';
@@ -432,7 +433,7 @@
   <div class="grid">
     <section class="panel current" aria-labelledby="current-title">
       <div class="panel-head">
-        <h2 id="current-title" translate={name === null || name === '' ? undefined : 'no'}>{name === null ? 'No wallet loaded' : walletDisplayName(name)}</h2>
+        <h2 id="current-title">{#if name === null}No wallet loaded{:else}<SafeText text={walletDisplayName(name)} />{/if}</h2>
         {#if summary}
           <div class="badges">
             {#if summary.privateKeysDisabled}<span class="badge">watch-only</span>{/if}
@@ -503,7 +504,7 @@
           <li>
             <Icon name="wallet" />
             <span class="grow">
-              <strong>{walletDisplayName(w.name)}</strong>
+              <strong><SafeText text={walletDisplayName(w.name)} /></strong>
               {#if w.needsMigration}<span class="badge warning">needs migration</span>{/if}
               {#if w.loaded}<span class="badge accent">open</span>{/if}
             </span>

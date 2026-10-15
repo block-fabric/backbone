@@ -4,7 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { i18n, installTranslator, pluralIndex, refreshPage, setCatalog, t, tn, translateText } from '../lib/i18n.svelte';
+import { render } from '@testing-library/svelte';
+import { flushSync } from 'svelte';
+import I18nHarness from './I18nHarness.svelte';
+import { i18n, pluralIndex, refreshPage, setCatalog, t, tn, translateText } from '../lib/i18n.svelte';
 
 const APP = join(__dirname, '../..');
 const DE = { code: 'de', name: 'Deutsch', rtl: false, messages: { Send: 'Überweisen', 'Mask values': 'Werte ausblenden', '%1 behind': '%1 im Rückstand', 'Enter address or label to search': 'Zu suchende Adresse oder Bezeichnung eingeben', '%n GB of space available': ['%n GB freier Speicherplatz verfügbar', '%n GB freier Speicherplatz verfügbar'] } };
@@ -56,27 +59,28 @@ describe('a language', () => {
     expect(pluralIndex('de', 2, 2)).toBe(1);
   });
 
-  it('translates the page as it shows, but not the text of the user', async () => {
+  it('translates the words of the templates, and only them (opt-in)', async () => {
     setCatalog(DE);
-    document.body.innerHTML = `<main><button title="Mask values">Send</button><input placeholder="Enter address or label to search"><span translate="no">Send</span><p> Send </p></main>`;
-    installTranslator(document.body);
-    expect(document.querySelector('button')!.textContent).toBe('Überweisen');
-    expect(document.querySelector('button')!.title).toBe('Werte ausblenden');
-    expect((document.querySelector('input') as HTMLInputElement).placeholder).toBe('Zu suchende Adresse oder Bezeichnung eingeben');
-    expect(document.querySelector('span')!.textContent).toBe('Send');
-    expect(document.querySelector('p')!.textContent).toBe(' Überweisen ');
-    // What the page shows next is translated too (Svelte changes text nodes and adds elements).
-    const text = document.querySelector('p')!.firstChild as Text;
-    text.nodeValue = '5 hours behind';
-    document.querySelector('main')!.insertAdjacentHTML('beforeend', '<b>Mask values</b>');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(document.querySelector('p')!.textContent).toBe('5 hours im Rückstand');
-    expect(document.querySelector('b')!.textContent).toBe('Werte ausblenden');
-    // Back to English: what the page showed comes back.
+    const { container } = render(I18nHarness, { props: { hours: 5, label: 'Send' } });
+    const $ = (s: string) => container.querySelector(s) as HTMLElement;
+    expect($('button').textContent).toBe('Überweisen');
+    expect($('button').title).toBe('Werte ausblenden');
+    expect(($('input') as HTMLInputElement).placeholder).toBe('Zu suchende Adresse oder Bezeichnung eingeben');
+    expect($('#behind').textContent).toBe('5 hours im Rückstand');
+    expect($('#cond').textContent).toBe('Überweisen');
+    expect($('#tab-a').textContent).toBe('Werte ausblenden');
+    // Text from outside: as it is, with or without SafeText (SafeText also says translate="no").
+    expect($('#label').textContent).toBe('Send');
+    expect($('#label [translate="no"]')).toBeTruthy();
+    expect($('#bare').textContent).toBe('Send');
+    expect($('#no').textContent).toBe('Send');
+    expect($('code').textContent).toBe('Send');
+    // Another language, and back to English: the page follows.
     setCatalog(null);
+    flushSync();
+    expect($('button').textContent).toBe('Send');
+    expect($('#behind').textContent).toBe('5 hours behind');
     refreshPage();
-    expect(document.querySelector('button')!.textContent).toBe('Send');
-    expect(document.querySelector('b')!.textContent).toBe('Mask values');
     expect(document.documentElement.lang).toBe('en');
     setCatalog({ code: 'ar', name: 'العربية', rtl: true, messages: {} });
     refreshPage();

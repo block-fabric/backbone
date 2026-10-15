@@ -1,5 +1,7 @@
 <script lang="ts">
   // The node window (rpcconsole.cpp): information, console, network traffic, peers.
+  import { t } from '../lib/i18n.svelte';
+  import SafeText from '../components/SafeText.svelte';
   import ConsoleView from '../components/ConsoleView.svelte';
   import PeersView from '../components/PeersView.svelte';
   import TrafficGraph from '../components/TrafficGraph.svelte';
@@ -53,8 +55,8 @@
 <div class="page">
   <header class="page-head"><h1>Node window</h1></header>
   <div class="tabs" role="tablist" aria-label="Node window">
-    {#each TABS as t (t.id)}
-      <button type="button" role="tab" aria-selected={tab === t.id} title={t.key} onclick={() => (nav.tab = t.id)}>{t.label}</button>
+    {#each TABS as tb (tb.id)}
+      <button type="button" role="tab" aria-selected={tab === tb.id} title={tb.key} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
     {/each}
   </div>
   {#if warnings.length}
@@ -67,11 +69,11 @@
         <div class="panel-head"><h2>General</h2></div>
         <dl class="facts panel-body">
           <dt>Client version</dt><dd>{app.info?.version}</dd>
-          <dt>User agent</dt><dd class="mono">{net?.subversion ?? '–'}</dd>
+          <dt>User agent</dt><dd class="mono"><SafeText text={net?.subversion ?? '–'} /></dd>
           <dt>Datadir</dt><dd class="mono">{paths?.datadir ?? app.info?.datadir}</dd>
           <dt>Blocksdir</dt><dd class="mono">{paths?.blocksdir ?? '–'}</dd>
           <dt>Startup time</dt><dd>{startup ? formatTime(startup) : '–'}</dd>
-          <dt>Wallet</dt><dd>{wallets.current === null ? 'None' : walletDisplayName(wallets.current)}</dd>
+          <dt>Wallet</dt><dd>{#if wallets.current === null}None{:else}<SafeText text={walletDisplayName(wallets.current)} />{/if}</dd>
         </dl>
       </section>
       <section class="panel">
