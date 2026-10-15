@@ -28,7 +28,7 @@ def main():
     parser.add_argument("--tmp", required=True, type=Path, help="folder for the data directory (made anew)")
     parser.add_argument("--shots", required=True, type=Path, help="folder for the pictures")
     parser.add_argument("--port", type=int, default=29490)
-    parser.add_argument("--script", default="layouts.js", help="the page script: layouts.js, or titlebar.js (the integrated title bar)")
+    parser.add_argument("--script", default="layouts.js", help="the page script: layouts.js, titlebar.js (the integrated title bar), refresh.js, or walletcard.js (the card of the wallet)")
     args = parser.parse_args()
 
     if shutil.which("xvfb-run") is None:

@@ -50,6 +50,7 @@
   ]);
 
   const shownWallet = $derived(wallets.list.find((w) => w.name === wallets.current) ?? null);
+  const shownName = $derived(wallets.current ? wallets.current : t('default wallet'));
   const lock = $derived.by(() => {
     const w = shownWallet;
     if (!w) return null;
@@ -109,7 +110,8 @@
         <span class="avatar" aria-hidden="true"><Icon name="wallet" size={17} /></span>
         <div class="wc-name">
           <span class="caps">Wallet</span>
-          {#if wallets.list.length > 1}<WalletPicker />{:else}<span class="name">{wallets.current || 'default wallet'}</span>{/if}
+          <!-- The name keeps room of its own next to the unit; a long one ends in "…", whole in its tooltip. -->
+          {#if wallets.list.length > 1}<WalletPicker />{:else}<span class="name" translate="no" title={shownName}>{shownName}</span>{/if}
         </div>
         <select class="pill unit" aria-label="Unit of amounts" title="Unit of amounts" value={prefs.unit} onchange={(e) => savePrefs({ unit: (e.currentTarget as HTMLSelectElement).value as Unit })}>
           {#each UNITS as u (u.id)}<option value={u.id}>{u.short}</option>{/each}
@@ -267,8 +269,9 @@
   }
   .wc-top {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.5rem;
     min-width: 0;
   }
   .avatar {
@@ -282,11 +285,13 @@
     color: var(--on-accent);
     box-shadow: 0 0 20px -4px var(--accent);
   }
+  /* The name has room of its own: at least 5 characters or so beside the unit, or the unit goes under it
+     (a narrow sidebar, large text, 125 or 150 % on Windows). */
   .wc-name {
     display: flex;
     flex-direction: column;
-    min-width: 0;
-    flex: 1;
+    flex: 1 1 5rem;
+    min-width: 5rem;
   }
   .wc-name .caps {
     font-size: 0.66rem;
@@ -298,11 +303,16 @@
     white-space: nowrap;
   }
   .wc-name :global(select) {
+    width: 100%;
+    min-width: 0;
     min-height: 1.7rem;
-    padding: 0 1.6rem 0 0;
+    padding: 0 1.4rem 0 0;
     border: 0;
     background-color: transparent;
     font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
   }
   .wc-foot {
     display: flex;
@@ -318,9 +328,9 @@
   }
   .unit {
     flex: none;
-    width: 5.4rem;
+    width: 4.6rem;
     min-height: 1.75rem;
-    padding: 0 0.3rem 0 0.65rem;
+    padding: 0 0.2rem 0 0.55rem;
     font-size: 0.8rem;
   }
   .leave {

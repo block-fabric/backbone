@@ -11,7 +11,8 @@
   <label class="wallet" class:pill-wrap={pill}>
     <span class="sr-only">Wallet</span>
     {#if pill}<span class="wicon" aria-hidden="true"><Icon name="wallet" size={13} /></span>{/if}
-    <select class:pill title="The wallet shown" value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
+    <!-- Its tooltip is the whole name, for a name cut short. -->
+    <select class:pill title={wallets.current ? wallets.current : t('default wallet')} value={wallets.current ?? ''} onchange={(e) => selectWallet((e.currentTarget as HTMLSelectElement).value)}>
       {#each wallets.list as w (w.name)}
         <option value={w.name} translate="no">{w.name === '' ? t('default wallet') : w.name}</option>
       {/each}

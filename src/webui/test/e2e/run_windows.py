@@ -8,7 +8,7 @@ Copies chains-app.exe (and test_chains-app.exe, if given) to a folder of its own
 folder of the Windows user, and runs there, through the interop of WSL:
 
   - the unit tests of the host (test_chains-app.exe), with --unit;
-  - the page scripts of the Linux end-to-end tests (smoke.js, layouts.js, titlebar.js), each on
+  - the page scripts of the Linux end-to-end tests (smoke.js, layouts.js, titlebar.js, walletcard.js), each on
     regtest with a data directory of its own and ports of its own, with -webuitestscript: the
     window, the title bar, the bridge, the single instance (a second start hands a payment URI to
     the first one through the named pipe), and the pictures of the pages, copied back to --shots.
@@ -18,7 +18,7 @@ the chains: URI scheme is not registered (-webuitestscript), and only the proces
 the folder are ever stopped. The folder is removed at the end unless --keep.
 
     run_windows.py --app build_win/bin/chains-app.exe [--unit build_win/bin/test_chains-app.exe] \\
-        --shots <dir> [--scripts smoke,layouts,titlebar]
+        --shots <dir> [--scripts smoke,layouts,titlebar,walletcard]
 """
 
 import argparse
@@ -34,7 +34,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from run_smoke import script  # noqa: E402
 
-PORTS = {"smoke": 39470, "layouts": 39490, "titlebar": 39510}
+PORTS = {"smoke": 39470, "layouts": 39490, "titlebar": 39510, "walletcard": 39550}
 
 
 def win(cmd):
@@ -157,7 +157,7 @@ def main():
     parser.add_argument("--app", required=True, type=Path)
     parser.add_argument("--unit", type=Path, help="test_chains-app.exe, to run its tests on Windows first")
     parser.add_argument("--shots", required=True, type=Path, help="folder for the pictures (on the Linux side)")
-    parser.add_argument("--scripts", default="smoke,layouts,titlebar")
+    parser.add_argument("--scripts", default="smoke,layouts,titlebar,walletcard")
     parser.add_argument("--keep", action="store_true", help="keep the folder on Windows")
     args = parser.parse_args()
 
