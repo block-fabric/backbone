@@ -14,11 +14,15 @@
   import { clampFontAdjust, FONTS, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type FontChoice, type ThemeId } from '../lib/themes';
   import { UNITS, type Unit } from '../lib/units';
   import LayoutPicker from '../components/LayoutPicker.svelte';
+  import SafeText from '../components/SafeText.svelte';
+  import ThemeEditor from '../components/ThemeEditor.svelte';
+  import { effectiveColors } from '../lib/customthemes';
   import { frame } from '../lib/windowframe.svelte';
 
   // Appearance first: the look, the layout and the title bar (doc/webui-layouts.md).
   const TABS = [
     { id: 'display', label: 'Appearance' },
+    { id: 'theme', label: 'Advanced theme' },
     { id: 'main', label: 'Main' },
     { id: 'wallet', label: 'Wallet' },
     { id: 'network', label: 'Network' },
@@ -390,6 +394,8 @@
         <p class="hint">Minimize instead of exit the application when the window is closed. When this option is enabled, the application will be closed only after selecting Exit in the menu.</p>
       </div>
     </section>
+  {:else if tab === 'theme'}
+    <ThemeEditor />
   {:else if tab === 'display'}
     <section class="panel">
       <div class="panel-body form">
@@ -404,7 +410,16 @@
                 <span>{t(theme.name)}</span>
               </label>
             {/each}
+            {#each prefs.customThemes as theme (theme.id)}
+              {@const c = effectiveColors(theme)}
+              <label class="theme" class:chosen={prefs.theme === theme.id}>
+                <input type="radio" name="theme" class="sr-only" checked={prefs.theme === theme.id} onchange={() => stagePrefs({ theme: theme.id })} />
+                <span class="swatch" aria-hidden="true"><span style:background={c.bg}></span><span style:background={c.raised}></span><span style:background={c.accent}></span></span>
+                <SafeText text={theme.name} />
+              </label>
+            {/each}
           </div>
+          <p class="hint more">Create your own themes, and import or export theme files, in <button type="button" class="link" onclick={() => (nav.tab = 'theme')}>Advanced theme</button>.</p>
         </fieldset>
 
         <div class="cols">
@@ -627,6 +642,24 @@
   [data-swatch='qdarkstyle'] .swatch span:nth-child(1) { background: #19232d; }
   [data-swatch='qdarkstyle'] .swatch span:nth-child(2) { background: #32414b; }
   [data-swatch='qdarkstyle'] .swatch span:nth-child(3) { background: #1464a0; }
+  [data-swatch='mocha'] .swatch span:nth-child(1) { background: #181825; }
+  [data-swatch='mocha'] .swatch span:nth-child(2) { background: #2a2b3c; }
+  [data-swatch='mocha'] .swatch span:nth-child(3) { background: #cba6f7; }
+  [data-swatch='dracula'] .swatch span:nth-child(1) { background: #21222c; }
+  [data-swatch='dracula'] .swatch span:nth-child(2) { background: #303241; }
+  [data-swatch='dracula'] .swatch span:nth-child(3) { background: #bd93f9; }
+  .hint.more {
+    margin: 0.6rem 0 0;
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--link);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
   input[type='range'] {
     width: 18rem;
     accent-color: var(--accent);
