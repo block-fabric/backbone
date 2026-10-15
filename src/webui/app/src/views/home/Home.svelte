@@ -329,7 +329,7 @@
       <!-- This node's mining (user decision: the network's estimate is not what this node mines). -->
       <span class="value num" data-testid="mining-rate">{generate?.generate ? hashRate(generate.hashespersec) : t('Off')}</span>
       <dl class="pairs">
-        <dt title="An estimate from the difficulty and the times of recent blocks">Network</dt><dd class="num">{mining ? hashRate(mining.networkhashps) : '–'}</dd>
+        <dt title="An estimate from the difficulty and the times of recent blocks">Network</dt><dd class="num"><button type="button" class="link" data-testid="mining-network" title="Open the network hash estimator" onclick={() => go('mine', 'estimator')}>{mining ? hashRate(mining.networkhashps) : '–'}</button></dd>
         <dt>Difficulty</dt><dd class="num">{mining ? mining.difficulty.toPrecision(5) : '–'}</dd>
         <dt>Last block</dt><dd>{blocks[0] ? `${niceTimeOffset(Math.max(0, now - blocks[0].time))} ago` : '–'}</dd>
         <dt title="Blocks of the last {bmmWindow} that merged mined a sidechain, on average">BMM</dt><dd class="num">{bmmAverage === null ? '–' : `${bmmAverage}%`}</dd>
@@ -523,6 +523,20 @@
     text-align: right;
     font-weight: 600;
     font-size: 0.92rem;
+  }
+  /* The network's rate opens the estimator of the Mine page: a value that reads as a link. */
+  .pairs .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 0.2em;
+  }
+  .pairs .link:hover {
+    text-decoration-style: solid;
   }
   progress {
     width: 100%;

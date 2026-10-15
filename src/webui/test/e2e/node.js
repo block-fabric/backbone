@@ -260,6 +260,20 @@
     await check('mining: stopped', !(await rpc('getgenerate')).generate);
     both.push({ name: 'mine', page: 'mine', tab: '' });
 
+    // --- The network hash estimator (opened as from the Network line of the Home's Mining card) ---
+    const estimate = async () => {
+      await waitFor('the estimate', () => /\s(k|M|G|T|P|E)?H\/s$/.test(text('#estimator-network').trim()) && $('.estimator .chart path.line'), 60000);
+      set($('#estimator-rate'), '1 MH/s');
+      await waitFor('what 1 MH/s finds', () => text('#estimator-share').endsWith('%') && text('#estimator-time') !== '–', 10000);
+    };
+    await go('mine', 'estimator');
+    await estimate();
+    await check('estimator: the network rate, a chart, and a typed rate with its unit', $('#estimator-unit').value === 'MH/s' && $('#estimator-rate').value === '1' && text('#estimator-coins').includes('CHN'), `${$('#estimator-unit').value} ${$('#estimator-rate').value} ${text('#estimator-coins')}`);
+    set($('#estimator-window'), '20');
+    await waitFor('the 20-block window', () => /\s(k|M|G|T|P|E)?H\/s$/.test(text('#estimator-network').trim()), 10000);
+    await snapshot('mine-estimator-light');
+    both.push({ name: 'mine-estimator', page: 'mine', tab: 'estimator', prepare: estimate });
+
     // --- Timestamp a file ---
     await go('timestamp');
     await host('test.fileAnswer', { path: `${DIR}/stamp-me.txt` });

@@ -583,4 +583,18 @@ describe('the layouts', () => {
     await waitFor(() => expect(document.querySelector('[data-testid="mining-rate"]')?.textContent).toMatch(/1\.5\d* kH\/s|1,?500 H\/s/));
     generating = { generate: false, threads: 0, hashespersec: 0 };
   });
+
+  it("the Mining card's Network line opens the network hash estimator of the Mine page", async () => {
+    prefs.layout = 'dashboard';
+    go('home');
+    render(Shell);
+    const link = await waitFor(() => {
+      const el = document.querySelector<HTMLButtonElement>('[data-testid="mining-network"]');
+      expect(el?.textContent).toMatch(/12\.3\d* kH\/s/);
+      return el!;
+    });
+    link.click();
+    expect(nav.page).toBe('mine');
+    expect(nav.tab).toBe('estimator');
+  });
 });

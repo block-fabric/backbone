@@ -26,6 +26,7 @@ const std::map<std::string, Bridge::Thread>& Methods()
         {"getmempoolentry", WORKER},
         {"getmempoolinfo", WORKER},
         {"getmininginfo", WORKER},
+        {"getnetworkhashps", WORKER},
         {"getnetworkinfo", WORKER},
         {"getpeerinfo", WORKER},
         {"getrawmempool", WORKER},
