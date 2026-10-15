@@ -498,10 +498,12 @@ kbd {
   white-space: nowrap;
 }
 
+/* The tab shown: raised, its text bolder. No shadow: an underline drawn inside the rounded button looked
+   cut by its corners (user decision). */
 .tabs button[aria-selected='true'] {
   color: var(--text);
   background: var(--raised);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  font-weight: 650;
 }
 
 .tabs button:hover {
