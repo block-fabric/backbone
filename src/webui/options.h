@@ -39,7 +39,23 @@ public:
      */
     using Journal = std::function<void(const std::string& setting)>;
 
-    NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal = {});
+    /**
+     * Have the user choose a program for a setting that names one (title, the program set now): the file
+     * chooser of the desktop and a confirmation of the desktop, never a text of the page. Nothing when cancelled.
+     */
+    using ChooseProgramFn = std::function<std::optional<std::string>(const std::string& title, const std::string& current)>;
+
+    NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal = {}, ChooseProgramFn choose_program = {});
+
+    /**
+     * The settings that name a program the node runs (-signer). The page can only clear them (Set with an
+     * empty value); a program is set with ChooseProgram. The others (-blocknotify, -walletnotify,
+     * -alertnotify, -startupnotify, -shutdownnotify) are not settings of this page at all.
+     */
+    static bool NamesProgram(const std::string& name);
+
+    /** Set a setting that names a program (NamesProgram) to one the user chooses (ChooseProgramFn). @return Get(), or null when cancelled */
+    UniValue ChooseProgram(const std::string& name);
 
     /**
      * Every option with its value, as the Settings page shows them:
@@ -66,6 +82,7 @@ private:
     ArgsManager& m_args;
     RestartFlag m_restart;
     Journal m_journal;
+    ChooseProgramFn m_choose_program;
 };
 
 class AppConfig;

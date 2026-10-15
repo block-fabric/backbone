@@ -71,6 +71,22 @@
     signer = options.signer;
   });
 
+  async function chooseSigner() {
+    if (!options) return;
+    const before = options.restartRequired;
+    try {
+      const next = await host.chooseProgramOption('signer');
+      if (!next) return;
+      options = next;
+      signer = next.signer;
+      if (next.restartRequired && !before) changedNow = true;
+      if (next.restartRequired) changedNow = true;
+    } catch (e) {
+      toast('error', 'Settings', errorText(e));
+      await load();
+    }
+  }
+
   async function set<K extends keyof NodeOptionValues>(name: K, value: NodeOptionValues[K]) {
     if (!options) return;
     const before = options.restartRequired;
@@ -290,7 +306,12 @@
         </label>
         <div class="field">
           <label for="signer-path">External signer script path</label>
-          <input id="signer-path" type="text" class="mono" placeholder="Path to an HWI compatible script, e.g. /usr/local/bin/hwi" disabled={!options.externalSigner || ignored('signer')} bind:value={signer} onchange={() => set('signer', signer.trim())} />
+          <!-- A program the node runs: chosen in the file chooser of the desktop and confirmed there, never typed here. -->
+          <div class="row">
+            <input id="signer-path" type="text" class="mono" readonly placeholder="No HWI compatible program chosen" disabled={!options.externalSigner || ignored('signer')} value={signer} />
+            <button type="button" class="btn" disabled={!options.externalSigner || ignored('signer')} onclick={chooseSigner}>Choose…</button>
+            <button type="button" class="btn ghost" disabled={!options.externalSigner || ignored('signer') || !signer} onclick={async () => { await set('signer', ''); signer = options?.signer ?? ''; }}>Clear</button>
+          </div>
           <span class="hint">{options.externalSigner ? 'Full path to a Bitcoin Core compatible script (e.g. C:\\Downloads\\hwi.exe or /Users/you/Downloads/hwi.py). Beware: malware can steal your coins!' : 'Compiled without external signing support (required for external signing)'}</span>
         </div>
       </div>

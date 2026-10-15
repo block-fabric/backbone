@@ -159,6 +159,39 @@ describe('the settings wait for Apply (M7)', () => {
     await waitFor(() => expect(calls.find((c) => c.method === 'prefs.set')?.params).toEqual({ theme: 'matrix' }));
     expect(prefs.theme).toBe('matrix');
   });
+
+  it('takes the external signer only from the file chooser of the desktop, never as text (security audit 2026-10-14, 2b)', async () => {
+    const options = { ...OPTIONS, externalSigner: true };
+    const calls = host({
+      'options.get': () => ({ ...options }),
+      'options.set': (r) => {
+        const { name, value } = r.params as { name: string; value: unknown };
+        Object.assign(options, { [name]: value });
+        return { ...options };
+      },
+      // The host shows its file chooser and its confirmation, then answers.
+      'options.chooseProgram': () => Object.assign(options, { signer: '/usr/local/bin/hwi', restartRequired: true, pending: 1 }) && { ...options },
+      'tray.state': () => ({ available: true, visible: true, windowVisible: true }),
+    });
+    const { default: Settings } = await import('../pages/Settings.svelte');
+    nav.tab = 'wallet';
+    render(Settings);
+    const field = (await waitFor(() => screen.getByLabelText('External signer script path'))) as HTMLInputElement;
+    expect(field.readOnly).toBe(true);
+    // Typing changes nothing on the host.
+    field.value = '/tmp/evil';
+    await fireEvent.input(field);
+    await fireEvent.change(field);
+    expect(calls.some((c) => c.method === 'options.set' && (c.params as { name: string }).name === 'signer')).toBe(false);
+    await fireEvent.click(screen.getByRole('button', { name: 'Choose…' }));
+    await waitFor(() => expect((screen.getByLabelText('External signer script path') as HTMLInputElement).value).toBe('/usr/local/bin/hwi'));
+    expect(calls.find((c) => c.method === 'options.chooseProgram')?.params).toEqual({ name: 'signer' });
+    // Clear is the one thing the page sets: an empty value.
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await waitFor(() => expect((screen.getByLabelText('External signer script path') as HTMLInputElement).value).toBe(''));
+    const sets = calls.filter((c) => c.method === 'options.set').map((c) => c.params as { name: string; value: unknown });
+    expect(sets).toEqual([{ name: 'signer', value: '' }]);
+  });
 });
 
 describe('the smaller findings (L2 to L10)', () => {

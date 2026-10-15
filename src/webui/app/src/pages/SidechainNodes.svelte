@@ -94,14 +94,21 @@
     if (!amount?.trim()) return;
     await run('mineOnce', { amount: amount.trim() });
   }
+  // The app asks the user itself, in a dialog of the desktop showing the address, the hash and the folder,
+  // before anything is downloaded: this page only says what to download.
   async function download() {
     if (!chosen) return inform(TITLE, 'Select a sidechain in the list first.');
-    const url = (await prompt(TITLE, `Address of the release of ${chosen.name} to download (a .tar.gz archive):`))?.trim();
+    if (chosen.release) {
+      say([`${chosen.name}: the release ${chosen.release.version} built into this app`]);
+      await run('download', { release: true });
+      return;
+    }
+    // The app takes secure web addresses only, and says so.
+    const url = (await prompt(TITLE, `Address of the release of ${chosen.name} to download (a .tar.gz archive, at a secure web address):`))?.trim();
     if (!url) return;
     const sha256 = (await prompt(TITLE, 'SHA-256 hash that the publisher gives for it. The download is thrown away if it does not match:'))?.trim().toLowerCase();
     if (sha256 === undefined) return;
     if (!/^[0-9a-f]{64}$/.test(sha256)) return inform(TITLE, 'A SHA-256 hash is 64 hexadecimal characters. Programs that hold coins are not installed unchecked.', 'warning');
-    say([`${chosen.name}: downloading ${url}`]);
     await run('download', { url, sha256 });
   }
   async function addSidechain() {

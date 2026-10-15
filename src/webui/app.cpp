@@ -669,6 +669,27 @@ std::optional<std::string> App::Choose(const Window::FileDialog& dialog)
     return chosen;
 }
 
+bool App::Confirm(const Window::ConfirmDialog& dialog)
+{
+    {
+        LOCK(m_mutex);
+        if (!m_test_confirms.empty()) {
+            const bool answer{m_test_confirms.front()};
+            m_test_confirms.pop_front();
+            m_test_confirmed.push_back(dialog);
+            return answer;
+        }
+    }
+    auto done{std::make_shared<std::promise<bool>>()};
+    m_window->Post([this, dialog, done] { m_window->Confirm(dialog, [done](bool yes) { done->set_value(yes); }); });
+    auto future{done->get_future()};
+    while (future.wait_for(200ms) != std::future_status::ready) {
+        LOCK(m_mutex);
+        if (m_shutdown_requested) return false;
+    }
+    return future.get();
+}
+
 UniValue App::NetworkPrefs()
 {
     std::string network;
@@ -1073,6 +1094,9 @@ void App::RegisterHostMethods()
             dialog.title = title;
             dialog.start_dir = start;
             return Choose(dialog);
+        },
+        [this](const std::string& title, const std::string& message, const std::string& accept) {
+            return Confirm({.title = title, .message = message, .accept = accept});
         });
     m_sidechain_nodes->Register(b);
 
@@ -1098,6 +1122,18 @@ void App::RegisterHostMethods()
                 node = m_node.get();
             }
             if (node) m_options_journal->Record(*node, setting, PrefFlag("restartRequired", false));
+        }, [this](const std::string& title, const std::string& current) -> std::optional<std::string> {
+            // A program the node runs: chosen by the user in the file chooser of the desktop, then confirmed
+            // in a dialog of the desktop. Never a text of the page.
+            Window::FileDialog dialog;
+            dialog.title = title;
+            if (!current.empty()) dialog.start_dir = fs::PathToString(fs::PathFromString(current).parent_path());
+            const auto path{Choose(dialog)};
+            if (!path) return std::nullopt;
+            const std::string question{strprintf("%s\n\nProgram: %s\n\nThe node will run this program with your rights whenever it needs it. "
+                                                 "Accept only if you know what it is.", title, *path)};
+            if (!Confirm({.title = title, .message = question, .accept = "Use this program"})) return std::nullopt;
+            return path;
         }};
     }};
     const auto with_pending{[this](UniValue out) {
@@ -1122,6 +1158,16 @@ void App::RegisterHostMethods()
             throw HostError(BRIDGE_INVALID_REQUEST, e.what());
         }
     });
+    b.RegisterHost("options.chooseProgram", [options, with_pending](const UniValue& params) {
+        // A setting that names a program (the external signer): through the file chooser and a confirmation
+        // of the desktop. Null when the user cancelled.
+        try {
+            auto out{options().ChooseProgram(ParamStr(params, "name"))};
+            return out.isNull() ? out : with_pending(std::move(out));
+        } catch (const std::runtime_error& e) {
+            throw HostError(BRIDGE_INVALID_REQUEST, e.what());
+        }
+    }, Bridge::Thread::LONG);
     b.RegisterHost("options.validProxy", [](const UniValue& params) { return UniValue{NodeOptions::ValidProxyAddress(ParamStr(params, "address"))}; });
     b.RegisterHost("options.reset", [this, need_node](const UniValue&) {
         // As OptionsModel::Reset: settings.json backed up and reset, the settings of the app backed up and
@@ -1254,6 +1300,26 @@ void App::RegisterHostMethods()
             LOCK(m_mutex);
             m_test_files.push_back(Param(params, "path"));
             return UniValue{true};
+        });
+        b.RegisterHost("test.confirmAnswer", [this](const UniValue& params) {
+            // The answer of the next confirmation of the desktop (Window::Confirm): true for accepted.
+            const UniValue& yes{Param(params, "yes")};
+            if (!yes.isBool()) throw HostError(BRIDGE_INVALID_REQUEST, "yes: true or false");
+            LOCK(m_mutex);
+            m_test_confirms.push_back(yes.get_bool());
+            return UniValue{true};
+        });
+        b.RegisterHost("test.confirmed", [this](const UniValue&) {
+            // What the confirmations answered by the tests asked, in order.
+            LOCK(m_mutex);
+            UniValue out{UniValue::VARR};
+            for (const auto& d : m_test_confirmed) {
+                UniValue entry{UniValue::VOBJ};
+                entry.pushKV("title", d.title);
+                entry.pushKV("message", d.message);
+                out.push_back(std::move(entry));
+            }
+            return out;
         });
         b.RegisterHost("test.notifications", [this](const UniValue&) {
             LOCK(m_mutex);

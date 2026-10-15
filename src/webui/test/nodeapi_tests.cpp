@@ -5,6 +5,7 @@
 #include <addresstype.h>
 #include <base58.h>
 #include <common/args.h>
+#include <crypto/sha256.h>
 #include <key_io.h>
 #include <interfaces/node.h>
 #include <node/context.h>
@@ -266,9 +267,15 @@ BOOST_AUTO_TEST_CASE(node_options)
 {
     auto node{interfaces::MakeNode(m_node)};
     std::optional<bool> restart;
+    // What the file chooser and the confirmation of the desktop give for a program (nothing: cancelled).
+    std::optional<std::string> program;
+    int program_asked{0};
     webui::NodeOptions options{*node, *m_node.args, [&](std::optional<bool> set) {
         if (set) restart = *set;
         return restart.value_or(false);
+    }, {}, [&](const std::string&, const std::string&) {
+        ++program_asked;
+        return program;
     }};
     UniValue now{options.Get()};
     BOOST_CHECK(!now["prune"].get_bool());
@@ -326,8 +333,25 @@ BOOST_AUTO_TEST_CASE(node_options)
     BOOST_CHECK(!options.Get()["listen"].get_bool());
     options.Set("server", true);
     BOOST_CHECK(options.Get()["server"].get_bool());
-    options.Set("signer", "/usr/local/bin/hwi");
-    BOOST_CHECK_EQUAL(options.Get()["signer"].get_str(), "/usr/local/bin/hwi");
+    // The external signer is a program the node runs: the page cannot name one (audit 2026-10-14 item 2b),
+    // only the file chooser and the confirmation of the desktop can. The page can take it away.
+    BOOST_CHECK_THROW(options.Set("signer", "/usr/local/bin/hwi"), std::runtime_error);
+    BOOST_CHECK_EQUAL(options.Get()["signer"].get_str(), "");
+    BOOST_CHECK_EQUAL(program_asked, 0);
+    program.reset();
+    BOOST_CHECK(options.ChooseProgram("signer").isNull());
+    BOOST_CHECK_EQUAL(program_asked, 1);
+    BOOST_CHECK_EQUAL(options.Get()["signer"].get_str(), "");
+    program = "/usr/local/bin/hwi";
+    BOOST_CHECK_EQUAL(options.ChooseProgram("signer")["signer"].get_str(), "/usr/local/bin/hwi");
+    BOOST_CHECK_EQUAL(node->getPersistentSetting("signer").get_str(), "/usr/local/bin/hwi");
+    BOOST_CHECK_THROW(options.ChooseProgram("dbcache"), std::runtime_error);
+    for (const char* name : {"blocknotify", "walletnotify", "alertnotify", "startupnotify", "shutdownnotify"}) {
+        BOOST_CHECK_THROW(options.Set(name, "/bin/sh"), std::runtime_error);
+        BOOST_CHECK_THROW(options.ChooseProgram(name), std::runtime_error);
+    }
+    options.Set("signer", "");
+    BOOST_CHECK_EQUAL(options.Get()["signer"].get_str(), "");
     BOOST_CHECK_THROW(options.Set("listen", "yes"), std::runtime_error);
     BOOST_CHECK_THROW(options.Set("nosuchoption", true), std::runtime_error);
 
@@ -346,7 +370,17 @@ BOOST_AUTO_TEST_CASE(sidechain_nodes)
     m_node.args->ForceSetArg("-chain", "regtest");
     UniValue stored{UniValue::VOBJ};
     std::optional<std::string> folder;
-    webui::SidechainNodes nodes{*m_node.args, [&] { return stored; }, [&](const UniValue& v) { stored = v; }, [&](const std::string&, const std::string&) { return folder; }};
+    // The confirmations of the desktop: the answer given, and what they showed.
+    bool accept{false};
+    std::vector<std::string> asked;
+    const fs::path release_archive{m_args.GetDataDirBase() / "release.tar.gz"};
+    std::vector<webui::SidechainNodes::Release> releases{{"thunder", webui::SidechainNodes::Platform(), "1.0", "https://example.invalid/thunder-1.0.tar.gz", std::string(64, 'b')}};
+    webui::SidechainNodes nodes{*m_node.args, [&] { return stored; }, [&](const UniValue& v) { stored = v; }, [&](const std::string&, const std::string&) { return folder; },
+                                [&](const std::string&, const std::string& message, const std::string&) {
+                                    asked.push_back(message);
+                                    return accept;
+                                },
+                                releases};
 
     // A sidechain whose programs are scripts: the node writes where it was started, the client answers.
     const fs::path bin{m_args.GetDataDirBase() / "fakebin"};
@@ -446,9 +480,75 @@ esac
         BOOST_CHECK(!fs::exists(password_file));
     }
 
-    // Downloads only over the web, and only with a hash to check.
+    // Downloads only over https, only with a hash to check, and only once the user accepted them in a
+    // dialog of the desktop showing the address, the hash and the folder (audit 2026-10-14 item 2a).
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "file:///etc/passwd"}, {"sha256", std::string(64, 'a')}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "http://example.com/x.tar.gz"}, {"sha256", std::string(64, 'a')}})), webui::HostError);
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "https://example.com/x.tar.gz"}, {"sha256", "abc"}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "https://example.com/x.tar.gz"}, {"sha256", ""}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"release", true}})), webui::HostError);
+    BOOST_CHECK(asked.empty());
+    {
+        // curl and tar are scripts that say they ran: curl "downloads" a local archive.
+        const fs::path tools{m_args.GetDataDirBase() / "fakepath"};
+        fs::create_directories(tools);
+        const fs::path ran{m_args.GetDataDirBase() / "ran.txt"};
+        const fs::path source{m_args.GetDataDirBase() / "archive-source"};
+        fs::create_directories(source / "fake-1.0" / "bin");
+        WriteScript(source / "fake-1.0" / "bin" / "faked", "exit 0\n");
+        BOOST_REQUIRE_EQUAL(webui::SidechainNodes::Run({"tar", "-czf", fs::PathToString(release_archive), "-C", fs::PathToString(source), "fake-1.0"}, 30).code, 0);
+        WriteScript(tools / "curl", "echo curl \"$@\" >> '" + fs::PathToString(ran) + "'\nout=''\nprev=''\nfor a in \"$@\"; do [ \"$prev\" = --output ] && out=\"$a\"; prev=\"$a\"; done\ncp '" + fs::PathToString(release_archive) + "' \"$out\"\n");
+        WriteScript(tools / "tar", "echo tar >> '" + fs::PathToString(ran) + "'\nexec /usr/bin/env -u FAKE PATH=/usr/bin:/bin tar \"$@\"\n");
+        const std::string old_path{std::getenv("PATH") ? std::getenv("PATH") : ""};
+        setenv("PATH", (fs::PathToString(tools) + ":" + old_path).c_str(), 1);
+        const auto ran_text{[&] {
+            std::ifstream f{ran.std_path()};
+            return std::string{std::istreambuf_iterator<char>{f}, {}};
+        }};
+        std::ifstream archive_in{release_archive.std_path(), std::ios::binary};
+        const std::string archive_bytes{std::istreambuf_iterator<char>{archive_in}, {}};
+        unsigned char digest[CSHA256::OUTPUT_SIZE];
+        CSHA256().Write(reinterpret_cast<const unsigned char*>(archive_bytes.data()), archive_bytes.size()).Finalize(digest);
+        const std::string good_hash{HexStr(digest)};
+        const std::string url{"https://example.invalid/fake-1.0.tar.gz"};
+
+        // Refused in the dialog of the desktop: nothing is downloaded.
+        accept = false;
+        BOOST_CHECK_EQUAL(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", url}, {"sha256", good_hash}}))["log"][0].get_str(), "Fake chain: the download was not accepted.");
+        BOOST_REQUIRE_EQUAL(asked.size(), 1U);
+        BOOST_CHECK(asked[0].find(url) != std::string::npos);
+        BOOST_CHECK(asked[0].find(good_hash) != std::string::npos);
+        BOOST_CHECK(asked[0].find(fs::PathToString(m_args.GetDataDirBase() / "sidechains" / "fake")) != std::string::npos);
+        BOOST_CHECK(ran_text().empty());
+
+        // Accepted, but the archive does not have the hash: thrown away before anything is unpacked.
+        accept = true;
+        const UniValue mismatch{nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", url}, {"sha256", std::string(64, 'c')}}))};
+        BOOST_CHECK(mismatch.exists("error"));
+        BOOST_CHECK(ran_text().find("curl") != std::string::npos);
+        BOOST_CHECK(ran_text().find("--proto =https --proto-redir =https") != std::string::npos);
+        BOOST_CHECK_MESSAGE(ran_text().find("\ntar\n") == std::string::npos, ran_text());
+        BOOST_CHECK(!fs::exists(m_args.GetDataDirBase() / "sidechains" / "fake" / "download.tar.gz"));
+        BOOST_CHECK(!fs::exists(m_args.GetDataDirBase() / "sidechains" / "fake" / "fake-1.0"));
+
+        // Accepted, with its hash: unpacked and installed.
+        const UniValue installed{nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", url}, {"sha256", good_hash}}))};
+        BOOST_CHECK_MESSAGE(installed["log"][installed["log"].size() - 1].get_str().starts_with("Fake chain: installed in"), installed.write());
+        BOOST_CHECK_EQUAL(asked.size(), 3U);
+        BOOST_CHECK(ran_text().find("\ntar\n") != std::string::npos);
+
+        // The release built in: offered in the list, its address and hash shown in the confirmation.
+        const UniValue entries{nodes.Call("sidechainNodes.list", UniValue{UniValue::VOBJ})["sidechains"]};
+        BOOST_CHECK_EQUAL(entries[0]["stem"].get_str(), "thunder");
+        BOOST_CHECK_EQUAL(entries[0]["release"]["url"].get_str(), "https://example.invalid/thunder-1.0.tar.gz");
+        BOOST_CHECK(!entries[1].exists("release"));
+        accept = false;
+        nodes.Call("sidechainNodes.download", Obj({{"stem", "thunder"}, {"release", true}}));
+        BOOST_CHECK(asked.back().find("https://example.invalid/thunder-1.0.tar.gz") != std::string::npos);
+        BOOST_CHECK(asked.back().find(std::string(64, 'b')) != std::string::npos);
+        BOOST_CHECK(asked.back().find("built into this app") != std::string::npos);
+        setenv("PATH", old_path.c_str(), 1);
+    }
 
     // Built-in sidechains stay; added ones go, with their folder.
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.remove", Obj({{"stem", "thunder"}})), webui::HostError);

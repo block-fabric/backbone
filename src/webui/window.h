@@ -179,6 +179,19 @@ public:
      */
     virtual void ChooseFile(const FileDialog& options, std::function<void(std::optional<std::string>)> done) = 0;
 
+    /**
+     * A question of the desktop, not of the page: a modal dialog of the window system with a title, a
+     * message and two buttons, `accept` and Cancel (Cancel is the default). `done` gets whether the user
+     * accepted. Used before the app does something the page asked for that runs a program (a download of
+     * a sidechain, the external signer): the page can neither draw nor answer it.
+     */
+    struct ConfirmDialog {
+        std::string title;
+        std::string message;
+        std::string accept;
+    };
+    virtual void Confirm(const ConfirmDialog& dialog, std::function<void(bool)> done) = 0;
+
     /** Save a picture of what the page shows now as PNG. For the tests. */
     virtual void Snapshot(const std::string& png_path, std::function<void(bool ok)> done) = 0;
 };

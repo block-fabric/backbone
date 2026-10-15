@@ -148,9 +148,30 @@ struct ComScope {
 #endif
 } // namespace
 
-NodeOptions::NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal)
-    : m_node(node), m_args(args), m_restart(std::move(restart)), m_journal(std::move(journal))
+NodeOptions::NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal, ChooseProgramFn choose_program)
+    : m_node(node), m_args(args), m_restart(std::move(restart)), m_journal(std::move(journal)), m_choose_program(std::move(choose_program))
 {
+}
+
+bool NodeOptions::NamesProgram(const std::string& name)
+{
+    return name == "signer";
+}
+
+UniValue NodeOptions::ChooseProgram(const std::string& name)
+{
+    if (!NamesProgram(name)) throw std::runtime_error("No option naming a program: " + name);
+    if (m_node.isSettingIgnored(name)) throw std::runtime_error("This option is set on the command line or in the configuration file.");
+    if (!m_choose_program) throw std::runtime_error("Programs cannot be chosen here.");
+    const std::string current{SettingToString(m_node.getPersistentSetting(name), "")};
+    const auto chosen{m_choose_program("External signer: the HWI compatible program that talks to your hardware wallet", current)};
+    if (!chosen) return UniValue{};
+    if (*chosen != current) {
+        if (m_journal) m_journal(name);
+        m_node.updateRwSetting(name, *chosen);
+        m_restart(true);
+    }
+    return Get();
 }
 
 bool NodeOptions::ValidProxyAddress(const std::string& text)
@@ -408,8 +429,11 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
         set_prune_size(static_cast<int>(gb), "");
     } else if (name == "spendZeroConf") {
         set_flag("spendzeroconfchange", Bool(value), now["spendZeroConf"].get_bool());
-    } else if (name == "signer") {
-        set_text("signer", Str(value));
+    } else if (NamesProgram(name)) {
+        // A program the node runs is chosen by the user (ChooseProgram), never a text of the page: the page
+        // can only take it away.
+        if (!Str(value).empty()) throw std::runtime_error("The program is chosen with Choose…, in a dialog of the desktop.");
+        set_text(name, "");
     } else if (name == "natpmp") {
         // Mapping the port can change while the node runs.
         const bool on{Bool(value)};

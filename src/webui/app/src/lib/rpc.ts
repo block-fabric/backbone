@@ -218,6 +218,8 @@ export const host = {
   // Options of the node (src/webui/options.cpp).
   options: () => request<NodeOptions>('host', 'options.get', {}),
   setOption: (name: keyof NodeOptionValues, value: unknown) => request<NodeOptions>('host', 'options.set', { name, value }),
+  // A setting that names a program (the signer): the file chooser and a confirmation of the desktop; null when cancelled.
+  chooseProgramOption: (name: 'signer') => request<NodeOptions | null>('host', 'options.chooseProgram', { name }),
   validProxy: (address: string) => request<boolean>('host', 'options.validProxy', { address }),
   resetOptions: () => request<boolean>('host', 'options.reset', {}),
   applyOptions: () => request<NodeOptions>('host', 'options.apply', {}),
@@ -302,6 +304,8 @@ export interface SidechainNodeEntry {
   installed: boolean;
   programs: string;
   dataDir: string;
+  /** The release of this sidechain built into the app for this computer, if there is one. */
+  release?: { version: string; url: string; sha256: string };
 }
 
 export interface SidechainNodeList {

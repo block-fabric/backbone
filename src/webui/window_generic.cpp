@@ -82,6 +82,12 @@ public:
     void SetClipboard(const std::string&) override { LogWarning("webui: no clipboard on this platform yet"); }
     std::optional<std::string> GetClipboard() override { return std::nullopt; }
     void Snapshot(const std::string&, std::function<void(bool ok)> done) override { done(false); }
+    void Confirm(const ConfirmDialog&, std::function<void(bool)> done) override
+    {
+        // TODO(macos port): NSAlert. Until then nothing that needs a confirmation is done.
+        LogWarning("webui: no confirmation dialogs on this platform yet");
+        done(false);
+    }
     void ChooseFile(const FileDialog&, std::function<void(std::optional<std::string>)> done) override
     {
         // TODO(windows/macos port): the file dialogs of the platform.

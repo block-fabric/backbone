@@ -27,7 +27,10 @@ class Bridge;
  * doing, merged mining turned on and off, one block mined for a fee, the end of their log.
  *
  * Only programs in a folder the user chose (or a download the user checked by its hash) are
- * ever run, and only the programs of a sidechain: <stem>d, <stem>-cli, <stem>-qt.
+ * ever run, and only the programs of a sidechain: <stem>d, <stem>-cli, <stem>-qt. A download is
+ * https only, has a SHA-256 checked before anything is unpacked, and happens only once the user
+ * accepted it in a dialog of the desktop (ConfirmFn) showing the address, the hash and the folder:
+ * the page can ask for one, it cannot make one happen.
  */
 class SidechainNodes
 {
@@ -46,8 +49,27 @@ public:
     using StoreFn = std::function<void(const UniValue&)>;
     //! Ask the user for a folder (title, the folder to start in); nothing when cancelled.
     using ChooseFolderFn = std::function<std::optional<std::string>(const std::string& title, const std::string& start)>;
+    /**
+     * Ask the user in a dialog of the desktop, which the page can neither draw nor answer (Window::Confirm):
+     * title, message, the text of the button that accepts. True when accepted.
+     */
+    using ConfirmFn = std::function<bool(const std::string& title, const std::string& message, const std::string& accept)>;
 
-    SidechainNodes(ArgsManager& args, LoadFn load, StoreFn store, ChooseFolderFn choose_folder);
+    /** A release of a sidechain built into this app: where to download it, and the SHA-256 of the archive. */
+    struct Release {
+        std::string stem;
+        //! The platform it is for ("x86_64-linux-gnu", "x86_64-w64-mingw32").
+        std::string platform;
+        std::string version;
+        std::string url;
+        std::string sha256;
+    };
+    /** The releases built into this app (sidechainreleases.h), and the platform of this build. */
+    static std::vector<Release> BuiltinReleases();
+    static std::string Platform();
+
+    SidechainNodes(ArgsManager& args, LoadFn load, StoreFn store, ChooseFolderFn choose_folder, ConfirmFn confirm,
+                   std::vector<Release> releases = BuiltinReleases());
 
     /** Make the methods (sidechainNodes.*) available to the page. */
     void Register(Bridge& bridge);
@@ -94,6 +116,8 @@ private:
     LoadFn m_load;
     StoreFn m_store;
     ChooseFolderFn m_choose_folder;
+    ConfirmFn m_confirm;
+    std::vector<Release> m_releases;
 };
 
 } // namespace webui

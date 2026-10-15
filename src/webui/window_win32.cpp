@@ -527,6 +527,16 @@ public:
         return out;
     }
 
+    void Confirm(const ConfirmDialog& dialog, std::function<void(bool)> done) override
+    {
+        // A message box of the system, owned by the window (modal to it); Cancel is the default button.
+        Post([this, dialog, done = std::move(done)] {
+            const std::wstring text{widen_string(dialog.message + "\n\n" + dialog.accept + "?")};
+            const int answer{MessageBoxW(m_hwnd, text.c_str(), widen_string(dialog.title).c_str(), MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2 | MB_TASKMODAL)};
+            done(answer == IDOK);
+        });
+    }
+
     void ChooseFile(const FileDialog& options, std::function<void(std::optional<std::string>)> done) override
     {
         // Shown after this call returns: the dialog runs a loop of its own.

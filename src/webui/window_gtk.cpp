@@ -370,6 +370,24 @@ public:
             job);
     }
 
+    void Confirm(const ConfirmDialog& dialog, std::function<void(bool)> done) override
+    {
+        // A dialog of GTK, modal to the window; Cancel is the default response.
+        GtkWidget* box{gtk_message_dialog_new(GTK_WINDOW(m_window), GtkDialogFlags(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT), GTK_MESSAGE_WARNING, GTK_BUTTONS_NONE, "%s", dialog.title.c_str())};
+        gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(box), "%s", dialog.message.c_str());
+        gtk_dialog_add_buttons(GTK_DIALOG(box), "_Cancel", GTK_RESPONSE_CANCEL, dialog.accept.c_str(), GTK_RESPONSE_ACCEPT, nullptr);
+        gtk_dialog_set_default_response(GTK_DIALOG(box), GTK_RESPONSE_CANCEL);
+        gtk_window_set_title(GTK_WINDOW(box), dialog.title.c_str());
+        auto* job{new std::function<void(bool)>{std::move(done)}};
+        g_signal_connect(box, "response", G_CALLBACK(+[](GtkDialog* d, gint response, gpointer data) {
+                             std::unique_ptr<std::function<void(bool)>> job{static_cast<std::function<void(bool)>*>(data)};
+                             gtk_widget_destroy(GTK_WIDGET(d));
+                             (*job)(response == GTK_RESPONSE_ACCEPT);
+                         }),
+                         job);
+        gtk_widget_show_all(box);
+    }
+
     void ChooseFile(const FileDialog& options, std::function<void(std::optional<std::string>)> done) override
     {
         GtkFileChooserNative* chooser{gtk_file_chooser_native_new(

@@ -16,6 +16,7 @@
 #include <util/string.h>
 #include <support/cleanse.h>
 #include <webui/bridge.h>
+#include <webui/sidechainreleases.h>
 
 #include <chrono>
 #include <fstream>
@@ -96,9 +97,31 @@ UniValue Said(std::vector<std::string> lines)
 }
 } // namespace
 
-SidechainNodes::SidechainNodes(ArgsManager& args, LoadFn load, StoreFn store, ChooseFolderFn choose_folder)
-    : m_args(args), m_load(std::move(load)), m_store(std::move(store)), m_choose_folder(std::move(choose_folder))
+SidechainNodes::SidechainNodes(ArgsManager& args, LoadFn load, StoreFn store, ChooseFolderFn choose_folder, ConfirmFn confirm, std::vector<Release> releases)
+    : m_args(args), m_load(std::move(load)), m_store(std::move(store)), m_choose_folder(std::move(choose_folder)), m_confirm(std::move(confirm)), m_releases(std::move(releases))
 {
+}
+
+std::vector<SidechainNodes::Release> SidechainNodes::BuiltinReleases()
+{
+    std::vector<Release> out;
+    for (const auto& r : SIDECHAIN_RELEASES) {
+        if (r.stem) out.push_back({r.stem, r.platform, r.version, r.url, r.sha256});
+    }
+    return out;
+}
+
+std::string SidechainNodes::Platform()
+{
+#if defined(WIN32)
+    return "x86_64-w64-mingw32";
+#elif defined(__APPLE__)
+    return "macos";
+#elif defined(__aarch64__)
+    return "aarch64-linux-gnu";
+#else
+    return "x86_64-linux-gnu";
+#endif
 }
 
 std::vector<SidechainNodes::Sidechain> SidechainNodes::Sidechains() const
@@ -265,6 +288,15 @@ UniValue SidechainNodes::Call(const std::string& method, const UniValue& params)
             entry.pushKV("installed", installed(s));
             entry.pushKV("programs", installed(s) ? dir : dir.empty() ? std::string{"not on this computer yet: Locate or Download"} : strprintf("no %s in %s", s.stem + "d", dir));
             entry.pushKV("dataDir", fs::PathToString(DataDir(s)));
+            for (const Release& r : m_releases) {
+                if (r.stem != s.stem || r.platform != Platform()) continue;
+                UniValue release{UniValue::VOBJ};
+                release.pushKV("version", r.version);
+                release.pushKV("url", r.url);
+                release.pushKV("sha256", r.sha256);
+                entry.pushKV("release", std::move(release));
+                break;
+            }
             list.push_back(std::move(entry));
         }
         out.pushKV("sidechains", std::move(list));
@@ -309,24 +341,49 @@ UniValue SidechainNodes::Call(const std::string& method, const UniValue& params)
     }
     if (method == "sidechainNodes.download") {
         const Sidechain s{chosen()};
-        const std::string url{TrimString(ParamStr(params, "url"))};
-        const std::string expected{ToLower(TrimString(ParamStr(params, "sha256")))};
+        // The release built into the app ({release: true}), or an address and a hash the user typed.
+        std::string url, expected, origin;
+        if (Param(params, "release").isTrue()) {
+            for (const Release& r : m_releases) {
+                if (r.stem == s.stem && r.platform == Platform()) {
+                    url = r.url;
+                    expected = ToLower(r.sha256);
+                    origin = strprintf("the release %s of %s built into this app", r.version, s.name);
+                }
+            }
+            if (url.empty()) throw HostError(strprintf("This app has no release of %s for this computer built in.", s.name));
+        } else {
+            url = TrimString(ParamStr(params, "url"));
+            expected = ToLower(TrimString(ParamStr(params, "sha256")));
+            origin = "an address typed in the app, not a release built into it";
+        }
         if (url.empty()) throw HostError(BRIDGE_INVALID_REQUEST, "The address of the release is needed.");
+        // A hash is required, and checked before anything is unpacked.
         if (expected.size() != 64 || !IsHex(expected)) throw HostError("A SHA-256 hash is 64 hexadecimal characters. Programs that hold coins are not installed unchecked.");
-        // Only web addresses: curl takes other schemes (file:, dict:...) that have nothing to do here.
-        if (!url.starts_with("https://") && !url.starts_with("http://")) throw HostError("The address of a release starts with https://");
+        // https only: an http download can be replaced on its way, and curl takes other schemes (file:, dict:...).
+        if (!url.starts_with("https://") || url.size() > 2048 || url.find_first_of(" \t\r\n\"'\\") != std::string::npos) {
+            throw HostError("The address of a release starts with https://");
+        }
         const fs::path target{m_args.GetDataDirBase() / "sidechains" / fs::PathFromString(s.stem)};
+        // The user accepts the download in a dialog of the desktop, which the page cannot answer.
+        const std::string question{strprintf("Download and install programs of %s?\n\nFrom: %s\nSHA-256: %s\nInto: %s\n\nThis is %s. "
+                                             "The programs in the archive will run on this computer with access to your files: accept only if you trust where they come from.",
+                                             s.name, url, expected, fs::PathToString(target), origin)};
+        if (!m_confirm || !m_confirm(strprintf("Install %s", s.name), question, "Download and install")) {
+            return Said({strprintf("%s: the download was not accepted.", s.name)});
+        }
         std::error_code ec;
         std::filesystem::create_directories(target, ec);
         const fs::path archive{target / "download.tar.gz"};
         std::filesystem::remove(archive, ec);
         std::vector<std::string> log{strprintf("%s: downloading %s", s.name, url)};
-        const Output fetch{Run({"curl", "--fail", "--location", "--silent", "--show-error", "--proto", "=https,http", "--output", fs::PathToString(archive), url}, 3600)};
+        const Output fetch{Run({"curl", "--fail", "--location", "--silent", "--show-error", "--proto", "=https", "--proto-redir", "=https", "--output", fs::PathToString(archive), url}, 3600)};
         if (fetch.code == -1 && fetch.err.empty()) {
             log.emplace_back("The download needs the program curl, which could not be started.");
             return Said(log);
         }
         if (fetch.code != 0) {
+            std::filesystem::remove(archive, ec);
             log.push_back(strprintf("%s: the download failed. %s", s.name, TrimString(fetch.err)));
             return Said(log);
         }
