@@ -11,6 +11,7 @@
     size = $bindable(10),
     sizes = [],
     label = 'rows',
+    onpage,
   }: {
     total: number;
     page?: number;
@@ -19,12 +20,18 @@
     sizes?: readonly number[];
     /** What the rows are, for screen readers ("deposits"). */
     label?: string;
+    /** Told of a new page (for a parent that keeps pages itself rather than binding). */
+    onpage?: (page: number) => void;
   } = $props();
+  function go(n: number) {
+    page = n;
+    onpage?.(n);
+  }
 
   const pages = $derived(Math.max(1, Math.ceil(total / size)));
   // A page past the end (fewer rows now, or a bigger page): the last one.
   $effect(() => {
-    if (page > pages - 1) page = pages - 1;
+    if (page > pages - 1) go(pages - 1);
   });
   const from = $derived(total === 0 ? 0 : page * size + 1);
   const to = $derived(Math.min(total, (page + 1) * size));
@@ -36,15 +43,15 @@
     {#if sizes.length > 0}
       <label class="size">
         <span class="faint">{t('Show')}</span>
-        <select value={size} aria-label={t('Rows per page')} onchange={(e) => { size = Number((e.currentTarget as HTMLSelectElement).value); page = 0; }}>
+        <select value={size} aria-label={t('Rows per page')} onchange={(e) => { size = Number((e.currentTarget as HTMLSelectElement).value); go(0); }}>
           {#each sizes as n (n)}<option value={n}>{n}</option>{/each}
         </select>
       </label>
     {/if}
     {#if pages > 1}
-      <button type="button" class="btn small ghost icon" aria-label={t('Previous page')} disabled={page === 0} onclick={() => (page = Math.max(0, page - 1))}><Icon name="chevron-right" size={15} /></button>
+      <button type="button" class="btn small ghost icon" aria-label={t('Previous page')} disabled={page === 0} onclick={() => go(Math.max(0, page - 1))}><Icon name="chevron-right" size={15} /></button>
       <span class="num">{page + 1} / {pages}</span>
-      <button type="button" class="btn small ghost icon" aria-label={t('Next page')} disabled={page >= pages - 1} onclick={() => (page = Math.min(pages - 1, page + 1))}><Icon name="chevron-right" size={15} /></button>
+      <button type="button" class="btn small ghost icon" aria-label={t('Next page')} disabled={page >= pages - 1} onclick={() => go(Math.min(pages - 1, page + 1))}><Icon name="chevron-right" size={15} /></button>
     {/if}
   </nav>
 {/if}

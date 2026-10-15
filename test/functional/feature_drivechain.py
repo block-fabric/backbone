@@ -212,7 +212,7 @@ class DrivechainTest(BitcoinTestFramework):
 
         self.mine()
         # The node has the bundle's transaction: it says what it pays, while miners vote.
-        payouts = [{"amount": Decimal(payout) / COIN, "script": address_to_scriptpubkey(payout_address).hex()}]
+        payouts = [{"amount": Decimal(payout) / COIN, "script": address_to_scriptpubkey(payout_address).hex(), "address": payout_address}]
         proposed_at = node.getblockcount()
         assert_equal(node.getwithdrawalbundle(SLOT, bundle_hash), {"status": "pending", "score": 1, "lastupvote": proposed_at, "blocksleft": WITHDRAWAL_PERIOD - 1, "payable": False, "payouts": payouts, "fee": Decimal(fee) / COIN})
         bundles = node.listwithdrawalbundles(SLOT)

@@ -199,6 +199,35 @@ describe('the vote of this node on a bundle', () => {
   });
 });
 
+describe('who a withdrawal bundle pays', () => {
+  it('opens a bundle to its payees, their amounts, the total and the fee', async () => {
+    drivechain({
+      listwithdrawalbundles: () => [
+        { ...BUNDLE, payouts: [{ amount: 1.25, script: '0014' + 'aa'.repeat(20), address: 'tchn1qpayee' }, { amount: 0.5, script: '6a' }], fee: 0.001 },
+        { ...BUNDLE, hash: 'ce'.repeat(32), known: false, payouts: undefined, fee: undefined },
+      ],
+    });
+    nav.page = 'sidechains';
+    nav.tab = 'withdrawals';
+    render(DialogHost);
+    render(Sidechains);
+    const open = await waitFor(() => screen.getByRole('button', { name: `Who bundle ${'bd'.repeat(4)}…${'bd'.repeat(4)} pays` }));
+    expect(open.getAttribute('aria-expanded')).toBe('false');
+    await fireEvent.click(open);
+    const payees = await waitFor(() => screen.getByRole('table', { name: `Payees of bundle ${'bd'.repeat(4)}…${'bd'.repeat(4)}` }));
+    expect(payees.textContent).toContain('tchn1qpayee');
+    expect(payees.textContent).toContain('1.25000000');
+    expect(payees.textContent).toContain('script');
+    expect(payees.textContent).toContain('2 payees, in all');
+    expect(payees.textContent).toContain('1.75000000');
+    expect(payees.textContent).toContain('0.00100000');
+    await fireEvent.click(screen.getByRole('button', { name: `Who bundle ${'ce'.repeat(4)}…${'ce'.repeat(4)} pays` }));
+    await waitFor(() => screen.getByText(/does not have the transaction of this bundle/));
+    await fireEvent.click(open);
+    await waitFor(() => expect(screen.queryByRole('table', { name: /Payees of bundle bdbd/ })).toBeNull());
+  });
+});
+
 describe('the vote of this node, with a block arriving', () => {
   it('keeps the new vote when a reload started before it answers after it', async () => {
     let vote = 'upvote';
