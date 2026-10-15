@@ -158,7 +158,10 @@
 <style>
   .picker {
     display: flex;
-    flex: 1;
+    /* As wide as the theme shown ("Matrix Green", not "Matrix Gr": audit port-1 #11), on a line of its own
+       when the row has no room for it. */
+    flex: 1 0 auto;
+    max-width: 100%;
     align-items: center;
     justify-content: space-between;
     gap: 0.4rem;
