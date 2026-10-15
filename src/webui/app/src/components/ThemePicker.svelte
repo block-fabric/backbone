@@ -165,7 +165,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.4rem;
-    min-width: 6.5rem;
+    min-width: 0;
     min-height: 1.9rem;
     padding: 0.15rem 0.55rem 0.15rem 0.7rem;
     /* As the other dropdowns (select, styles/base.css). */
