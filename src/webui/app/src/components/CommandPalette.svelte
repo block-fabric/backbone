@@ -214,9 +214,9 @@
     border-radius: var(--radius-s);
     cursor: pointer;
   }
+  /* The option under the keys: its background only, no bar at its left (user decision). */
   .option.active {
     background: var(--accent-soft);
-    box-shadow: inset 3px 0 0 var(--accent);
   }
   .option[aria-disabled='true'] {
     color: var(--text-faint);

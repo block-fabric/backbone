@@ -99,11 +99,7 @@
         await snapshot(`${page}-${theme}`);
       }
       T().go('overview');
-      // The menus of chains-qt: in the sidebar's Menus, and the command palette.
-      document.querySelector('.sidebar button[aria-label^="Menus of chains-qt"]').click();
-      await waitFor('the menus', () => document.querySelector('[role="menu"]'));
-      await snapshot(`menu-${theme}`);
-      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      // The menus of chains-qt: the command palette (the dashboard's sidebar has no Menus button).
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
       await waitFor('the palette', () => document.querySelector('dialog.palette[open]'));
       await snapshot(`palette-${theme}`);

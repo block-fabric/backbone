@@ -256,12 +256,6 @@ describe('the commands', () => {
       all.find((c) => c.label === label)!.run();
       expect([nav.page, nav.tab], label).toEqual(['advanced', tab]);
     }
-    // The quick actions of the dashboard too.
-    for (const q of HOME_QUICK_ACTIONS.filter((x) => x.page === 'messages' || x.page === 'psbt')) {
-      go('overview');
-      go(q.page, q.tab);
-      expect(nav.page, q.label).toBe('advanced');
-    }
   });
 
   it('tools and advanced transactions: the pages draw the tab asked for', async () => {
@@ -536,7 +530,7 @@ describe('the layouts', () => {
       expect(chainBeforeTools(pages, (p) => p), name).toBeNull();
     }
     // Home: Send and Receive first, then the chain, then the tools.
-    expect(HOME_QUICK_ACTIONS.map((q) => q.label)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine', 'Sign message', 'Load PSBT']);
+    expect(HOME_QUICK_ACTIONS.map((q) => q.label)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine']);
   });
 
   it('dashboard: the quick actions of Home in that order, as shown', () => {
@@ -545,8 +539,11 @@ describe('the layouts', () => {
     render(Shell);
     const row = screen.getByRole('navigation', { name: 'Quick actions' });
     const labels = within(row).getAllByRole('button').map((b) => b.textContent?.trim() ?? '');
-    expect(labels.slice(0, 7)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine', 'Sign message', 'Load PSBT']);
-    expect(chainBeforeTools(labels.slice(0, 7), (l) => HOME_QUICK_ACTIONS.find((q) => q.label === l)?.page)).toBeNull();
+    // No Sign message nor Load PSBT (user decision); "All actions" stays.
+    expect(labels.slice(0, 5)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine']);
+    expect(labels.some((l) => /Sign message|Load PSBT/.test(l))).toBe(false);
+    expect(within(row).getByRole('button', { name: /All actions/ })).toBeTruthy();
+    expect(chainBeforeTools(labels.slice(0, 5), (l) => HOME_QUICK_ACTIONS.find((q) => q.label === l)?.page)).toBeNull();
   });
 
   it('the dashboard is the default layout', () => {
@@ -596,5 +593,18 @@ describe('the layouts', () => {
     link.click();
     expect(nav.page).toBe('mine');
     expect(nav.tab).toBe('estimator');
+  });
+
+  it("the dashboard's sidebar has no Menus button (user decision); the workspace keeps one", () => {
+    prefs.layout = 'dashboard';
+    go('home');
+    const view = render(Shell);
+    const side = screen.getByRole('navigation', { name: 'Pages' });
+    expect(within(side).queryByRole('button', { name: /^Menus of chains-qt/ })).toBeNull();
+    view.unmount();
+    prefs.layout = 'workspace';
+    render(Shell);
+    expect(screen.getByRole('button', { name: /^Menus of chains-qt/ })).toBeTruthy();
+    prefs.layout = 'dashboard';
   });
 });
