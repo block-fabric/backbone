@@ -8,7 +8,7 @@ three: only the navigation, the menus and the frame around the page change.
 
 | Layout | Id | What it looks like |
 |--------|----|--------------------|
-| Workspace tabs | `workspace` | Five areas across the top — **Wallet**, **Chain**, **Sidechains**, **Tools**, **Node** — each with a strip of sub-tabs (Wallet: Overview, Send, Receive, History, Wallets; Chain: Explorer, Mine; Sidechains: Sidechains, Sidechain nodes; Tools: Messages, PSBT, Proof of funds, Multisig, Timestamp, Crypto tools; Node: Console, Peers, Info, Traffic, Settings). What concerns the chain comes before the tools, here as in the sidebars and the menus. The wallet selector, the palette field and a **Menus** button sit at the right of the top bar. A **detail panel** opens at the right of the page when a row is selected (a transaction in the history; blocks, peers and sidechains as their pages publish them). The status bar stays. |
+| Workspace tabs | `workspace` | Five areas across the top — **Wallet**, **Chain**, **Sidechains**, **Tools**, **Node** — each with a strip of sub-tabs (Wallet: Overview, Send, Receive, History, Wallets, Advanced; Chain: Explorer, Mine; Sidechains: Sidechains, Sidechain nodes; Tools: the one Tools page; Node: Console, Peers, Info, Traffic, Settings). What concerns the chain comes before the tools, here as in the sidebars and the menus. The wallet selector, the palette field and a **Menus** button sit at the right of the top bar. A **detail panel** opens at the right of the page when a row is selected (a transaction in the history; blocks, peers and sidechains as their pages publish them). The status bar stays. |
 | Dashboard | `dashboard` (default) | A **Home**: a row of quick actions; four summary cards — **Balance** (available, pending, immature; Send, Receive), **Network** (sync, height, peers, mempool; Peers, Console, network on/off), **Sidechains** (active, pending bundles, escrow, proposals; Deposit, Votes), **Mining** (hash rate, difficulty, last block, BMM; Solo mine, Timestamp); the **Wallet balance** chart (timeframes 1D 7D 1M 1Y All, its change, axes); **Blind merged mining** (blocks of the last 24 that committed to each sidechain); then tables in tabs — **Transactions** (Details, Bump fee, Copy), **Sidechains** (Deposit, Withdrawals, View), **Blocks** (View, Copy), **Peers** (View) — with sortable headers, status pills and small trends. Each card's arrow opens its full page; the name of a row opens the detail panel. **Send** and **Receive** open a side panel at the right of the home (one recipient and a big Send button; a new address with its QR code); the Send and Receive pages stay for the rest (several recipients, choosing the coins, PSBT, the requests, the receiving addresses). The sidebar: a card of the wallet shown (its name, its lock, the unit) at the top, every page (Home first) in groups, the theme, the text size and the **Menus** at its foot, then Close wallet and Quit apart. The bar above the page: where you are, the palette, the wallet, the notifications, the light/dark switch. On a narrow window the sidebar is a drawer. |
 | Compact sidebar | `sidebar` | The window of chains-qt, refined: an icon rail with tooltips that shows the names on demand (clicking the logo, or the toggle at its foot, grows and shrinks it; kept in `prefs.sidebarExpanded`); no menu bar — its items are in the pages, the rail's **Menus** button and the palette; denser pages and tables (29 px rows); the status bar. |
 
@@ -165,6 +165,22 @@ palette, the Menus buttons, the tests and this table follow from it.
   what they hold against the amount to send (a warning when it is not enough), lock and unlock them, and the
   custom change address. Off, the wallet chooses the coins as before.
 
+## Tools and Advanced transactions (user decision, 2026-10-15)
+
+- **Tools** is one page; **Timestamp**, **Proof of funds** and **Crypto tools** are its tabs (pages/Tools.svelte;
+  Crypto tools keeps its own tabs: hash calculator, Merkle tree, address decoder). The sidebars' Tools section
+  and the workspace's Tools area show it alone.
+- **Advanced transactions** is one page, with the wallet; **Sign & verify**, **PSBT** and **Multisig** are its tabs
+  (pages/Advanced.svelte). It is the last page of the Wallet section of the sidebars (after Transactions and
+  Wallets), and the **Advanced** sub-tab of the workspace's Wallet area. The Chain section still comes before
+  Tools.
+- The old page ids (`timestamp`, `proof`, `crypto`; `messages`, `psbt`, `multisig`) are `tabOf` the new pages, as
+  Sidechain nodes and the receiving addresses: `go(page, tab)` opens the tab, and the page's own tab follows a
+  `/` in `nav.tab` (`crypto/merkle`, `psbt/file`, `messages/sign:<address>`; `ownTab()`/`setOwnTab()` in
+  lib/nav.svelte.ts). Every menu item (Sign message…, Verify message…, Load PSBT…, Timestamp file, Proof of
+  funds, Multisig lounge, Hash calculator, Merkle tree, Address decoder), the palette and the dashboard's quick
+  actions open the right tab (`test/layouts.test.ts`).
+
 ## Every item of the old menu bar
 
 Every item is also in the **Menus** button of each layout (the workspace's top
@@ -206,22 +222,22 @@ the status tip of chains-qt in the status bar, and a page of a sidebar its summa
 | Banking | Receive (Alt+3) | `banking.receive` | Wallet ▸ Receive | Sidebar Receive; Home: quick action and Balance card (side panel, which links the page) | Rail Receive |
 | Banking | Transactions (Alt+4) | `banking.transactions` | Wallet ▸ History | Sidebar Transactions; Home: Transactions tab "All transactions" | Rail Transactions |
 | Banking | Open URI… | `banking.openUri` | Wallet ▸ Send ("Open URI…") | Send page button | Send page button |
-| Banking | Proof of funds | `banking.proof` | Wallet ▸ Proof of funds | Sidebar Proof of funds | Rail Proof of funds |
-| Banking | Multisig lounge | `banking.multisig` | Wallet ▸ Multisig | Sidebar Multisig lounge | Rail Multisig lounge |
-| Banking | Load PSBT from file… | `banking.psbtFile` | Wallet ▸ PSBT (From file) | Sidebar PSBT; Home: "Load PSBT" | Rail PSBT |
-| Banking | Load PSBT from clipboard… | `banking.psbtClipboard` | Wallet ▸ PSBT (From clipboard) | Sidebar PSBT; Home: "Load PSBT" | Rail PSBT |
-| Use Chains | Timestamp file | `use.timestamp` | Chain ▸ Timestamp | Sidebar Timestamp a file; Mining card "Timestamp" | Rail Timestamp a file |
-| Use Chains | Sign message… | `use.sign` | Wallet ▸ Messages (Sign) | Sidebar Sign and verify; Home: "Sign message" | Rail Sign and verify |
-| Use Chains | Verify message… | `use.verify` | Wallet ▸ Messages (Verify) | Sidebar Sign and verify | Rail Sign and verify |
+| Banking | Proof of funds | `banking.proof` | Tools ▸ Tools (Proof of funds tab) | Sidebar Tools (Proof of funds tab) | Rail Tools (Proof of funds tab) |
+| Banking | Multisig lounge | `banking.multisig` | Wallet ▸ Advanced (Multisig tab) | Sidebar Advanced transactions (Multisig tab) | Rail Advanced transactions (Multisig tab) |
+| Banking | Load PSBT from file… | `banking.psbtFile` | Wallet ▸ Advanced (PSBT tab, From file) | Sidebar Advanced transactions (PSBT tab); Home: "Load PSBT" | Rail Advanced transactions (PSBT tab) |
+| Banking | Load PSBT from clipboard… | `banking.psbtClipboard` | Wallet ▸ Advanced (PSBT tab, From clipboard) | Sidebar Advanced transactions (PSBT tab); Home: "Load PSBT" | Rail Advanced transactions (PSBT tab) |
+| Use Chains | Timestamp file | `use.timestamp` | Tools ▸ Tools (Timestamp tab) | Sidebar Tools (Timestamp tab); Mining card "Timestamp" | Rail Tools (Timestamp tab) |
+| Use Chains | Sign message… | `use.sign` | Wallet ▸ Advanced (Sign & verify tab, Sign) | Sidebar Advanced transactions (Sign & verify tab); Home: "Sign message" | Rail Advanced transactions (Sign & verify tab) |
+| Use Chains | Verify message… | `use.verify` | Wallet ▸ Advanced (Sign & verify tab, Verify) | Sidebar Advanced transactions (Sign & verify tab) | Rail Advanced transactions (Sign & verify tab) |
 | Use Chains | Sidechains (Alt+5) | `use.sidechains` | Sidechains ▸ Sidechains | Sidebar Sidechains; Sidechains card; Home: "Deposit", Sidechains tab (Deposit, Withdrawals) | Rail Sidechains |
 | Chains | Sidechain nodes | `chains.nodes` | Sidechains ▸ Sidechain nodes | Sidebar Sidechain nodes; BMM card | Rail Sidechain nodes |
 | Chains | Solo mine | `chains.mine` | Chain ▸ Mine | Sidebar Mine; Mining card; Home: "Mine" | Rail Mine |
 | Chains | Sidechain proposals | `chains.proposals` | Sidechains ▸ Sidechains (Proposals tab) | Sidechains card "Votes" | Sidechains page (Proposals tab) |
 | Chains | Withdrawal votes | `chains.withdrawals` | Sidechains ▸ Sidechains (Withdrawals tab); sidechain panel "Vote on bundles" | Sidechains tab "Withdrawals" of a row | Sidechains page (Withdrawals tab) |
 | Crypto tools | Block explorer | `tools.explorer` | Chain ▸ Explorer | Sidebar Block explorer; Blocks tab "Block explorer"; Home quick action | Rail Block explorer; Overview "Block explorer" |
-| Crypto tools | Hash calculator | `tools.hash` | Chain ▸ Crypto tools (Hash) | Sidebar Crypto tools | Rail Crypto tools |
-| Crypto tools | Merkle tree | `tools.merkle` | Chain ▸ Crypto tools (Merkle) | Sidebar Crypto tools | Rail Crypto tools |
-| Crypto tools | Address decoder | `tools.address` | Chain ▸ Crypto tools (Address) | Sidebar Crypto tools | Rail Crypto tools |
+| Crypto tools | Hash calculator | `tools.hash` | Tools ▸ Tools (Crypto tools tab, Hash) | Sidebar Tools (Crypto tools tab) | Rail Tools (Crypto tools tab) |
+| Crypto tools | Merkle tree | `tools.merkle` | Tools ▸ Tools (Crypto tools tab, Merkle) | Sidebar Tools (Crypto tools tab) | Rail Tools (Crypto tools tab) |
+| Crypto tools | Address decoder | `tools.address` | Tools ▸ Tools (Crypto tools tab, Address) | Sidebar Tools (Crypto tools tab) | Rail Tools (Crypto tools tab) |
 | Window | Minimize (Ctrl+M) | `window.minimize` | Menus; Ctrl+M | Menus; Ctrl+M | Menus; Ctrl+M |
 | Window | Information (Ctrl+I) | `window.info` | Node ▸ Info | Sidebar Node window; Network card arrow | Rail Node window |
 | Window | Console (Ctrl+T) | `window.console` | Node ▸ Console | Network card "Console"; Node window tab | Node window tab |
@@ -271,3 +287,6 @@ amounts in …").
 - `run_layouts.py … --script titlebar.js`: the title bar of each layout in the light and dark
   themes (and the other looks), the red Close, then the title bar of the system chosen in the
   settings and back (pictures `titlebar-*.png`).
+- `run_layouts.py … --script uishots.js`: the pages of the user decisions of 2026-10-15 in Midnight and Light —
+  Receive → Addresses, Send with "Choose coins" (coins not enough, then enough), each tab of Tools and of
+  Advanced transactions.

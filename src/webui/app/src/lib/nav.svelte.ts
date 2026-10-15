@@ -21,7 +21,9 @@ export type PageId =
   | 'crypto'
   | 'wallets'
   | 'kit'
-  | 'home';
+  | 'home'
+  | 'tools'
+  | 'advanced';
 
 export interface PageInfo {
   id: PageId;
@@ -53,14 +55,18 @@ export const PAGES: Record<PageId, PageInfo> = {
   node: { id: 'node', title: 'Node window', icon: 'terminal', summary: 'Information, console, network traffic and peers of this node', parity: ['M01', 'M02', 'M03', 'M04', 'M05'], ready: true, shortcut: 'Ctrl+Shift+D' },
   settings: { id: 'settings', title: 'Settings', icon: 'settings', summary: 'Options of the node, the wallet, the network, the window and the look', parity: ['N01', 'N02', 'N03', 'N04', 'N05', 'N06', 'T01', 'T02', 'T03', 'T04'], ready: true },
   addresses: { id: 'addresses', title: 'Receiving addresses', icon: 'text', summary: 'The receiving addresses of the wallet: labels, what each received, new ones', parity: ['J02'], wallet: true, ready: true, tabOf: { page: 'receive', tab: 'addresses' } },
-  messages: { id: 'messages', title: 'Sign and verify', icon: 'shield', summary: 'Sign a message with an address of the wallet, or check a signature', parity: ['K01', 'K02'], wallet: true, ready: true },
-  psbt: { id: 'psbt', title: 'Partially signed transactions', icon: 'paste', summary: 'Load, sign and broadcast a PSBT from a file or the clipboard', parity: ['K03'], wallet: true, ready: true },
-  proof: { id: 'proof', title: 'Proof of funds', icon: 'shield', summary: 'Prove that this wallet holds funds, or check such a proof', parity: ['L08'], wallet: true, ready: true },
-  multisig: { id: 'multisig', title: 'Multisig lounge', icon: 'peers', summary: 'Share coins with partners, in addresses that need several signatures', parity: ['L09'], wallet: true, ready: true },
-  timestamp: { id: 'timestamp', title: 'Timestamp a file', icon: 'block', summary: 'Prove that a file existed, by publishing its fingerprint on the chain', parity: ['L07'], ready: true },
-  crypto: { id: 'crypto', title: 'Crypto tools', icon: 'qr', summary: 'Hash calculator, Merkle tree and address decoder', parity: ['L10'], ready: true },
+  messages: { id: 'messages', title: 'Sign and verify', icon: 'shield', summary: 'Sign a message with an address of the wallet, or check a signature', parity: ['K01', 'K02'], wallet: true, ready: true, tabOf: { page: 'advanced', tab: 'messages' } },
+  psbt: { id: 'psbt', title: 'Partially signed transactions', icon: 'paste', summary: 'Load, sign and broadcast a PSBT from a file or the clipboard', parity: ['K03'], wallet: true, ready: true, tabOf: { page: 'advanced', tab: 'psbt' } },
+  proof: { id: 'proof', title: 'Proof of funds', icon: 'shield', summary: 'Prove that this wallet holds funds, or check such a proof', parity: ['L08'], wallet: true, ready: true, tabOf: { page: 'tools', tab: 'proof' } },
+  multisig: { id: 'multisig', title: 'Multisig lounge', icon: 'peers', summary: 'Share coins with partners, in addresses that need several signatures', parity: ['L09'], wallet: true, ready: true, tabOf: { page: 'advanced', tab: 'multisig' } },
+  timestamp: { id: 'timestamp', title: 'Timestamp a file', icon: 'block', summary: 'Prove that a file existed, by publishing its fingerprint on the chain', parity: ['L07'], ready: true, tabOf: { page: 'tools', tab: 'timestamp' } },
+  crypto: { id: 'crypto', title: 'Crypto tools', icon: 'qr', summary: 'Hash calculator, Merkle tree and address decoder', parity: ['L10'], ready: true, tabOf: { page: 'tools', tab: 'crypto' } },
   wallets: { id: 'wallets', title: 'Wallets', icon: 'wallet', summary: 'Create, open, close, back up, restore, migrate and encrypt wallets', parity: ['E01', 'E02', 'E03', 'E04', 'E05', 'E06', 'E07', 'E08', 'E09', 'E10'], ready: true },
   kit: { id: 'kit', title: 'Interface kit', icon: 'overview', summary: 'The shared components of the interface, for testing them', parity: [], ready: true },
+  // One page for the tools, one for the advanced transactions (user decision, 2026-10-15): the pages that
+  // were apart are their tabs (tabOf).
+  tools: { id: 'tools', title: 'Tools', icon: 'hash', summary: 'Timestamp a file, prove the funds of the wallet, and the crypto tools (hash, Merkle tree, address decoder)', parity: ['L07', 'L08', 'L10'], ready: true },
+  advanced: { id: 'advanced', title: 'Advanced transactions', icon: 'key', summary: 'Sign and verify messages, partially signed transactions (PSBT), and the multisig lounge', parity: ['K01', 'K02', 'K03', 'L09'], wallet: true, ready: true },
   home: { id: 'home', title: 'Home', icon: 'home', summary: 'Live cards of the wallet, the chain, the sidechains and the node (the dashboard layout)', parity: [], ready: true },
 };
 
@@ -84,15 +90,42 @@ export const nav = $state({
 });
 
 export function go(page: PageId, tab = ''): void {
-  // A page that became a tab of another one (Sidechain nodes: a tab of Sidechains; Addresses: of Receive).
+  // A page that became a tab of another one (Sidechain nodes: a tab of Sidechains; Addresses: of Receive;
+  // Sign and verify, PSBT, Multisig: of Advanced transactions; Timestamp, Proof of funds, Crypto tools: of
+  // Tools). Its own tab follows the tab of the page: "psbt/file", "crypto/merkle".
   const into = PAGES[page].tabOf;
   if (into) {
     nav.page = into.page;
-    nav.tab = into.tab;
+    nav.tab = tab ? `${into.tab}/${tab}` : into.tab;
     return;
   }
   nav.page = page;
   nav.tab = tab;
+}
+
+/**
+ * The tab of a page, also when it is shown as a tab of another one (then the part of nav.tab after
+ * "<its tab>/"): what the page reads instead of nav.tab.
+ */
+export function ownTab(page: PageId): string {
+  const into = PAGES[page].tabOf;
+  if (!into || nav.page === page) return nav.tab;
+  if (nav.page !== into.page) return '';
+  if (nav.tab === into.tab) return '';
+  return nav.tab.startsWith(`${into.tab}/`) ? nav.tab.slice(into.tab.length + 1) : '';
+}
+
+/** Set the tab of a page (see ownTab). */
+export function setOwnTab(page: PageId, tab: string): void {
+  const into = PAGES[page].tabOf;
+  if (!into || nav.page === page) nav.tab = tab;
+  else nav.tab = tab ? `${into.tab}/${tab}` : into.tab;
+}
+
+/** The tab of the page that holds others (Tools, Advanced transactions): the part of nav.tab before "/". */
+export function outerTab(): string {
+  const i = nav.tab.indexOf('/');
+  return i < 0 ? nav.tab : nav.tab.slice(0, i);
 }
 
 /** Open a page with a row of it selected (the page takes nav.focus once). */

@@ -99,12 +99,12 @@
 
   const columns: Column<Row>[] = $derived([
     { key: 'pick', label: '', value: (c) => chosen.has(c.key), width: '2.6rem', sortable: false, noFilter: true },
-    { key: 'amount', label: `Amount (${prefs.unit})`, value: (c) => c.sats, width: '10.5rem', align: 'end', noFilter: true },
-    { key: 'address', label: 'Address', value: (c) => c.address, width: 'minmax(14rem, 2fr)', mono: true },
-    { key: 'label', label: 'Label', value: (c) => c.label, width: 'minmax(7rem, 1fr)' },
-    { key: 'depth', label: 'Confirmations', value: (c) => c.depth, width: '8rem', align: 'end', noFilter: true },
-    { key: 'age', label: 'Age', value: (c) => -c.time, width: '6.5rem', align: 'end', noFilter: true },
-    { key: 'locked', label: 'Lock', value: (c) => c.locked, width: '5.5rem', align: 'center', noFilter: true },
+    { key: 'amount', label: `Amount (${prefs.unit})`, value: (c) => c.sats, width: '9.5rem', align: 'end', noFilter: true },
+    { key: 'address', label: 'Address', value: (c) => c.address, width: 'minmax(11rem, 2fr)', mono: true },
+    { key: 'label', label: 'Label', value: (c) => c.label, width: 'minmax(5rem, 1fr)' },
+    { key: 'depth', label: 'Confirmations', value: (c) => c.depth, width: '7.5rem', align: 'end', noFilter: true },
+    { key: 'age', label: 'Age', value: (c) => -c.time, width: '5rem', align: 'end', noFilter: true },
+    { key: 'locked', label: 'Lock', value: (c) => c.locked, width: '4rem', align: 'center', noFilter: true },
     { key: 'txid', label: 'Transaction', value: (c) => c.key, sortable: false },
   ]);
   // The transaction is searched (here), not shown.
@@ -244,6 +244,9 @@
   }
   .toolbar input {
     min-width: 12rem;
+  }
+  .toolbar select {
+    width: auto;
   }
   .totals {
     display: flex;

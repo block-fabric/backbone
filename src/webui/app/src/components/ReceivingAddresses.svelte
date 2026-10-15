@@ -59,12 +59,12 @@
   const rows = $derived(receivingAddresses(current.addresses, current.records, (a) => addressTypeOf(a, network)));
   const chosen = $derived(rows.find((r) => r.address === selected) ?? null);
   const columns: Column<ReceivingAddress>[] = $derived([
-    { key: 'label', label: 'Label', value: (r) => r.label, width: 'minmax(9rem, 1fr)' },
-    { key: 'address', label: 'Address', value: (r) => r.address, width: 'minmax(18rem, 2fr)', mono: true },
-    { key: 'type', label: 'Type', value: (r) => addressTypeText(r.type), width: '11rem', words: true },
-    { key: 'used', label: 'Status', value: (r) => (r.used ? t('Used') : t('Unused')), width: '6.5rem', words: true },
-    { key: 'received', label: `Received (${prefs.unit})`, value: (r) => r.received, width: '11rem', align: 'end', noFilter: true },
-    { key: 'lastUsed', label: 'Last used', value: (r) => r.lastUsed, width: '10rem', noFilter: true },
+    { key: 'label', label: 'Label', value: (r) => r.label, width: 'minmax(8rem, 1fr)' },
+    { key: 'address', label: 'Address', value: (r) => r.address, width: 'minmax(16rem, 2fr)', mono: true },
+    { key: 'type', label: 'Type', value: (r) => addressTypeText(r.type), width: '10rem', words: true },
+    { key: 'used', label: 'Status', value: (r) => (r.used ? t('Used') : t('Unused')), width: '6rem', words: true },
+    { key: 'received', label: `Received (${prefs.unit})`, value: (r) => r.received, width: '9.5rem', align: 'end', noFilter: true },
+    { key: 'lastUsed', label: 'Last used', value: (r) => r.lastUsed, width: '9rem', noFilter: true },
   ]);
 
   async function copy(text: string, what: string) {

@@ -32,6 +32,8 @@ const NAV_ICONS: Partial<Record<PageId, IconName>> = {
   multisig: 'key',
   timestamp: 'clock',
   crypto: 'hash',
+  tools: 'tool',
+  advanced: 'key',
   kit: 'tool',
 };
 
@@ -78,6 +80,8 @@ export const AREAS: readonly Area[] = [
       { page: 'receive' },
       { page: 'transactions', label: 'History' },
       { page: 'wallets' },
+      // Sign and verify, PSBT, Multisig: the tabs of one page (with the wallet).
+      { page: 'advanced', label: 'Advanced' },
     ],
   },
   {
@@ -97,14 +101,8 @@ export const AREAS: readonly Area[] = [
     id: 'tools',
     label: 'Tools',
     icon: 'hash',
-    tabs: [
-      { page: 'messages', label: 'Messages' },
-      { page: 'psbt', label: 'PSBT' },
-      { page: 'proof' },
-      { page: 'multisig', label: 'Multisig' },
-      { page: 'timestamp', label: 'Timestamp' },
-      { page: 'crypto' },
-    ],
+    // One page: Timestamp, Proof of funds and Crypto tools are its tabs.
+    tabs: [{ page: 'tools' }],
   },
   {
     id: 'node',
@@ -124,6 +122,8 @@ export const AREAS: readonly Area[] = [
 /** The area a page is in (the interface kit and home: the node and the wallet). */
 export function areaOf(page: PageId): Area {
   if (page === 'home') return AREAS[0];
+  const into = PAGES[page].tabOf;
+  if (into) return areaOf(into.page);
   return AREAS.find((a) => a.tabs.some((t) => t.page === page)) ?? AREAS[0];
 }
 
@@ -141,6 +141,9 @@ export type PageKind = 'wallet' | 'chain' | 'tools' | 'node';
 
 export function pageKind(page: PageId): PageKind {
   if (page === 'home') return 'wallet';
+  // A tab of another page: of the kind of that page.
+  const into = PAGES[page].tabOf;
+  if (into) return pageKind(into.page);
   const section = NAV_SECTIONS.find((s) => s.pages.includes(page));
   return (section?.title.toLowerCase() as PageKind | undefined) ?? 'node';
 }
@@ -183,9 +186,9 @@ export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
 
 /** The sidebars (dashboard, compact): every page, in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
-  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets'] },
+  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets', 'advanced'] },
   // What concerns the chain before the tools.
   { title: 'Chain', pages: ['sidechains', 'mine', 'explorer'] },
-  { title: 'Tools', pages: ['messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto'] },
+  { title: 'Tools', pages: ['tools'] },
   { title: 'Node', pages: ['node', 'settings', 'kit'] },
 ];

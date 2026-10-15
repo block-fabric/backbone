@@ -4,12 +4,15 @@
   // wallet that holds coins, and the check of such a proof against the chain as it is now.
   import CopyButton from '../components/CopyButton.svelte';
   import { errorText, inform, withKeys } from '../lib/dialogs.svelte';
-  import { nav } from '../lib/nav.svelte';
+  import { ownTab, setOwnTab } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
   import { noWalletText, wallets } from '../lib/state.svelte';
   import { formatProof, parseProof, proofVerdict, simplified } from '../lib/tools';
 
-  const tab = $derived(nav.tab === 'verify' ? 'verify' : 'prove');
+  // A tab of a page that holds it (Tools, Advanced transactions): without a title of its own.
+  let { embedded = false }: { embedded?: boolean } = $props();
+
+  const tab = $derived(ownTab('proof') === 'verify' ? 'verify' : 'prove');
   const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 
   let statement = $state(`These funds are mine. ${today}`);
@@ -116,11 +119,11 @@
   }
 </script>
 
-<div class="page proof">
-  <header class="page-head"><h1>Proof of funds</h1></header>
+<div class="proof" class:page={!embedded}>
+  {#if !embedded}<header class="page-head"><h1>Proof of funds</h1></header>{/if}
   <div class="tabs" role="tablist" aria-label="Prove or verify">
-    <button type="button" role="tab" aria-selected={tab === 'prove'} onclick={() => (nav.tab = 'prove')}>Prove</button>
-    <button type="button" role="tab" aria-selected={tab === 'verify'} onclick={() => (nav.tab = 'verify')}>Verify</button>
+    <button type="button" role="tab" aria-selected={tab === 'prove'} onclick={() => (setOwnTab('proof', 'prove'))}>Prove</button>
+    <button type="button" role="tab" aria-selected={tab === 'verify'} onclick={() => (setOwnTab('proof', 'verify'))}>Verify</button>
   </div>
 
   {#if tab === 'prove'}

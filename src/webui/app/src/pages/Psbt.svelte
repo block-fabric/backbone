@@ -7,11 +7,14 @@
   import Icon from '../components/Icon.svelte';
   import { errorText, withUnlock } from '../lib/dialogs.svelte';
   import { FILTERS, openFile, saveBase64As, safeFileName } from '../lib/files';
-  import { nav } from '../lib/nav.svelte';
+  import { ownTab, setOwnTab } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
   import { prefs, toast, wallets } from '../lib/state.svelte';
   import { formatAmount, UNITS } from '../lib/units';
   import { psbt as psbtApi, walletApi, type PsbtState } from '../lib/wallet';
+
+  // A tab of a page that holds it (Tools, Advanced transactions): without a title of its own.
+  let { embedded = false }: { embedded?: boolean } = $props();
 
   const wallet = $derived(wallets.current);
   let ps = $state<PsbtState | null>(null);
@@ -66,9 +69,9 @@
 
   // From the menu: Load PSBT from file… / from clipboard…
   $effect(() => {
-    const tab = nav.tab;
+    const tab = ownTab('psbt');
     if (tab !== 'file' && tab !== 'clipboard') return;
-    nav.tab = '';
+    setOwnTab('psbt', '');
     if (tab === 'file') fromFile();
     else fromClipboard();
   });
@@ -130,8 +133,8 @@
   }
 </script>
 
-<div class="page psbt">
-  <header class="page-head"><h1>Partially signed transactions</h1></header>
+<div class="psbt" class:page={!embedded}>
+  {#if !embedded}<header class="page-head"><h1>Partially signed transactions</h1></header>{/if}
 
   <section class="panel load">
     <div class="panel-body row loaders">

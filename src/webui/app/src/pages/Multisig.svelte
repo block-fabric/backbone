@@ -5,18 +5,21 @@
   import CopyButton from '../components/CopyButton.svelte';
   import Icon from '../components/Icon.svelte';
   import { confirm, errorText, inform, prompt, walletRpc } from '../lib/dialogs.svelte';
-  import { nav } from '../lib/nav.svelte';
+  import { ownTab, setOwnTab } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
   import { noWalletText, prefs, savePrefs, wallets } from '../lib/state.svelte';
   import { bareDescriptor, coinsToUnits, jsonCoinsToUnits, keyOfDescriptor, psbtStatus, sharedDescriptor, signersText, unitsToCoins } from '../lib/tools';
   import { walletDisplayName } from '../lib/wallet';
+
+  // A tab of a page that holds it (Tools, Advanced transactions): without a title of its own.
+  let { embedded = false }: { embedded?: boolean } = $props();
 
   const TABS = [
     { id: 'keys', label: 'Keys' },
     { id: 'addresses', label: 'Shared addresses' },
     { id: 'spend', label: 'Spend' },
   ];
-  const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'keys');
+  const tab = $derived(TABS.some((t) => t.id === ownTab('multisig')) ? ownTab('multisig') : 'keys');
 
   const warn = (text: string) => inform(t('Multisig Lounge'), text, 'warning');
 
@@ -236,11 +239,11 @@
   }
 </script>
 
-<div class="page multisig">
-  <header class="page-head"><h1>Multisig lounge</h1></header>
+<div class="multisig" class:page={!embedded}>
+  {#if !embedded}<header class="page-head"><h1>Multisig lounge</h1></header>{/if}
   <div class="tabs" role="tablist" aria-label="Multisig lounge">
     {#each TABS as tb (tb.id)}
-      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
+      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (setOwnTab('multisig', tb.id))}>{t(tb.label)}</button>
     {/each}
   </div>
 

@@ -1,22 +1,18 @@
 <script lang="ts">
   // The page shown, whatever the layout around it.
   import NoWallet from '../components/NoWallet.svelte';
-  import Crypto from '../pages/Crypto.svelte';
   import Explorer from '../pages/Explorer.svelte';
   import Kit from '../pages/Kit.svelte';
-  import Messages from '../pages/Messages.svelte';
   import Mine from '../pages/Mine.svelte';
-  import Multisig from '../pages/Multisig.svelte';
   import NodeWindow from '../pages/NodeWindow.svelte';
   import Overview from '../pages/Overview.svelte';
-  import Proof from '../pages/Proof.svelte';
-  import Psbt from '../pages/Psbt.svelte';
+  import Advanced from '../pages/Advanced.svelte';
+  import Tools from '../pages/Tools.svelte';
   import Receive from '../pages/Receive.svelte';
   import Send from '../pages/Send.svelte';
   import Settings from '../pages/Settings.svelte';
   import SidechainNodes from '../pages/SidechainNodes.svelte';
   import Sidechains from '../pages/Sidechains.svelte';
-  import Timestamp from '../pages/Timestamp.svelte';
   import Transactions from '../pages/Transactions.svelte';
   import Wallets from '../pages/Wallets.svelte';
   import Home from './home/Home.svelte';
@@ -48,10 +44,8 @@
     <Mine />
   {:else if nav.page === 'explorer'}
     <Explorer />
-  {:else if nav.page === 'timestamp'}
-    <Timestamp />
-  {:else if nav.page === 'crypto'}
-    <Crypto />
+  {:else if nav.page === 'tools'}
+    <Tools />
   {:else if (page.wallet && noWallet) || (!walletsOn && nav.page === 'wallets')}
     <NoWallet {page} />
   {:else if nav.page === 'send'}
@@ -60,15 +54,9 @@
     <Receive />
   {:else if nav.page === 'transactions'}
     <Transactions />
-  {:else if nav.page === 'messages'}
-    <Messages />
-  {:else if nav.page === 'psbt'}
-    <Psbt />
   {:else if nav.page === 'wallets'}
     <Wallets />
-  {:else if nav.page === 'proof'}
-    <Proof />
-  {:else if nav.page === 'multisig'}
-    <Multisig />
+  {:else if nav.page === 'advanced'}
+    <Advanced />
   {/if}
 {/key}

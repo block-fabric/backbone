@@ -4,15 +4,18 @@
   import { t } from '../lib/i18n.svelte';
   import CopyButton from '../components/CopyButton.svelte';
   import { errorText } from '../lib/dialogs.svelte';
-  import { nav } from '../lib/nav.svelte';
+  import { ownTab, setOwnTab } from '../lib/nav.svelte';
   import { host, rpc, type Decoded, type Hashes } from '../lib/rpc';
+
+  // A tab of a page that holds it (Tools, Advanced transactions): without a title of its own.
+  let { embedded = false }: { embedded?: boolean } = $props();
 
   const TABS = [
     { id: 'hash', label: 'Hash Calculator' },
     { id: 'merkle', label: 'Merkle Tree' },
     { id: 'address', label: 'Address Decoder' },
   ];
-  const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'hash');
+  const tab = $derived(TABS.some((t) => t.id === ownTab('crypto')) ? ownTab('crypto') : 'hash');
 
   // --- Hashes ---
   let hashInput = $state('');
@@ -101,11 +104,11 @@
   const validationRows = $derived(validation ? Object.entries(validation).filter(([k]) => k !== 'isvalid' && k !== 'address') : []);
 </script>
 
-<div class="page crypto">
-  <header class="page-head"><h1>Crypto tools</h1></header>
+<div class="crypto" class:page={!embedded}>
+  {#if !embedded}<header class="page-head"><h1>Crypto tools</h1></header>{/if}
   <div class="tabs" role="tablist" aria-label="Crypto tools">
     {#each TABS as tb (tb.id)}
-      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
+      <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (setOwnTab('crypto', tb.id))}>{t(tb.label)}</button>
     {/each}
   </div>
 

@@ -7,13 +7,16 @@
   import Icon from '../components/Icon.svelte';
   import { BridgeError } from '../lib/bridge';
   import { withUnlock } from '../lib/dialogs.svelte';
-  import { nav } from '../lib/nav.svelte';
+  import { ownTab, setOwnTab } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
   import { wallets } from '../lib/state.svelte';
   import { messages, walletApi } from '../lib/wallet';
 
+  // A tab of a page that holds it (Tools, Advanced transactions): without a title of its own.
+  let { embedded = false }: { embedded?: boolean } = $props();
+
   const wallet = $derived(wallets.current);
-  const tab = $derived(nav.tab.startsWith('verify') ? 'verify' : 'sign');
+  const tab = $derived(ownTab('messages').startsWith('verify') ? 'verify' : 'sign');
 
   // Sign
   let signAddress = $state('');
@@ -31,12 +34,12 @@
 
   // An address given with the tab ("sign:<address>", from the address book).
   $effect(() => {
-    const tab = nav.tab;
+    const tab = ownTab('messages');
     const i = tab.indexOf(':');
     if (i < 0) return;
     if (tab.startsWith('sign')) signAddress = tab.slice(i + 1);
     else verifyAddress = tab.slice(i + 1);
-    nav.tab = tab.slice(0, i);
+    setOwnTab('messages', tab.slice(0, i));
   });
 
   async function sign() {
@@ -79,11 +82,11 @@
   }
 </script>
 
-<div class="page messages">
-  <header class="page-head"><h1>Signatures - Sign / Verify a Message</h1></header>
+<div class="messages" class:page={!embedded}>
+  {#if !embedded}<header class="page-head"><h1>Signatures - Sign / Verify a Message</h1></header>{/if}
   <div class="tabs" role="tablist" aria-label="Sign or verify">
-    <button type="button" role="tab" aria-selected={tab === 'sign'} onclick={() => (nav.tab = 'sign')}>Sign Message</button>
-    <button type="button" role="tab" aria-selected={tab === 'verify'} onclick={() => (nav.tab = 'verify')}>Verify Message</button>
+    <button type="button" role="tab" aria-selected={tab === 'sign'} onclick={() => (setOwnTab('messages', 'sign'))}>Sign Message</button>
+    <button type="button" role="tab" aria-selected={tab === 'verify'} onclick={() => (setOwnTab('messages', 'verify'))}>Verify Message</button>
   </div>
 
   {#if tab === 'sign'}

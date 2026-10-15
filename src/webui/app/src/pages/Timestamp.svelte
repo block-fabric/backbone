@@ -11,6 +11,9 @@
   import { noWalletText, wallets } from '../lib/state.svelte';
   import { stampPayload } from '../lib/tools';
 
+  // A tab of a page that holds it (Tools, Advanced transactions): without a title of its own.
+  let { embedded = false }: { embedded?: boolean } = $props();
+
   /** Blocks looked at per call: the progress shows, and Stop is quick. */
   const STEP = 64;
 
@@ -101,8 +104,8 @@
   }
 </script>
 
-<div class="page timestamp">
-  <header class="page-head"><h1>Timestamp a file</h1></header>
+<div class="timestamp" class:page={!embedded}>
+  {#if !embedded}<header class="page-head"><h1>Timestamp a file</h1></header>{/if}
   <p class="muted">
     Stamping a file publishes its fingerprint (SHA-256 hash) in a transaction, which proves to anyone, at any later time, that the file existed when the block was mined. The file itself stays on this computer.
     Stamping costs a transaction fee.

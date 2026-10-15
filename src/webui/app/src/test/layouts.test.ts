@@ -199,6 +199,72 @@ describe('the commands', () => {
     expect(await screen.findByRole('button', { name: /Create new receiving address/ })).toBeTruthy();
   });
 
+  it('tools: one page, its tabs Timestamp, Proof of funds, Crypto tools (user decision)', () => {
+    for (const id of ['timestamp', 'proof', 'crypto'] as PageId[]) expect(PAGES[id].tabOf, id).toEqual({ page: 'tools', tab: id });
+    expect(NAV_SECTIONS.find((s) => s.title === 'Tools')!.pages).toEqual(['tools']);
+    expect(AREAS.find((a) => a.id === 'tools')!.tabs.map((t) => t.page)).toEqual(['tools']);
+    const all = buildCommands();
+    for (const id of ['timestamp', 'proof', 'crypto']) expect(all.some((c) => c.id === `page.${id}`), id).toBe(false);
+    expect(all.some((c) => c.id === 'page.tools')).toBe(true);
+    // Every old item opens its tab (and the tab of its own).
+    const cases: [string, string][] = [
+      ['Timestamp file', 'timestamp'],
+      ['Proof of funds', 'proof'],
+      ['Hash calculator', 'crypto/hash'],
+      ['Merkle tree', 'crypto/merkle'],
+      ['Address decoder', 'crypto/address'],
+    ];
+    for (const [label, tab] of cases) {
+      go('overview');
+      all.find((c) => c.label === label && c.group !== 'Go to')!.run();
+      expect([nav.page, nav.tab], label).toEqual(['tools', tab]);
+    }
+  });
+
+  it('advanced transactions: one page, its tabs Sign & verify, PSBT, Multisig, with the wallet (user decision)', () => {
+    for (const id of ['messages', 'psbt', 'multisig'] as PageId[]) expect(PAGES[id].tabOf, id).toEqual({ page: 'advanced', tab: id });
+    const wallet = NAV_SECTIONS.find((s) => s.title === 'Wallet')!.pages;
+    expect(wallet.indexOf('advanced')).toBeGreaterThan(wallet.indexOf('transactions'));
+    expect(wallet.indexOf('advanced')).toBeGreaterThan(wallet.indexOf('wallets'));
+    expect(AREAS.find((a) => a.id === 'wallet')!.tabs.some((t) => t.page === 'advanced' && t.label === 'Advanced')).toBe(true);
+    const all = buildCommands();
+    for (const id of ['messages', 'psbt', 'multisig']) expect(all.some((c) => c.id === `page.${id}`), id).toBe(false);
+    expect(all.some((c) => c.id === 'page.advanced')).toBe(true);
+    const cases: [string, string][] = [
+      ['Sign message…', 'messages/sign'],
+      ['Verify message…', 'messages/verify'],
+      ['Load PSBT from file…', 'psbt/file'],
+      ['Load PSBT from clipboard…', 'psbt/clipboard'],
+      ['Multisig lounge', 'multisig'],
+    ];
+    for (const [label, tab] of cases) {
+      go('overview');
+      all.find((c) => c.label === label)!.run();
+      expect([nav.page, nav.tab], label).toEqual(['advanced', tab]);
+    }
+    // The quick actions of the dashboard too.
+    for (const q of HOME_QUICK_ACTIONS.filter((x) => x.page === 'messages' || x.page === 'psbt')) {
+      go('overview');
+      go(q.page, q.tab);
+      expect(nav.page, q.label).toBe('advanced');
+    }
+  });
+
+  it('tools and advanced transactions: the pages draw the tab asked for', async () => {
+    prefs.layout = 'sidebar';
+    render(Shell);
+    go('crypto', 'merkle');
+    const tools = await screen.findByRole('tablist', { name: 'Tools' });
+    expect(within(tools).getByRole('tab', { name: 'Crypto tools' }).getAttribute('aria-selected')).toBe('true');
+    expect((await screen.findByRole('tab', { name: 'Merkle Tree' })).getAttribute('aria-selected')).toBe('true');
+    go('messages', 'verify');
+    const adv = await screen.findByRole('tablist', { name: 'Advanced transactions' });
+    expect(within(adv).getByRole('tab', { name: 'Sign & verify' }).getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Verify Message' }).getAttribute('aria-selected')).toBe('true'));
+    await fireEvent.click(within(adv).getByRole('tab', { name: 'Multisig' }));
+    expect([nav.page, nav.tab]).toEqual(['advanced', 'multisig']);
+  });
+
   it('dashboard: the wallet is switched in the sidebar card only, and the unit in the status bar only', () => {
     prefs.layout = 'dashboard';
     render(Shell);
@@ -220,7 +286,7 @@ describe('the commands', () => {
     expect(searchCommands(all, 'peers')[0].label).toBe('Peers');
     expect(searchCommands(all, 'zzzz')).toEqual([]);
     searchCommands(all, 'merkle')[0].run();
-    expect([nav.page, nav.tab]).toEqual(['crypto', 'merkle']);
+    expect([nav.page, nav.tab]).toEqual(['tools', 'crypto/merkle']);
   });
 
   it('switch the layout, with the home of the dashboard', () => {
@@ -264,7 +330,7 @@ describe('the layouts', () => {
     const menu = await waitFor(() => screen.getByRole('menu'));
     expect(within(menu).getByRole('menuitem', { name: 'Hash calculator' })).toBeTruthy();
     await fireEvent.click(within(menu).getByRole('menuitem', { name: 'Hash calculator' }));
-    expect([nav.page, nav.tab]).toEqual(['crypto', 'hash']);
+    expect([nav.page, nav.tab]).toEqual(['tools', 'crypto/hash']);
     // The history: a click on a row shows it in the panel.
     go('transactions');
     const cell = await waitFor(() => screen.getByText('salary'));
@@ -302,7 +368,7 @@ describe('the layouts', () => {
     expect(nav.page).toBe('mine');
     // Every page in the sidebar, Home first.
     const side = screen.getByRole('navigation', { name: 'Pages' });
-    expect(within(side).getAllByRole('button', { name: /Home|Overview|Wallets|Crypto tools|Settings/ }).length).toBeGreaterThanOrEqual(5);
+    expect(within(side).getAllByRole('button', { name: /Home|Overview|Wallets|^Tools|Settings/ }).length).toBeGreaterThanOrEqual(5);
   }, 20000);
 
   it('dashboard: the Deposit and Withdrawals of a sidechain open the real tabs, the sidechain chosen', async () => {
@@ -429,10 +495,13 @@ describe('the layouts', () => {
 
   it('chain before tools, in every list of actions and every menu', () => {
     // The helper finds a list out of order.
-    expect(chainBeforeTools(['send', 'psbt', 'mine'] as PageId[], (p) => p)).toEqual({ chain: 'mine', tool: 'psbt' });
-    expect(chainBeforeTools(['send', 'mine', 'psbt', 'node'] as PageId[], (p) => p)).toBeNull();
+    expect(chainBeforeTools(['send', 'timestamp', 'mine'] as PageId[], (p) => p)).toEqual({ chain: 'mine', tool: 'timestamp' });
+    expect(chainBeforeTools(['send', 'mine', 'tools', 'node'] as PageId[], (p) => p)).toBeNull();
     expect(pageKind('explorer')).toBe('chain');
-    expect(pageKind('messages')).toBe('tools');
+    expect(pageKind('tools')).toBe('tools');
+    expect(pageKind('crypto')).toBe('tools');
+    // Sign and verify, PSBT, Multisig: with the wallet (Advanced transactions).
+    expect(pageKind('messages')).toBe('wallet');
     const lists: [string, PageId[]][] = [
       ['Home quick actions', HOME_QUICK_ACTIONS.map((q) => q.page)],
       ['sidebar sections', NAV_SECTIONS.flatMap((s) => s.pages)],
@@ -473,6 +542,6 @@ describe('the layouts', () => {
     expect(within(screen.getByRole('listbox')).getAllByRole('option')[0].textContent).toContain('Verify message');
     await fireEvent.keyDown(input, { key: 'Enter' });
     expect(palette.open).toBe(false);
-    expect([nav.page, nav.tab]).toEqual(['messages', 'verify']);
+    expect([nav.page, nav.tab]).toEqual(['advanced', 'messages/verify']);
   });
 });
