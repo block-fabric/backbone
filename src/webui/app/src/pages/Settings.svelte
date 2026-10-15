@@ -7,23 +7,14 @@
   import { nav } from '../lib/nav.svelte';
   import { host, type NodeOptions, type NodeOptionValues } from '../lib/rpc';
   import { app, prefs, toast } from '../lib/state.svelte';
-  import { applyChanges, askOnLeave, cancelChanges, draft, noteBaseline, pendingCount, stagePrefs } from '../lib/settingsdraft.svelte';
+  import { applyChanges, askOnLeave, cancelChanges, draft, noteBaseline, pendingCount, shownTitleBar, stagePrefs, stageTitleBar } from '../lib/settingsdraft.svelte';
   import { loadLocale, t } from '../lib/i18n.svelte';
 
   const draftBaselineLang = () => draft.baseline?.lang ?? '';
   import { clampFontAdjust, FONTS, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type FontChoice, type ThemeId } from '../lib/themes';
   import { UNITS, type Unit } from '../lib/units';
   import LayoutPicker from '../components/LayoutPicker.svelte';
-  import { frame, setTitleBar } from '../lib/windowframe.svelte';
-
-  // The title bar of the desktop, or the integrated one (doc/webui-layouts.md): kept by the host at once.
-  async function changeTitleBar(system: boolean) {
-    try {
-      await setTitleBar(system ? 'system' : 'integrated');
-    } catch (e) {
-      toast('error', 'Title bar', e instanceof Error ? e.message : String(e));
-    }
-  }
+  import { frame } from '../lib/windowframe.svelte';
 
   // Appearance first: the look, the layout and the title bar (doc/webui-layouts.md).
   const TABS = [
@@ -82,7 +73,7 @@
       if (next.restartRequired && !before) changedNow = true;
       if (next.restartRequired) changedNow = true;
     } catch (e) {
-      toast('error', 'Settings', errorText(e));
+      toast('error', t('Settings'), errorText(e));
       await load();
     }
   }
@@ -95,7 +86,7 @@
       if (options.restartRequired && !before) changedNow = true;
       if (options.restartRequired) changedNow = true;
     } catch (e) {
-      toast('error', 'Settings', errorText(e));
+      toast('error', t('Settings'), errorText(e));
       await load();
     }
   }
@@ -118,39 +109,39 @@
 
   async function openConfig() {
     const r = await confirm(
-      'Configuration options',
-      'The configuration file is used to specify advanced user options which override GUI settings. Additionally, any command-line options will override this configuration file.',
+      t('Configuration options'),
+      t('The configuration file is used to specify advanced user options which override GUI settings. Additionally, any command-line options will override this configuration file.'),
       { yes: 'Continue', level: 'info' },
     );
     if (!r) return;
     try {
       await host.open('config');
     } catch (e) {
-      await inform('Error', errorText(e) || 'The configuration file could not be opened.', 'error');
+      await inform(t('Error'), errorText(e) || t('The configuration file could not be opened.'), 'error');
     }
   }
 
   async function reset() {
     const ok = await confirm(
-      'Confirm options reset',
-      `Client restart required to activate changes.\n\nCurrent settings will be backed up at "${app.info?.datadir ?? ''}".\n\nClient will be shut down. Do you want to proceed?`,
+      t('Confirm options reset'),
+      t('Client restart required to activate changes.\n\nCurrent settings will be backed up at "%1".\n\nClient will be shut down. Do you want to proceed?', app.info?.datadir ?? ''),
       { yes: 'Reset and shut down', danger: true, level: 'warning' },
     );
     if (!ok) return;
     try {
       await host.resetOptions();
     } catch (e) {
-      await inform('Error', errorText(e), 'error');
+      await inform(t('Error'), errorText(e), 'error');
     }
   }
 
   async function restart() {
-    if (!(await confirm('Restart', `${app.info?.name ?? 'Chains'} will stop and start again with the new settings. Restart now?`, { yes: 'Restart' }))) return;
+    if (!(await confirm(t('Restart'), t('%1 will stop and start again with the new settings. Restart now?', app.info?.name ?? t('Chains')), { yes: 'Restart' }))) return;
     if (pending > 0 && (await applyChanges(options)) === null) return;
     try {
       await host.restart();
     } catch (e) {
-      await inform('Restart', errorText(e), 'warning');
+      await inform(t('Restart'), errorText(e), 'warning');
     }
   }
 
@@ -185,7 +176,7 @@
         }
         options = after;
         if (after.restartRequired && !before) changedNow = true;
-        toast('success', 'Settings', 'The changes are applied.');
+        toast('success', t('Settings'), t('The changes are applied.'));
       }
     } finally {
       applying = false;
@@ -451,7 +442,8 @@
 
         {#if frame.supported}
           <label class="check">
-            <input type="checkbox" checked={frame.titleBar === 'system'} onchange={(e) => changeTitleBar((e.currentTarget as HTMLInputElement).checked)} />
+            <!-- The title bar of the desktop, or the integrated one (doc/webui-layouts.md): waits for Apply, as the other settings. -->
+            <input type="checkbox" checked={shownTitleBar() === 'system'} onchange={(e) => stageTitleBar((e.currentTarget as HTMLInputElement).checked ? 'system' : 'integrated')} />
             <span>Use the title bar of the desktop</span>
           </label>
           <span class="hint" role="status">

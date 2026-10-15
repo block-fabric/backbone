@@ -213,3 +213,36 @@ describe('every layout', () => {
     });
   }
 });
+
+describe('the title bar option of the settings', () => {
+  it('waits for Apply, as the other settings, and goes on Cancel', async () => {
+    const { default: Settings } = await import('../pages/Settings.svelte');
+    const { pendingNow } = await import('../lib/settingsdraft.svelte');
+    go('settings', 'display');
+    render(Settings);
+    const box = (await screen.findByText('Use the title bar of the desktop')).closest('label')!.querySelector('input') as HTMLInputElement;
+    const apply = screen.getByRole('button', { name: 'Apply' });
+    expect(box.checked).toBe(false);
+    await fireEvent.click(box);
+    // Ticked, waiting: the window keeps its title bar until Apply.
+    expect(box.checked).toBe(true);
+    expect(methods()).not.toContain('window.setTitleBar');
+    expect(frame.titleBar).toBe('integrated');
+    expect(pendingNow()).toBe(1);
+    expect((apply as HTMLButtonElement).disabled).toBe(false);
+    await fireEvent.click(apply);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.filter((c) => c.method === 'window.setTitleBar').map((c) => (c.params as { mode: string }).mode)).toEqual(['system']);
+    expect(frame.titleBar).toBe('system');
+    expect(pendingNow()).toBe(0);
+    // Back, then Cancel: nothing is asked of the window.
+    await fireEvent.click(box);
+    expect(box.checked).toBe(false);
+    expect(pendingNow()).toBe(1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pendingNow()).toBe(0);
+    expect(box.checked).toBe(true);
+    expect(calls.filter((c) => c.method === 'window.setTitleBar').length).toBe(1);
+  });
+});

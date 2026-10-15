@@ -201,11 +201,18 @@
     // C16: the window framed by the page (the integrated title bar of the layouts) follows the option.
     T().go('settings', 'display');
     const useSystem = await waitFor('the title bar option', () => [...document.querySelectorAll('label.check')].find((l) => l.textContent.includes('Use the title bar of the desktop')), 5000);
+    const applyButton = () => [...document.querySelectorAll('.apply-bar button')].find((b) => b.textContent.trim() === 'Apply');
     useSystem.querySelector('input').click();
-    await waitFor('the frame of the desktop', () => !$('.titlestrip, .top.titlebar') && !$('.resize'), 5000);
+    // It waits for Apply, as the other settings.
+    await new Promise((r) => setTimeout(r, 300));
     let frameState = await host('window.state');
+    await check('C16 the title bar option waits for Apply', frameState.titleBar === 'integrated' && !!$('.titlestrip, .top.titlebar') && !applyButton().disabled, JSON.stringify(frameState));
+    applyButton().click();
+    await waitFor('the frame of the desktop', () => !$('.titlestrip, .top.titlebar') && !$('.resize'), 5000);
+    frameState = await host('window.state');
     await check('C16 the option gives the frame back to the desktop', frameState.titleBar === 'system' && frameState.frameless === false, JSON.stringify(frameState));
     useSystem.querySelector('input').click();
+    applyButton().click();
     await waitFor('the integrated title bar again', () => !!$('.titlestrip, .top.titlebar'), 5000);
     frameState = await host('window.state');
     await check('C16 and takes it again', frameState.titleBar === 'integrated' && frameState.frameless === true, JSON.stringify(frameState));

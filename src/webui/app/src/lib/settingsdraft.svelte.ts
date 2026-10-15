@@ -5,9 +5,11 @@
 // kept (options.apply forgets that, options.cancel puts it back, and so does the next start when they were
 // never applied). The preferences of the app (the look, the window, the wallet pages) are kept here: shown
 // at once while they wait, and back as they were on Cancel.
+import { t } from './i18n.svelte';
 import { confirm, errorText, inform } from './dialogs.svelte';
 import { host, type NodeOptions } from './rpc';
 import { prefs, savePrefs, toast } from './state.svelte';
+import { frame, setTitleBar } from './windowframe.svelte';
 
 export type Prefs = Omit<typeof prefs, 'loaded'>;
 
@@ -20,16 +22,31 @@ export const draft = $state({
   baseline: null as NodeOptions | null,
   /** Changes of the options of the node the host keeps for Apply, as last known (the sidebar shows them). */
   hostPending: 0,
+  /**
+   * The title bar chosen, waiting for Apply (null: no change). It changes the frame of the window, so it is
+   * not shown before it is applied: only its box is ticked.
+   */
+  titleBar: null as 'integrated' | 'system' | null,
 });
+
+/** The title bar the box of the settings shows: the one waiting for Apply, or the one of the window. */
+export function shownTitleBar(): 'integrated' | 'system' {
+  return draft.titleBar ?? frame.titleBar;
+}
+
+/** The title bar chosen on the page: it waits for Apply, as the other settings. */
+export function stageTitleBar(mode: 'integrated' | 'system'): void {
+  draft.titleBar = mode === frame.titleBar ? null : mode;
+}
 
 /** The number of changes waiting: the options the host keeps, and the preferences kept here. */
 export function pendingCount(options: Pick<NodeOptions, 'pending'> | null): number {
-  return (options?.pending ?? 0) + Object.keys(draft.prefs).length;
+  return (options?.pending ?? 0) + Object.keys(draft.prefs).length + (draft.titleBar ? 1 : 0);
 }
 
 /** What waits for Apply, as last known, wherever the user is. */
 export function pendingNow(): number {
-  return draft.hostPending + Object.keys(draft.prefs).length;
+  return draft.hostPending + Object.keys(draft.prefs).length + (draft.titleBar ? 1 : 0);
 }
 
 /** The options of the node before the first change: kept once, until applied or cancelled. */
@@ -85,7 +102,7 @@ export function riskyChanges(before: NodeOptions | null, now: NodeOptions | null
 export async function applyChanges(now: NodeOptions | null): Promise<NodeOptions | null> {
   const risky = riskyChanges(draft.baseline, now);
   if (risky.length > 0) {
-    const ok = await confirm('Confirm options', 'Some of these changes are hard to take back. Apply them?', {
+    const ok = await confirm(t('Confirm options'), t('Some of these changes are hard to take back. Apply them?'), {
       yes: 'Apply',
       level: 'warning',
       informative: risky.map((r) => `• ${r}`).join('\n'),
@@ -96,11 +113,20 @@ export async function applyChanges(now: NodeOptions | null): Promise<NodeOptions
   try {
     if ((now?.pending ?? 0) > 0) options = await host.applyOptions();
   } catch (e) {
-    await inform('Settings', errorText(e), 'error');
+    await inform(t('Settings'), errorText(e), 'error');
     return null;
   }
   if (Object.keys(draft.prefs).length > 0) savePrefs({ ...draft.prefs });
   clearPrefs();
+  if (draft.titleBar) {
+    const mode = draft.titleBar;
+    try {
+      await setTitleBar(mode);
+      draft.titleBar = null;
+    } catch (e) {
+      await inform(t('Title bar'), errorText(e), 'error');
+    }
+  }
   draft.baseline = options;
   draft.hostPending = options?.pending ?? 0;
   return options;
@@ -110,11 +136,12 @@ export async function applyChanges(now: NodeOptions | null): Promise<NodeOptions
 export async function cancelChanges(now: NodeOptions | null): Promise<NodeOptions | null> {
   Object.assign(prefs, draft.original);
   clearPrefs();
+  draft.titleBar = null;
   let options = now;
   try {
     if ((now?.pending ?? 0) > 0) options = await host.cancelOptions();
   } catch (e) {
-    await inform('Settings', errorText(e), 'error');
+    await inform(t('Settings'), errorText(e), 'error');
   }
   draft.baseline = options;
   draft.hostPending = options?.pending ?? 0;
@@ -129,7 +156,7 @@ export async function cancelChanges(now: NodeOptions | null): Promise<NodeOption
 export function askOnLeave(now: NodeOptions | null): void {
   const count = pendingCount(now);
   if (count === 0) return;
-  toast('warning', 'Settings not applied', `${count === 1 ? '1 change waits' : `${count} changes wait`} for Apply. Changes not applied never take effect: they are taken back at the next start.`, 0, [
+  toast('warning', t('Settings not applied'), t('%1 for Apply. Changes not applied never take effect: they are taken back at the next start.', count === 1 ? t('1 change waits') : t('%1 changes wait', count)), 0, [
     {
       label: 'Apply',
       run: async () => {

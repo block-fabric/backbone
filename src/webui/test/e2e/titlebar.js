@@ -54,7 +54,13 @@
     T().savePrefs({ layout: 'dashboard' });
     T().go('settings', 'display');
     const box = await waitFor('the title bar setting', () => [...document.querySelectorAll('label.check')].find((l) => l.textContent.includes('title bar of the desktop')));
+    const applyButton = () => [...document.querySelectorAll('.apply-bar button')].find((b) => b.textContent.trim() === 'Apply');
     box.querySelector('input').click();
+    // The choice waits for Apply, as the other settings: nothing changes before.
+    await new Promise((r) => setTimeout(r, 300));
+    const before = await host('window.state');
+    await check('the title bar option waits for Apply', before.titleBar === 'integrated' && !!controls() && !applyButton().disabled, JSON.stringify(before));
+    applyButton().click();
     const changed = await waitFor('the title bar of the system', async () => {
       const s = await host('window.state');
       return s.titleBar === 'system' && s;
@@ -68,6 +74,7 @@
     }
     await snapshot('titlebar-system-light');
     box.querySelector('input').click();
+    applyButton().click();
     const back = await waitFor('the integrated title bar again', async () => {
       const s = await host('window.state');
       return s.titleBar === 'integrated' && s;
