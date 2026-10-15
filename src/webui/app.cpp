@@ -1147,6 +1147,9 @@ void App::RegisterHostMethods()
                                                  "Accept only if you know what it is.", title, *path)};
             if (!Confirm({.title = title, .message = question, .accept = "Use this program"})) return std::nullopt;
             return path;
+        }, [this](const std::string& title, const std::string& message, const std::string& accept) {
+            // A proxy, the Tor proxy or the RPC server turned on: asked in a dialog of the desktop.
+            return Confirm({.title = title, .message = message, .accept = accept});
         }};
     }};
     const auto with_pending{[this](UniValue out) {
@@ -1165,12 +1168,13 @@ void App::RegisterHostMethods()
         return with_pending(options().Get());
     });
     b.RegisterHost("options.set", [options, with_pending](const UniValue& params) {
+        // A long call: some changes wait for the answer of a confirmation of the desktop.
         try {
             return with_pending(options().Set(ParamStr(params, "name"), Param(params, "value")));
         } catch (const std::runtime_error& e) {
             throw HostError(BRIDGE_INVALID_REQUEST, e.what());
         }
-    });
+    }, Bridge::Thread::LONG);
     b.RegisterHost("options.chooseProgram", [options, with_pending](const UniValue& params) {
         // A setting that names a program (the external signer): through the file chooser and a confirmation
         // of the desktop. Null when the user cancelled.

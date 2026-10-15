@@ -217,7 +217,8 @@ export const host = {
   trayState: () => request<{ available: boolean; visible: boolean; windowVisible: boolean }>('host', 'tray.state', {}),
   // Options of the node (src/webui/options.cpp).
   options: () => request<NodeOptions>('host', 'options.get', {}),
-  setOption: (name: keyof NodeOptionValues, value: unknown) => request<NodeOptions>('host', 'options.set', { name, value }),
+  // A proxy, the Tor proxy or the RPC server turned on waits for a confirmation of the desktop (declined: nothing changed).
+  setOption: (name: keyof NodeOptionValues | 'proxyAddress' | 'torAddress', value: unknown) => request<NodeOptions>('host', 'options.set', { name, value }),
   // A setting that names a program (the signer): the file chooser and a confirmation of the desktop; null when cancelled.
   chooseProgramOption: (name: 'signer') => request<NodeOptions | null>('host', 'options.chooseProgram', { name }),
   validProxy: (address: string) => request<boolean>('host', 'options.validProxy', { address }),
@@ -268,6 +269,8 @@ export interface NodeOptions extends NodeOptionValues {
   restartRequired: boolean;
   /** Changes written since the last Apply, that Cancel takes back. */
   pending?: number;
+  /** The user said no to the confirmation of the desktop: nothing changed. */
+  declined?: boolean;
 }
 
 export interface Hashes {

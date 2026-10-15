@@ -148,8 +148,8 @@ struct ComScope {
 #endif
 } // namespace
 
-NodeOptions::NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal, ChooseProgramFn choose_program)
-    : m_node(node), m_args(args), m_restart(std::move(restart)), m_journal(std::move(journal)), m_choose_program(std::move(choose_program))
+NodeOptions::NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal, ChooseProgramFn choose_program, ConfirmFn confirm)
+    : m_node(node), m_args(args), m_restart(std::move(restart)), m_journal(std::move(journal)), m_choose_program(std::move(choose_program)), m_confirm(std::move(confirm))
 {
 }
 
@@ -176,6 +176,8 @@ UniValue NodeOptions::ChooseProgram(const std::string& name)
 
 bool NodeOptions::ValidProxyAddress(const std::string& text)
 {
+    // No user name or password (user:pass@host): the address alone.
+    if (text.find('@') != std::string::npos) return false;
     uint16_t port{0};
     std::string hostname;
     // An address without a port: the port has a field of its own.
@@ -412,6 +414,44 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
         restart();
     }};
 
+    // The changes that hand the traffic or the control of the node to someone else: confirmed by the user
+    // in a dialog of the desktop, which the page can neither draw nor answer, saying exactly what changes.
+    bool declined{false};
+    const auto confirmed{[&](const std::string& title, const std::string& message, const std::string& accept) {
+        if (!m_confirm) throw std::runtime_error("This change needs a confirmation of the desktop.");
+        if (m_confirm(title, message, accept)) return true;
+        declined = true;
+        return false;
+    }};
+    const auto proxy_ip{[&](const std::string& text) {
+        if (text.find('@') != std::string::npos) throw std::runtime_error("A proxy address cannot hold a user name or a password.");
+        if (!ValidProxyAddress(text)) throw std::runtime_error("The supplied proxy address is invalid.");
+        return text;
+    }};
+    const auto proxy_port{[&](const UniValue& v) {
+        const int64_t port{Int(v)};
+        if (port < 1 || port > 65535) throw std::runtime_error("The supplied proxy address is invalid.");
+        return strprintf("%d", port);
+    }};
+    // The question for a proxy (n: "proxy" or "onion") about to be used at this address.
+    const auto confirm_proxy{[&](const std::string& n, const std::string& address, bool already_used) {
+        const bool tor{n == "onion"};
+        const std::string title{tor ? "Tor proxy" : "Proxy"};
+        std::string message{tor ? strprintf("Reach Tor onion services through %s?", address) : strprintf("Route all connections through %s?", address)};
+        if (already_used) message += strprintf("\n\nIt is %s now.", ProxyString(true, proxy_field(n, true, ""), proxy_field(n, false, "")));
+        message += tor ? "\n\nThe SOCKS5 proxy at this address will see which onion services this node connects to, and can choose its peers there."
+                       : "\n\nThe SOCKS5 proxy at this address will see every connection of this node, the transactions it sends first and its peers, and can choose them. "
+                         "Accept only a proxy you run or trust.";
+        return confirmed(title, message, tor ? "Use this Tor proxy" : "Use this proxy");
+    }};
+    // A new address for a proxy: asked when it is in use (a proxy turned off is asked when turned on).
+    const auto set_proxy_address{[&](const std::string& n, const std::string& ip, const std::string& port) {
+        if (ip == proxy_field(n, true, "") && port == proxy_field(n, false, "")) return;
+        if (proxy_now(n, "").is_set && !confirm_proxy(n, ProxyString(true, ip, port), true)) return;
+        set_proxy_field(n, true, ip, "");
+        set_proxy_field(n, false, port, "");
+    }};
+
     const UniValue now{Get()};
     if (name == "dbcache") {
         const int64_t mib{Int(value)};
@@ -444,17 +484,30 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
     } else if (name == "listen") {
         set_flag("listen", Bool(value), now["listen"].get_bool());
     } else if (name == "server") {
-        set_flag("server", Bool(value), now["server"].get_bool());
+        const bool on{Bool(value)};
+        if (!on || now["server"].get_bool() ||
+            confirmed("RPC server", "Turn on the RPC server?\n\nPrograms on this computer that have the cookie or the RPC password of this node "
+                                    "(and others, if -rpcbind and -rpcallowip allow them) will be able to control the node and spend from its wallets.",
+                      "Turn on")) {
+            set_flag("server", on, now["server"].get_bool());
+        }
     } else if (name == "proxyUse" || name == "torUse") {
-        set_proxy_use(name == "proxyUse" ? "proxy" : "onion", Bool(value), "");
+        const std::string n{name == "proxyUse" ? "proxy" : "onion"};
+        const bool on{Bool(value)};
+        if (!on || proxy_now(n, "").is_set || confirm_proxy(n, ProxyString(true, proxy_field(n, true, ""), proxy_field(n, false, "")), false)) {
+            set_proxy_use(n, on, "");
+        }
     } else if (name == "proxyIp" || name == "torIp") {
-        const std::string ip{Str(value)};
-        if (!ValidProxyAddress(ip)) throw std::runtime_error("The supplied proxy address is invalid.");
-        set_proxy_field(name == "proxyIp" ? "proxy" : "onion", true, ip, "");
+        const std::string n{name == "proxyIp" ? "proxy" : "onion"};
+        set_proxy_address(n, proxy_ip(Str(value)), proxy_field(n, false, ""));
     } else if (name == "proxyPort" || name == "torPort") {
-        const int64_t port{Int(value)};
-        if (port < 1 || port > 65535) throw std::runtime_error("The supplied proxy address is invalid.");
-        set_proxy_field(name == "proxyPort" ? "proxy" : "onion", false, strprintf("%d", port), "");
+        const std::string n{name == "proxyPort" ? "proxy" : "onion"};
+        set_proxy_address(n, proxy_field(n, true, ""), proxy_port(value));
+    } else if (name == "proxyAddress" || name == "torAddress") {
+        // The address and the port at once: one question.
+        const std::string n{name == "proxyAddress" ? "proxy" : "onion"};
+        if (!value.isObject()) throw std::runtime_error("{ip, port} is needed");
+        set_proxy_address(n, proxy_ip(Str(value.find_value("ip"))), proxy_port(value.find_value("port")));
     } else if (name == "lang") {
         set_text("lang", Str(value));
     } else if (name == "startAtLogin") {
@@ -463,7 +516,9 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
     } else {
         throw std::runtime_error("No option " + name);
     }
-    return Get();
+    UniValue out{Get()};
+    if (declined) out.pushKV("declined", true);
+    return out;
 }
 
 OptionsJournal::OptionsJournal(AppConfig& config, ArgsManager& args, KeyFn key) : m_config(config), m_args(args), m_key(std::move(key)) {}

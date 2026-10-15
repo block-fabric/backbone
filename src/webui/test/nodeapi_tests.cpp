@@ -25,6 +25,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <chrono>
+#include <deque>
 #include <fstream>
 #include <set>
 #include <thread>
@@ -271,12 +272,21 @@ BOOST_AUTO_TEST_CASE(node_options)
     // What the file chooser and the confirmation of the desktop give for a program (nothing: cancelled).
     std::optional<std::string> program;
     int program_asked{0};
+    // The answers of the confirmations of the desktop (accepted unless told), and what they asked.
+    std::deque<bool> answers;
+    std::vector<std::string> asked;
     webui::NodeOptions options{*node, *m_node.args, [&](std::optional<bool> set) {
         if (set) restart = *set;
         return restart.value_or(false);
     }, {}, [&](const std::string&, const std::string&) {
         ++program_asked;
         return program;
+    }, [&](const std::string& title, const std::string& message, const std::string&) {
+        asked.push_back(title + ": " + message);
+        if (answers.empty()) return true;
+        const bool yes{answers.front()};
+        answers.pop_front();
+        return yes;
     }};
     UniValue now{options.Get()};
     BOOST_CHECK(!now["prune"].get_bool());
@@ -310,15 +320,48 @@ BOOST_AUTO_TEST_CASE(node_options)
     BOOST_CHECK_EQUAL(node->getPersistentSetting("prune").write(), "\"0\"");
     BOOST_CHECK_EQUAL(options.Get()["pruneSize"].getInt<int>(), 7);
 
-    // A proxy: its address while it is off goes to proxy-prev; on, to proxy.
+    // A proxy: its address while it is off goes to proxy-prev (nothing asked: it is not used); on, to proxy.
     options.Set("proxyIp", "10.0.0.2");
     BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy-prev").get_str(), "10.0.0.2:9050");
     BOOST_CHECK(!options.Get()["proxyUse"].get_bool());
+    BOOST_CHECK(asked.empty());
+    // Turning it on asks the desktop, saying where all connections would go (audit 2026-10-14 item 5);
+    // declined, nothing changes.
+    answers = {false};
+    UniValue declined{options.Set("proxyUse", true)};
+    BOOST_CHECK(declined["declined"].get_bool());
+    BOOST_CHECK(!declined["proxyUse"].get_bool());
+    BOOST_CHECK(node->getPersistentSetting("proxy").isNull());
+    BOOST_REQUIRE_EQUAL(asked.size(), 1U);
+    BOOST_CHECK(asked[0].find("Route all connections through 10.0.0.2:9050?") != std::string::npos);
     options.Set("proxyUse", true);
+    BOOST_CHECK_EQUAL(asked.size(), 2U);
+    BOOST_CHECK(!options.Get().exists("declined"));
     BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "10.0.0.2:9050");
+    // A new address of the proxy in use: asked, with the new address and the one now.
+    answers = {false};
+    BOOST_CHECK(options.Set("proxyPort", 9150)["declined"].get_bool());
+    BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "10.0.0.2:9050");
+    BOOST_CHECK(asked.back().find("through 10.0.0.2:9150?") != std::string::npos);
+    BOOST_CHECK(asked.back().find("It is 10.0.0.2:9050 now.") != std::string::npos);
     options.Set("proxyPort", 9150);
     BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "10.0.0.2:9150");
+    // The address and the port at once: one question.
+    const size_t before{asked.size()};
+    options.Set("proxyAddress", Obj({{"ip", "10.0.0.3"}, {"port", 1080}}));
+    BOOST_CHECK_EQUAL(asked.size(), before + 1);
+    BOOST_CHECK(asked.back().find("through 10.0.0.3:1080?") != std::string::npos);
+    BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "10.0.0.3:1080");
+    options.Set("proxyAddress", Obj({{"ip", "10.0.0.2"}, {"port", 9150}}));
+    // No user name or password in a proxy address.
+    BOOST_CHECK_THROW(options.Set("proxyIp", "user:pass@10.0.0.9"), std::runtime_error);
+    BOOST_CHECK_THROW(options.Set("proxyAddress", Obj({{"ip", "u@10.0.0.9"}, {"port", 1080}})), std::runtime_error);
+    BOOST_CHECK(!webui::NodeOptions::ValidProxyAddress("user:pass@10.0.0.9"));
+    BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "10.0.0.2:9150");
+    // Turning it off asks nothing.
+    const size_t before_off{asked.size()};
     options.Set("proxyUse", false);
+    BOOST_CHECK_EQUAL(asked.size(), before_off);
     BOOST_CHECK_EQUAL(node->getPersistentSetting("proxy").get_str(), "");
     BOOST_CHECK_EQUAL(options.Get()["proxyIp"].get_str(), "10.0.0.2");
     BOOST_CHECK_EQUAL(options.Get()["proxyPort"].get_str(), "9150");
@@ -332,8 +375,26 @@ BOOST_AUTO_TEST_CASE(node_options)
     // Flags and text.
     options.Set("listen", false);
     BOOST_CHECK(!options.Get()["listen"].get_bool());
+    // The RPC server turned on: asked; declined, it stays off; off again, nothing asked.
+    answers = {false};
+    BOOST_CHECK(options.Set("server", true)["declined"].get_bool());
+    BOOST_CHECK(!options.Get()["server"].get_bool());
+    BOOST_CHECK(asked.back().find("Turn on the RPC server?") != std::string::npos);
     options.Set("server", true);
     BOOST_CHECK(options.Get()["server"].get_bool());
+    const size_t before_server_off{asked.size()};
+    options.Set("server", false);
+    BOOST_CHECK_EQUAL(asked.size(), before_server_off);
+    options.Set("server", true);
+    // The Tor proxy: asked too, with its own question.
+    answers = {false};
+    BOOST_CHECK(options.Set("torUse", true)["declined"].get_bool());
+    BOOST_CHECK(asked.back().find("Reach Tor onion services through 127.0.0.1:9050?") != std::string::npos);
+    BOOST_CHECK(!options.Get()["torUse"].get_bool());
+    // Without a way to ask the desktop, these changes are refused.
+    webui::NodeOptions unasked{*node, *m_node.args, [](std::optional<bool>) { return false; }};
+    BOOST_CHECK_THROW(unasked.Set("torUse", true), std::runtime_error);
+    BOOST_CHECK(!options.Get()["torUse"].get_bool());
     // The external signer is a program the node runs: the page cannot name one (audit 2026-10-14 item 2b),
     // only the file chooser and the confirmation of the desktop can. The page can take it away.
     BOOST_CHECK_THROW(options.Set("signer", "/usr/local/bin/hwi"), std::runtime_error);
