@@ -28,10 +28,12 @@
   $effect(() => {
     const layout = prefs.layout;
     const page = nav.page;
+    // Followed too: the page can be ready before the preferences are loaded (a fast start).
+    const loaded = prefs.loaded;
     untrack(() => {
       if (layout !== 'dashboard' && page === 'home') go('overview');
-      else if (layout === 'dashboard' && page === 'overview' && !started && prefs.loaded) go('home');
-      if (prefs.loaded) started = true;
+      else if (layout === 'dashboard' && page === 'overview' && !started && loaded) go('home');
+      if (loaded) started = true;
     });
   });
 </script>

@@ -12,7 +12,7 @@
   import { handleShortcut } from './lib/keyboard';
   import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
-  import { app, applySnapshot, loadPrefs, prefs, subscribe, toast } from './lib/state.svelte';
+  import { app, applySnapshot, loadPrefs, phaseEvents, prefs, subscribe, toast } from './lib/state.svelte';
   import { applyTheme } from './lib/themes';
   import { parsePaymentUri } from './lib/uri';
   import { watchWindow } from './lib/windowframe.svelte';
@@ -61,14 +61,21 @@
         mock.installMock();
       }
       try {
+        // The phase the host says now; a phase event that comes while the page gets ready (the
+        // language is loaded, below) is newer, and is not overwritten by this answer: a node that
+        // starts fast (no wallet to load) is ready before the language is, and the page stayed on
+        // the splash for ever.
+        const phasesBefore = phaseEvents.count;
         const hello = await host.hello();
         // The language first: the page shows in it from its first frame on.
         followLocale();
         await loadLocale();
         app.info = hello.info;
         app.dialogs = hello.dialogs;
-        app.phaseData = hello.phaseData;
-        app.phase = hello.phase;
+        if (phaseEvents.count === phasesBefore) {
+          app.phaseData = hello.phaseData;
+          app.phase = hello.phase;
+        }
         if (hello.info.test) {
           // The tests of the app drive the page through this (only with -webuitestscript).
           const state = await import('./lib/state.svelte');
@@ -80,7 +87,7 @@
         }
         offWindow = watchWindow();
         await loadPrefs();
-        if (hello.phase === 'ready') await refreshNode();
+        if (app.phase === 'ready') await refreshNode();
       } catch (e) {
         connectError = e instanceof Error ? e.message : String(e);
       }

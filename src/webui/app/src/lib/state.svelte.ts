@@ -208,11 +208,15 @@ export function applySnapshot(s: NodeSnapshot): void {
 
 let subscribed = false;
 
+/** How many phase events the page took: the answer of app.hello is older than any of them (App.svelte). */
+export const phaseEvents = { count: 0 };
+
 /** Follow the events of the host. */
 export function subscribe(): void {
   if (subscribed) return;
   subscribed = true;
   on<{ phase: Phase; data: Record<string, unknown> }>('phase', ({ phase, data }) => {
+    phaseEvents.count++;
     app.phase = phase;
     app.phaseData = data ?? {};
   });
