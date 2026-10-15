@@ -118,7 +118,7 @@
       await snapshot(`node-dialog-${theme}`);
       T().app.dialogs.shift();
     }
-    for (const theme of ['ocean', 'matrix', 'qdarkstyle']) {
+    for (const theme of ['ocean', 'matrix', 'qdarkstyle', 'mocha', 'dracula']) {
       T().savePrefs({ theme });
       for (const page of ['overview', 'settings', 'kit']) {
         T().go(page);

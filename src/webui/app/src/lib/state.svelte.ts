@@ -6,7 +6,8 @@ import { addSample } from './traffic.svelte';
 import { addProgressSample, type ProgressSample } from './syncoverlay';
 import { host, type AppInfo, type Dialog, type NodeSnapshot, type Phase, type WalletSummary } from './rpc';
 import { isUnit, type Unit } from './units';
-import { clampFontAdjust, DEFAULT_THEME, isTheme, type ThemeId } from './themes';
+import { clampFontAdjust, DEFAULT_THEME } from './themes';
+import { checkStoredThemes, isThemeChoice, type CustomTheme, type ThemeChoice } from './customthemes';
 import { DEFAULT_LAYOUT, isLayout, type LayoutId } from './layout';
 
 export interface Tip {
@@ -70,7 +71,9 @@ export const wallets = $state({
 });
 
 export const prefs = $state({
-  theme: DEFAULT_THEME as ThemeId,
+  theme: DEFAULT_THEME as ThemeChoice,
+  /** The themes of the user (Settings → Advanced theme), checked as strictly as a theme file. */
+  customThemes: [] as CustomTheme[],
   fontAdjust: 0,
   unit: 'CHN' as Unit,
   mask: false,
@@ -288,7 +291,8 @@ export function subscribe(): void {
 // --- Preferences (kept by the app, per network) ---
 
 export function applyPrefs(raw: Record<string, unknown>): void {
-  if (isTheme(raw.theme)) prefs.theme = raw.theme;
+  if (raw.customThemes !== undefined) prefs.customThemes = checkStoredThemes(raw.customThemes);
+  if (isThemeChoice(raw.theme, prefs.customThemes)) prefs.theme = raw.theme;
   if (typeof raw.fontAdjust === 'number') prefs.fontAdjust = clampFontAdjust(raw.fontAdjust);
   if (isUnit(raw.unit)) prefs.unit = raw.unit;
   if (typeof raw.mask === 'boolean') prefs.mask = raw.mask;

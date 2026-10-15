@@ -13,7 +13,8 @@
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { prefs, savePrefs, statusTip, wallets } from '../lib/state.svelte';
   import { pendingNow } from '../lib/settingsdraft.svelte';
-  import { clampFontAdjust, THEMES, type ThemeId } from '../lib/themes';
+  import { clampFontAdjust, THEMES } from '../lib/themes';
+  import { isThemeChoice } from '../lib/customthemes';
   import { frame } from '../lib/windowframe.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
@@ -104,10 +105,17 @@
 
   <div class="foot">
     <div class="row">
-      <select class="look" aria-label="Theme" title="Theme" value={prefs.theme} onchange={(e) => savePrefs({ theme: (e.currentTarget as HTMLSelectElement).value as ThemeId })}>
+      <select class="look" aria-label="Theme" title="Theme" value={prefs.theme} onchange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (isThemeChoice(v, prefs.customThemes)) savePrefs({ theme: v }); }}>
         {#each THEMES as theme (theme.id)}
           <option value={theme.id}>{t(theme.name)}</option>
         {/each}
+        {#if prefs.customThemes.length > 0}
+          <optgroup label="Your themes">
+            {#each prefs.customThemes as theme (theme.id)}
+              <option value={theme.id} translate="no">{theme.name}</option>
+            {/each}
+          </optgroup>
+        {/if}
       </select>
     </div>
     <div class="row">
