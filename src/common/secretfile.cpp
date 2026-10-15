@@ -26,7 +26,8 @@ namespace common {
 util::Result<void> WriteSecretFile(const fs::path& path, std::string_view secret)
 {
     const std::string name{fs::PathToString(path)};
-    const fs::path temp{path.parent_path() / fs::u8path(fs::PathToString(path.filename()) + ".new-" + HexStr(GetRandHash()).substr(0, 16))};
+    // Next to it (same folder, so that the rename is atomic), with a name no one can guess.
+    const fs::path temp{fs::PathFromString(fs::PathToString(path) + ".new-" + HexStr(GetRandHash()).substr(0, 16))};
 #ifndef WIN32
     const int fd{open(temp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)};
     if (fd < 0) return util::Error{Untranslated(strprintf("Cannot create %s", fs::PathToString(temp)))};
