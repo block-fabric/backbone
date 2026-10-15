@@ -1,10 +1,14 @@
 # chains-app: parity contract with chains-qt
 
+> **History.** chains-qt (`src/qt`) was removed from the tree by the commit "Remove the Qt GUI"
+> (`git log --grep='Remove the Qt GUI'`), after the work this document records: chains-app is the GUI of the
+> build. This document stays as the record of the parity; the `src/qt` sources it cites are those
+> of the parent of that commit (`git show <commit>^:src/qt/<file>`).
+
 `chains-app` replaces `chains-qt`. It must do everything the Qt GUI does. This list
 is the contract: every function of `src/qt` is one line, with the Qt source it
 comes from. A line is ticked once `chains-app` does it and a test or a screenshot
-shows it. `src/qt` stays in the tree (not built) so it can be read while this
-list is worked through.
+shows it.
 
 Legend: `[x]` done in chains-app, `[~]` partly done (the note says what is left),
 `[ ]` not done yet. IDs are stable: later commits and tests refer to them.

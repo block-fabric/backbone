@@ -32,6 +32,7 @@ if(WIN32)
   add_windows_application_manifest(test_chains-app)
 endif()
 add_test(NAME webui_tests COMMAND test_chains-app)
+install_binary_component(test_chains-app INTERNAL)
 
 # The tests of the interface (vitest), and the end-to-end smoke test of chains-app in a virtual
 # display (it also saves pictures of every page in e2e-shots).

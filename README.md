@@ -26,9 +26,12 @@ The sidechains, each in a repository of its own:
 ## Installing
 
 Builds for Linux (x86-64) are at https://blockfab.org/drivechains/. Unpack, check
-`sha256sum -c SHA256SUMS`, and run what is in `bin/`. The wallet needs the Qt libraries of the
-system (on Ubuntu 24.04: `sudo apt install libqt6widgets6 libqt6network6 libqt6dbus6 libqrencode4
-libsqlite3-0`); the node and the tools need none of them.
+`sha256sum -c SHA256SUMS`, and run what is in `bin/`. The app, `chains-app`, needs the web view
+of the system (on Ubuntu 24.04: `sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0 libsqlite3-0`);
+the node and the tools need none of it.
+
+On Windows (10 or 11, 64-bit), run `chains-app-<version>-win64-setup.exe`, or unpack the zip of
+the same name. The app uses the WebView2 runtime that comes with Windows.
 
 ## Building from source
 
@@ -36,33 +39,39 @@ On Debian or Ubuntu (24.04):
 
 ```sh
 sudo apt install build-essential cmake pkgconf python3 libevent-dev libboost-dev \
-    libsqlite3-dev libzmq3-dev qt6-base-dev qt6-tools-dev qt6-l10n-tools libqrencode-dev
-git clone https://github.com/block-fabric/chains.git
-cd chains
-cmake -B build -DBUILD_GUI=ON
+    libsqlite3-dev libzmq3-dev libgtk-3-dev libwebkit2gtk-4.1-dev nodejs npm
+git clone https://github.com/block-fabric/chains-app.git
+cd chains-app
+cmake -B build
 cmake --build build -j$(nproc)
 ```
 
-Leave out `-DBUILD_GUI=ON` (and the Qt packages) for a node without a window. Other systems and
-options: [doc/build-unix.md](doc/build-unix.md) and the other `doc/build-*.md`.
+The first build runs `npm ci` for the interface (Svelte, TypeScript, Vite), so it needs the npm
+registry once. Add `-DBUILD_WEBUI=OFF` (and leave out GTK, WebKitGTK and npm) for a node without
+a window. Windows builds are cross-compiled with the depends system: `cmake --build build_win
+--target deploy-app` makes the zip and the installer, see [doc/webui.md](doc/webui.md) and
+[doc/build-windows.md](doc/build-windows.md). Other systems and options:
+[doc/build-unix.md](doc/build-unix.md) and the other `doc/build-*.md`.
 
 The programs, in `build/bin`:
 
 | Program | What it is |
 |---|---|
-| `chains-qt` | the wallet, with its window |
+| `chains-app` | the node and the wallet, with their window (an HTML interface in a native web view) |
 | `chainsd` | the node, without a window |
 | `chains-cli` | commands for a running node or wallet |
 | `chains-wallet`, `chains-tx`, `chains-util` | tools that work without a node |
 
-Tests: `ctest --test-dir build` (unit tests) and `build/test/functional/test_runner.py`.
+Tests: `ctest --test-dir build` (unit tests, and the tests of the app: `test_chains-app`, its
+interface and, in a build with `-DWEBUI_TEST_HOOKS=ON`, the end-to-end tests) and
+`build/test/functional/test_runner.py`. How the app is made: [doc/webui.md](doc/webui.md).
 
 ## Running it
 
 ```sh
-chains-qt                  # the main network
-chains-qt -testnet         # the test network
-chains-qt -regtest         # a private chain of your own, for trying things out
+chains-app                 # the main network
+chains-app -testnet        # the test network
+chains-app -regtest        # a private chain of your own, for trying things out
 ```
 
 Data and the configuration file `chains.conf` are in `~/.chains` (on Windows
@@ -103,8 +112,10 @@ see the sidechain's README.
 - **Sidechains** page: the active sidechains and the proposals; deposits, to a deposit address
   of the sidechain (`s<slot>_<address>_<checksum>`, checked before anything is sent); the
   withdrawal bundles and how this node votes on them.
-- **Sidechain Nodes** window: installs, starts and stops sidechain nodes. **Locate programs…**
-  takes the `bin` folder of a sidechain build; then **Start node** or **Open wallet**.
+- **Sidechain Nodes** page: installs, starts and stops sidechain nodes. **Locate programs…**
+  takes the `bin` folder of a sidechain build (through the file chooser of the desktop); then
+  **Start node** or **Open wallet**. Running a program always asks first, in a dialog of the
+  desktop.
 
 ## Commands
 

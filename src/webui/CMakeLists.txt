@@ -22,6 +22,7 @@ else()
   file(GLOB_RECURSE webui_app_sources CONFIGURE_DEPENDS
     ${webui_app_dir}/src/*
     ${webui_app_dir}/public/*
+    ${CMAKE_CURRENT_SOURCE_DIR}/locale/*.ts
   )
   list(FILTER webui_app_sources EXCLUDE REGEX "\\.test\\.ts$")
   add_custom_command(
@@ -123,7 +124,7 @@ add_executable(chains-app WIN32
   main.cpp
   app.cpp
   ${webui_window}
-  ../init/bitcoin-qt.cpp
+  ../init/chains-app.cpp
 )
 if(WEBUI_TEST_HOOKS)
   target_compile_definitions(chains-app PRIVATE WEBUI_TEST_HOOKS)
@@ -160,18 +161,19 @@ if(NOT WIN32 AND NOT APPLE)
   )
 endif()
 
-# The Windows release: a zip and an installer (NSIS) with chains-app and the programs of the node.
+# The release (target deploy-app), with chains-app and the programs of the node, in release-app of the
+# build: on Windows a zip and an installer (NSIS), on Linux a tarball. Never with the test hooks.
+set(webui_release ${PROJECT_BINARY_DIR}/release-app)
+if(WEBUI_TEST_HOOKS)
+  set(webui_no_test_hooks COMMAND ${CMAKE_COMMAND} -E echo "deploy-app: this build has the test hooks (WEBUI_TEST_HOOKS=ON); a release is made with them OFF"
+                          COMMAND ${CMAKE_COMMAND} -E false)
+endif()
 if(MINGW AND TARGET bitcoind AND TARGET bitcoin-cli AND TARGET bitcoin-tx AND TARGET bitcoin-wallet AND TARGET bitcoin-util)
-  set(webui_release ${PROJECT_BINARY_DIR}/release-app)
   set(webui_stem chains-app-${CLIENT_VERSION_STRING}-win64)
   set(CLIENT_URL ${PROJECT_HOMEPAGE_URL})
   set(BIN_DIR ${webui_release}/bin)
   set(abs_top_srcdir ${PROJECT_SOURCE_DIR})
   configure_file(res/setup-app.nsi.in ${webui_release}/chains-app-setup.nsi @ONLY)
-  if(WEBUI_TEST_HOOKS)
-    set(webui_no_test_hooks COMMAND ${CMAKE_COMMAND} -E echo "deploy-app: this build has the test hooks (WEBUI_TEST_HOOKS=ON); a release is made with them OFF"
-                            COMMAND ${CMAKE_COMMAND} -E false)
-  endif()
   add_custom_target(deploy-app
     ${webui_no_test_hooks}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${webui_release}/bin
@@ -185,6 +187,23 @@ if(MINGW AND TARGET bitcoind AND TARGET bitcoin-cli AND TARGET bitcoin-tx AND TA
       -DNSI=${webui_release}/chains-app-setup.nsi -DSTEM=${webui_stem} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_windows.cmake
     DEPENDS chains-app bitcoind bitcoin-cli bitcoin-tx bitcoin-wallet bitcoin-util
     COMMENT "The Windows release of chains-app: ${webui_release}/${webui_stem}.zip and -setup.exe"
+    VERBATIM
+  )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET bitcoind AND TARGET bitcoin-cli)
+  set(webui_stem chains-app-${CLIENT_VERSION_STRING}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu)
+  set(webui_components chains-app)
+  foreach(program bitcoind bitcoin-cli bitcoin-tx bitcoin-wallet bitcoin-util)
+    if(TARGET ${program})
+      list(APPEND webui_components ${program})
+    endif()
+  endforeach()
+  string(REPLACE ";" "," webui_components_arg "${webui_components}")
+  add_custom_target(deploy-app
+    ${webui_no_test_hooks}
+    COMMAND ${CMAKE_COMMAND} -DBUILD_DIR=${PROJECT_BINARY_DIR} -DOUT_DIR=${webui_release} -DSRC_DIR=${PROJECT_SOURCE_DIR}
+      -DSTEM=${webui_stem} -DCOMPONENTS=${webui_components_arg} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_linux.cmake
+    DEPENDS ${webui_components}
+    COMMENT "The Linux release of chains-app: ${webui_release}/${webui_stem}.tar.gz"
     VERBATIM
   )
 endif()

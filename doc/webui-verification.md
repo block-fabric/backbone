@@ -1,5 +1,10 @@
 # chains-app: independent verification (branch webui-windows)
 
+> **History.** chains-qt (`src/qt`) was removed from the tree by the commit "Remove the Qt GUI"
+> (`git log --grep='Remove the Qt GUI'`), after the work this document records: chains-app is the GUI of the
+> build. This document stays as the record of the parity; the `src/qt` sources it cites are those
+> of the parent of that commit (`git show <commit>^:src/qt/<file>`).
+
 Checked on 2026-10-14, at `e0d9800895` (after the merge of `webui` and the three security fixes),
 with template `4c516d7e49` and chains `6ec9f92df7`. Everything was rebuilt incrementally first.
 This round changed no code: only this report.

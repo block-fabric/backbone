@@ -1,5 +1,10 @@
 # chains-app: parity and quality audit (phase 4)
 
+> **History.** chains-qt (`src/qt`) was removed from the tree by the commit "Remove the Qt GUI"
+> (`git log --grep='Remove the Qt GUI'`), after the work this document records: chains-app is the GUI of the
+> build. This document stays as the record of the parity; the `src/qt` sources it cites are those
+> of the parent of that commit (`git show <commit>^:src/qt/<file>`).
+
 An independent audit of `chains-app` (branch `webui`, at 34f5d2e810) against `chains-qt`
 (`src/qt`, read directly, not through `doc/webui-parity.md`). Nothing was changed in the code.
 

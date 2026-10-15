@@ -1,10 +1,11 @@
 # chains-app: the HTML interface of Chains
 
-`chains-app` is the node of Chains with its wallet and an HTML interface in a
-native web view, in one program, without Qt. It replaces `chains-qt` (src/qt,
-kept in the tree but not built on this branch). What it must do is listed in
-[webui-parity.md](webui-parity.md); the audit of it, and how each finding was
-closed, in [webui-audit.md](webui-audit.md). Its window comes in three layouts
+`chains-app` is the GUI of Chains: the node with its wallet and an HTML
+interface in a native web view, in one program, without Qt. It replaced
+`chains-qt`, which was removed from the tree (the commit "Remove the Qt GUI").
+What it had to do to replace it is recorded in [webui-parity.md](webui-parity.md);
+the audit of it, and how each finding was closed, in
+[webui-audit.md](webui-audit.md). Its window comes in three layouts
 (dashboard, workspace tabs, compact sidebar) with a command palette and an
 integrated title bar: [webui-layouts.md](webui-layouts.md).
 
@@ -14,7 +15,7 @@ sidechains can take it over for their own apps.
 ## Build
 
 ```
-cmake -B build -DBUILD_GUI=OFF -DBUILD_WEBUI=ON -DENABLE_WALLET=ON -DBUILD_TESTS=ON
+cmake -B build              # BUILD_WEBUI is ON by default; -DBUILD_WEBUI=OFF for a node without a window
 cmake --build build --target chains-app test_chains-app
 ```
 
@@ -24,21 +25,26 @@ cmake --build build --target chains-app test_chains-app
 * `-DWEBUI_PREBUILT_DIST=<dir>` takes an interface built elsewhere
   (`npm run build` in src/webui/app) and needs no npm.
 * The interface is built by `npm run build`: the catalogs of the languages
-  first (`scripts/i18n.mjs`, from src/qt/locale when it is there; the catalogs
-  made are committed in `public/locales`), then Vite. The result is embedded in
+  first (`scripts/i18n.mjs`, from the catalogs in src/webui/locale; the
+  catalogs made are committed in `public/locales`), then Vite. The result is embedded in
   the binary (cmake/embed.cmake → `assets_data.cpp`).
 * Windows (WebView2) has its own window (window_win32.cpp, below); macOS
   (WKWebView) builds the generic window (window_generic.cpp) until its port
   (file choosers, tray, frame, App Nap), see the parity list.
+
+On Linux, `cmake --build build --target deploy-app` makes the release as a
+tarball (`release-app/chains-app-<version>-<arch>-linux-gnu.tar.gz`: chains-app,
+the programs of the node, the desktop entry and the icon, under `bin/` and
+`share/`). `cmake --install build` installs the same (component `chains-app`
+for the app, its desktop entry and icon; `test_chains-app` goes to libexec).
 
 ### Windows
 
 Cross-compiled from Linux (or WSL) with the depends system and mingw-w64 (posix):
 
 ```
-make -C depends HOST=x86_64-w64-mingw32 NO_QT=1 -j4
-cmake -B build_win --toolchain depends/x86_64-w64-mingw32/toolchain.cmake \
-  -DBUILD_GUI=OFF -DBUILD_WEBUI=ON -DWITH_CCACHE=OFF
+make -C depends HOST=x86_64-w64-mingw32 -j4
+cmake -B build_win --toolchain depends/x86_64-w64-mingw32/toolchain.cmake -DWITH_CCACHE=OFF
 cmake --build build_win -j4 --target chains-app test_chains-app
 cmake --build build_win --target deploy-app   # zip + NSIS installer in build_win/release-app
 ```
@@ -157,8 +163,9 @@ change, and what they replaced is kept by `OptionsJournal` (in chains-app.json):
 Apply forgets it, Cancel puts it back, and the next start puts back what was
 never applied, before the node reads its settings.
 
-**Languages.** The catalogs of chains-qt (src/qt/locale, about 100 languages)
-are made into catalogs of the app by `scripts/i18n.mjs`: the messages the
+**Languages.** The catalogs of Bitcoin Core's translators (src/webui/locale,
+about 100 languages, as chains-qt shipped them; see
+[translation_process.md](translation_process.md)) are made into catalogs of the app by `scripts/i18n.mjs`: the messages the
 interface shows (normalized as it writes them: no mnemonic `&`, `…`, Chains for
 Bitcoin, labels without their colon) with their plural forms, and the messages
 of the node. The host chooses the language (-lang, the option, the locale of
