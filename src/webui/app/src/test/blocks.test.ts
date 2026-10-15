@@ -118,30 +118,40 @@ describe('the box', () => {
 });
 
 describe('the ribbon', () => {
-  it('the block being mined first, then the blocks newest first; the arrows move between them', async () => {
+  it('the blocks newest first (no box for the block being mined); the arrows move between them', async () => {
     const blocks = [block({ height: 122, hash: 'cc'.repeat(32), time: 1_700_000_120 }), block({ height: 121, hash: 'bb'.repeat(32), time: 1_700_000_060 }), block()];
-    const onmempool = vi.fn();
     const { container } = render(BlockRibbon, {
       blocks,
-      next: { height: 123, txs: 7, vbytes: 1500, fees: 2000, reward: 5_000_002_000, eta: 58 },
       selected: 'bb'.repeat(32),
       fresh: 'cc'.repeat(32),
       now: 1_700_000_130,
       onselect: () => undefined,
-      onmempool,
     });
     const boxes = [...container.querySelectorAll<HTMLElement>('button.blk')];
     expect(boxes.map((b) => b.querySelector('.height')!.textContent)).toEqual(['122', '121', '120']);
+    expect(container.querySelector('.blk-next')).toBeNull();
     expect(boxes[0].classList.contains('is-fresh')).toBe(true);
     expect(boxes[1].getAttribute('aria-pressed')).toBe('true');
-    const next = container.querySelector('.blk-next') as HTMLElement;
-    expect(next.textContent).toContain('123');
-    expect(next.textContent).toContain('7 waiting');
-    await fireEvent.click(next);
-    expect(onmempool).toHaveBeenCalled();
     expect(container.textContent).toContain('median 1m 0s');
     boxes[0].focus();
     await fireEvent.keyDown(container.querySelector('.strip')!, { key: 'ArrowRight' });
     expect(document.activeElement).toBe(boxes[1]);
+  });
+
+  it('scrolled near its right end, the strip asks for older blocks; the wheel scrolls it sideways', async () => {
+    const blocks = Array.from({ length: 30 }, (_, i) => block({ height: 200 - i, hash: (i + 10).toString(16).padStart(2, '0').repeat(32), time: 1_700_000_000 - i * 60 }));
+    const onmore = vi.fn();
+    const { container } = render(BlockRibbon, { blocks, selected: null, fresh: null, now: 1_700_000_100, onselect: () => undefined, onmore });
+    const strip = container.querySelector('.strip') as HTMLElement;
+    // jsdom has no layout: give the strip a size and a scroll range.
+    Object.defineProperty(strip, 'clientWidth', { value: 800, configurable: true });
+    Object.defineProperty(strip, 'scrollWidth', { value: 5000, configurable: true });
+    strip.scrollLeft = 0;
+    await fireEvent.wheel(strip, { deltaY: 300 });
+    expect(strip.scrollLeft).toBe(300);
+    expect(onmore).not.toHaveBeenCalled();
+    strip.scrollLeft = 4000;
+    await fireEvent.scroll(strip);
+    expect(onmore).toHaveBeenCalled();
   });
 });

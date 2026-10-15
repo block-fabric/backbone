@@ -7,7 +7,7 @@
   import { t } from '../lib/i18n.svelte';
   import Amount from '../components/Amount.svelte';
   import BlockRibbon from '../components/BlockRibbon.svelte';
-  import { coinbaseTag, expectedSeconds, type NextBlock, type RibbonBlock } from '../lib/blocks';
+  import { coinbaseTag, type RibbonBlock } from '../lib/blocks';
   import { every } from '../lib/poll';
   import CopyButton from '../components/CopyButton.svelte';
   import DataTable from '../components/DataTable.svelte';
@@ -15,6 +15,7 @@
   import { errorText, inform } from '../lib/dialogs.svelte';
   import { formatBytes, formatCount, formatTime, shortHash } from '../lib/format';
   import { untrack } from 'svelte';
+  import { fillHeight } from '../lib/actions';
   import { detail, showDetail } from '../lib/detail.svelte';
   import { nav } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
@@ -144,8 +145,10 @@
     refreshMempool();
   });
 
-  // --- The ribbon: the latest blocks as boxes, after the block being mined ---
-  const RIBBON = 12;
+  // --- The ribbon: the blocks of the list ("Last N blocks") as boxes, newest first. Their details (reward,
+  //     tag, BMM) are read for the first boxes, and for more as the strip scrolls towards them. ---
+  const RIBBON_STEP = 12;
+  let detailed = $state(RIBBON_STEP);
   interface Extra {
     subsidy: number;
     fees: number;
@@ -155,7 +158,6 @@
   const extras = new Map<string, Extra>();
   let extrasVersion = $state(0);
   let bmmAt = $state.raw<Record<number, number[]>>({});
-  let nextBlock = $state.raw<NextBlock | null>(null);
   let fresh = $state<string | null>(null);
   let nowSecs = $state(Math.floor(Date.now() / 1000));
   $effect(() => every(15000, () => (nowSecs = Math.floor(Date.now() / 1000))));
@@ -172,7 +174,7 @@
   }
 
   async function refreshRibbon(rows: readonly BlockRow[]) {
-    const latest = rows.slice(0, RIBBON);
+    const latest = rows.slice(0, detailed);
     if (!latest.length) return;
     try {
       // A block whose stats cannot be read (pruned) is drawn without them.
@@ -191,33 +193,18 @@
     } catch {
       // Again at the next block.
     }
-    await refreshNext(latest[0]);
   }
 
-  /** The block being mined: what waits for it, and when it is expected. */
-  async function refreshNext(tip: BlockRow | undefined) {
-    if (!tip) return;
-    try {
-      const pool = await rpc.raw<{ size: number; bytes: number; total_fee: number }>('getmempoolinfo', []);
-      const mining = await rpc.raw<{ difficulty: number; networkhashps: number }>('getmininginfo', []).catch(() => null);
-      const fees = Number(coinsToSats(pool.total_fee));
-      const tipExtra = extras.get(tip.hash);
-      nextBlock = {
-        height: tip.height + 1,
-        txs: pool.size,
-        vbytes: pool.bytes,
-        fees,
-        reward: tipExtra ? tipExtra.subsidy + fees : null,
-        eta: mining ? expectedSeconds(mining.difficulty, mining.networkhashps) : null,
-      };
-    } catch {
-      // Again at the next block.
-    }
+  /** The strip neared its end: the details of the next boxes. */
+  function moreDetails() {
+    if (detailed >= blocks.length) return;
+    detailed = Math.min(blocks.length, detailed + RIBBON_STEP);
+    void refreshRibbon(blocks);
   }
 
   const ribbon = $derived.by((): RibbonBlock[] => {
     void extrasVersion;
-    return blocks.slice(0, RIBBON).map((b) => {
+    return blocks.map((b) => {
       const x = extras.get(b.hash);
       return { height: b.height, hash: b.hash, time: b.time, nTx: b.nTx, weight: b.weight, subsidy: x?.subsidy ?? null, fees: x?.fees ?? null, feeRate: x?.feeRate ?? null, tag: x ? x.tag : null, bmm: bmmAt[b.height] ?? [] };
     });
@@ -237,10 +224,6 @@
     const timer = setTimeout(() => (fresh = null), 1500);
     return () => clearTimeout(timer);
   });
-  $effect(() => {
-    void node.mempool.size;
-    untrack(() => refreshNext(blocks[0]));
-  });
 
   async function pickBlock(hash: string) {
     selectedBlock = hash;
@@ -248,11 +231,6 @@
     if (!detail.follow && (await showBlock(hash))) {
       document.getElementById('explorer-title')?.scrollIntoView({ block: 'nearest' });
     }
-  }
-
-  function openMempool() {
-    list = 'mempool';
-    document.getElementById('explorer-lists')?.scrollIntoView({ block: 'nearest' });
   }
 
   async function showBlock(hash: string): Promise<boolean> {
@@ -355,14 +333,14 @@
     <button type="button" class="btn" onclick={() => { cache.clear(); blocks = []; refreshBlocks(); refreshMempool(); }}>Refresh</button>
   </form>
 
-  <BlockRibbon blocks={ribbon} next={nextBlock} selected={selectedBlock} {fresh} now={nowSecs} onselect={pickBlock} onmempool={openMempool} />
+  <BlockRibbon blocks={ribbon} selected={selectedBlock} {fresh} now={nowSecs} onselect={pickBlock} onmore={moreDetails} />
 
   <div class="tabs" role="tablist" aria-label="Lists" id="explorer-lists">
     {#each TABS as tb (tb.id)}
       <button type="button" role="tab" aria-selected={list === tb.id} onclick={() => (list = tb.id as 'blocks' | 'mempool')}>{tb.id === 'mempool' ? `${t(tb.label)} (${mempoolTotal})` : t(tb.label)}</button>
     {/each}
   </div>
-  <div class="table-box">
+  <div class="table-box" use:fillHeight>
     {#if list === 'blocks'}
       <DataTable rows={blocks} columns={blockColumns} key={(b) => b.hash} bind:selected={selectedBlock} bind:sortKey={blockSort} bind:sortDir={blockDir} label="Blocks" empty="Loading…" onactivate={(b) => showBlock(b.hash)}>
         {#snippet cell(b, column)}
@@ -502,8 +480,10 @@
   .count input {
     width: 5.5rem;
   }
+  /* The list takes the height the window has left (fillHeight), 16rem at least. */
   .table-box {
     height: 21rem;
+    min-height: 16rem;
   }
   .hint {
     margin: 0.4rem 0 1rem;
