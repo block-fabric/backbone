@@ -136,7 +136,7 @@
             }}
           >
             <span class="icon">{#if c.icon}<Icon name={c.icon} size={16} />{:else if c.checked}<Icon name="check" size={16} />{/if}</span>
-            <span class="grow label">{t(c.label)}</span>
+            <span class="grow label">{c.arg === undefined ? t(c.label) : t(c.label, c.arg)}</span>
             {#if query.trim()}<span class="where">{t(c.group)}</span>{/if}
             {#if c.checked && c.icon}<Icon name="check" size={14} />{/if}
             {#if c.shortcut}<kbd>{c.shortcut}</kbd>{/if}
