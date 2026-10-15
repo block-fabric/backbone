@@ -8,8 +8,9 @@
   import Amount from './Amount.svelte';
   import SafeText from './SafeText.svelte';
   import { css } from '../lib/actions';
-  import { feeTint, fillPercent, intervalTone, shortInterval, type RibbonBlock } from '../lib/blocks';
+  import { CHAINS_MAX_BLOCK_WEIGHT, feeTint, fillPercent, intervalTone, shortInterval, type RibbonBlock } from '../lib/blocks';
   import { formatCount, niceTimeOffset } from '../lib/format';
+  import { app } from '../lib/state.svelte';
 
   let {
     block,
@@ -32,7 +33,9 @@
     onselect: (hash: string) => void;
   } = $props();
 
-  const fill = $derived(fillPercent(block.weight ?? 0, block.nTx));
+  // Against the weight a block of this chain and network may have, as the node says (app.info.blockWeight):
+  // Chains' 800 000 on main, test and signet, regtest's own.
+  const fill = $derived(fillPercent(block.weight ?? 0, block.nTx, app.info?.blockWeight ?? CHAINS_MAX_BLOCK_WEIGHT));
   const tint = $derived(feeTint(block.feeRate));
   const tone = $derived(intervalTone(secs, median));
   const reward = $derived(block.subsidy === null ? null : block.subsidy + (block.fees ?? 0));
