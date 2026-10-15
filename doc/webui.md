@@ -158,8 +158,8 @@ interface shows (normalized as it writes them: no mnemonic `&`, `…`, Chains fo
 Bitcoin, labels without their colon) with their plural forms, and the messages
 of the node. The host chooses the language (-lang, the option, the locale of
 the system) and gives the catalog to the page (`app.locale`); the page
-translates what it shows, and the node's messages go through
-`G_TRANSLATION_FUN`.
+translates its own words only (opt-in, see Translations below), and the node's
+messages go through `G_TRANSLATION_FUN`.
 
 ### The interface (src/webui/app, Svelte 5 + TypeScript + Vite)
 
@@ -180,7 +180,7 @@ src/
     state.svelte.ts       the state of the app, the node, the wallets, the preferences
     walletdata.svelte.ts  the current wallet: info, history kept up to date, address book
     wallet.ts             wallet calls, record status, filters, CSV
-    i18n.svelte.ts        the language: t(), tn(), the translator of the page
+    i18n.svelte.ts        the language: t(), tn(), tx() (no translator of the whole page)
     commands.svelte.ts    every action: the pages and the menus of chains-qt (Menus, palette)
     layout.ts, detail.svelte.ts  the layouts; the detail panel
     windowframe.svelte.ts the integrated title bar
@@ -193,16 +193,38 @@ public/locales/           the catalogs of the languages (made by scripts/i18n.mj
 
 Rules the code keeps:
 
+* **Programs run only on the user's word, given to the desktop.** Whatever
+  makes the app run a program (a sidechain downloaded from Sidechain Nodes, the
+  external signer `-signer`) goes through `Window::Confirm`, a dialog of the
+  window system that the page can neither draw nor answer, and a program path
+  only comes from the file chooser of the desktop. Downloads are https only,
+  with a SHA-256 checked before anything is unpacked; the releases built into
+  the app (`sidechainreleases.h`) come first. Sidechain nodes get the RPC
+  password of this node in an owner-only file (`-mainchainrpcpasswordfile`),
+  never on their command line.
 * **Text is text.** No `{@html}`, no `innerHTML`: what comes from the chain,
   the node or the user shows as text (a test checks the sources). The content
   security policy allows nothing but the app's own files: no remote content,
   no inline scripts or styles, no `eval`.
-* **Translations.** Write the interface in English, with the words of
-  chains-qt where it has them (they are then translated by its catalogs).
-  Elements that show text of the user or of the chain take `translate="no"`.
-  Text built in code can use `t()` and `tn()` (lib/i18n.svelte.ts). After a
-  change of the texts, `npm run i18n` makes the catalogs again (a test checks
-  they are up to date).
+* **Translations (opt-in).** Write the interface in English, with the words of
+  chains-qt where it has them (they are then translated by its catalogs). Only
+  the app's own words are translated, never what the page happens to show:
+  - the words of the templates (text, and the title, placeholder, aria-label
+    and alt attributes; the label/title/placeholder/empty/text props of
+    components; string literals in `{a ? 'X' : 'Y'}`) become calls of `t()`
+    when the components are built (`scripts/i18n-preprocess.mjs`); values put
+    in them (`{n} blocks behind`) are spliced in as they are, never looked up;
+  - words of the app held in code (tabs, menus, titles, `typeText()`) are
+    shown with `t()` / `tn()`, messages the app put together with `tx()`;
+  - text from the chain, peers, the wallet or the user (labels, memos,
+    comments, sidechain titles, peer versions, URIs, wallet names) is shown
+    with `<SafeText text={...} />` (translate="no"), or in an element with
+    `translate="no"`. `test/i18n-lint.test.ts` fails on a field of words shown
+    bare, and on such text put in `t()`.
+  Messages with placeholders are matched with a token matcher (indexOf, no
+  backtracking) and only in text of at most 300 characters. After a change of
+  the texts, `npm run i18n` makes the catalogs again (a test checks they are
+  up to date).
 * **Themes.** Colours are tokens of themes.css (`--text`, `--text-muted`,
   `--text-faint`, `--accent`, `--accent-fg`, ...): every text token reaches
   4.5:1 on every surface of every theme (test/contrast.test.ts measures it).
