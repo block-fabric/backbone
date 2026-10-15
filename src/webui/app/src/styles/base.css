@@ -105,8 +105,9 @@ code,
 /* The glow of a highlighted thing (a button of the accent, the page shown) under the pointer: it lights
    up rather than darkens (user decision, 2026-10-15). In every theme, from its accent. */
 :root {
-  --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 20px -2px color-mix(in srgb, var(--accent) 75%, transparent);
-  --glow-strong: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent), 0 0 30px -2px color-mix(in srgb, var(--accent) 85%, transparent);
+  /* Subtle (user decision: the first one was too much): no ring, a short soft halo. */
+  --glow: 0 0 12px -3px color-mix(in srgb, var(--accent) 45%, transparent);
+  --glow-strong: 0 0 16px -3px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 /* Buttons */
@@ -153,7 +154,7 @@ code,
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
-  filter: brightness(1.08) saturate(1.05);
+  filter: brightness(1.04);
   box-shadow: var(--glow);
 }
 
