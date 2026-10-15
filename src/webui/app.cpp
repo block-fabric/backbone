@@ -120,8 +120,11 @@ void SetupUIArgs(ArgsManager& argsman)
     argsman.AddArg("-splash", strprintf("Show splash screen on startup (default: %u)", DEFAULT_SPLASHSCREEN), ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-webuidevtools", "Enable the web inspector and the context menu of the web view (default: 0)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-webuiconfig=<file>", "File of the app settings (default: chains-app.json in the configuration folder of the user)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+#ifdef WEBUI_TEST_HOOKS
+    // Only in a build for the tests (cmake -DWEBUI_TEST_HOOKS=ON): a release has neither the options nor the hooks.
     argsman.AddArg("-webuitestscript=<file>", "Run this script in the page once it is loaded, with the test methods of the bridge (for the tests of the app)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-webuitestshots=<dir>", "Folder for the pictures the test script takes", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+#endif
 #ifdef WIN32
     argsman.AddArg("-webuiregisteruri", "Open chains: payment URIs with this program, for this user, unless another one does (default: 1; never with -webuitestscript)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
 #endif
@@ -132,8 +135,10 @@ App::App(interfaces::Init& init, ArgsManager& args, std::vector<std::string> uri
       // The debug options of the app are taken from the command line alone (only it is read yet): a
       // chains.conf cannot run a script in the page, nor open the inspector.
       m_devtools(args.GetBoolArg("-webuidevtools", false)),
+#ifdef WEBUI_TEST_HOOKS
       m_test_script(args.GetArg("-webuitestscript", "")),
       m_test_shots(args.GetArg("-webuitestshots", "")),
+#endif
       m_config_path(args.GetArg("-webuiconfig", ""))
 {
     LOCK(m_mutex);
@@ -641,6 +646,7 @@ std::optional<std::string> App::Choose(const Window::FileDialog& dialog)
 {
     std::optional<std::string> chosen;
     bool from_test{false};
+#ifdef WEBUI_TEST_HOOKS
     {
         LOCK(m_mutex);
         if (!m_test_files.empty()) {
@@ -650,6 +656,7 @@ std::optional<std::string> App::Choose(const Window::FileDialog& dialog)
             from_test = true;
         }
     }
+#endif
     if (!from_test) {
         auto done{std::make_shared<std::promise<std::optional<std::string>>>()};
         m_window->Post([this, dialog, done] { m_window->ChooseFile(dialog, [done](std::optional<std::string> path) { done->set_value(std::move(path)); }); });
@@ -671,6 +678,7 @@ std::optional<std::string> App::Choose(const Window::FileDialog& dialog)
 
 bool App::Confirm(const Window::ConfirmDialog& dialog)
 {
+#ifdef WEBUI_TEST_HOOKS
     {
         LOCK(m_mutex);
         if (!m_test_confirms.empty()) {
@@ -680,6 +688,7 @@ bool App::Confirm(const Window::ConfirmDialog& dialog)
             return answer;
         }
     }
+#endif
     auto done{std::make_shared<std::promise<bool>>()};
     m_window->Post([this, dialog, done] { m_window->Confirm(dialog, [done](bool yes) { done->set_value(yes); }); });
     auto future{done->get_future()};
@@ -799,6 +808,7 @@ void App::RegisterHostMethods()
         out.pushKV("dialogs", std::move(dialogs));
         out.pushKV("info", Info());
         m_hub->SetReady(true);
+#ifdef WEBUI_TEST_HOOKS
         const std::string script_path{m_test_script};
         if (first_hello && !script_path.empty()) {
             std::ifstream file{static_cast<const std::filesystem::path&>(fs::PathFromString(script_path))};
@@ -808,6 +818,9 @@ void App::RegisterHostMethods()
             // A test hook: the script given on the command line (a debug option) runs in the page.
             m_window->PostDelayed(100ms, [this, code] { m_window->Eval(code); });
         }
+#else
+        (void)first_hello;
+#endif
         return out;
     });
     b.RegisterHost("app.info", [this](const UniValue&) { return Info(); });
@@ -1271,8 +1284,10 @@ void App::RegisterHostMethods()
     m_wallet_api->Register(b);
 #endif
 
+#ifdef WEBUI_TEST_HOOKS
     if (!m_test_script.empty()) {
-        // The hooks of the tests of the app (only with the debug option -webuitestscript).
+        // The hooks of the tests of the app: only in a build for the tests (WEBUI_TEST_HOOKS), and only
+        // with the debug option -webuitestscript of the command line.
         b.RegisterHost("test.log", [](const UniValue& params) {
             const std::string message{params.isObject() && params.find_value("message").isStr() ? params.find_value("message").get_str() : params.write()};
             LogInfo("webui test: %s", message);
@@ -1347,6 +1362,7 @@ void App::RegisterHostMethods()
             return UniValue{true};
         });
     }
+#endif
 }
 
 int App::Run()

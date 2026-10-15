@@ -11,6 +11,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class ArgsManager;
@@ -76,6 +77,27 @@ public:
 
     /** Run a method directly (the tests; Register uses the same functions). Throws HostError. */
     UniValue Call(const std::string& method, const UniValue& params);
+
+    /** The longest name of a sidechain, in characters. */
+    static constexpr size_t NAME_MAX_CHARS{64};
+    /**
+     * Whether a name can be given to a sidechain added by hand: valid UTF-8, one line, of at most
+     * NAME_MAX_CHARS characters, none of them a control or format character (a new line, a tab, a
+     * mark that turns text around). The name is shown in the confirmation of a download.
+     */
+    static bool IsValidName(std::string_view name);
+    /**
+     * A name as it is shown, whatever was stored (settings written by hand, an older version): every
+     * control or format character becomes a space, spaces are folded, invalid UTF-8 becomes U+FFFD, and
+     * it is cut to NAME_MAX_CHARS characters.
+     */
+    static std::string DisplayName(std::string_view name);
+    /**
+     * The host of a download address, in lower case; nothing when the address is not taken: not https, too
+     * long, not plain printable ASCII, with a user name or password before the host (https://a@b/), with a
+     * host that is not letters, digits, '.' and '-', or a port that is not a number.
+     */
+    static std::optional<std::string> DownloadHost(std::string_view url);
 
     std::vector<Sidechain> Sidechains() const;
     std::string BinDir(const std::string& stem) const;

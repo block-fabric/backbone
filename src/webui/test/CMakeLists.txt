@@ -41,7 +41,13 @@ if(NPM_EXECUTABLE)
 endif()
 find_program(XVFB_RUN_EXECUTABLE xvfb-run)
 find_package(Python3 COMPONENTS Interpreter)
-if(XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
+# The hooks of the tests are in chains-app only with WEBUI_TEST_HOOKS (never in a release): this checks
+# the program has them exactly when it should.
+add_test(NAME webui_test_hooks_built
+  COMMAND ${CMAKE_COMMAND} -DAPP=$<TARGET_FILE:chains-app> -DEXPECT=${WEBUI_TEST_HOOKS} -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/check_test_hooks.cmake
+)
+# The end-to-end tests drive the app with its test hooks.
+if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
   add_test(NAME webui_e2e_smoke
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_smoke.py
       --app $<TARGET_FILE:chains-app>

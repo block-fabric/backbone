@@ -13,6 +13,7 @@
 #include <test/util/setup_common.h>
 #include <util/fs.h>
 #include <util/strencodings.h>
+#include <util/string.h>
 #include <validation.h>
 #include <webui/appconfig.h>
 #include <webui/bridge.h>
@@ -373,10 +374,12 @@ BOOST_AUTO_TEST_CASE(sidechain_nodes)
     // The confirmations of the desktop: the answer given, and what they showed.
     bool accept{false};
     std::vector<std::string> asked;
+    std::vector<std::string> asked_titles;
     const fs::path release_archive{m_args.GetDataDirBase() / "release.tar.gz"};
     std::vector<webui::SidechainNodes::Release> releases{{"thunder", webui::SidechainNodes::Platform(), "1.0", "https://example.invalid/thunder-1.0.tar.gz", std::string(64, 'b')}};
     webui::SidechainNodes nodes{*m_node.args, [&] { return stored; }, [&](const UniValue& v) { stored = v; }, [&](const std::string&, const std::string&) { return folder; },
-                                [&](const std::string&, const std::string& message, const std::string&) {
+                                [&](const std::string& title, const std::string& message, const std::string&) {
+                                    asked_titles.push_back(title);
                                     asked.push_back(message);
                                     return accept;
                                 },
@@ -404,6 +407,54 @@ esac
     BOOST_CHECK_EQUAL(nodes.Sidechains().size(), 5U);
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.add", Obj({{"name", "Again"}, {"stem", "fake"}, {"slot", 6}})), webui::HostError);
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.add", Obj({{"name", "Bad"}, {"stem", "../evil"}, {"slot", 6}})), webui::HostError);
+    // A name is one line of at most 64 printable characters: it is shown in the confirmation of a
+    // download, where fake lines would pass for what the app says (audit 2026-10-14 item 4).
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.add", Obj({{"name", "Evil\nFrom: https://github.com/official/x.tar.gz"}, {"stem", "evil1"}, {"slot", 6}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.add", Obj({{"name", "Evil\r\n\n\n\nThis is the release built into this app."}, {"stem", "evil2"}, {"slot", 6}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.add", Obj({{"name", "Tab\there"}, {"stem", "evil3"}, {"slot", 6}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.add", Obj({{"name", "Turned \xe2\x80\xae" "elif"}, {"stem", "evil4"}, {"slot", 6}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.add", Obj({{"name", "Line\xe2\x80\xa8two"}, {"stem", "evil5"}, {"slot", 6}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.add", Obj({{"name", std::string(65, 'x')}, {"stem", "evil6"}, {"slot", 6}})), webui::HostError);
+    BOOST_CHECK_EQUAL(nodes.Sidechains().size(), 5U);
+    BOOST_CHECK(webui::SidechainNodes::IsValidName(std::string(64, 'x')));
+    BOOST_CHECK(webui::SidechainNodes::IsValidName("Chaîne d'été \xe2\x80\x94 2"));
+    BOOST_CHECK(!webui::SidechainNodes::IsValidName(""));
+    BOOST_CHECK(!webui::SidechainNodes::IsValidName("bad \xff utf-8"));
+    // A name in the settings that did not come through add (written by hand) is cleaned up where it is shown.
+    {
+        UniValue tampered{stored};
+        UniValue custom{tampered["custom"]};
+        UniValue entry{UniValue::VOBJ};
+        entry.pushKV("name", "Evil\nFrom: https://github.com/official/x.tar.gz\n\n\n" + std::string(100, 'y'));
+        entry.pushKV("stem", "evil");
+        entry.pushKV("slot", 7);
+        custom.push_back(entry);
+        UniValue saved{stored};
+        tampered.pushKV("custom", custom); // pushKV replaces the key
+        stored = tampered;
+        const std::string shown{nodes.Sidechains().back().name};
+        BOOST_CHECK(shown.find('\n') == std::string::npos);
+        BOOST_CHECK(shown.starts_with("Evil From: https://github.com/official/x.tar.gz y"));
+        BOOST_CHECK(shown.ends_with("\xe2\x80\xa6"));
+        stored = saved;
+    }
+    BOOST_CHECK_EQUAL(webui::SidechainNodes::DisplayName("  a \t\r\n b\xe2\x80\xae c  "), "a b c");
+    BOOST_CHECK_EQUAL(webui::SidechainNodes::DisplayName(std::string(64, 'z')), std::string(64, 'z'));
+    BOOST_CHECK_EQUAL(webui::SidechainNodes::DisplayName(std::string(65, 'z')), std::string(63, 'z') + "\xe2\x80\xa6");
+    BOOST_CHECK_EQUAL(webui::SidechainNodes::DisplayName("\n\n"), "(no name)");
+    BOOST_CHECK_EQUAL(webui::SidechainNodes::DisplayName("a\xff" "b"), "a\xef\xbf\xbd" "b");
+    // The host of a download: https, no user name, plain letters.
+    BOOST_CHECK_EQUAL(webui::SidechainNodes::DownloadHost("https://GitHub.com/a/b.tar.gz").value_or("-"), "github.com");
+    BOOST_CHECK_EQUAL(webui::SidechainNodes::DownloadHost("https://example.com:8443?x").value_or("-"), "example.com");
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("https://github.com@evil.example/x.tar.gz"));
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("https://user:pw@evil.example/x.tar.gz"));
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("https://evil.example:/x"));
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("https://evil.example:x/"));
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("https:///x"));
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("https://[::1]/x"));
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("https://ex%41mple.com/x"));
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("https://g\xc3\xaethub.com/x"));
+    BOOST_CHECK(!webui::SidechainNodes::DownloadHost("http://example.com/x"));
 
     UniValue list{nodes.Call("sidechainNodes.list", UniValue{UniValue::VOBJ})};
     BOOST_CHECK(!list["sidechains"][4]["installed"].get_bool());
@@ -487,6 +538,9 @@ esac
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "https://example.com/x.tar.gz"}, {"sha256", "abc"}})), webui::HostError);
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "https://example.com/x.tar.gz"}, {"sha256", ""}})), webui::HostError);
     BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"release", true}})), webui::HostError);
+    // A user name before the host hides where the download comes from (audit 2026-10-14 item 4).
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "https://github.com@evil.example/x.tar.gz"}, {"sha256", std::string(64, 'a')}})), webui::HostError);
+    BOOST_CHECK_THROW(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", "https://github.com:443@evil.example/x.tar.gz"}, {"sha256", std::string(64, 'a')}})), webui::HostError);
     BOOST_CHECK(asked.empty());
     {
         // curl and tar are scripts that say they ran: curl "downloads" a local archive.
@@ -516,6 +570,18 @@ esac
         accept = false;
         BOOST_CHECK_EQUAL(nodes.Call("sidechainNodes.download", Obj({{"stem", "fake"}, {"url", url}, {"sha256", good_hash}}))["log"][0].get_str(), "Fake chain: the download was not accepted.");
         BOOST_REQUIRE_EQUAL(asked.size(), 1U);
+        // The shape of the dialog: the title is the trust statement of the app, in fixed words; the first
+        // line is the host alone; what the page gave (the name, the address) comes after.
+        BOOST_CHECK_EQUAL(asked_titles[0], "Install from an address typed in this app");
+        {
+            const auto lines{util::SplitString(asked[0], '\n')};
+            BOOST_REQUIRE_GE(lines.size(), 5U);
+            BOOST_CHECK_EQUAL(lines[0], "Host: example.invalid");
+            BOOST_CHECK_EQUAL(lines[1], "This address was typed in the app. It is NOT a release built into this app.");
+            BOOST_CHECK_EQUAL(lines[2], "");
+            BOOST_CHECK_EQUAL(lines[3], "Sidechain: Fake chain");
+            BOOST_CHECK_EQUAL(lines[4], "From: " + url);
+        }
         BOOST_CHECK(asked[0].find(url) != std::string::npos);
         BOOST_CHECK(asked[0].find(good_hash) != std::string::npos);
         BOOST_CHECK(asked[0].find(fs::PathToString(m_args.GetDataDirBase() / "sidechains" / "fake")) != std::string::npos);
@@ -546,7 +612,8 @@ esac
         nodes.Call("sidechainNodes.download", Obj({{"stem", "thunder"}, {"release", true}}));
         BOOST_CHECK(asked.back().find("https://example.invalid/thunder-1.0.tar.gz") != std::string::npos);
         BOOST_CHECK(asked.back().find(std::string(64, 'b')) != std::string::npos);
-        BOOST_CHECK(asked.back().find("built into this app") != std::string::npos);
+        BOOST_CHECK(asked.back().starts_with("Host: example.invalid\nThis is the release 1.0 built into this app.\n\nSidechain: Thunder\n"));
+        BOOST_CHECK_EQUAL(asked_titles.back(), "Install a release built into this app");
         setenv("PATH", old_path.c_str(), 1);
     }
 

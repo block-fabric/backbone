@@ -97,6 +97,164 @@ UniValue Said(std::vector<std::string> lines)
 }
 } // namespace
 
+namespace {
+/** The next code point of UTF-8 text at `pos` (moved past it); nothing for an invalid sequence (pos moves one byte). */
+std::optional<uint32_t> NextCodePoint(std::string_view text, size_t& pos)
+{
+    const auto byte{[&](size_t i) { return static_cast<unsigned char>(text[i]); }};
+    const unsigned char lead{byte(pos)};
+    size_t len;
+    uint32_t cp;
+    if (lead < 0x80) {
+        ++pos;
+        return lead;
+    } else if ((lead & 0xE0) == 0xC0) {
+        len = 2;
+        cp = lead & 0x1F;
+    } else if ((lead & 0xF0) == 0xE0) {
+        len = 3;
+        cp = lead & 0x0F;
+    } else if ((lead & 0xF8) == 0xF0) {
+        len = 4;
+        cp = lead & 0x07;
+    } else {
+        ++pos;
+        return std::nullopt;
+    }
+    if (pos + len > text.size()) {
+        ++pos;
+        return std::nullopt;
+    }
+    for (size_t i{1}; i < len; ++i) {
+        if ((byte(pos + i) & 0xC0) != 0x80) {
+            ++pos;
+            return std::nullopt;
+        }
+        cp = (cp << 6) | (byte(pos + i) & 0x3F);
+    }
+    // Overlong forms, surrogates, and what is past the last code point are not UTF-8.
+    if ((len == 2 && cp < 0x80) || (len == 3 && cp < 0x800) || (len == 4 && cp < 0x10000) || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF) {
+        ++pos;
+        return std::nullopt;
+    }
+    pos += len;
+    return cp;
+}
+
+/** A character that is not shown as itself on one line: controls, line and paragraph separators, marks of direction, invisible ones. */
+bool IsControlOrFormat(uint32_t cp)
+{
+    return cp < 0x20 || (cp >= 0x7F && cp <= 0x9F) || cp == 0xAD || cp == 0x061C || cp == 0x180E ||
+           (cp >= 0x200B && cp <= 0x200F) || (cp >= 0x2028 && cp <= 0x202E) || (cp >= 0x2060 && cp <= 0x206F) ||
+           cp == 0xFEFF || (cp >= 0xFFF9 && cp <= 0xFFFB) || (cp >= 0xE0000 && cp <= 0xE007F);
+}
+
+/** A space of another width (no-break, em, ideographic...): shown as a plain one. */
+bool IsOtherSpace(uint32_t cp)
+{
+    return cp == 0xA0 || cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200A) || cp == 0x202F || cp == 0x205F || cp == 0x3000;
+}
+
+void AppendUtf8(std::string& out, uint32_t cp)
+{
+    if (cp < 0x80) {
+        out += static_cast<char>(cp);
+    } else if (cp < 0x800) {
+        out += static_cast<char>(0xC0 | (cp >> 6));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += static_cast<char>(0xE0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    } else {
+        out += static_cast<char>(0xF0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+    }
+}
+} // namespace
+
+bool SidechainNodes::IsValidName(std::string_view name)
+{
+    size_t pos{0}, chars{0};
+    while (pos < name.size()) {
+        const auto cp{NextCodePoint(name, pos)};
+        if (!cp || IsControlOrFormat(*cp)) return false;
+        if (++chars > NAME_MAX_CHARS) return false;
+    }
+    return chars > 0;
+}
+
+std::string SidechainNodes::DisplayName(std::string_view name)
+{
+    std::string out;
+    size_t pos{0}, chars{0};
+    bool space{true}; // no space at the start
+    bool cut{false};
+    while (pos < name.size()) {
+        const auto cp{NextCodePoint(name, pos)};
+        const uint32_t c{cp ? *cp : 0xFFFD};
+        if (c == ' ' || IsControlOrFormat(c) || IsOtherSpace(c)) {
+            if (!space) {
+                out += ' ';
+                ++chars;
+                space = true;
+            }
+        } else {
+            if (chars >= NAME_MAX_CHARS) {
+                cut = true;
+                break;
+            }
+            AppendUtf8(out, c);
+            ++chars;
+            space = false;
+        }
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    if (cut) {
+        // Room for the ellipsis within the limit.
+        size_t count{0}, keep{0};
+        for (size_t i{0}; i < out.size(); ++i) {
+            if ((static_cast<unsigned char>(out[i]) & 0xC0) != 0x80) {
+                if (count == NAME_MAX_CHARS - 1) break;
+                ++count;
+            }
+            keep = i + 1;
+        }
+        out.resize(keep);
+        while (!out.empty() && out.back() == ' ') out.pop_back();
+        out += "\xe2\x80\xa6";
+    }
+    return out.empty() ? std::string{"(no name)"} : out;
+}
+
+std::optional<std::string> SidechainNodes::DownloadHost(std::string_view url)
+{
+    constexpr std::string_view scheme{"https://"};
+    if (!url.starts_with(scheme) || url.size() > 2048) return std::nullopt;
+    for (const char c : url) {
+        // Printable ASCII, no space, no quotes, no backslash (a host written with them is read differently by programs).
+        if (c <= 0x20 || c >= 0x7F || c == '"' || c == '\'' || c == '\\') return std::nullopt;
+    }
+    const size_t end{url.find_first_of("/?#", scheme.size())};
+    std::string_view authority{url.substr(scheme.size(), end == std::string_view::npos ? std::string_view::npos : end - scheme.size())};
+    // https://github.com@evil.example/ goes to evil.example: an address with a user name is refused.
+    if (authority.find('@') != std::string_view::npos) return std::nullopt;
+    std::string_view host{authority};
+    if (const size_t colon{authority.rfind(':')}; colon != std::string_view::npos) {
+        const std::string_view port{authority.substr(colon + 1)};
+        if (port.empty() || port.size() > 5 || port.find_first_not_of("0123456789") != std::string_view::npos) return std::nullopt;
+        host = authority.substr(0, colon);
+    }
+    if (host.empty() || host.size() > 253 || host.front() == '.' || host.front() == '-' || host.back() == '.' || host.back() == '-' ||
+        host.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") != std::string_view::npos ||
+        host.find("..") != std::string_view::npos) {
+        return std::nullopt;
+    }
+    return ToLower(host);
+}
+
 SidechainNodes::SidechainNodes(ArgsManager& args, LoadFn load, StoreFn store, ChooseFolderFn choose_folder, ConfirmFn confirm, std::vector<Release> releases)
     : m_args(args), m_load(std::move(load)), m_store(std::move(store)), m_choose_folder(std::move(choose_folder)), m_confirm(std::move(confirm)), m_releases(std::move(releases))
 {
@@ -138,7 +296,8 @@ std::vector<SidechainNodes::Sidechain> SidechainNodes::Sidechains() const
             const UniValue& name{entry.find_value("name")};
             const UniValue& stem{entry.find_value("stem")};
             const UniValue& slot{entry.find_value("slot")};
-            if (name.isStr() && stem.isStr() && slot.isNum()) list.push_back({name.get_str(), stem.get_str(), slot.getInt<int>(), "Added by you", false});
+            // Shown cleaned up, whatever the settings hold: a name is one short line.
+            if (name.isStr() && stem.isStr() && slot.isNum()) list.push_back({DisplayName(name.get_str()), stem.get_str(), slot.getInt<int>(), "Added by you", false});
         }
     }
     return list;
@@ -342,34 +501,43 @@ UniValue SidechainNodes::Call(const std::string& method, const UniValue& params)
     if (method == "sidechainNodes.download") {
         const Sidechain s{chosen()};
         // The release built into the app ({release: true}), or an address and a hash the user typed.
-        std::string url, expected, origin;
-        if (Param(params, "release").isTrue()) {
+        std::string url, expected, version;
+        const bool builtin{Param(params, "release").isTrue()};
+        if (builtin) {
             for (const Release& r : m_releases) {
                 if (r.stem == s.stem && r.platform == Platform()) {
                     url = r.url;
                     expected = ToLower(r.sha256);
-                    origin = strprintf("the release %s of %s built into this app", r.version, s.name);
+                    version = r.version;
                 }
             }
             if (url.empty()) throw HostError(strprintf("This app has no release of %s for this computer built in.", s.name));
         } else {
             url = TrimString(ParamStr(params, "url"));
             expected = ToLower(TrimString(ParamStr(params, "sha256")));
-            origin = "an address typed in the app, not a release built into it";
         }
         if (url.empty()) throw HostError(BRIDGE_INVALID_REQUEST, "The address of the release is needed.");
         // A hash is required, and checked before anything is unpacked.
         if (expected.size() != 64 || !IsHex(expected)) throw HostError("A SHA-256 hash is 64 hexadecimal characters. Programs that hold coins are not installed unchecked.");
         // https only: an http download can be replaced on its way, and curl takes other schemes (file:, dict:...).
-        if (!url.starts_with("https://") || url.size() > 2048 || url.find_first_of(" \t\r\n\"'\\") != std::string::npos) {
-            throw HostError("The address of a release starts with https://");
-        }
+        if (!url.starts_with("https://")) throw HostError("The address of a release starts with https://");
+        // No user name before the host: https://github.com@evil.example/ is a download from evil.example.
+        const size_t path_start{url.find_first_of("/?#", 8)};
+        if (url.substr(8, path_start == std::string::npos ? std::string::npos : path_start - 8).find('@') != std::string::npos) throw HostError("The address of a release has no user name or password before its host (user@host): it would hide where the download comes from.");
+        const std::optional<std::string> host{DownloadHost(url)};
+        if (!host) throw HostError("The address of a release is https://, then a host of letters, digits, '.' and '-', with no spaces or quotes.");
         const fs::path target{m_args.GetDataDirBase() / "sidechains" / fs::PathFromString(s.stem)};
-        // The user accepts the download in a dialog of the desktop, which the page cannot answer.
-        const std::string question{strprintf("Download and install programs of %s?\n\nFrom: %s\nSHA-256: %s\nInto: %s\n\nThis is %s. "
-                                             "The programs in the archive will run on this computer with access to your files: accept only if you trust where they come from.",
-                                             s.name, url, expected, fs::PathToString(target), origin)};
-        if (!m_confirm || !m_confirm(strprintf("Install %s", s.name), question, "Download and install")) {
+        // The user accepts the download in a dialog of the desktop, which the page cannot answer. What the
+        // page gave (the name, the address) comes after what this app decides: the title says whether the
+        // release is built into the app or was typed in it, in fixed words; the first line is the host the
+        // download comes from, parsed here, alone on its line.
+        const std::string title{builtin ? "Install a release built into this app" : "Install from an address typed in this app"};
+        const std::string trust{builtin ? strprintf("This is the release %s built into this app.", version)
+                                        : std::string{"This address was typed in the app. It is NOT a release built into this app."}};
+        const std::string question{strprintf("Host: %s\n%s\n\nSidechain: %s\nFrom: %s\nSHA-256: %s\nInto: %s\n\n"
+                                             "The programs in the archive will run on this computer with access to your files: accept only if you trust %s.",
+                                             *host, trust, s.name, url, expected, fs::PathToString(target), *host)};
+        if (!m_confirm || !m_confirm(title, question, "Download and install")) {
             return Said({strprintf("%s: the download was not accepted.", s.name)});
         }
         std::error_code ec;
@@ -423,6 +591,8 @@ UniValue SidechainNodes::Call(const std::string& method, const UniValue& params)
         const std::string stem{TrimString(ParamStr(params, "stem"))};
         const UniValue& slot{Param(params, "slot")};
         if (name.empty() || stem.empty()) throw HostError(BRIDGE_INVALID_REQUEST, "The name of the sidechain and of its programs are needed.");
+        // The name is shown in the confirmation of a download: one line, printable, not too long.
+        if (!IsValidName(name)) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("The name of a sidechain is one line of at most %d characters, without control characters.", NAME_MAX_CHARS));
         // The stem names programs: letters, digits, '-' and '_' only, so that it cannot point anywhere else.
         if (stem.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != std::string::npos) {
             throw HostError("What the programs are named after has letters, digits, '-' and '_' only.");

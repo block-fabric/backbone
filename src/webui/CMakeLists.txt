@@ -4,6 +4,10 @@
 
 # chains-app: the node with its HTML interface in a native web view (webview/webview), no Qt.
 
+# The hooks of the end-to-end tests (-webuitestscript, -webuitestshots and the test.* methods of the bridge,
+# which answer the dialogs of the desktop): only in a build for the tests, never in a release.
+option(WEBUI_TEST_HOOKS "Build chains-app with the hooks of its end-to-end tests (never for a release)." OFF)
+
 set(WEBUI_PREBUILT_DIST "" CACHE PATH "Use this already built interface (the output of `npm run build` in src/webui/app) instead of building it with npm.")
 
 # The interface: built with npm (Svelte, TypeScript, Vite), then embedded into the program.
@@ -121,6 +125,9 @@ add_executable(chains-app WIN32
   ${webui_window}
   ../init/bitcoin-qt.cpp
 )
+if(WEBUI_TEST_HOOKS)
+  target_compile_definitions(chains-app PRIVATE WEBUI_TEST_HOOKS)
+endif()
 # The vendored webview header is not ours: no warnings from it.
 target_include_directories(chains-app SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/webview)
 target_link_libraries(chains-app
@@ -161,7 +168,12 @@ if(MINGW AND TARGET bitcoind AND TARGET bitcoin-cli AND TARGET bitcoin-tx AND TA
   set(BIN_DIR ${webui_release}/bin)
   set(abs_top_srcdir ${PROJECT_SOURCE_DIR})
   configure_file(res/setup-app.nsi.in ${webui_release}/chains-app-setup.nsi @ONLY)
+  if(WEBUI_TEST_HOOKS)
+    set(webui_no_test_hooks COMMAND ${CMAKE_COMMAND} -E echo "deploy-app: this build has the test hooks (WEBUI_TEST_HOOKS=ON); a release is made with them OFF"
+                            COMMAND ${CMAKE_COMMAND} -E false)
+  endif()
   add_custom_target(deploy-app
+    ${webui_no_test_hooks}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${webui_release}/bin
     COMMAND ${CMAKE_STRIP} $<TARGET_FILE:chains-app> -o ${webui_release}/bin/chains-app.exe
     COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoind> -o ${webui_release}/bin/chainsd.exe
