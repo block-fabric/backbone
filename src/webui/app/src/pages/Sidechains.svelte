@@ -344,7 +344,7 @@
               {#each sidechainsShown as s (s.slot)}
                 <tr class:chosen={s.slot === selectedSlot} onclick={() => pick(s.slot)} use:selectable={() => pick(s.slot)}>
                   <td class="num">{s.slot}</td>
-                  <td><button type="button" class="link" onclick={() => pick(s.slot)} translate="no">{s.title}</button><span class="desc muted" translate="no">{s.description}</span></td>
+                  <td><button type="button" class="link" onclick={() => pick(s.slot)} translate="no">{s.title}</button><span class="desc muted" translate="no" title={s.description}>{s.description}</span></td>
                   <td class="end">{#if s.escrow}<Amount sats={escrowOf(s)} />{:else}<span class="muted">no deposits yet</span>{/if}</td>
                   <td class="end num">{s.pendingbundles}</td>
                   <td class="end num">{formatCount(s.activationheight)}</td>
@@ -404,12 +404,14 @@
             {#if deposits.length === 0}
               <p class="muted">No deposits yet.</p>
             {:else}
+              <div class="scroll-x">
               <table class="grid compact" aria-label="Deposits">
                 <thead><tr><th>Destination</th><th class="end">Amount</th><th class="end">Escrow after</th><th class="end">Confirmations</th></tr></thead>
                 <tbody>
                   {#each depositsShown as d (d.txid + d.burnindex)}
                     <tr title={d.txid}>
-                      <td class="mono break">{d.destination}</td>
+                      <!-- Shortened in the middle (the slot and the checksum show); all of it on hover and copied. -->
+                      <td class="mono dest" title={d.destination}><span translate="no">{shortHash(d.destination, 10)}</span> <CopyButton text={d.destination} label="Copy the destination" /></td>
                       <td class="end"><Amount sats={coinsToSats(d.amount)} /></td>
                       <td class="end"><Amount sats={coinsToSats(d.total)} /></td>
                       <td class="end num">{d.confirmations}</td>
@@ -417,6 +419,7 @@
                   {/each}
                 </tbody>
               </table>
+              </div>
               <Pager total={deposits.length} bind:page={depositsPage} bind:size={depositsSize} sizes={DEPOSIT_SIZES} label="deposits" />
             {/if}
           </div>
@@ -643,9 +646,12 @@
     gap: 1rem;
     margin-bottom: 1rem;
   }
+  /* Wide tables scroll sideways; the box grows with its rows (10 a page), never a scroll bar of its own
+     up and down (user decision). */
   .list {
     margin-bottom: 1rem;
     overflow-x: auto;
+    overflow-y: hidden;
   }
   .cols .list {
     margin-bottom: 0;
@@ -687,6 +693,23 @@
   .desc {
     display: block;
     font-size: 0.82rem;
+  }
+  /* The description of an active sidechain: two lines at most (all of it on hover, and below the list). */
+  .list td .desc {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    min-width: 12rem;
+  }
+  .dest {
+    white-space: nowrap;
+  }
+  /* A narrow window: the deposits scroll sideways in their column, not the page. */
+  .scroll-x {
+    overflow-x: auto;
+    overflow-y: hidden;
   }
   .link {
     padding: 0;
