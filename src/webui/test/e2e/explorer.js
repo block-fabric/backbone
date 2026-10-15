@@ -1,6 +1,6 @@
 // The block explorer's ribbon (components/BlockRibbon.svelte): a few blocks on regtest, one with
-// transactions, then the explorer in Midnight and Light (dashboard and workspace): the boxes, the block
-// being mined with what waits for it, a box chosen and its details, a new block sliding in.
+// transactions, then the explorer in Midnight and Light (dashboard and workspace): the boxes (no box
+// for the block being mined), a box chosen and its details, a new block sliding in.
 (async () => {
   const { rpc, sleep, T, waitFor, check, snapshot, finish } = E2E;
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -39,10 +39,10 @@
       T().savePrefs({ theme, layout: 'dashboard' });
       T().go('explorer');
       await waitFor('the ribbon', () => $$('.ribbon button.blk').length >= 6 && $('.ribbon .blk .reward .amount'), 30000);
-      await waitFor('the block being mined', () => $('.blk-next') && $('.blk-next').textContent.includes(String(tip + 1)) && $('.blk-next').textContent.includes('3 waiting'), 30000);
+      await check(`${theme}: no box for the block being mined (the mempool is its own tab)`, !$('.blk-next'));
       const boxes = $$('.ribbon button.blk');
       const heights = boxes.map((b) => Number($('.height', b).textContent.replace(/\D/g, '')));
-      await check(`${theme}: the boxes newest first, after the block being mined`, heights[0] === tip && heights.every((h, i) => i === 0 || h === heights[i - 1] - 1), heights.join(','));
+      await check(`${theme}: the boxes newest first`, heights[0] === tip && heights.every((h, i) => i === 0 || h === heights[i - 1] - 1), heights.join(','));
       const full = boxes.find((b) => Number($('.height', b).textContent.replace(/\D/g, '')) === tip - 3);
       const fill = full ? parseFloat($('.blk-face', full).style.getPropertyValue('--fill')) : 0;
       await check(`${theme}: the block with transactions is filled, tinted`, fill > 0 && $('.blk-face', full).dataset.tint !== 'none', `${fill} ${full && $('.blk-face', full).dataset.tint}`);
