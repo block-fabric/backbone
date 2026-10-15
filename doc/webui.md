@@ -56,7 +56,12 @@ over a named pipe only the user can open, and registers `chains:` for the user
 script). Its data (WebView2 caches) are in `%LOCALAPPDATA%\Chains\WebView2`.
 
 Debug options: `-webuidevtools` (web inspector), `-webuiconfig=<file>`,
-`-webuitestscript=<file>` and `-webuitestshots=<dir>` (tests).
+`-webuitestscript=<file>` and `-webuitestshots=<dir>` (tests). The last two,
+and the test methods of the bridge they come with (`test.confirmAnswer`,
+`test.fileAnswer`...), are only in a build for the tests:
+`cmake -DWEBUI_TEST_HOOKS=ON` (OFF by default). A release is built with it OFF
+(`deploy-app` refuses a build that has them, and the ctest
+`webui_test_hooks_built` checks the program); the end-to-end tests need it ON.
 Working on the interface alone: `npm install` then `npm run dev` in
 src/webui/app opens it in a browser with a pretend node (lib/mock.ts).
 
@@ -78,7 +83,7 @@ build/bin/chains-app [options of chainsd] [chains:URI]
   ignored): `-webuidevtools` (web inspector), `-webuiconfig=<file>` (another
   settings file of the app), `-webuitestscript=<file>` and
   `-webuitestshots=<dir>` (the tests: a script run in the page, with test
-  methods on the bridge).
+  methods on the bridge; only in a build with `WEBUI_TEST_HOOKS=ON`).
 
 ## How it is made
 
@@ -180,7 +185,7 @@ src/
     state.svelte.ts       the state of the app, the node, the wallets, the preferences
     walletdata.svelte.ts  the current wallet: info, history kept up to date, address book
     wallet.ts             wallet calls, record status, filters, CSV
-    i18n.svelte.ts        the language: t(), tn(), tx() (no translator of the whole page)
+    i18n.svelte.ts        the language: t(), tn() (no translator of the whole page)
     commands.svelte.ts    every action: the pages and the menus of chains-qt (Menus, palette)
     layout.ts, detail.svelte.ts  the layouts; the detail panel
     windowframe.svelte.ts the integrated title bar
@@ -198,8 +203,15 @@ Rules the code keeps:
   external signer `-signer`) goes through `Window::Confirm`, a dialog of the
   window system that the page can neither draw nor answer, and a program path
   only comes from the file chooser of the desktop. Downloads are https only,
-  with a SHA-256 checked before anything is unpacked; the releases built into
-  the app (`sidechainreleases.h`) come first. Sidechain nodes get the RPC
+  with no user name before the host (`https://a@b/` is refused), with a
+  SHA-256 checked before anything is unpacked; the releases built into the app
+  (`sidechainreleases.h`) come first. The dialog says first what the app
+  decides, in fixed words: its title whether the release is built into the app
+  or was typed in it, its first line the host the download comes from (parsed
+  by the host), alone on its line; what the page gave (the name of the
+  sidechain, the address) only after. The name of a sidechain added by hand is
+  one line of at most 64 printable characters (refused otherwise, and cleaned
+  up again wherever it is shown). Sidechain nodes get the RPC
   password of this node in an owner-only file (`-mainchainrpcpasswordfile`),
   never on their command line.
 * **Text is text.** No `{@html}`, no `innerHTML`: what comes from the chain,
@@ -214,15 +226,23 @@ Rules the code keeps:
     components; string literals in `{a ? 'X' : 'Y'}`) become calls of `t()`
     when the components are built (`scripts/i18n-preprocess.mjs`); values put
     in them (`{n} blocks behind`) are spliced in as they are, never looked up;
-  - words of the app held in code (tabs, menus, titles, `typeText()`) are
-    shown with `t()` / `tn()`, messages the app put together with `tx()`;
+  - words of the app held in code (tabs, menus, titles) are shown with `t()` /
+    `tn()`;
+  - a message with values (a toast, a dialog, a status, "3 hours behind") is
+    translated where it is made, with its own placeholders:
+    `t('%1 behind', niceTimeOffset(s))`, `tn('%n hour(s)', n)` ("(s)" is the
+    English plural without a catalog). Toasts, dialogs and statuses show what
+    they get as it is (`SafeText`): an error of the host, a message of the
+    node or the RPC is never looked up, so never partly translated;
   - text from the chain, peers, the wallet or the user (labels, memos,
     comments, sidechain titles, peer versions, URIs, wallet names) is shown
     with `<SafeText text={...} />` (translate="no"), or in an element with
     `translate="no"`. `test/i18n-lint.test.ts` fails on a field of words shown
-    bare, and on such text put in `t()`.
-  Messages with placeholders are matched with a token matcher (indexOf, no
-  backtracking) and only in text of at most 300 characters. After a change of
+    bare, on such text put in `t()`, on text put together given to `t()` (a
+    call, a template with values, a sum), and on words of the app put in a
+    toast or a dialog without `t()`.
+  Only the source of a message, as written in the app, is looked up, as a
+  whole: nothing is matched in other text. After a change of
   the texts, `npm run i18n` makes the catalogs again (a test checks they are
   up to date).
 * **Themes.** Colours are tokens of themes.css (`--text`, `--text-muted`,

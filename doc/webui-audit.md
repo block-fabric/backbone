@@ -279,7 +279,7 @@ end-to-end tests (smoke, wallet, node, and `run_audit.py`, made for these findin
 | M1 four long calls block the rest | A lane of six workers for the calls that may take long (console, downloads, file choosers, wallet loading, `scantxoutset`...), apart from the four quick ones | hardening_tests `long_calls_do_not_hold_up_quick_ones`; run_audit (eight `waitfornewblock`) |
 | M2 wallets unlocked for 10 minutes | `wallet.withKeys`: the host unlocks for the calls alone (UnlockScope); the page never calls `walletpassphrase` for them | walletapi_tests `keys_for_one_call`; run_audit (a proof of funds with a locked wallet, locked again at once) |
 | M3 the page can run anything | An RPC policy of the methods the pages use (a frontend test checks the sources against it); `node.setSetting` removed; the console stays the way to any command | hardening_tests `page_rpc_policy`; rpcpolicy.test.ts |
-| M4 narrow windows | Menus fold into "More", the sidebar shows icons below 900 px, heads, tabs, rows and the status bar wrap, grids shrink, the transactions table fits | audit-ui; run_audit at 700 and 480 px (no page overflows, amounts in view, menus inside the window) |
+| M4 narrow windows | Below 760 px the sidebar of the dashboard is a drawer (with the pages and the Menus button, whose menus open inside the window), the compact rail shows icons; heads, tabs, rows and the status bar wrap, grids shrink, the transactions table fits; the name of the wallet keeps room of its own in the card of the sidebar | audit-ui; run_audit at 700 and 480 px (no page overflows, amounts in view, menus inside the window) |
 | M5 contrast | New text tokens (faint, accent text, links, amounts, badges) reach 4.5:1 on every surface of every theme; `--accent-text` for text | contrast.test.ts; run_audit measures what nine pages draw in five themes: no text below 4.5:1 |
 | M6 English only | The catalogs of chains-qt (about 100 languages) made into catalogs of the app; the language chosen as chains-qt does; the page translated where it shows its texts, the node's messages through `G_TRANSLATION_FUN`; right-to-left languages | i18n.test.ts; i18n_tests; run_audit `-lang=fr` |
 | M7 no Cancel | Apply and Cancel on the Settings page; the host keeps what each change replaced (`OptionsJournal`) and takes back at the next start what was never applied; risky changes are confirmed | options journal tests; audit-ui; run_audit (Cancel, and the next start) |
@@ -293,10 +293,11 @@ end-to-end tests (smoke, wallet, node, and `run_audit.py`, made for these findin
 | L8 intro messages | The messages of FreespaceChecker, and "(sufficient to restore backups N days old)" | audit-ui |
 | L9 keyboard | Ctrl+W closes the dialog on top; Ctrl+I/T/N/P from anywhere; headers focusable | audit-ui |
 | L10 overflow | Coin control amounts wrap; two notices at most, the others behind them | audit-ui |
-| L11 debug options in chains.conf | Taken from the command line only | run_audit: `webuidevtools=1` in chains.conf is ignored |
+| L11 debug options in chains.conf | Taken from the command line only; the test options and the test methods of the bridge are compiled only into a build for the tests (`WEBUI_TEST_HOOKS=ON`), never into a release | run_audit: `webuidevtools=1` in chains.conf is ignored; ctest `webui_test_hooks_built` |
 | L12 passphrases in memory | Into secure strings straight from the request; the request and its copies wiped after use | hardening_tests `secrets_are_wiped` |
 
-The four items already open in the parity list: C16 (the themed frame) is done. A14 and A15
-(session end on Windows, App Nap and the dock on macOS) and the Windows and macOS part of B09
-belong to the port to those platforms, the next phase: the generic window of those platforms
-is not built nor tested yet.
+The four items already open in the parity list: C16 (the themed frame) is done. Windows is built
+and tested (window_win32.cpp; `run_windows.py` runs the unit tests and the page scripts on
+Windows through WSL): A14 (the session end waits for the node) is done, and so is the Windows
+part of B09 (`chains:` registered for the user, and by the installer). A15 (App Nap and the dock)
+and the macOS part of B09 belong to the macOS port, which is not built nor tested yet.

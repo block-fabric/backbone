@@ -151,3 +151,63 @@ Two parts of the document are out of date:
 
 Logs and pictures of this round are in the session scratchpad, under `verify/`: `e2e_*.log`,
 `t_*` and `shots/{smoke,wallet,node,audit,layouts,titlebar,refresh,windows}`.
+
+---
+
+# Round 2: the fixes, and the verdict
+
+Checked on 2026-10-14 at `2a30fbd45c` (six commits on top of `5d447f3b00`). Linux build
+`build_linux`, Windows build `build_win`, both configured with `-DWEBUI_TEST_HOOKS=ON` (a build for
+the tests; see "Test hooks" below).
+
+## What "Failed", "Missing" and the security leftovers of round 1 became
+
+| Round 1 | Fix | Test | Status |
+|---------|-----|------|--------|
+| Failed 1: flaky bridge (`Pending()` seen at 1 after the answer) | `Bridge::Reply` removes the request from the pending list before the answer goes out, on every path; the stop and duplicate-rid answers are sent outside the lock. The tests were not touched | new `request_gone_before_its_answer` reads `Pending()` inside the reply callback for every kind of call, 50 rounds; test_chains-app run **30 times in a row: 0 failures** | CLOSED |
+| Failed 2: Home quick actions put tools before the chain | Send, Receive, Deposit to a sidechain, Block explorer, Mine, Sign message, Load PSBT (`HOME_QUICK_ACTIONS`, lib/layout.ts) | `chainBeforeTools()` helper (kind of a page = its sidebar section), applied in layouts.test.ts to the quick actions, the sidebar sections, the workspace areas, "Go to", and each menu (plus the order of the menus); the row as the dashboard draws it | CLOSED |
+| Security 2 leftover: confirmation spoofing (audit item 4) | Names: one line, at most 64 printable characters, no control/format/bidi characters; refused at `sidechainNodes.add`, cleaned up (`DisplayName`) wherever shown. URLs: `user@host` refused, host must be `[A-Za-z0-9.-]` (+ numeric port). Dialog: the title is the trust statement in fixed words decided by the host ("Install a release built into this app" / "Install from an address typed in this app"); line 1 is `Host: <parsed host>` alone; line 2 the trust sentence; the page's name and address only after | nodeapi_tests `sidechain_nodes`: names with `\n`, `\r\n`, tab, U+202E, U+2028, 65 chars refused; a tampered name in the settings shown on one line, cut with "…"; `DownloadHost` cases; two userinfo URLs refused before any dialog; exact shape of both dialogs (title, line 1, line 2, then `Sidechain:`/`From:`) | CLOSED |
+| Test hooks only gated by `-webuitestscript` | CMake option `WEBUI_TEST_HOOKS` (OFF by default): `-webuitestscript`, `-webuitestshots`, the `test.*` methods and the answers of the dialogs are compiled only with it; `deploy-app` refuses a build that has them | ctest `webui_test_hooks_built` (the strings are in the program exactly when the option says); `app.cpp` compiled with the option OFF: none of `test.confirmAnswer`, `test.fileAnswer`, `-webuitestscript=<file>` in the object | CLOSED |
+| Security 3 leftover: translator garbles host/RPC messages | No pattern matching left: `t()`/`tn()` look up only the source of a message written in the app, as a whole; `tx()`/`translateText()` removed. Toasts, dialogs, statuses, the fatal view show what they get as it is (SafeText); the app's words in them go through `t()` where made, with their own placeholders (codemod over every toast/inform/confirm/prompt/ask, statuses by hand). Helpers with values translate themselves (sync status, `niceTimeOffset` with `tn('%n hour(s)')` and `'%1 and %2'`, transaction status/type, ping, rates, ranges, sidechain summary, votes). Lint: fails on text put together given to `t()`, and on app words put in a toast/dialog without `t()`, in components and lib/ | i18n.test.ts, i18n-safety.test.ts in French: a host error with " and " in a toast and a dialog stays whole, title "Paramètres"/"Erreur"; "en retard de 3 heures", "1 an et 4 semaines", "Confirmée (7 confirmations)"; `t('%1 hours behind', 3)` stays English instead of half French; e2e audit_lang.js (`-lang=fr`): a real host error in a notice stays as the host wrote it | CLOSED |
+| Missing: "Use the title bar of the desktop" applied at once | A change of the draft: ticked, counted as waiting, made by Apply, dropped by Cancel/Discard | titlebar.test.ts (no call before Apply, one after, none on Cancel); titlebar.js and audit.js check the window keeps its title bar until Apply, on Linux and Windows | CLOSED |
+| User's screenshot: wallet card shows "(" on Windows (Midnight) | The name has a minimum width (5 rem) with an ellipsis and the whole name as tooltip; the unit pill is narrower and goes under the name when both do not fit; the picker too | walletcard.js: one wallet and two (picker), "demo" and a 33-character name, sidebar 13/15/17 rem, text +0/+2, page at 100/125/150 % (18 cases each): 90 checks on Linux and 90 on Windows | CLOSED |
+| Docs: parity L04, D12, N05; audit M4 and the Windows paragraph | L04 https only + no user@host + the dialog shape + name rule; D12 says what the overview and send pages really show; N05 names the title-bar option (waits for Apply) and the language (applied with Apply); audit M4 describes the drawer; the closing paragraph says Windows is built and tested (A14 and the Windows part of B09 done), macOS left; L11 notes the compiled-out hooks; webui.md documents `WEBUI_TEST_HOOKS` and the new translation rules | review | CLOSED |
+
+## Test suites, round 2
+
+| Suite | Result |
+|-------|--------|
+| vitest (src/webui/app) | PASS: 173/173, 21 files |
+| svelte-check `--fail-on-warnings` | PASS: 448 files, 0 errors, 0 warnings |
+| `npm run i18n --check` (catalogs up to date) | PASS (catalogs made again for the new messages) |
+| test_chains-app (Linux), 30 runs in a row | PASS 30/30 (about 20 s each) |
+| ctest `webui_test_hooks_built` | PASS |
+| e2e smoke / wallet / node | PASS: 20, 36, 69 checks |
+| e2e audit (7 runs) | PASS: audit 25, restart 2, nowallet 15, narrow700 22, narrow480 22, signer 7, lang 7 |
+| e2e layouts / titlebar / refresh / walletcard | PASS: 3 (53 pictures), 22, 4, 90 |
+| Windows `run_windows.py` (WSL interop, `%TEMP%\chains-app-test`, `-webuiregisteruri=0`) | PASS: test_chains-app.exe (no errors, 120 s), smoke 20 (URI over the named pipe), layouts 3, titlebar 22, walletcard 90. The folder was removed afterwards; `%TEMP%\chains-app-demo` was not touched |
+| chains ctest / test_bitcoin-qt; template + 6 sidechains | Not re-run: nothing outside `src/webui` and its docs changed in this round, and chains (`6ec9f92df7`) and the sidechain repositories are at the same commits as in round 1, where they passed |
+
+First runs of the new e2e checks found two faults in the tests themselves, fixed in
+`2a30fbd45c`: the second click of the title-bar option came before Apply was enabled again, and
+walletcard.js measured the name with `scrollWidth`, which rounds under a CSS zoom.
+
+Logs and pictures: session scratchpad, `fix/` (`loop_*.log`, `e2e_*.log`, `shots/`).
+
+## Still open (not blockers)
+
+- macOS: A15 and the macOS part of B09 (the macOS port is not built nor tested).
+- The built-in release list is empty: only addresses the user types can be downloaded (now with
+  the parsed host and "typed in this app" said first, in fixed words).
+- Messages written by the host (errors, the transaction details, PSBT statuses) are shown in
+  English in every language: they are never matched against the catalog any more.
+- The Banking menu keeps the chains-qt items Proof of funds, Multisig and Load PSBT (tools); within
+  each menu and across the menus the chain comes before the tools.
+
+## Verdict
+
+Every failure, every missing item and every security leftover of round 1 is fixed, each with a
+test, and every suite above passes on Linux and on Windows.
+
+READY: yes
+
