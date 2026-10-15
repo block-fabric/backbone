@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-// The translations of chains-app, made from the catalogs of chains-qt (src/qt/locale/bitcoin_*.ts, the
-// work of the translators of Bitcoin Core on Transifex).
+// The translations of chains-app, made from the catalogs in src/webui/locale (bitcoin_*.ts, the work of the
+// translators of Bitcoin Core on Transifex, as chains-qt shipped them; `tx pull` updates them, see
+// doc/translation_process.md).
 //
 //   node scripts/i18n.mjs            write public/locales/<language>.json and public/locales/index.json
-//   node scripts/i18n.mjs --check    exit 1 if they are not up to date (the tests)
-//   node scripts/i18n.mjs --if-present   as the first, but only if the catalogs of chains-qt are there (npm run build)
+//   node scripts/i18n.mjs --check    exit 1 if they are not up to date, or the catalogs are missing (the tests)
+//   node scripts/i18n.mjs --if-present   as the first, but only if the catalogs are there (npm run build, also
+//                                        from a copy of src/webui/app alone)
 //
 // A catalog keeps the messages of the interface (the "gui" part) that the interface of chains-app shows
 // (the text of its sources, and of the host in src/webui), and the messages of the node ("core", the
@@ -16,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), '..');
-const QT_LOCALE = join(APP, '../../qt/locale');
+const CATALOGS = join(APP, '../locale');
 const OUT = join(APP, 'public/locales');
 const RTL = new Set(['ar', 'fa', 'he', 'ur', 'ps', 'ug', 'sd', 'ku_IQ', 'yi']);
 
@@ -75,7 +77,7 @@ function appText() {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, name.name);
       if (name.isDirectory()) {
-        if (!['node_modules', 'dist', 'test', 'locales', 'webview'].includes(name.name)) walk(path);
+        if (!['node_modules', 'dist', 'test', 'locale', 'locales', 'webview'].includes(name.name)) walk(path);
       } else if (/\.(svelte|ts|cpp|h)$/.test(name.name) && !/\.test\.ts$/.test(name.name)) {
         parts.push(readFileSync(path, 'utf8'));
       }
@@ -123,12 +125,12 @@ export function build() {
     if (u === undefined) memo.set(source, (u = used(source, text)));
     return u;
   };
-  const files = readdirSync(QT_LOCALE).filter((f) => /^bitcoin_.+\.ts$/.test(f)).sort();
+  const files = readdirSync(CATALOGS).filter((f) => /^bitcoin_.+\.ts$/.test(f)).sort();
   const index = [];
   const outputs = {};
   for (const file of files) {
     const code = file.slice('bitcoin_'.length, -'.ts'.length);
-    const messages = parseCatalog(readFileSync(join(QT_LOCALE, file), 'utf8'));
+    const messages = parseCatalog(readFileSync(join(CATALOGS, file), 'utf8'));
     const gui = {};
     const core = {};
     for (const m of messages) {
@@ -154,9 +156,9 @@ export function build() {
 }
 
 function main() {
-  if (!existsSync(QT_LOCALE)) {
-    console.error(`No catalogs of chains-qt in ${QT_LOCALE}: the translations stay as they are.`);
-    process.exit(process.argv.includes('--check') || process.argv.includes('--if-present') ? 0 : 1);
+  if (!existsSync(CATALOGS)) {
+    console.error(`No catalogs in ${CATALOGS}: the translations stay as they are.`);
+    process.exit(process.argv.includes('--if-present') ? 0 : 1);
   }
   const outputs = build();
   if (process.argv.includes('--check')) {

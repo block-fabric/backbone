@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe('the catalogs', () => {
-  it('are made from the catalogs of chains-qt, and are up to date', () => {
+  it('are made from the catalogs of src/webui/locale, and are up to date', () => {
     const index = JSON.parse(readFileSync(join(APP, 'public/locales/index.json'), 'utf8')) as { code: string; name: string; messages: number }[];
     expect(index.length).toBeGreaterThan(90);
     const de = JSON.parse(readFileSync(join(APP, 'public/locales/de.json'), 'utf8'));
@@ -29,10 +29,9 @@ describe('the catalogs', () => {
     expect(Object.keys(de.gui).some((k) => /&(?=\S)|\.\.\./.test(k))).toBe(false);
     expect(Object.keys(de.gui).some((k) => /Bitcoin/.test(k))).toBe(false);
     expect(Object.keys(de.core).length).toBeGreaterThan(50);
-    if (existsSync(join(APP, '../../qt/locale'))) {
-      // Made again from the catalogs and the sources, nothing changes.
-      execFileSync(process.execPath, [join(APP, 'scripts/i18n.mjs'), '--check'], { stdio: 'pipe' });
-    }
+    // Made again from the catalogs (src/webui/locale) and the sources, nothing changes.
+    expect(existsSync(join(APP, '../locale/bitcoin_de.ts'))).toBe(true);
+    execFileSync(process.execPath, [join(APP, 'scripts/i18n.mjs'), '--check'], { stdio: 'pipe' });
   });
 });
 
