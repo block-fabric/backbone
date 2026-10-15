@@ -110,6 +110,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   common/netif.cpp
   common/pcp.cpp
   common/run_command.cpp
+  common/secretfile.cpp
   common/settings.cpp
   common/signmessage.cpp
   common/system.cpp
