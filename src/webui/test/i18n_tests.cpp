@@ -13,6 +13,26 @@
 
 #include <cstdlib>
 
+namespace {
+// The environment, on every platform (Windows has no setenv).
+void SetEnv(const char* name, const char* value)
+{
+#ifdef WIN32
+    _putenv_s(name, value);
+#else
+    setenv(name, value, 1);
+#endif
+}
+void UnsetEnv(const char* name)
+{
+#ifdef WIN32
+    _putenv_s(name, "");
+#else
+    unsetenv(name);
+#endif
+}
+} // namespace
+
 BOOST_AUTO_TEST_SUITE(webui_i18n_tests)
 
 BOOST_AUTO_TEST_CASE(choose_and_translate)
@@ -32,15 +52,15 @@ BOOST_AUTO_TEST_CASE(choose_and_translate)
     // Without -lang: the locale of the system (LC_ALL, LC_MESSAGES, LANG).
     const char* lang_was{std::getenv("LANG")};
     const std::string saved{lang_was ? lang_was : ""};
-    unsetenv("LC_ALL");
-    unsetenv("LC_MESSAGES");
-    setenv("LANG", "fr_FR.UTF-8", 1);
+    UnsetEnv("LC_ALL");
+    UnsetEnv("LC_MESSAGES");
+    SetEnv("LANG", "fr_FR.UTF-8");
     BOOST_CHECK_EQUAL(webui::SystemLocale(), "fr_FR");
     BOOST_CHECK_EQUAL(webui::ChooseLanguage(assets, ""), "fr");
-    setenv("LANG", "C.UTF-8", 1);
+    SetEnv("LANG", "C.UTF-8");
     BOOST_CHECK_EQUAL(webui::ChooseLanguage(assets, ""), "");
-    if (lang_was) setenv("LANG", saved.c_str(), 1);
-    else unsetenv("LANG");
+    if (lang_was) SetEnv("LANG", saved.c_str());
+    else UnsetEnv("LANG");
 
     // A catalog has the messages of the interface and of the node.
     const auto de{webui::LoadCatalog(assets, "de")};

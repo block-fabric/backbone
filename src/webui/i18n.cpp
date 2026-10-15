@@ -4,6 +4,10 @@
 
 #include <webui/i18n.h>
 
+#ifdef WIN32
+#include <windows.h>
+#endif
+
 #include <sync.h>
 #include <webui/assets.h>
 
@@ -47,6 +51,16 @@ std::string SystemLocale()
         if (locale == "C" || locale == "POSIX") return "";
         return locale;
     }
+#ifdef WIN32
+    // Windows: the language of the user ("fr-FR"), as QLocale::system() reads it there.
+    wchar_t name[LOCALE_NAME_MAX_LENGTH]{};
+    if (const int n{GetUserDefaultLocaleName(name, LOCALE_NAME_MAX_LENGTH)}; n > 1) {
+        std::string locale;
+        for (int i{0}; i < n - 1 && name[i]; ++i) locale += name[i] < 128 ? static_cast<char>(name[i]) : '?';
+        ReplaceAll(locale, "-", "_");
+        return locale;
+    }
+#endif
     return "";
 }
 
