@@ -814,9 +814,16 @@ void App::RegisterHostMethods()
             std::ifstream file{static_cast<const std::filesystem::path&>(fs::PathFromString(script_path))};
             std::stringstream script;
             script << file.rdbuf();
-            const std::string code{script.str()};
             // A test hook: the script given on the command line (a debug option) runs in the page.
+            // It marks that it ran: a script that does not parse (or throws at its start) runs not at
+            // all, and the page would say nothing; the check after it says so and ends the app.
+            const std::string code{script.str() + "\n;window.__chainsTestScriptRan = true;\n"};
+            const std::string check{"if (!window.__chainsTestScriptRan) {"
+                                    " const say = (method, params) => window.__chains({ kind: 'host', method, params });"
+                                    " say('test.log', { message: 'SCRIPT_ERROR the test script did not run: it does not parse, or throws at its start' })"
+                                    ".finally(() => say('test.exit', { code: 1 })); }"};
             m_window->PostDelayed(100ms, [this, code] { m_window->Eval(code); });
+            m_window->PostDelayed(3s, [this, check] { m_window->Eval(check); });
         }
 #else
         (void)first_hello;

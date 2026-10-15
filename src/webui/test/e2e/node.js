@@ -453,11 +453,11 @@
     const asked = (await host('test.confirmed')).length;
     await host('test.confirmAnswer', { yes: false });
     $('#opt-proxy').click();
-    const question = await waitFor('the question', async () => {
+    const proxyQuestion = await waitFor('the question', async () => {
       const list = await host('test.confirmed');
       return list.length > asked ? list[list.length - 1] : null;
     }, 30000);
-    await check('settings: the proxy is asked in a dialog of the desktop, with its address', question.message.includes('Route all connections through 127.0.0.1:9050?'), question.message);
+    await check('settings: the proxy is asked in a dialog of the desktop, with its address', proxyQuestion.message.includes('Route all connections through 127.0.0.1:9050?'), proxyQuestion.message);
     await sleep(500);
     await check('settings: declined, the proxy stays off', !(await host('options.get')).proxyUse);
     await host('test.confirmAnswer', { yes: true });
