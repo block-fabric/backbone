@@ -121,10 +121,13 @@
 
 <div class="proof" class:page={!embedded}>
   {#if !embedded}<header class="page-head"><h1>Proof of funds</h1></header>{/if}
+  <!-- Inside another page (Tools, Advanced transactions), its tabs are on that page's row. -->
+  {#if !embedded}
   <div class="tabs" role="tablist" aria-label="Prove or verify">
     <button type="button" role="tab" aria-selected={tab === 'prove'} onclick={() => (setOwnTab('proof', 'prove'))}>Prove</button>
     <button type="button" role="tab" aria-selected={tab === 'verify'} onclick={() => (setOwnTab('proof', 'verify'))}>Verify</button>
   </div>
+  {/if}
 
   {#if tab === 'prove'}
     <section class="panel">
