@@ -821,9 +821,16 @@ void App::RegisterHostMethods()
             std::ifstream file{static_cast<const std::filesystem::path&>(fs::PathFromString(script_path))};
             std::stringstream script;
             script << file.rdbuf();
-            const std::string code{script.str()};
             // A test hook: the script given on the command line (a debug option) runs in the page.
+            // It marks that it ran: a script that does not parse (or throws at its start) runs not at
+            // all, and the page would say nothing; the check after it says so and ends the app.
+            const std::string code{script.str() + "\n;window.__chainsTestScriptRan = true;\n"};
+            const std::string check{"if (!window.__chainsTestScriptRan) {"
+                                    " const say = (method, params) => window.__chains({ kind: 'host', method, params });"
+                                    " say('test.log', { message: 'SCRIPT_ERROR the test script did not run: it does not parse, or throws at its start' })"
+                                    ".finally(() => say('test.exit', { code: 1 })); }"};
             m_window->PostDelayed(100ms, [this, code] { m_window->Eval(code); });
+            m_window->PostDelayed(3s, [this, check] { m_window->Eval(check); });
         }
 #else
         (void)first_hello;
@@ -1154,6 +1161,9 @@ void App::RegisterHostMethods()
                                                  "Accept only if you know what it is.", title, *path)};
             if (!Confirm({.title = title, .message = question, .accept = "Use this program"})) return std::nullopt;
             return path;
+        }, [this](const std::string& title, const std::string& message, const std::string& accept) {
+            // A proxy, the Tor proxy or the RPC server turned on: asked in a dialog of the desktop.
+            return Confirm({.title = title, .message = message, .accept = accept});
         }};
     }};
     const auto with_pending{[this](UniValue out) {
@@ -1172,12 +1182,13 @@ void App::RegisterHostMethods()
         return with_pending(options().Get());
     });
     b.RegisterHost("options.set", [options, with_pending](const UniValue& params) {
+        // A long call: some changes wait for the answer of a confirmation of the desktop.
         try {
             return with_pending(options().Set(ParamStr(params, "name"), Param(params, "value")));
         } catch (const std::runtime_error& e) {
             throw HostError(BRIDGE_INVALID_REQUEST, e.what());
         }
-    });
+    }, Bridge::Thread::LONG);
     b.RegisterHost("options.chooseProgram", [options, with_pending](const UniValue& params) {
         // A setting that names a program (the external signer): through the file chooser and a confirmation
         // of the desktop. Null when the user cancelled.
@@ -1193,6 +1204,8 @@ void App::RegisterHostMethods()
         // As OptionsModel::Reset: settings.json backed up and reset, the settings of the app backed up and
         // cleared (but for the data directory), the intro shown at the next start; then the app shuts down.
         interfaces::Node& node{need_node()};
+        // Not while a change of the options waits for a confirmation of the desktop.
+        std::unique_lock changes{NodeOptions::ChangesMutex()};
         node.resetSettings();
         std::string network;
         {
@@ -1210,6 +1223,7 @@ void App::RegisterHostMethods()
         m_options_journal->Commit();
         m_config->SetResetPending(true);
         if (NodeOptions::StartAtLogin(m_args)) NodeOptions::SetStartAtLogin(m_args, false);
+        changes.unlock();
         RequestShutdown();
         return UniValue{true};
     });

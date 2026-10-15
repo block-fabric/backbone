@@ -9,6 +9,7 @@
 #include <univalue.h>
 
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -45,7 +46,14 @@ public:
      */
     using ChooseProgramFn = std::function<std::optional<std::string>(const std::string& title, const std::string& current)>;
 
-    NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal = {}, ChooseProgramFn choose_program = {});
+    /**
+     * Ask the user, in a dialog of the desktop the page can neither draw nor answer (title, the question,
+     * the button that accepts): true when accepted. For the changes that hand the node's traffic or its
+     * control to someone else (a proxy, the Tor proxy, the RPC server turned on: audit 2026-10-14 item 5).
+     */
+    using ConfirmFn = std::function<bool(const std::string& title, const std::string& message, const std::string& accept)>;
+
+    NodeOptions(interfaces::Node& node, ArgsManager& args, RestartFlag restart, Journal journal = {}, ChooseProgramFn choose_program = {}, ConfirmFn confirm = {});
 
     /**
      * The settings that name a program the node runs (-signer). The page can only clear them (Set with an
@@ -67,10 +75,23 @@ public:
      */
     UniValue Get();
 
-    /** Change one option (a name of Get). Throws std::runtime_error for a value that is not valid. @return Get() */
+    /**
+     * Change one option (a name of Get, or proxyAddress / torAddress: {ip, port} at once). Throws
+     * std::runtime_error for a value that is not valid. Turning a proxy or the Tor proxy on, changing the
+     * address of one in use, or turning the RPC server on takes the confirmation of the desktop (ConfirmFn),
+     * which shows exactly what changes; turning them off does not.
+     * @return Get(), with declined: true when the user said no (nothing changed)
+     */
     UniValue Set(const std::string& name, const UniValue& value);
 
-    /** Whether text is the address of a proxy, without a port (ProxyAddressValidator). */
+    /**
+     * Held across every change of the options, from what a confirmation shows to what is written (Set,
+     * ChooseProgram, the Cancel and the reset of the options): a change made while a confirmation of the
+     * desktop is open waits for it, so that what the user accepts is what is applied.
+     */
+    static std::mutex& ChangesMutex();
+
+    /** Whether text is the address of a proxy, without a port (ProxyAddressValidator), and without a user or password. */
     static bool ValidProxyAddress(const std::string& text);
 
     /** Start the app when the user logs in (GUIUtil::SetStartOnSystemStartup), per network. */
@@ -83,6 +104,7 @@ private:
     RestartFlag m_restart;
     Journal m_journal;
     ChooseProgramFn m_choose_program;
+    ConfirmFn m_confirm;
 };
 
 class AppConfig;

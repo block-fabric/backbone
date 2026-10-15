@@ -6,8 +6,7 @@
     name = true,
     onclick,
     label = 'Chains: home',
-    expanded,
-  }: { name?: boolean; onclick?: () => void; label?: string; expanded?: boolean } = $props();
+  }: { name?: boolean; onclick?: () => void; label?: string } = $props();
 </script>
 
 {#snippet content()}
@@ -23,7 +22,7 @@
 {/snippet}
 
 {#if onclick}
-  <button type="button" class="brand" {onclick} aria-label={label} title={label} aria-expanded={expanded}>{@render content()}</button>
+  <button type="button" class="brand" {onclick} aria-label={label} title={label}>{@render content()}</button>
 {:else}
   <div class="brand">{@render content()}</div>
 {/if}

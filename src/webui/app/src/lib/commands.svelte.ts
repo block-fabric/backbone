@@ -44,21 +44,18 @@ export function openPalette(): void {
   palette.open = true;
 }
 
-/** Switch the layout; the home page belongs to the dashboard. */
+/** Switch the layout: the page shown stays (Home is in every layout). */
 export function setLayout(id: LayoutId): void {
   if (prefs.layout === id) return;
   closeDetail();
   savePrefs({ layout: id });
-  if (id === 'dashboard' && nav.page === 'overview') go('home');
-  else if (id !== 'dashboard' && nav.page === 'home') go('overview');
 }
 
-/** The pages that can be shown now (the kit only for tests and developers, home only on the dashboard). */
+/** The pages that can be shown now (the kit only for tests and developers). */
 export function pageAvailable(id: PageId): boolean {
   // With -disablewallet there are no wallet pages (chains-qt builds no wallet UI then).
   if ((PAGES[id].wallet || id === 'wallets') && !walletsEnabled()) return false;
   if (id === 'kit') return !!(app.info?.test || app.info?.devtools);
-  if (id === 'home') return prefs.layout === 'dashboard';
   // A tab of another page: reached through it (and through its own command), not as a page.
   if (PAGES[id].tabOf) return false;
   return true;
@@ -152,9 +149,6 @@ export function buildCommands(): Command[] {
 
   const extra: Command[] = [
     ...LAYOUTS.map((l): Command => ({ id: `layout.${l.id}`, group: 'Layout', label: `Layout: ${l.name}`, icon: l.icon, run: () => setLayout(l.id), checked: prefs.layout === l.id, keywords: l.summary })),
-    ...(prefs.layout === 'sidebar'
-      ? [{ id: 'layout.sidebarNames', group: 'Layout', label: 'Show the names of the pages in the sidebar', run: () => savePrefs({ sidebarExpanded: !prefs.sidebarExpanded }), checked: prefs.sidebarExpanded, keywords: 'expand collapse icons' } satisfies Command]
-      : []),
     ...UNITS.map((u): Command => ({ id: `display.unit.${u.id}`, group: 'Display', label: `Show amounts in ${u.short}`, run: () => savePrefs({ unit: u.id }), checked: prefs.unit === u.id, keywords: `unit ${u.long}` })),
     { id: 'network.peers', group: 'Network', label: 'Show peers', run: to('node', 'peers'), keywords: 'connections' },
     {
