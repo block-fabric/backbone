@@ -58,7 +58,6 @@ using namespace std::chrono_literals;
 
 namespace webui {
 namespace {
-constexpr int DEFAULT_PRUNE_TARGET_GB{2};
 constexpr uint64_t GB_BYTES{1'000'000'000};
 constexpr bool DEFAULT_CHOOSE_DATADIR{false};
 constexpr bool DEFAULT_SPLASHSCREEN{true};
@@ -229,6 +228,18 @@ void App::UpdateTitle()
     m_window->Post([this, title] { m_window->SetTitle(title); });
 }
 
+void App::Inform(UniValue dialog)
+{
+    {
+        LOCK(m_mutex);
+        const int64_t id{m_next_dialog++};
+        dialog.pushKV("id", id);
+        m_dialogs[id] = dialog;
+        m_informs.insert(id);
+    }
+    m_hub->Emit("dialog", dialog);
+}
+
 UniValue App::Ask(UniValue dialog, UniValue fallback)
 {
     if (std::this_thread::get_id() == g_ui_thread) {
@@ -387,8 +398,9 @@ bool App::IntroIfNeeded()
         data.pushKV("dir", dir);
         data.pushKV("blockchainGB", static_cast<int64_t>(Params().AssumedBlockchainSize()));
         data.pushKV("chainstateGB", static_cast<int64_t>(Params().AssumedChainStateSize()));
-        data.pushKV("pruneGB", prune_arg > 1 ? PruneMiBtoGB(prune_arg) : DEFAULT_PRUNE_TARGET_GB);
-        data.pushKV("minPruneGB", static_cast<int64_t>(std::ceil(MIN_DISK_SPACE_FOR_BLOCK_FILES / double(GB_BYTES))));
+        // The least of the chain (10000 MiB, so 11 GB, but on regtest), and no less by default.
+        data.pushKV("pruneGB", prune_arg > 1 ? PruneMiBtoGB(prune_arg) : NodeOptions::DefaultPruneGB(m_args));
+        data.pushKV("minPruneGB", NodeOptions::MinPruneGB(m_args));
         // -prune on the command line decides, as in the Qt intro (the box is ticked or not, and disabled).
         if (m_args.IsArgSet("-prune")) data.pushKV("pruneForced", prune_arg >= 1);
         m_window->Post([this] { m_window->Show(false); });
@@ -540,6 +552,18 @@ bool App::StartNode()
                 m_node->updateRwSetting("prune", chosen);
             }
         }
+    }
+
+    // A prune size saved below the least of the chain (an older version offered 2 GB): raised to it, said
+    // once, rather than a node that refuses to start.
+    if (const auto low{NodeOptions::RaiseLowPrune(*m_node, m_args)}) {
+        UniValue dialog{UniValue::VOBJ};
+        dialog.pushKV("kind", "message");
+        dialog.pushKV("level", "info");
+        dialog.pushKV("title", "Prune size raised");
+        dialog.pushKV("message", strprintf("The prune size was %d MiB, below the least this network allows (%d MiB). It is now %d GB: the node keeps that much of the most recent blocks.",
+                                           *low, CreateChainParams(m_args, m_args.GetChainType())->MinPruneTarget() / (1024 * 1024), NodeOptions::MinPruneGB(m_args)));
+        Inform(std::move(dialog));
     }
 
     if (!m_node->baseInitialize()) {
@@ -957,6 +981,10 @@ void App::RegisterHostMethods()
         {
             LOCK(m_mutex);
             if (!m_dialogs.contains(id.getInt<int64_t>())) return UniValue{false};
+            if (m_informs.erase(id.getInt<int64_t>())) {
+                m_dialogs.erase(id.getInt<int64_t>());
+                return UniValue{true};
+            }
             m_answers[id.getInt<int64_t>()] = Param(params, "answer");
         }
         m_cv.notify_all();

@@ -839,6 +839,44 @@ BOOST_AUTO_TEST_CASE(app_values)
     BOOST_CHECK(again.Value("window").isNull());
 }
 
+// The least prune size is the chain's (CChainParams::MinPruneTarget): 10000 MiB on the main network, testnet
+// and signet, so 11 GB offered and by default; regtest keeps 550 MiB and 2 GB by default. A size saved
+// below it (an older version offered 2 GB) is raised before the node starts, which would refuse it.
+BOOST_AUTO_TEST_CASE(prune_minimum_of_the_chain)
+{
+    for (const char* chain : {"main", "test", "signet"}) {
+        ArgsManager args;
+        args.ForceSetArg("-chain", chain);
+        BOOST_CHECK_EQUAL(webui::NodeOptions::MinPruneGB(args), 11);
+        BOOST_CHECK_EQUAL(webui::NodeOptions::DefaultPruneGB(args), 11);
+    }
+    BOOST_CHECK_EQUAL(webui::NodeOptions::MinPruneGB(*m_node.args), 1);
+    BOOST_CHECK_EQUAL(webui::NodeOptions::DefaultPruneGB(*m_node.args), 2);
+
+    auto node{interfaces::MakeNode(m_node)};
+    std::optional<bool> restart;
+    webui::NodeOptions options{*node, *m_node.args, [&](std::optional<bool> set) {
+        if (set) restart = *set;
+        return restart.value_or(false);
+    }};
+    BOOST_CHECK_EQUAL(options.Get()["limits"]["pruneMinGB"].getInt<int>(), 1);
+    BOOST_CHECK_THROW(options.Set("pruneSize", 0), std::runtime_error);
+
+    // Below the 550 MiB of regtest: raised to its 1 GB (953 MiB), and said what it was.
+    node->updateRwSetting("prune", common::SettingsValue{"300"});
+    BOOST_CHECK_EQUAL(webui::NodeOptions::RaiseLowPrune(*node, *m_node.args).value_or(-1), 300);
+    BOOST_CHECK_EQUAL(node->getPersistentSetting("prune").getInt<int64_t>(), 953);
+    BOOST_CHECK_EQUAL(options.Get()["pruneSize"].getInt<int>(), 1);
+    // At or above it, off, or manual: left alone.
+    BOOST_CHECK(!webui::NodeOptions::RaiseLowPrune(*node, *m_node.args));
+    for (const char* value : {"600", "0", "1"}) {
+        node->updateRwSetting("prune", common::SettingsValue{value});
+        BOOST_CHECK(!webui::NodeOptions::RaiseLowPrune(*node, *m_node.args));
+        BOOST_CHECK_EQUAL(node->getPersistentSetting("prune").get_str(), value);
+    }
+    node->updateRwSetting("prune", {});
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 // --- The changes of the Settings page wait for Apply (audit M7) ---

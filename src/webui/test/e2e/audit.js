@@ -224,6 +224,10 @@
     await host('options.set', { name: 'dbcache', value: 777 });
     let options = await host('options.get');
     await check('M7 the changes wait for Apply', options.pending === 3 && options.prune === true, JSON.stringify({ pending: options.pending, prune: options.prune }));
+    // The least prune size is the chain's: 550 MiB on regtest, so 1 GB (11 GB on the main network, testnet and signet).
+    await check('the least prune size is the chain\'s', options.limits.pruneMinGB === 1 && options.pruneSize >= 1, JSON.stringify({ min: options.limits.pruneMinGB, size: options.pruneSize }));
+    const tooSmall = await host('options.set', { name: 'pruneSize', value: 0 }).then(() => null, (e) => e);
+    await check('a prune size below it is refused', !!tooSmall, JSON.stringify(tooSmall));
     await host('options.cancel');
     options = await host('options.get');
     await check('M7 Cancel takes them back', options.pending === 0 && options.prune === false && options.dbcache !== 777, JSON.stringify({ pending: options.pending, prune: options.prune, dbcache: options.dbcache }));

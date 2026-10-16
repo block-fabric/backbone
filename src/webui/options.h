@@ -94,6 +94,21 @@ public:
     /** Whether text is the address of a proxy, without a port (ProxyAddressValidator), and without a user or password. */
     static bool ValidProxyAddress(const std::string& text);
 
+    /**
+     * The least prune size the settings and the intro offer, in GB (of 10^9 bytes, rounded up): the least
+     * -prune target of the chain the node runs (10000 MiB, so 11 GB, on the main network, testnet and
+     * signet; 550 MiB, so 1 GB, on regtest).
+     */
+    static int MinPruneGB(const ArgsManager& args);
+    /** The prune size offered when none is set: 2 GB as in chains-qt, or the least of the chain if more. */
+    static int DefaultPruneGB(const ArgsManager& args);
+    /**
+     * A prune size of settings.json below the least of the chain (saved by an older version, which offered
+     * 2 GB), raised to it before the node starts, which would refuse it. Not when -prune is given on the
+     * command line or in chains.conf (that decides). @return the size it was, in MiB, when raised
+     */
+    static std::optional<int64_t> RaiseLowPrune(interfaces::Node& node, const ArgsManager& args);
+
     /** Start the app when the user logs in (GUIUtil::SetStartOnSystemStartup), per network. */
     static bool StartAtLogin(ArgsManager& args);
     static bool SetStartAtLogin(ArgsManager& args, bool start);

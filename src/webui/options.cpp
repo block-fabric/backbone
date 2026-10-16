@@ -8,6 +8,7 @@
 
 #include <webui/appconfig.h>
 
+#include <chainparams.h>
 #include <common/args.h>
 #include <common/settings.h>
 #include <common/system.h>
@@ -46,7 +47,8 @@ namespace webui {
 namespace {
 constexpr const char* DEFAULT_GUI_PROXY_HOST{"127.0.0.1"};
 constexpr uint16_t DEFAULT_GUI_PROXY_PORT{9050};
-constexpr int DEFAULT_PRUNE_TARGET_GB{2};
+//! The prune size of chains-qt when none is set; less than the least of the chain on all but regtest (DefaultPruneGB).
+constexpr int QT_DEFAULT_PRUNE_TARGET_GB{2};
 constexpr uint64_t GB_BYTES{1'000'000'000};
 #ifdef ENABLE_WALLET
 constexpr bool DEFAULT_SPEND_ZEROCONF{wallet::DEFAULT_SPEND_ZEROCONF_CHANGE};
@@ -59,10 +61,15 @@ int PruneMiBtoGB(int64_t mib) { return (mib * 1024 * 1024 + GB_BYTES - 1) / GB_B
 
 //! -prune=1 is the manual pruning mode: not pruning, as far as the settings are concerned.
 bool PruneEnabled(const common::SettingsValue& prune) { return SettingTo<int64_t>(prune, 0) > 1; }
-int PruneSizeGB(const common::SettingsValue& prune)
+//! The least -prune target of the chain of these arguments, in bytes (CChainParams::MinPruneTarget).
+uint64_t MinPruneBytes(const ArgsManager& args)
+{
+    return CreateChainParams(args, args.GetChainType())->MinPruneTarget();
+}
+int PruneSizeGB(const common::SettingsValue& prune, int default_gb)
 {
     const int64_t value{SettingTo<int64_t>(prune, 0)};
-    return value > 1 ? PruneMiBtoGB(value) : DEFAULT_PRUNE_TARGET_GB;
+    return value > 1 ? PruneMiBtoGB(value) : default_gb;
 }
 common::SettingsValue PruneSetting(bool enabled, int size_gb) { return enabled ? PruneGBtoMiB(size_gb) : 0; }
 
@@ -267,6 +274,29 @@ bool NodeOptions::SetStartAtLogin(ArgsManager& args, bool start)
 #endif
 }
 
+int NodeOptions::MinPruneGB(const ArgsManager& args)
+{
+    const uint64_t bytes{MinPruneBytes(args)};
+    return static_cast<int>((bytes + GB_BYTES - 1) / GB_BYTES);
+}
+
+int NodeOptions::DefaultPruneGB(const ArgsManager& args)
+{
+    return std::max(QT_DEFAULT_PRUNE_TARGET_GB, MinPruneGB(args));
+}
+
+std::optional<int64_t> NodeOptions::RaiseLowPrune(interfaces::Node& node, const ArgsManager& args)
+{
+    if (node.isSettingIgnored("prune")) return std::nullopt;
+    const common::SettingsValue saved{node.getPersistentSetting("prune")};
+    const int64_t mib{SettingTo<int64_t>(saved, 0)};
+    if (mib <= 1 || static_cast<uint64_t>(mib) * 1024 * 1024 >= MinPruneBytes(args)) return std::nullopt;
+    const common::SettingsValue raised{PruneGBtoMiB(MinPruneGB(args))};
+    node.updateRwSetting("prune", raised);
+    node.forceSetting("prune", raised);
+    return mib;
+}
+
 UniValue NodeOptions::Get()
 {
     const auto setting{[&](const std::string& name) { return m_node.getPersistentSetting(name); }};
@@ -283,8 +313,10 @@ UniValue NodeOptions::Get()
     out.pushKV("dbcache", SettingTo<int64_t>(setting("dbcache"), node::GetDefaultDBCache() / (1024 * 1024)));
     out.pushKV("par", SettingTo<int64_t>(setting("par"), DEFAULT_SCRIPTCHECK_THREADS));
     out.pushKV("prune", PruneEnabled(setting("prune")));
-    out.pushKV("pruneSize", PruneEnabled(setting("prune")) ? PruneSizeGB(setting("prune")) :
-                            PruneEnabled(setting("prune-prev")) ? PruneSizeGB(setting("prune-prev")) : DEFAULT_PRUNE_TARGET_GB);
+    // A size kept below the least of the chain (prune-prev of an older version) shows as the least.
+    const int default_prune{DefaultPruneGB(m_args)};
+    out.pushKV("pruneSize", std::max(MinPruneGB(m_args), PruneEnabled(setting("prune")) ? PruneSizeGB(setting("prune"), default_prune) :
+                                                         PruneEnabled(setting("prune-prev")) ? PruneSizeGB(setting("prune-prev"), default_prune) : default_prune));
     out.pushKV("spendZeroConf", SettingToBool(setting("spendzeroconfchange"), DEFAULT_SPEND_ZEROCONF));
     out.pushKV("signer", SettingToString(setting("signer"), ""));
     out.pushKV("natpmp", SettingToBool(setting("natpmp"), DEFAULT_NATPMP));
@@ -312,7 +344,7 @@ UniValue NodeOptions::Get()
     limits.pushKV("dbcacheMin", static_cast<int64_t>(MIN_DBCACHE_BYTES / (1024 * 1024)));
     limits.pushKV("parMin", -GetNumCores());
     limits.pushKV("parMax", MAX_SCRIPTCHECK_THREADS);
-    limits.pushKV("pruneMinGB", static_cast<int64_t>((MIN_DISK_SPACE_FOR_BLOCK_FILES / GB_BYTES) + ((MIN_DISK_SPACE_FOR_BLOCK_FILES % GB_BYTES) ? 1 : 0)));
+    limits.pushKV("pruneMinGB", MinPruneGB(m_args));
     out.pushKV("limits", std::move(limits));
 
     // The networks the proxy shown is used for now (OptionsDialog::updateDefaultProxyNets).
@@ -356,8 +388,8 @@ UniValue NodeOptions::Set(const std::string& name, const UniValue& value)
     // --- Prune: "prune" holds the size in MiB, 0 for off; "prune-prev" keeps the size while it is off ---
     const auto prune_enabled{[&](const std::string& suffix) { return PruneEnabled(setting("prune" + suffix)); }};
     std::function<int(const std::string&)> prune_size{[&](const std::string& suffix) -> int {
-        if (prune_enabled(suffix)) return PruneSizeGB(setting("prune" + suffix));
-        return suffix.empty() ? prune_size("-prev") : DEFAULT_PRUNE_TARGET_GB;
+        if (prune_enabled(suffix)) return std::max(MinPruneGB(m_args), PruneSizeGB(setting("prune" + suffix), DefaultPruneGB(m_args)));
+        return suffix.empty() ? prune_size("-prev") : DefaultPruneGB(m_args);
     }};
     std::function<void(bool, const std::string&)> set_prune;
     std::function<void(int, const std::string&)> set_prune_size;
