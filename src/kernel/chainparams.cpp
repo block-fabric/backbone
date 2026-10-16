@@ -18,6 +18,7 @@
 #include <script/script.h>
 #include <script/verify_flags.h>
 #include <uint256.h>
+#include <util/byte_units.h>
 #include <util/chaintype.h>
 #include <util/log.h>
 #include <util/strencodings.h>
@@ -160,6 +161,7 @@ public:
         nPruneAfterHeight = 100000;
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 1;
+        m_min_prune_target = MIN_PRUNE_TARGET;
 
         // The genesis reward pays an unspendable output: there is no premine.
         genesis = CreateGenesisBlock("Chains 01/Oct/2026 One chain to mine them all: drivechains for everyone", CScript() << OP_RETURN, 1790879567, 1864237343, 0x1d00ffff, 1, 50 * COIN);
@@ -265,6 +267,7 @@ public:
         nPruneAfterHeight = 1000;
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 1;
+        m_min_prune_target = MIN_PRUNE_TARGET;
 
         // The genesis reward pays an unspendable output: there is no premine.
         // Restarted on 08/Oct/2026, after a fourth security audit changed the drivechain and sidechain rules.
@@ -326,6 +329,7 @@ public:
         consensus.defaultAssumeValid = uint256{};
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;
+        m_min_prune_target = MIN_PRUNE_TARGET;
 
         if (options.seeds) {
             vSeeds = *options.seeds;
@@ -486,6 +490,7 @@ public:
         nPruneAfterHeight = opts.fastprune ? 100 : 1000;
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;
+        m_min_prune_target = 550_MiB; // Bitcoin's MIN_DISK_SPACE_FOR_BLOCK_FILES, for the tests inherited from Bitcoin
 
         ApplyDeploymentOptions(opts.dep_opts);
 

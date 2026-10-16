@@ -87,6 +87,13 @@ than the main one has a subfolder (`testnet`, `signet`, `regtest`).
 
 The networks have no DNS seeds: give the node a peer with `addnode`.
 
+Pruning (`-prune=<MiB>`, or `prune=` in `chains.conf`) keeps a good history: the least target is
+10000 MiB (10 GB) of recent blocks and their undo data on the main network, testnet and signet, and a
+smaller value refuses to start ("Prune configured below the minimum of 10000 MiB"). `-prune=1` allows
+manual pruning with `pruneblockchain`, which also leaves 10000 MiB of block files there. Regtest keeps
+Bitcoin's minimum of 550 MiB. Sidechain nodes keep at least 10000 MiB too (see the sidechain's
+`doc/sidechain.md`).
+
 A `~/.chains/chains.conf` for a node that runs sidechain nodes next to it:
 
 ```ini

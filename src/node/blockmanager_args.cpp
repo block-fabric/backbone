@@ -28,8 +28,10 @@ util::Result<void> ApplyArgsManOptions(const ArgsManager& args, BlockManager::Op
     if (nPruneArg == 1) { // manual pruning: -prune=1
         nPruneTarget = BlockManager::PRUNE_TARGET_MANUAL;
     } else if (nPruneTarget) {
-        if (nPruneTarget < MIN_DISK_SPACE_FOR_BLOCK_FILES) {
-            return util::Error{strprintf(_("Prune configured below the minimum of %d MiB.  Please use a higher number."), MIN_DISK_SPACE_FOR_BLOCK_FILES / 1_MiB)};
+        // The chain's minimum: 10000 MiB on main, testnet and signet; Bitcoin's 550 MiB on regtest.
+        const uint64_t minimum{opts.chainparams.MinPruneTarget()};
+        if (nPruneTarget < minimum) {
+            return util::Error{strprintf(_("Prune configured below the minimum of %d MiB.  Please use a higher number."), minimum / 1_MiB)};
         }
     }
     opts.prune_target = nPruneTarget;

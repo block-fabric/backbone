@@ -28,8 +28,10 @@ and the background IBD chain can be monitored with the `getchainstates` RPC.
 A pruned node can load a snapshot. To save space, it's possible to delete the
 snapshot file as soon as `loadtxoutset` finishes.
 
-The minimum `-prune` setting is 550 MiB, but this functionality ignores that
-minimum and uses at least 1100 MiB.
+The minimum `-prune` setting is 10000 MiB on the main network, testnet and
+signet (550 MiB on regtest), but this functionality ignores that minimum: each
+of the two chainstates keeps at least the minimum, so at least 20000 MiB
+(1100 MiB on regtest) are used until the background sync finishes.
 
 As the background sync continues there will be temporarily two chainstate
 directories, each multiple gigabytes in size (likely growing larger than the

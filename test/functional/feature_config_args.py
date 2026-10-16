@@ -23,7 +23,7 @@ class ConfArgsTest(BitcoinTestFramework):
         self.num_nodes = 1
         # Prune to prevent disk space warning on CI systems with limited space,
         # when using networks other than regtest.
-        self.extra_args = [["-prune=550"]]
+        self.extra_args = [["-prune=10000"]]  # (the least main, testnet and signet take: CChainParams::MinPruneTarget)
         self.supports_cli = False
         self.wallet_names = []
         self.disable_autoconnect = False

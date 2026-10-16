@@ -228,12 +228,6 @@ private:
 
     AutoFile OpenUndoFile(const FlatFilePos& pos, bool fReadOnly = false) const;
 
-    /* Calculate the block/rev files to delete based on height specified by user with RPC command pruneblockchain */
-    void FindFilesToPruneManual(
-        std::set<int>& setFilesToPrune,
-        int nManualPruneHeight,
-        const Chainstate& chain);
-
     /**
      * Prune block and undo files (blk???.dat and rev???.dat) so that the disk space used is less than a user-defined target.
      * The user sets the target (in MB) on the command line or in config file.  This will be run on startup and whenever new
@@ -316,6 +310,13 @@ protected:
 
 public:
     using Options = kernel::BlockManagerOpts;
+
+    /* Calculate the block/rev files to delete based on height specified by user with RPC command pruneblockchain.
+     * (Public for the tests of the least prune target, prune_minimum_tests.) */
+    void FindFilesToPruneManual(
+        std::set<int>& setFilesToPrune,
+        int nManualPruneHeight,
+        const Chainstate& chain);
     using ReadRawBlockResult = util::Expected<std::vector<std::byte>, ReadRawError>;
 
     explicit BlockManager(const util::SignalInterrupt& interrupt, Options opts);

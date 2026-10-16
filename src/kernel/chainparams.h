@@ -10,6 +10,7 @@
 #include <kernel/messagestartchars.h>
 #include <primitives/block.h>
 #include <uint256.h>
+#include <util/byte_units.h>
 #include <util/chaintype.h>
 #include <util/hash_type.h>
 #include <util/vector.h>
@@ -71,6 +72,13 @@ struct HeadersSyncParams {
 };
 
 /**
+ * The least -prune target of the main network, testnet and signet (CChainParams::MinPruneTarget): a
+ * pruned node keeps a good history, 10 GB of the most recent blocks and their undo data. Regtest keeps
+ * Bitcoin's MIN_DISK_SPACE_FOR_BLOCK_FILES (550 MiB) for the tests inherited from Bitcoin.
+ */
+inline constexpr uint64_t MIN_PRUNE_TARGET{10000_MiB};
+
+/**
  * CChainParams defines various tweakable parameters of a given instance of the
  * Bitcoin system.
  */
@@ -100,6 +108,12 @@ public:
     /** If this chain allows time to be mocked */
     bool IsMockableChain() const { return m_is_mockable_chain; }
     uint64_t PruneAfterHeight() const { return nPruneAfterHeight; }
+    /**
+     * The least -prune target, in bytes: 10000 MiB on main, testnet and signet, so that a pruned node
+     * keeps a good history; Bitcoin's MIN_DISK_SPACE_FOR_BLOCK_FILES (550 MiB) on regtest, for the
+     * tests inherited from Bitcoin. Manual pruning (-prune=1) leaves as much on the networks but regtest.
+     */
+    uint64_t MinPruneTarget() const { return m_min_prune_target; }
     /** Minimum free space (in GB) needed for data directory */
     uint64_t AssumedBlockchainSize() const { return m_assumed_blockchain_size; }
     /** Minimum free space (in GB) needed for data directory when pruned; Does not include prune target*/
@@ -186,6 +200,7 @@ protected:
     MessageStartChars pchMessageStart;
     uint16_t nDefaultPort;
     uint64_t nPruneAfterHeight;
+    uint64_t m_min_prune_target;
     uint64_t m_assumed_blockchain_size;
     uint64_t m_assumed_chain_state_size;
     std::vector<std::string> vSeeds;
