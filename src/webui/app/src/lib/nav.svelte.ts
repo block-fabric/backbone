@@ -43,6 +43,8 @@ export interface PageInfo {
   shortcut?: string;
   /** Only in the navigation of Advanced mode (lib/uimode.svelte.ts): Simple mode reaches it by the palette and links. */
   advanced?: boolean;
+  /** Its name in Simple mode, in plain words, where it differs (pageTitle). */
+  simpleTitle?: string;
 }
 
 export const PAGES: Record<PageId, PageInfo> = {

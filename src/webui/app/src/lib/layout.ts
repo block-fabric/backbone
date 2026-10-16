@@ -2,6 +2,7 @@
 // (doc/webui-layouts.md). Only data here; the shells are in views/layouts.
 import type { IconName } from '../components/Icon.svelte';
 import { PAGES, type PageId } from './nav.svelte';
+import { pageTitleSource } from './uimode.svelte';
 
 export type LayoutId = 'workspace' | 'dashboard';
 
@@ -128,7 +129,7 @@ export function areaOf(page: PageId): Area {
 }
 
 export function placeLabel(place: Place): string {
-  return place.label ?? PAGES[place.page].title;
+  return place.label ?? pageTitleSource(place.page);
 }
 
 export interface NavSection {

@@ -10,7 +10,7 @@ import { host } from './rpc';
 import { app, node, prefs, savePrefs, toast, wallets, walletsEnabled } from './state.svelte';
 import { clampFontAdjust, THEMES } from './themes';
 import { UNITS } from './units';
-import { simpleMode, switchModeLabel, toggleUiMode } from './uimode.svelte';
+import { pageTitleSource, simpleMode, switchModeLabel, toggleUiMode } from './uimode.svelte';
 
 /** The menus of chains-qt, in their order, then the groups of the app. */
 // The menus: what concerns the chain (sidechains, mining, the explorer) before the tools.
@@ -81,7 +81,7 @@ export function buildCommands(): Command[] {
 
   const pages: Command[] = (Object.keys(PAGES) as PageId[]).filter(pageAvailable).map((id) => ({
     id: `page.${id}`,
-    label: PAGES[id].title,
+    label: pageTitleSource(id),
     group: 'Go to',
     icon: pageIcon(id),
     shortcut: PAGES[id].shortcut,
