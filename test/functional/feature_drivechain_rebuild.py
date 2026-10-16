@@ -66,8 +66,10 @@ class DrivechainRebuildTest(BitcoinTestFramework):
         pruned = node.pruneblockchain(400)
         assert pruned > 0
         assert "pruneheight" in node.getblockchaininfo()
-        # What the pruned blocks said cannot be told any more.
-        assert_raises_rpc_error(-1, "Block 1 is not available (pruned?)", node.getsidechainevents, 0, 1, 10)
+        # What the pruned blocks did that sidechains follow is still told: their events and BMM accepts
+        # are in the drivechain database (feature_drivechain_bmm_index.py).
+        assert_raises_rpc_error(-1, "Block not available (pruned data)", node.getblock, node.getblockhash(1))
+        assert_equal([e["height"] for e in node.getsidechainevents(0, 1, 10)], list(range(1, 11)))
         assert_equal(len(node.getsidechainevents(0, 790, 10)), 10)
         self.stop_node(0)
         node.assert_start_raises_init_error(

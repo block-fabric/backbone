@@ -75,6 +75,16 @@ replaying every proposal and closure since its slot activated.
   those it proposed, those pending after it with their scores, and its escrow changes): for good,
   for `getsidechainevents` and `listsidechaindeposits`. The pending bundles cost about 36 bytes per
   bundle per block for the sidechains that have any.
+* Per block, the BMM accepts of its coinbase (which sidechain block it committed to, per slot), for
+  good: `getsidechainevents` and `verifybmm` answer from this index, so a pruned node serves
+  sidechains fully, also for blocks it no longer has. It is not consensus: nothing is validated
+  against it. It came with format version 9 of the drivechain data; a node that finds version 8
+  keeps all its data (no rebuild) and fills the index in for the blocks it already had connected,
+  from the blocks still on disk, in the background after startup (500 blocks at a time, resumed
+  after a restart; "The index of BMM accepts is complete" in the log). A block pruned before the
+  upgrade stays out of the index: `getsidechainevents` reports it as not available, as before.
+  Going back to a version of format 8 makes that version rebuild its drivechain data from the
+  blocks (impossible on a pruned node: there, `-reindex`).
 * Per block, the changes it made to the database, to take it back in a reorg: only for the blocks
   of the active chain less than `DRIVECHAIN_UNDO_DEPTH` (2880) below the last block flushed to disk
   (erased as the chainstate is flushed, not as blocks connect: a node that stops uncleanly restarts

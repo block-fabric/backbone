@@ -225,6 +225,15 @@ std::optional<std::pair<SidechainId, uint256>> ParseBmmAcceptScript(const CScrip
     return ParseSlotAndHash(*payload);
 }
 
+BmmAccepts BmmAcceptsOf(const CTransaction& coinbase)
+{
+    BmmAccepts accepts;
+    for (const CTxOut& out : coinbase.vout) {
+        if (auto accept{ParseBmmAcceptScript(out.scriptPubKey)}) accepts.push_back(*accept);
+    }
+    return accepts;
+}
+
 CScript BmmRequestScript(const BmmRequest& request)
 {
     std::vector<unsigned char> payload{SlotAndHash(request.slot, request.side_block_hash)};

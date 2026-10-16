@@ -28,6 +28,10 @@ constexpr uint8_t DB_DEPOSIT_TXID{'T'};
 constexpr uint8_t DB_FORMAT_VERSION{'v'};
 //! The blocks that closed a bundle (std::vector<Closure>), by slot and bundle hash.
 constexpr uint8_t DB_CLOSURE{'C'};
+//! The BMM accepts of a block's coinbase (BmmAccepts), by block hash.
+constexpr uint8_t DB_BMM{'B'};
+//! While the BMM index of blocks connected by an older version is filled in: the height to go on from (uint32_t).
+constexpr uint8_t DB_BMM_BACKFILL{'b'};
 
 //! Version of the snapshot of the sidechain database; a snapshot of another one is not read.
 constexpr uint32_t STATE_VERSION{5};
@@ -174,8 +178,10 @@ Database::Format Database::CheckFormat() const
 {
     // The record of an older version (a version number alone) does not read as one.
     FormatRecord record;
-    if (!m_db.Read(DB_FORMAT_VERSION, record) || record.version != FORMAT_VERSION) return Format::OTHER_VERSION;
-    return record.params_fingerprint == m_params_fingerprint ? Format::CURRENT : Format::OTHER_PARAMS;
+    if (!m_db.Read(DB_FORMAT_VERSION, record)) return Format::OTHER_VERSION;
+    if (record.version != FORMAT_VERSION && record.version != FORMAT_VERSION_WITHOUT_BMM_INDEX) return Format::OTHER_VERSION;
+    if (record.params_fingerprint != m_params_fingerprint) return Format::OTHER_PARAMS;
+    return record.version == FORMAT_VERSION ? Format::CURRENT : Format::WITHOUT_BMM_INDEX;
 }
 
 void Database::WriteFormatVersion()
@@ -203,10 +209,62 @@ void Database::Wipe()
     m_db.WriteBatch(batch, /*fSync=*/true);
 }
 
-bool Database::WriteBlock(const uint256& block_hash, int height, const BlockUndo& undo, const std::vector<Deposit>& deposits,
-                          const SidechainDB& after, bool keep_undo)
+void Database::StartBmmIndex(int from_height)
 {
     CDBBatch batch{m_db};
+    batch.Write(DB_BMM_BACKFILL, static_cast<uint32_t>(from_height));
+    batch.Write(DB_FORMAT_VERSION, FormatRecord{FORMAT_VERSION, m_params_fingerprint});
+    m_db.WriteBatch(batch, /*fSync=*/true);
+}
+
+std::optional<int> Database::BmmBackfillHeight() const
+{
+    uint32_t height;
+    if (!m_db.Read(DB_BMM_BACKFILL, height)) return std::nullopt;
+    return static_cast<int>(height);
+}
+
+void Database::WriteBmmBackfill(const std::vector<std::pair<uint256, BmmAccepts>>& blocks, std::optional<int> next_height)
+{
+    CDBBatch batch{m_db};
+    for (const auto& [hash, accepts] : blocks) batch.Write(std::make_pair(DB_BMM, hash), accepts);
+    if (next_height) {
+        batch.Write(DB_BMM_BACKFILL, static_cast<uint32_t>(*next_height));
+    } else {
+        batch.Erase(DB_BMM_BACKFILL);
+    }
+    m_db.WriteBatch(batch);
+}
+
+bool Database::ReadBmmAccepts(const uint256& block_hash, BmmAccepts& accepts) const
+{
+    return m_db.Read(std::make_pair(DB_BMM, block_hash), accepts);
+}
+
+bool Database::HasBmmAccepts(const uint256& block_hash) const
+{
+    return m_db.Exists(std::make_pair(DB_BMM, block_hash));
+}
+
+void Database::DropBmmIndex()
+{
+    const std::unique_ptr<CDBIterator> it{m_db.NewIterator()};
+    CDBBatch batch{m_db};
+    for (it->Seek(std::make_pair(DB_BMM, uint256{})); it->Valid(); it->Next()) {
+        std::pair<uint8_t, uint256> key;
+        if (!it->GetKey(key) || key.first != DB_BMM) break;
+        batch.Erase(key);
+    }
+    batch.Erase(DB_BMM_BACKFILL);
+    batch.Write(DB_FORMAT_VERSION, FormatRecord{FORMAT_VERSION_WITHOUT_BMM_INDEX, m_params_fingerprint});
+    m_db.WriteBatch(batch, /*fSync=*/true);
+}
+
+bool Database::WriteBlock(const uint256& block_hash, int height, const BlockUndo& undo, const std::vector<Deposit>& deposits,
+                          const SidechainDB& after, bool keep_undo, const BmmAccepts* bmm)
+{
+    CDBBatch batch{m_db};
+    if (bmm) batch.Write(std::make_pair(DB_BMM, block_hash), *bmm);
     BlockRecord record;
     record.events.closed = undo.closed;
     record.events.proposed = undo.proposed;

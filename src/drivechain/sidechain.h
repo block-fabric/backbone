@@ -298,6 +298,10 @@ std::optional<VoteMessage> ParseVoteScript(const CScript& script);
 
 CScript BmmAcceptScript(SidechainId slot, const uint256& side_block_hash);
 std::optional<std::pair<SidechainId, uint256>> ParseBmmAcceptScript(const CScript& script);
+/** The BMM accepts (M7) of a block: per sidechain slot, the sidechain block it committed to. */
+using BmmAccepts = std::vector<std::pair<SidechainId, uint256>>;
+/** The BMM accepts of a coinbase, in output order (a valid block has at most one per slot). */
+BmmAccepts BmmAcceptsOf(const CTransaction& coinbase);
 
 CScript BmmRequestScript(const BmmRequest& request);
 std::optional<BmmRequest> ParseBmmRequestScript(const CScript& script);

@@ -2892,7 +2892,10 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     if (!m_blockman.WriteBlockUndo(blockundo, state, *pindex)) {
         return false;
     }
-    if (!m_blockman.m_drivechain_db->WriteBlock(block_hash, pindex->nHeight, scdb_undo, scdb_deposits, *scdb)) {
+    // The BMM accepts of the block go to the index (not consensus: for sidechain software, which a
+    // pruned node serves from it when the block is gone).
+    const drivechain::BmmAccepts scdb_bmm{drivechain::BmmAcceptsOf(*block.vtx[0])};
+    if (!m_blockman.m_drivechain_db->WriteBlock(block_hash, pindex->nHeight, scdb_undo, scdb_deposits, *scdb, /*keep_undo=*/true, &scdb_bmm)) {
         return FatalError(m_chainman.GetNotifications(), state, _("Failed to write drivechain undo data."));
     }
 
@@ -5192,6 +5195,14 @@ bool Chainstate::PrepareDrivechainDB(const CBlockIndex* rebuild_from, bilingual_
     drivechain::Database& db{*m_blockman.m_drivechain_db};
     const drivechain::Database::Format format{db.CheckFormat()};
     if (format == drivechain::Database::Format::CURRENT) return true;
+    if (format == drivechain::Database::Format::WITHOUT_BMM_INDEX) {
+        // Everything is laid out as now but the index of BMM accepts, which is added: the blocks
+        // connected from now on go to it, and those of the active chain that are still on disk are
+        // filled in from the blocks in the background (ChainstateManager::BackfillBmmIndex). No rebuild.
+        LogInfo("The sidechain database gets an index of BMM accepts; the blocks already connected are indexed in the background");
+        db.StartBmmIndex(/*from_height=*/1);
+        return true;
+    }
 
     // Rebuilt from the blocks: those must all be there before anything is wiped (a pruned node no
     // longer has the old ones), or the node would be left with neither the old data nor the new.
@@ -5210,6 +5221,7 @@ bool Chainstate::PrepareDrivechainDB(const CBlockIndex* rebuild_from, bilingual_
 
     switch (format) {
     case drivechain::Database::Format::CURRENT:
+    case drivechain::Database::Format::WITHOUT_BMM_INDEX:
         break;
     case drivechain::Database::Format::OTHER_VERSION:
         // Laid out another way (by an older version): built anew from the blocks.
@@ -5342,7 +5354,8 @@ bool Chainstate::RollForwardSidechainDB(drivechain::SidechainDB& scdb, const CBl
             if (invalid) *invalid = next;
             return false;
         }
-        db.WriteBlock(next->GetBlockHash(), height, undo, deposits, scdb, /*keep_undo=*/height > keep_undo_above);
+        const drivechain::BmmAccepts bmm{drivechain::BmmAcceptsOf(*block.vtx[0])};
+        db.WriteBlock(next->GetBlockHash(), height, undo, deposits, scdb, /*keep_undo=*/height > keep_undo_above, &bmm);
         if (m_chainman.m_interrupt) return false;
     }
     return true;
@@ -7160,4 +7173,42 @@ util::Result<void> ChainstateManager::ActivateBestChains()
         }
     }
     return {};
+}
+
+bool ChainstateManager::BackfillBmmIndex(size_t max_blocks)
+{
+    // The blocks to read: the next ones of the active chain that are not indexed and still on disk
+    // (a pruned block stays out of the index, as unavailable as before). The block files are read
+    // without the main lock.
+    std::vector<std::pair<uint256, FlatFilePos>> todo;
+    int last;
+    {
+        LOCK(::cs_main);
+        const std::optional<int> from{m_blockman.m_drivechain_db->BmmBackfillHeight()};
+        if (!from) return false;
+        const CChain& chain{ActiveChain()};
+        last = std::min(chain.Height(), *from + static_cast<int>(max_blocks) - 1);
+        for (int height{*from}; height <= last; ++height) {
+            const CBlockIndex* pindex{chain[height]};
+            if (!(pindex->nStatus & BLOCK_HAVE_DATA) || m_blockman.m_drivechain_db->HasBmmAccepts(pindex->GetBlockHash())) continue;
+            todo.emplace_back(pindex->GetBlockHash(), pindex->GetBlockPos());
+        }
+    }
+    std::vector<std::pair<uint256, drivechain::BmmAccepts>> indexed;
+    for (const auto& [hash, pos] : todo) {
+        CBlock block;
+        // Pruned meanwhile: left out too.
+        if (!m_blockman.ReadBlock(block, pos, hash)) continue;
+        indexed.emplace_back(hash, drivechain::BmmAcceptsOf(*block.vtx[0]));
+    }
+    LOCK(::cs_main);
+    // Blocks connected meanwhile were indexed as they were connected.
+    const bool complete{last >= ActiveChain().Height()};
+    m_blockman.m_drivechain_db->WriteBmmBackfill(indexed, complete ? std::nullopt : std::optional<int>{last + 1});
+    if (complete) {
+        LogInfo("The index of BMM accepts is complete");
+    } else {
+        LogDebug(BCLog::COINDB, "Index of BMM accepts: filled in up to height %d", last);
+    }
+    return !complete;
 }

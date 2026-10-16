@@ -1678,6 +1678,71 @@ BOOST_AUTO_TEST_CASE(database_records)
     BOOST_CHECK(!db.ListDeposits(1, txids[0], 0, any));
 }
 
+BOOST_AUTO_TEST_CASE(database_bmm_index)
+{
+    // The BMM accepts of a coinbase, in output order, among its other outputs.
+    CMutableTransaction coinbase;
+    coinbase.vout.emplace_back(50 * COIN, CScript() << OP_TRUE);
+    coinbase.vout.emplace_back(0, BmmAcceptScript(2, uint256{22}));
+    coinbase.vout.emplace_back(0, BundleScript(3, uint256{33}));
+    coinbase.vout.emplace_back(0, BmmAcceptScript(1, uint256{11}));
+    const BmmAccepts accepts{BmmAcceptsOf(CTransaction{coinbase})};
+    BOOST_CHECK((accepts == BmmAccepts{{2, uint256{22}}, {1, uint256{11}}}));
+    BOOST_CHECK(BmmAcceptsOf(CTransaction{CMutableTransaction{}}).empty());
+
+    Database db{DBParams{.path = m_path_root / "drivechain_bmm", .cache_bytes = 1 << 20, .memory_only = true}, ParamsFingerprint(TestParams())};
+    const SidechainDB empty;
+    // Written with the block; a block written without them is not in the index (not the same as none).
+    BOOST_REQUIRE(db.WriteBlock(uint256{1}, 1, BlockUndo{}, {}, empty, /*keep_undo=*/true, &accepts));
+    BOOST_REQUIRE(db.WriteBlock(uint256{2}, 2, BlockUndo{}, {}, empty));
+    const BmmAccepts none;
+    BOOST_REQUIRE(db.WriteBlock(uint256{3}, 3, BlockUndo{}, {}, empty, /*keep_undo=*/false, &none));
+    BmmAccepts read;
+    BOOST_CHECK(db.ReadBmmAccepts(uint256{1}, read));
+    BOOST_CHECK(read == accepts);
+    BOOST_CHECK(!db.ReadBmmAccepts(uint256{2}, read));
+    BOOST_CHECK(!db.HasBmmAccepts(uint256{2}));
+    BOOST_CHECK(db.ReadBmmAccepts(uint256{3}, read));
+    BOOST_CHECK(read.empty());
+
+    // A database of the version before the index: only the index is gone, the rest is kept.
+    BOOST_CHECK(db.IsCurrentFormat());
+    BOOST_CHECK(!db.BmmBackfillHeight());
+    db.DropBmmIndex();
+    BOOST_CHECK(db.CheckFormat() == Database::Format::WITHOUT_BMM_INDEX);
+    BOOST_CHECK(!db.HasBmmAccepts(uint256{1}));
+    BOOST_CHECK(!db.HasBmmAccepts(uint256{3}));
+    BlockEvents events;
+    BOOST_CHECK(db.ReadBlockEvents(uint256{1}, events));
+    // Brought to the current format, with the index to be filled in from a height.
+    db.StartBmmIndex(1);
+    BOOST_CHECK(db.IsCurrentFormat());
+    BOOST_CHECK_EQUAL(db.BmmBackfillHeight().value_or(-1), 1);
+    db.WriteBmmBackfill({{uint256{1}, accepts}}, 2);
+    BOOST_CHECK_EQUAL(db.BmmBackfillHeight().value_or(-1), 2);
+    BOOST_CHECK(db.ReadBmmAccepts(uint256{1}, read));
+    BOOST_CHECK(read == accepts);
+    db.WriteBmmBackfill({{uint256{3}, none}}, std::nullopt);
+    BOOST_CHECK(!db.BmmBackfillHeight());
+    BOOST_CHECK(db.HasBmmAccepts(uint256{3}));
+    // Derived under other parameters, it is not kept: rebuilt as any other.
+    const fs::path path{m_path_root / "drivechain_bmm_other"};
+    {
+        Database old{DBParams{.path = path, .cache_bytes = 1 << 20}, ParamsFingerprint(TestParams())};
+        old.DropBmmIndex();
+        BOOST_CHECK(old.CheckFormat() == Database::Format::WITHOUT_BMM_INDEX);
+    }
+    {
+        Database other{DBParams{.path = path, .cache_bytes = 1 << 20}, uint256{9}};
+        BOOST_CHECK(other.CheckFormat() == Database::Format::OTHER_PARAMS);
+    }
+    // A wipe takes the index and the backfill position too.
+    db.StartBmmIndex(5);
+    db.Wipe();
+    BOOST_CHECK(!db.HasBmmAccepts(uint256{1}));
+    BOOST_CHECK(!db.BmmBackfillHeight());
+}
+
 BOOST_AUTO_TEST_CASE(database_params_fingerprint)
 {
     // What was derived under other drivechain parameters is not used: not the format marker, not the snapshot.

@@ -1462,6 +1462,13 @@ public:
      *  information. */
     void ReportHeadersPresync(int64_t height, int64_t timestamp);
 
+    /**
+     * Fill in the index of BMM accepts (drivechain::Database) for up to `max_blocks` blocks of the
+     * active chain connected by a version without it, from the blocks still on disk. Not consensus.
+     * @return whether there is more to do
+     */
+    bool BackfillBmmIndex(size_t max_blocks) EXCLUSIVE_LOCKS_REQUIRED(!::cs_main);
+
     //! When starting up, search the datadir for a chainstate based on a UTXO
     //! snapshot that is in the process of being validated and load it if found.
     //! Return pointer to the Chainstate if it is loaded.

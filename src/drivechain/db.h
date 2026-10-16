@@ -48,7 +48,10 @@ struct Closure {
  *  - an index of the escrow changes of each sidechain, which sidechain
  *    software reads to credit deposits,
  *  - an index of the blocks that closed each bundle, for good: a bundle the sidechain database
- *    forgot (see SidechainDB::ForgetFailedBundles) is still known to have failed.
+ *    forgot (see SidechainDB::ForgetFailedBundles) is still known to have failed,
+ *  - per block, the BMM accepts of its coinbase (BmmAccepts), for good: sidechain software learns
+ *    which sidechain block a mainchain block committed to without the block, which a pruned node
+ *    may no longer have. Not consensus: nothing validates against it.
  */
 class Database
 {
@@ -59,10 +62,17 @@ public:
      */
     Database(const DBParams& params, const uint256& params_fingerprint);
 
-    /** Version of the way the data is laid out; a database of another version is wiped and built anew from the blocks. */
-    static constexpr uint32_t FORMAT_VERSION{8};
+    /**
+     * Version of the way the data is laid out; a database of another version is wiped and built anew
+     * from the blocks, but for FORMAT_VERSION_WITHOUT_BMM_INDEX.
+     */
+    static constexpr uint32_t FORMAT_VERSION{9};
+    /** The version before the index of BMM accepts: the rest is laid out as now, and the index is added (StartBmmIndex). */
+    static constexpr uint32_t FORMAT_VERSION_WITHOUT_BMM_INDEX{8};
     enum class Format {
         CURRENT,
+        //! Of FORMAT_VERSION_WITHOUT_BMM_INDEX, derived under the current parameters: current but for the index of BMM accepts.
+        WITHOUT_BMM_INDEX,
         //! Laid out another way (by an older version of this software), or not marked at all.
         OTHER_VERSION,
         //! Derived under other drivechain parameters (another withdrawal period, say).
@@ -76,12 +86,27 @@ public:
     void Wipe();
 
     /**
+     * Bring a database of FORMAT_VERSION_WITHOUT_BMM_INDEX to the current format: marked current, with
+     * the blocks from `from_height` of the active chain to be indexed by BackfillBmmIndex. One batch.
+     */
+    void StartBmmIndex(int from_height);
+    /** The height of the active chain from which the BMM index is still to be filled in; nullopt once it is complete. */
+    std::optional<int> BmmBackfillHeight() const;
+    /** Store the BMM accepts of blocks the backfill read, and where it goes on from (nullopt: it is complete). One batch. */
+    void WriteBmmBackfill(const std::vector<std::pair<uint256, BmmAccepts>>& blocks, std::optional<int> next_height);
+    /** The BMM accepts of a block; false if the block is not in the index (connected by an older version, and not filled in). */
+    bool ReadBmmAccepts(const uint256& block_hash, BmmAccepts& accepts) const;
+    bool HasBmmAccepts(const uint256& block_hash) const;
+    /** For tests (-test=drivechain_bmm_unindexed): erase the BMM index and mark the database as of the version without it. */
+    void DropBmmIndex();
+
+    /**
      * Store what a block at `height` did: its undo data, unless `keep_undo` is false, its events,
      * and the escrow changes it made (`deposits`). `after` is the sidechain database the block left,
-     * whose pending bundles go with the events.
+     * whose pending bundles go with the events. `bmm`, if given, are the BMM accepts of its coinbase.
      */
     bool WriteBlock(const uint256& block_hash, int height, const BlockUndo& undo, const std::vector<Deposit>& deposits,
-                    const SidechainDB& after, bool keep_undo = true);
+                    const SidechainDB& after, bool keep_undo = true, const BmmAccepts* bmm = nullptr);
     bool ReadBlockUndo(const uint256& block_hash, BlockUndo& undo) const;
     bool HasBlockUndo(const uint256& block_hash) const;
     /** Erase the undo data of a block (not its events), once no reorg can take it back. */

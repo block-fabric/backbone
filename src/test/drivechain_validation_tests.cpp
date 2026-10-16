@@ -442,6 +442,67 @@ BOOST_AUTO_TEST_CASE(older_database_format_is_rebuilt)
     m_node.chainman->m_blockman.m_drivechain_db = std::move(current);
 }
 
+BOOST_AUTO_TEST_CASE(bmm_index_is_added_to_a_database_without_it)
+{
+    // Every block connected goes to the index of BMM accepts (an empty list for a block without any).
+    Mine(3);
+    std::vector<uint256> hashes;
+    {
+        LOCK(::cs_main);
+        const CChain& chain{ActiveChainstate().m_chain};
+        for (int height{1}; height <= chain.Height(); ++height) hashes.push_back(chain[height]->GetBlockHash());
+        BmmAccepts accepts{{1, uint256{1}}};
+        BOOST_CHECK(DrivechainDB().ReadBmmAccepts(hashes.back(), accepts));
+        BOOST_CHECK(accepts.empty());
+        BOOST_CHECK(DrivechainDB().IsCurrentFormat());
+        BOOST_CHECK(!DrivechainDB().BmmBackfillHeight());
+    }
+    // Nothing to fill in.
+    BOOST_CHECK(!m_node.chainman->BackfillBmmIndex(1000));
+
+    // A database of the version before the index (8): it keeps all its data and gets the index, no rebuild.
+    bilingual_str error;
+    {
+        LOCK(::cs_main);
+        Database& db{DrivechainDB()};
+        // With the snapshot at the tip, no block is connected again at load (which would index it).
+        ActiveChainstate().ForceFlushStateToDisk();
+        db.DropBmmIndex();
+        BOOST_CHECK(db.CheckFormat() == Database::Format::WITHOUT_BMM_INDEX);
+        for (const uint256& hash : hashes) BOOST_CHECK(!db.HasBmmAccepts(hash));
+        const SidechainDB before{ActiveChainstate().m_scdb};
+        {
+            ASSERT_DEBUG_LOG("The sidechain database gets an index of BMM accepts");
+            const auto rebuilt{Unexpected("rebuilt from the blocks")};
+            BOOST_CHECK(ActiveChainstate().LoadDrivechainState(error));
+        }
+        BOOST_CHECK(ActiveChainstate().m_scdb == before);
+        BOOST_CHECK(db.IsCurrentFormat());
+        BOOST_CHECK_EQUAL(db.BmmBackfillHeight().value_or(-1), 1);
+        BlockEvents events;
+        BOOST_CHECK(db.ReadBlockEvents(hashes.back(), events));
+    }
+    // Filled in from the blocks, a batch at a time, resumed where the last batch ended.
+    BOOST_CHECK(m_node.chainman->BackfillBmmIndex(50));
+    {
+        LOCK(::cs_main);
+        BOOST_CHECK_EQUAL(DrivechainDB().BmmBackfillHeight().value_or(-1), 51);
+        BOOST_CHECK(DrivechainDB().HasBmmAccepts(hashes.at(49)));
+        BOOST_CHECK(!DrivechainDB().HasBmmAccepts(hashes.at(50)));
+    }
+    {
+        ASSERT_DEBUG_LOG("The index of BMM accepts is complete");
+        while (m_node.chainman->BackfillBmmIndex(50)) {}
+    }
+    LOCK(::cs_main);
+    BOOST_CHECK(!DrivechainDB().BmmBackfillHeight());
+    for (const uint256& hash : hashes) {
+        BmmAccepts accepts;
+        BOOST_CHECK(DrivechainDB().ReadBmmAccepts(hash, accepts));
+        BOOST_CHECK(accepts.empty());
+    }
+}
+
 BOOST_AUTO_TEST_CASE(rollback_from_an_invalid_block_needs_its_data)
 {
     // An active block that breaks the drivechain rules of this version is taken back at startup:

@@ -1430,6 +1430,8 @@ static ChainstateLoadResult InitAndLoadChainstate(
     }
     ChainstateManager& chainman = *node.chainman;
     if (chainman.m_interrupt) return {ChainstateLoadStatus::INTERRUPTED, {}};
+    // As a version without the index of BMM accepts left the drivechain database (tests of its backfill).
+    if (HasTestOption(args, "drivechain_bmm_unindexed")) WITH_LOCK(::cs_main, chainman.m_blockman.m_drivechain_db->DropBmmIndex());
 
     // This is defined and set here instead of inline in validation.h to avoid a hard
     // dependency between validation and index/base, since the latter is not in
@@ -1487,6 +1489,15 @@ static ChainstateLoadResult InitAndLoadChainstate(
     }
     return {status, error};
 };
+
+/** Fill in the index of BMM accepts, if it is to be, a batch at a time with a pause between them. */
+static void ScheduleBmmBackfill(CScheduler& scheduler, ChainstateManager& chainman)
+{
+    scheduler.scheduleFromNow([&scheduler, &chainman] {
+        if (chainman.m_interrupt) return;
+        if (chainman.BackfillBmmIndex(/*max_blocks=*/500)) ScheduleBmmBackfill(scheduler, chainman);
+    }, std::chrono::milliseconds{100});
+}
 
 bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 {
@@ -2091,6 +2102,10 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     for (const std::string& strFile : args.GetArgs("-loadblock")) {
         vImportFiles.push_back(fs::PathFromString(strFile));
     }
+
+    // The index of BMM accepts of a drivechain database an older version left: filled in from the
+    // blocks in the background, a batch at a time (ChainstateManager::BackfillBmmIndex).
+    ScheduleBmmBackfill(scheduler, chainman);
 
     /// \anchor initload
     node.background_init_thread = std::thread(&util::TraceThread, "initload", [=, &chainman, &args, &kernel_notifications, &node] {

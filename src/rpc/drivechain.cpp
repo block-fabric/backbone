@@ -963,31 +963,43 @@ RPCMethod getsidechainevents()
     if (count < 1 || count > 2000) throw JSONRPCError(RPC_INVALID_PARAMETER, "The count must be between 1 and 2000");
 
     UniValue result(UniValue::VARR);
-    // The blocks are read without the main lock, which up to 2000 of them would hold too long; then,
-    // with it, the chain is checked to be the one they were read from, and the rest is filled in.
+    // The sidechain block each block committed to comes from the index of BMM accepts, which a pruned
+    // node has for blocks it no longer has. A block missing from it (connected by a version without the
+    // index, and not filled in yet) is read, without the main lock, which up to 2000 of them would hold
+    // too long; then, with it, the chain is checked to be the one they were read from, and the rest is
+    // filled in.
+    const auto accepted_by{[&](const drivechain::BmmAccepts& accepts) -> std::optional<uint256> {
+        for (const auto& [slot, side_hash] : accepts) {
+            if (slot == id) return side_hash;
+        }
+        return std::nullopt;
+    }};
     std::vector<std::pair<const CBlockIndex*, FlatFilePos>> wanted;
+    std::vector<std::optional<uint256>> bmm;
+    std::vector<size_t> unindexed;
     {
         LOCK(::cs_main);
         const CChain& chain{chainman.ActiveChain()};
         // Counted from `first`, which may be near the largest int: first + count would overflow.
         for (int height{first}; height <= chain.Height() && height - first < count; ++height) {
-            wanted.emplace_back(chain[height], chain[height]->GetBlockPos());
+            const CBlockIndex* pindex{chain[height]};
+            wanted.emplace_back(pindex, pindex->GetBlockPos());
+            drivechain::BmmAccepts accepts;
+            if (height == 0) {
+                // The genesis block, which commits to nothing, is not connected: it is in the parameters.
+                accepts = drivechain::BmmAcceptsOf(*chainman.GetParams().GenesisBlock().vtx[0]);
+            } else if (!chainman.m_blockman.m_drivechain_db->ReadBmmAccepts(pindex->GetBlockHash(), accepts)) {
+                unindexed.push_back(bmm.size());
+            }
+            bmm.push_back(accepted_by(accepts));
         }
     }
-    // One block at a time: only the sidechain block its coinbase committed to is kept.
-    std::vector<std::optional<uint256>> bmm(wanted.size());
-    for (size_t i{0}; i < wanted.size(); ++i) {
+    for (const size_t i : unindexed) {
         CBlock block;
         if (!chainman.m_blockman.ReadBlock(block, wanted[i].second, wanted[i].first->GetBlockHash())) {
             throw JSONRPCError(RPC_MISC_ERROR, strprintf("Block %d is not available (pruned?)", first + static_cast<int>(i)));
         }
-        for (const CTxOut& out : block.vtx[0]->vout) {
-            const auto accept{drivechain::ParseBmmAcceptScript(out.scriptPubKey)};
-            if (accept && accept->first == id) {
-                bmm[i] = accept->second;
-                break;
-            }
-        }
+        bmm[i] = accepted_by(drivechain::BmmAcceptsOf(*block.vtx[0]));
     }
     LOCK(::cs_main);
     const CChain& chain{chainman.ActiveChain()};
@@ -1105,13 +1117,17 @@ RPCMethod verifybmm()
         if (!pindex || !chainman.ActiveChain().Contains(*pindex)) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found in the active chain");
         tip_height = chainman.ActiveHeight();
     }
-    CBlock block;
-    if (!chainman.m_blockman.ReadBlock(block, *pindex)) throw JSONRPCError(RPC_MISC_ERROR, "Block not available");
+    // From the index of BMM accepts (a pruned node has it for blocks it no longer has), or the block.
+    drivechain::BmmAccepts accepts;
+    if (!WITH_LOCK(::cs_main, return chainman.m_blockman.m_drivechain_db->ReadBmmAccepts(block_hash, accepts))) {
+        CBlock block;
+        if (!chainman.m_blockman.ReadBlock(block, *pindex)) throw JSONRPCError(RPC_MISC_ERROR, "Block not available");
+        accepts = drivechain::BmmAcceptsOf(*block.vtx[0]);
+    }
 
     bool verified{false};
-    for (const CTxOut& out : block.vtx[0]->vout) {
-        const auto accept{drivechain::ParseBmmAcceptScript(out.scriptPubKey)};
-        if (accept && accept->first == id && accept->second == side_hash) verified = true;
+    for (const auto& [slot, accepted] : accepts) {
+        if (slot == id && accepted == side_hash) verified = true;
     }
 
     UniValue result(UniValue::VOBJ);
