@@ -63,6 +63,9 @@
         {#each block.bmm.slice(0, 4) as slot (slot)}<span class="badge accent" title="{t('Merged mined: sidechain')} {slot}">BMM {slot}</span>{/each}
         {#if block.bmm.length > 4}<span class="badge">+{block.bmm.length - 4}</span>{/if}
       </span>
+    {:else}
+      <!-- No badge: the row keeps its place, so every box of the ribbon has the same height. -->
+      <span class="bmm" aria-hidden="true"></span>
     {/if}
     <span class="foot">
       <span class="interval mono {tone}" title={t('Time since the block before it')}>{shortInterval(secs)}</span>
@@ -191,10 +194,15 @@
   .txs {
     white-space: nowrap;
   }
+  /* The badges' row (up to five badges, two rows): as high on every box, with badges or not. */
   .bmm {
     display: flex;
     flex-wrap: wrap;
+    align-content: flex-start;
     gap: 0.2rem;
+    min-height: 2.3rem;
+    max-height: 2.3rem;
+    overflow: hidden;
   }
   .bmm .badge {
     padding: 0 0.35rem;
