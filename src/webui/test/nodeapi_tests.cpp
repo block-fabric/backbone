@@ -850,8 +850,10 @@ BOOST_AUTO_TEST_CASE(prune_minimum_of_the_chain)
         BOOST_CHECK_EQUAL(webui::NodeOptions::MinPruneGB(args), 11);
         BOOST_CHECK_EQUAL(webui::NodeOptions::DefaultPruneGB(args), 11);
     }
-    BOOST_CHECK_EQUAL(webui::NodeOptions::MinPruneGB(*m_node.args), 1);
-    BOOST_CHECK_EQUAL(webui::NodeOptions::DefaultPruneGB(*m_node.args), 2);
+    ArgsManager regtest;
+    regtest.ForceSetArg("-chain", "regtest");
+    BOOST_CHECK_EQUAL(webui::NodeOptions::MinPruneGB(regtest), 1);
+    BOOST_CHECK_EQUAL(webui::NodeOptions::DefaultPruneGB(regtest), 2);
 
     auto node{interfaces::MakeNode(m_node)};
     std::optional<bool> restart;
@@ -864,14 +866,14 @@ BOOST_AUTO_TEST_CASE(prune_minimum_of_the_chain)
 
     // Below the 550 MiB of regtest: raised to its 1 GB (953 MiB), and said what it was.
     node->updateRwSetting("prune", common::SettingsValue{"300"});
-    BOOST_CHECK_EQUAL(webui::NodeOptions::RaiseLowPrune(*node, *m_node.args).value_or(-1), 300);
+    BOOST_CHECK_EQUAL(webui::NodeOptions::RaiseLowPrune(*node, regtest).value_or(-1), 300);
     BOOST_CHECK_EQUAL(node->getPersistentSetting("prune").getInt<int64_t>(), 953);
     BOOST_CHECK_EQUAL(options.Get()["pruneSize"].getInt<int>(), 1);
     // At or above it, off, or manual: left alone.
-    BOOST_CHECK(!webui::NodeOptions::RaiseLowPrune(*node, *m_node.args));
+    BOOST_CHECK(!webui::NodeOptions::RaiseLowPrune(*node, regtest));
     for (const char* value : {"600", "0", "1"}) {
         node->updateRwSetting("prune", common::SettingsValue{value});
-        BOOST_CHECK(!webui::NodeOptions::RaiseLowPrune(*node, *m_node.args));
+        BOOST_CHECK(!webui::NodeOptions::RaiseLowPrune(*node, regtest));
         BOOST_CHECK_EQUAL(node->getPersistentSetting("prune").get_str(), value);
     }
     node->updateRwSetting("prune", {});
