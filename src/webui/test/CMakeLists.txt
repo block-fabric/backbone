@@ -9,6 +9,7 @@ add_executable(test_chains-app
   appconfig_tests.cpp
   assets_tests.cpp
   bridge_tests.cpp
+  dialog_tests.cpp
   events_tests.cpp
   hardening_tests.cpp
   i18n_tests.cpp

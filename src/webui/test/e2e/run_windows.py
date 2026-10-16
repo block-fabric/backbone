@@ -34,7 +34,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from run_smoke import script  # noqa: E402
 
-PORTS = {"smoke": 39470, "layouts": 39490, "titlebar": 39510, "walletcard": 39550}
+PORTS = {"smoke": 39470, "layouts": 39490, "titlebar": 39510, "walletcard": 39550, "audit_dialog": 39570}
 
 
 def win(cmd):
