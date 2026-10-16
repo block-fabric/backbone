@@ -75,7 +75,7 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
         --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
     )
     set_tests_properties(webui_e2e_wallet PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
-    # Simple mode, the default of a first start: Home, the sidebar, Move coins to a real deposit, the
+    # Simple mode, as a user chooses it: Home, the sidebar, Move coins to a real deposit, the
     # glossary, then the switch (the other e2e scripts run in Advanced; also saves pictures in e2e-shots).
     add_test(NAME webui_e2e_simple
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_simple.py

@@ -324,8 +324,9 @@ Rules the code keeps:
 ## Simple and Advanced modes
 
 The app has two modes (user decision, 2026-10-16), a preference kept per
-network (`prefs.uiMode`): **Simple**, the default, shows what a beginner needs
-in plain words; **Advanced** shows every section of every page, as before. The
+network (`prefs.uiMode`): **Simple** shows what a beginner needs in plain
+words; **Advanced**, the mode of a first start (user decision), shows every
+section of every page, as before. The
 switch is in the foot of the dashboard's sidebar, beside A− / A+
 (`components/ModeSwitch.svelte`), and in the palette ("Switch to Advanced
 mode"). `lib/uimode.svelte.ts` holds it:
@@ -381,7 +382,7 @@ host methods (walletapi.cpp holds the ones of a Bitcoin-like wallet), and in
 | `e2e/run_node.py` | The node and Chains pages, with a pretend desktop (tray, notifications) and a second node |
 | `e2e/run_audit.py` | The fixes of the audit: the sync overlay, a block built by hand with a title that is not UTF-8, long calls, a history kept up to date in parts, a proof with a locked wallet, contrast measured on what the page draws, aligned tables, the title bar of the desktop or the integrated one, settings that wait for Apply (and the next start), `-disablewallet`, windows 700 and 480 px wide, a hardware wallet (the mock signer of the functional tests), `-lang=fr` |
 | `e2e/run_layouts.py` | The three layouts, the palette, the detail panel, the integrated title bar and the refresh (layouts.js, titlebar.js, refresh.js); pictures of each layout |
-| `e2e/run_simple.py` | Simple mode, the default of a first start (simple.js): Home with its first steps, the sidebar without the pages of Advanced, Send, the history, Move coins through its four steps to a real deposit, a word of the glossary, in Midnight and Light; the switch to Advanced and back. The other scripts run in Advanced (common.js) |
+| `e2e/run_simple.py` | Simple mode, as a user chooses it (simple.js; a first start is in Advanced): Home with its first steps, the sidebar without the pages of Advanced, Send, the history, Move coins through its four steps to a real deposit, a word of the glossary, in Midnight and Light; the switch to Advanced and back. The other scripts run in Advanced (common.js) |
 | `e2e/run_windows.py` | From WSL, on the Windows of the machine (`--app build_win/bin/chains-app.exe --unit build_win/bin/test_chains-app.exe --shots <dir>`, in a folder of the Windows temporary folder, removed at the end): the unit tests, then smoke.js, layouts.js and titlebar.js |
 
 Each e2e script takes `--app build/bin/chains-app --tmp <dir> --shots <dir>`;
