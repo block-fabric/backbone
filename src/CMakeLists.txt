@@ -157,6 +157,8 @@ target_link_libraries(bitcoin_common
     secp256k1
     $<TARGET_NAME_IF_EXISTS:USDT::headers>
     $<$<PLATFORM_ID:Windows>:ws2_32>
+    # common/secretfile.cpp: the owner-only access list of a secret file.
+    $<$<PLATFORM_ID:Windows>:advapi32>
 )
 
 include(InstallBinaryComponent)

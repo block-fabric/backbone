@@ -13,7 +13,12 @@
 #include <cstdio>
 
 #ifdef WIN32
-#include <fstream>
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include <windows.h>
+#include <sddl.h>
 #else
 #include <cerrno>
 #include <fcntl.h>
@@ -43,15 +48,47 @@ util::Result<void> WriteSecretFile(const fs::path& path, std::string_view secret
     ok = ok && fsync(fd) == 0;
     ok = (close(fd) == 0) && ok;
 #else
-    bool ok{false};
-    {
-        std::ofstream file{temp.std_path(), std::ios::binary | std::ios::trunc};
-        if (file.is_open()) {
-            file.write(secret.data(), secret.size());
-            file.flush();
-            ok = file.good();
+    // An access list of its own, protected (nothing inherited from the folder, whose list may let other
+    // users read: a data directory on the root of a drive, say), that lets the user running this, and
+    // nobody else, at the file. The rename below keeps it.
+    std::wstring sddl;
+    HANDLE token{nullptr};
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        DWORD size{0};
+        GetTokenInformation(token, TokenUser, nullptr, 0, &size);
+        std::vector<unsigned char> user(size);
+        LPWSTR sid{nullptr};
+        if (size > 0 && GetTokenInformation(token, TokenUser, user.data(), size, &size) &&
+            ConvertSidToStringSidW(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid, &sid)) {
+            sddl = L"D:P(A;;FA;;;" + std::wstring{sid} + L")";
+            LocalFree(sid);
+        }
+        CloseHandle(token);
+    }
+    PSECURITY_DESCRIPTOR descriptor{nullptr};
+    if (sddl.empty() || !ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr)) {
+        return util::Error{Untranslated(strprintf("Cannot make an access list for %s", name))};
+    }
+    SECURITY_ATTRIBUTES attributes{};
+    attributes.nLength = sizeof(attributes);
+    attributes.lpSecurityDescriptor = descriptor;
+    attributes.bInheritHandle = FALSE;
+    const HANDLE file{CreateFileW(temp.std_path().c_str(), GENERIC_WRITE, /*dwShareMode=*/0, &attributes, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    LocalFree(descriptor);
+    if (file == INVALID_HANDLE_VALUE) return util::Error{Untranslated(strprintf("Cannot create %s", fs::PathToString(temp)))};
+    bool ok{true};
+    size_t written{0};
+    while (ok && written < secret.size()) {
+        DWORD n{0};
+        const DWORD chunk{static_cast<DWORD>(std::min<size_t>(secret.size() - written, 1 << 20))};
+        if (!WriteFile(file, secret.data() + written, chunk, &n, nullptr) || n == 0) {
+            ok = false;
+        } else {
+            written += n;
         }
     }
+    ok = FlushFileBuffers(file) && ok;
+    ok = CloseHandle(file) && ok;
 #endif
     if (!ok) {
         std::error_code ec;
