@@ -85,7 +85,9 @@
     const activity = $('section[aria-label="Drivechain activity"]');
     await check('the coinbase outputs are named', ['Miner payout', 'Witness commitment', 'M7 BMM accept', 'M4 bundle votes', 'M2 proposal ack'].every((w) => coinbase.textContent.includes(w)), coinbase.textContent.slice(0, 600));
     await check('the BMM accepts with their sidechains and bids', /Thunder/.test($('[aria-label="BMM accepts"]', activity).textContent) && /BitNames/.test($('[aria-label="BMM accepts"]', activity).textContent));
-    await check('the vote upvotes the bundle', $('[aria-label="Bundle votes and bundles"]', activity).textContent.includes(bundle.hash.slice(0, 10)));
+    // One row per bundle: this block's upvote, its state and its score together.
+    const bundleRow = $$('[role="row"]', $('[aria-label="Bundle votes and bundles"]', activity)).filter((r) => r.textContent.includes(bundle.hash.slice(0, 8)));
+    await check('the vote upvotes the bundle', bundleRow.length === 1 && /Upvote/.test(bundleRow[0].textContent) && /Pending/.test(bundleRow[0].textContent) && /score/.test(bundleRow[0].textContent), bundleRow.map((r) => r.textContent).join(' | '));
     await check('the deposit of the block', $('[aria-label="Escrow changes"]', activity).textContent.includes('s1_zoe_'));
     for (const b of $$('button[aria-label="Dismiss"]')) b.click();
     $('#explorer-title').scrollIntoView({ block: 'start' });
