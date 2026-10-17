@@ -411,7 +411,7 @@
     { key: 'time', label: 'Time', value: (b) => b.time, width: '8rem', from: 0, simple: true },
     { key: 'nTx', label: 'Transactions', value: (b) => b.nTx, width: '6.5rem', align: 'end', from: 640, simple: true },
     { key: 'reward', label: 'Reward', value: (b) => b.summary?.reward, width: '11rem', align: 'end', from: 0, simple: true },
-    { key: 'fees', label: 'Fees', value: (b) => b.summary?.fees, width: '9.5rem', align: 'end', from: 900, simple: false },
+    { key: 'fees', label: 'Fees', value: (b) => b.summary?.fees, width: '10.5rem', align: 'end', from: 900, simple: false },
     { key: 'bmm', label: 'BMM', value: (b) => b.summary?.bmm.length, width: '4rem', align: 'end', from: 700, simple: false },
     { key: 'coinbase', label: 'Coinbase', value: (b) => (b.summary ? `${b.summary.payout} ${summaryText(b.summary)}` : undefined), width: 'minmax(13rem, 1.5fr)', from: 760, simple: false, noFilter: true },
     { key: 'size', label: 'Size', value: (b) => b.size, width: '5.5rem', align: 'end', from: 1350, simple: true },
