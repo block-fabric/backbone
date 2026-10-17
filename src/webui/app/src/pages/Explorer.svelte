@@ -6,6 +6,10 @@
   // node is there too.
   import { t } from '../lib/i18n.svelte';
   import Amount from '../components/Amount.svelte';
+  import BlockActivity from '../components/BlockActivity.svelte';
+  import SafeText from '../components/SafeText.svelte';
+  import { heightRuns, shortAddress, summaryText, type BlockDetail, type BlockSummary } from '../lib/explorer';
+  import { simpleMode } from '../lib/uimode.svelte';
   import BlockRibbon from '../components/BlockRibbon.svelte';
   import { coinbaseTag, type RibbonBlock } from '../lib/blocks';
   import { every } from '../lib/poll';
@@ -39,6 +43,8 @@
     hash: string;
     /** The id of its coinbase (for the miner's tag). */
     coinbase?: string;
+    /** What its coinbase says (reward, fees, BMM, votes), read with the block; null when it cannot be read (pruned). */
+    summary?: BlockSummary | null;
   }
   interface MempoolRow {
     txid: string;
@@ -116,14 +122,6 @@
   let loading = $state(false);
   const cache = new Map<string, BlockRow>();
 
-  async function blockRow(hash: string): Promise<BlockRow & { previousblockhash?: string }> {
-    const known = cache.get(hash);
-    if (known) return known;
-    const b = await rpc.raw<Block>('getblock', [hash, 1]);
-    const row = { height: b.height, time: b.time, nTx: b.nTx as number, size: b.size, weight: b.weight, difficulty: b.difficulty, hash, previousblockhash: b.previousblockhash, coinbase: b.tx?.[0] };
-    cache.set(hash, row);
-    return row;
-  }
 
   // The list: from the block index (host.explorerBlocks), in parts of at most EXPLORER_PART rows from a height down, up
   // to every block of the chain; on a new tip only the new rows are read (audit 7 #12: the whole chain read again under
@@ -192,12 +190,34 @@
       loadingBlocks = null;
     }
   }
-  /** The size and weight of these blocks, read once each. */
+  /**
+   * The size, weight and coinbase summary of these blocks, read once each: from the host (explorer.blocks with
+   * details), a call per run of consecutive heights (100 blocks at most each), the blocks read by the node.
+   */
+  const reading = new Map<string, Promise<void>>();
   async function fillDetails(rows: readonly BlockRow[]) {
-    const missing = rows.filter((b) => !cache.has(b.hash));
-    if (!missing.length) return;
-    for (const b of missing) await blockRow(b.hash).catch(() => undefined);
-    detailsVersion++;
+    // Those being read already (the ribbon and the table ask for the same blocks at once) are waited for, not asked again.
+    const waiting = rows.map((b) => reading.get(b.hash)).filter((p) => p !== undefined);
+    const missing = rows.filter((b) => !cache.has(b.hash) && !reading.has(b.hash));
+    if (missing.length) {
+      const read = (async () => {
+        for (const run of heightRuns(missing.map((b) => b.height))) {
+          try {
+            const part = await host.explorerSummaries(run.count, run.from);
+            for (const [height, hash, time, nTx, difficulty, summary] of part) {
+              cache.set(hash, { height, hash, time, nTx, difficulty, size: summary?.size, weight: summary?.weight, coinbase: summary?.coinbase, summary });
+            }
+          } catch {
+            // Again when the rows are shown next.
+          }
+        }
+        for (const b of missing) reading.delete(b.hash);
+        detailsVersion++;
+      })();
+      for (const b of missing) reading.set(b.hash, read);
+      waiting.push(read);
+    }
+    await Promise.all(waiting);
   }
   const withDetails = (b: BlockRow): BlockRow => cache.get(b.hash) ?? b;
 
@@ -245,7 +265,8 @@
     if (extras.has(row.hash)) return;
     const stats = await rpc.raw<{ subsidy: number; totalfee: number; avgfeerate: number }>('getblockstats', [row.hash, ['subsidy', 'totalfee', 'avgfeerate']]);
     let tag = '';
-    if (row.coinbase) {
+    if (row.summary?.script !== undefined) tag = coinbaseTag(row.summary.script);
+    else if (row.coinbase) {
       const cb = await rpc.raw<{ vin: { coinbase?: string }[] }>('getrawtransaction', [row.coinbase, true, row.hash]).catch(() => null);
       tag = coinbaseTag(cb?.vin[0]?.coinbase ?? '');
     }
@@ -261,14 +282,11 @@
       await fillDetails(latest);
       for (const row of latest) await extraOf(withDetails(row)).catch(() => undefined);
       extrasVersion++;
-      // Blind merged mining: the sidechains each block committed to.
-      const from = latest[latest.length - 1].height;
-      const count = latest[0].height - from + 1;
-      const sidechains = await rpc.raw<{ slot: number }[]>('listactivesidechains', []);
-      const at: Record<number, number[]> = {};
-      for (const sc of sidechains) {
-        const events = await rpc.raw<{ height: number; bmm?: string }[]>('getsidechainevents', [sc.slot, from, count]);
-        for (const e of events) if (e.bmm) (at[e.height] ??= []).push(sc.slot);
+      // Blind merged mining: the sidechains each block committed to (its coinbase's accepts, in the summaries).
+      const at: Record<number, number[]> = { ...bmmAt };
+      for (const row of latest) {
+        const bmm = withDetails(row).summary?.bmm;
+        if (bmm) at[row.height] = bmm;
       }
       bmmAt = at;
     } catch {
@@ -317,11 +335,20 @@
     }
   }
 
+  // The coinbase and drivechain activity of the block shown (host explorer.block); null until read, or if it cannot be.
+  let activity = $state<BlockDetail | null>(null);
   async function showBlock(hash: string): Promise<boolean> {
     try {
       const block = await rpc.raw<Block>('getblock', [hash, 1]);
       shown = { kind: 'block', block };
       selectedTx = null;
+      activity = null;
+      host.explorerBlock(hash).then(
+        (d) => {
+          if (shown?.kind === 'block' && shown.block.hash === hash) activity = d;
+        },
+        () => undefined,
+      );
       return true;
     } catch {
       return false;
@@ -377,18 +404,35 @@
     search(q);
   });
 
-  const blockColumns: Column<BlockRow>[] = [
-    { key: 'height', label: 'Height', value: (b) => b.height, width: '6rem', align: 'end' },
-    { key: 'time', label: 'Time', value: (b) => b.time, width: '11.5rem' },
-    { key: 'nTx', label: 'Transactions', value: (b) => b.nTx, width: '7.5rem', align: 'end' },
-    { key: 'size', label: 'Size', value: (b) => b.size, width: '6rem', align: 'end' },
-    { key: 'weight', label: 'Weight', value: (b) => b.weight, width: '6.5rem', align: 'end' },
-    { key: 'difficulty', label: 'Difficulty', value: (b) => b.difficulty, width: '10rem', align: 'end' },
-    { key: 'hash', label: 'Hash', value: (b) => b.hash, width: 'minmax(14rem, 1fr)', mono: true },
+  // The columns, with the narrowest width of the page each is shown at (the least useful go first) and whether
+  // Simple mode shows it. The reward, fees, BMM and coinbase come with the summaries of the rows a page shows.
+  const ALL_BLOCK_COLUMNS: (Column<BlockRow> & { from: number; simple: boolean })[] = [
+    { key: 'height', label: 'Height', value: (b) => b.height, width: '5.5rem', align: 'end', from: 0, simple: true },
+    { key: 'time', label: 'Time', value: (b) => b.time, width: '8rem', from: 0, simple: true },
+    { key: 'nTx', label: 'Transactions', value: (b) => b.nTx, width: '6.5rem', align: 'end', from: 640, simple: true },
+    { key: 'reward', label: 'Reward', value: (b) => b.summary?.reward, width: '11rem', align: 'end', from: 0, simple: true },
+    { key: 'fees', label: 'Fees', value: (b) => b.summary?.fees, width: '9.5rem', align: 'end', from: 900, simple: false },
+    { key: 'bmm', label: 'BMM', value: (b) => b.summary?.bmm.length, width: '4rem', align: 'end', from: 700, simple: false },
+    { key: 'coinbase', label: 'Coinbase', value: (b) => (b.summary ? `${b.summary.payout} ${summaryText(b.summary)}` : undefined), width: 'minmax(13rem, 1.5fr)', from: 760, simple: false, noFilter: true },
+    { key: 'size', label: 'Size', value: (b) => b.size, width: '5.5rem', align: 'end', from: 1350, simple: true },
+    { key: 'weight', label: 'Weight', value: (b) => b.weight, width: '6rem', align: 'end', from: 1650, simple: false },
+    { key: 'difficulty', label: 'Difficulty', value: (b) => b.difficulty, width: '8.5rem', align: 'end', from: 1550, simple: false },
+    { key: 'hash', label: 'Hash', value: (b) => b.hash, width: 'minmax(8rem, 1fr)', mono: true, from: 1200, simple: true },
   ];
+  let pageEl: HTMLDivElement | undefined = $state();
+  let pageWidth = $state(1400);
+  $effect(() => {
+    if (!pageEl || typeof ResizeObserver === 'undefined') return;
+    const o = new ResizeObserver(() => pageEl && (pageWidth = pageEl.clientWidth));
+    o.observe(pageEl);
+    pageWidth = pageEl.clientWidth;
+    return () => o.disconnect();
+  });
+  const simple = $derived(simpleMode());
+  const blockColumns = $derived(ALL_BLOCK_COLUMNS.filter((c) => pageWidth >= c.from && (!simple || c.simple)));
   const sortedBlocks = $derived.by(() => {
     void detailsVersion;
-    return filterAndSort(blocks.map(withDetails), blockColumns, '', blockSort, blockDir);
+    return filterAndSort(blocks.map(withDetails), ALL_BLOCK_COLUMNS, '', blockSort, blockDir);
   });
   const blocksShown = $derived(sortedBlocks.slice(blocksPage * prefs.explorerPageSize, (blocksPage + 1) * prefs.explorerPageSize));
   $effect(() => {
@@ -410,7 +454,7 @@
   const txValueOut = $derived(shown?.kind === 'tx' ? shown.tx.vout.reduce((sum, o) => sum + coinsToSats(o.value), 0n) : 0n);
 </script>
 
-<div class="page explorer">
+<div class="page explorer" bind:this={pageEl}>
   <header class="page-head"><h1>Block explorer</h1></header>
   <form class="search row" onsubmit={(e) => { e.preventDefault(); search(); }}>
     <div class="box grow">
@@ -443,12 +487,19 @@
   {#if list === 'blocks'}
     <!-- As tall as the rows of the page (10 to 100, user decision): the page scrolls, not the list. -->
     <div class="table-box fit" use:css={{ height: `${(Math.max(1, blocksShown.length) + 1) * ROW + 2}px` }}>
-      <DataTable fit rows={blocksShown} columns={blockColumns} key={(b) => b.hash} bind:selected={selectedBlock} bind:sortKey={blockSort} bind:sortDir={blockDir} label="Blocks" empty="Loading…" onactivate={(b) => showBlock(b.hash)}>
+      <DataTable fit={pageWidth < 1000} rows={blocksShown} columns={blockColumns} key={(b) => b.hash} bind:selected={selectedBlock} bind:sortKey={blockSort} bind:sortDir={blockDir} label="Blocks" empty="Loading…" onactivate={(b) => showBlock(b.hash)}>
         {#snippet cell(b, column)}
-          {#if column.key === 'time'}{formatTime(b.time)}
+          {#if column.key === 'time'}{formatTime(b.time, true)}
           {:else if column.key === 'size'}{#if b.size === undefined}<span class="faint">…</span>{:else}{formatBytes(b.size)}{/if}
           {:else if column.key === 'weight' && b.weight === undefined}<span class="faint">…</span>
           {:else if column.key === 'difficulty'}{b.difficulty.toPrecision(8)}
+          {:else if column.key === 'reward' || column.key === 'fees' || column.key === 'bmm' || column.key === 'coinbase'}
+            {#if b.summary === undefined}<span class="faint">…</span>
+            {:else if b.summary === null}<span class="faint">–</span>
+            {:else if column.key === 'reward'}<Amount sats={b.summary.reward} masked={false} />
+            {:else if column.key === 'fees'}<Amount sats={b.summary.fees} masked={false} />
+            {:else if column.key === 'bmm'}{#if b.summary.bmm.length}<span class="bmm-count" title={b.summary.bmm.map((s) => t('slot %1', s)).join(', ')}>{b.summary.bmm.length}</span>{:else}<span class="faint">0</span>{/if}
+            {:else}<span class="cb" title={`${b.summary.payout} ${summaryText(b.summary)}`}>{#if b.summary.payout}<SafeText text={shortAddress(b.summary.payout)} class="mono" title={b.summary.payout} />{/if} <span class="faint">{summaryText(b.summary)}</span></span>{/if}
           {:else if column.key === 'height' || column.key === 'nTx' || column.key === 'weight'}{formatCount(Number(column.value(b)))}
           {:else}{b.hash}{/if}
         {/snippet}
@@ -492,6 +543,7 @@
             <dt>Difficulty</dt><dd class="num">{b.difficulty.toPrecision(10)} <span class="faint mono">bits {b.bits}</span></dd>
             <dt>Merkle root</dt><dd class="mono break">{b.merkleroot}</dd>
             <dt>Version / nonce</dt><dd class="mono">{b.version} / {b.nonce}</dd>
+            <dt>Reward</dt><dd>{#if activity}<Amount sats={activity.reward} masked={false} /> <span class="faint">(subsidy <Amount sats={activity.subsidy} masked={false} />{#if activity.fees !== null}&nbsp;+ fees <Amount sats={activity.fees} masked={false} />{/if})</span>{:else}<span class="faint">…</span>{/if}</dd>
           </dl>
           <div>
             <h3>Transactions of the block</h3>
@@ -504,6 +556,7 @@
         </div>
       {/if}
     </section>
+    {#if activity && !raw}<BlockActivity detail={activity} ontx={(txid) => showTx(txid, b.hash)} />{/if}
   {:else if shown?.kind === 'tx'}
     {@const tx = shown.tx}
     <section class="panel detail" aria-label="Transaction">
@@ -603,6 +656,18 @@
   }
   .table-box.fit {
     min-height: 0;
+  }
+  .cb {
+    display: inline-flex;
+    gap: 0.4rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bmm-count {
+    font-weight: 600;
+    color: var(--accent);
   }
   .hint {
     margin: 0.4rem 0 1rem;

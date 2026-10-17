@@ -422,12 +422,17 @@ describe('tools', () => {
       getrawmempool: () => ({}),
       // The list from the block index: `count` blocks (1 to 10 000) from the height `from` down (the tip, 30, by default),
       // newest first; read in parts, and only what the page lacks (audit 7 #12).
+      // With details (the rows a page shows, 100 at most): the summary of each block, its size among it.
       'explorer.blocks': (r) => {
-        const { count, from } = r.params as { count: number; from?: number };
+        const { count, from, details } = r.params as { count: number; from?: number; details?: boolean };
         explorerCalls.push({ count, from });
-        if (!(count >= 1 && count <= 10000)) throw new Error('count: 1 to 10000');
+        if (!(count >= 1 && count <= (details ? 100 : 10000))) throw new Error('count: 1 to 10000');
         const top = Math.min(from ?? 30, 30);
-        return Array.from({ length: Math.max(0, Math.min(count, top + 1)) }, (_, i) => top - i).map((h) => [h, hashOf(h), 1_700_000_000 + h, 1 + (h % 7), 1]);
+        return Array.from({ length: Math.max(0, Math.min(count, top + 1)) }, (_, i) => top - i).map((h) => {
+          const row: unknown[] = [h, hashOf(h), 1_700_000_000 + h, 1 + (h % 7), 1];
+          if (details) row.push({ size: 250, weight: 1000, subsidy: 5_000_000_000, reward: 5_000_000_000, fees: 0, payout: '', payouts: 1, bmm: [], votes: 0, voteForm: '', acks: 0, proposals: 0, bundles: 0, escrow: 0 });
+          return row;
+        });
       },
     });
     prefs.explorerCount = 25;
@@ -446,7 +451,7 @@ describe('tools', () => {
     await fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '25' } });
     await waitFor(() => screen.getByText(/1–25 of 25/));
     expect(prefs.explorerPageSize).toBe(25);
-    // The size of the blocks shown, read with them.
+    // The size of the blocks shown, read with them (explorer.blocks with details).
     await waitFor(() => expect(document.querySelector('.table-box')?.textContent).toContain('250 B'));
     // All the blocks of the chain (user decision: 10 000, 50 000, All).
     const listed = [...(screen.getByLabelText('Blocks listed') as HTMLSelectElement).options];

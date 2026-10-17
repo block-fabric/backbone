@@ -1,4 +1,5 @@
 // A typed client of the RPC methods of the node, and of the host methods of the app.
+import type { BlockDetail, DetailedRow } from './explorer';
 import { request, type CallOptions } from './bridge';
 
 export interface BlockchainInfo {
@@ -262,6 +263,10 @@ export const host = {
    * by default): [height, hash, time, transactions, difficulty].
    */
   explorerBlocks: (count: number, from?: number) => request<[number, string, number, number, number][]>('host', 'explorer.blocks', from === undefined ? { count } : { count, from }),
+  /** The same rows with the summary of each block's coinbase (lib/explorer.ts): `count` 1 to 100, read from the blocks. */
+  explorerSummaries: (count: number, from: number) => request<DetailedRow[]>('host', 'explorer.blocks', { count, from, details: true }),
+  /** The coinbase of a block and what it did to the sidechains (Chains only). */
+  explorerBlock: (hash: string) => request<BlockDetail>('host', 'explorer.block', { hash }),
   hashFile: (path: string) => request<{ sha256: string; size: number }>('host', 'timestamp.hashFile', { path }),
   searchStamp: (payload: string, from: string, count: number, options?: CallOptions) =>
     request<{ searched: number; next: string | null; found: Stamp[] }>('host', 'timestamp.search', { payload, from, count }, options),
