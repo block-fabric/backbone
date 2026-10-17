@@ -84,8 +84,10 @@
 
   // --- Sidechains and deposits ---
   // The sidechain the page was opened for (the Deposit and Withdrawals of the dashboard, the detail panel).
+  // "<slot>" or "<slot>:<hash>" (a bundle or a proposal named by the block explorer).
   const focused = takeFocus('sidechains');
-  let focusSlot: number | null = focused === null ? null : Number(focused);
+  let focusSlot: number | null = focused === null ? null : Number(focused.split(':')[0]);
+  let focusHash = focused?.split(':')[1] ?? '';
   let selectedSlot = $state<number | null>(focusSlot);
   /** A sidechain chosen in the page: in the workspace layout, its details in the panel too. */
   function pick(slot: number) {
@@ -312,7 +314,10 @@
     if (focusSlot === null || !dc) return;
     const slot = focusSlot;
     focusSlot = null;
-    if (tab === 'withdrawals') selectedBundle = dc.bundles.find((b) => b.slot === slot)?.hash ?? selectedBundle;
+    const hash = focusHash;
+    focusHash = '';
+    if (tab === 'withdrawals') selectedBundle = dc.bundles.find((b) => b.hash === hash)?.hash ?? dc.bundles.find((b) => b.slot === slot)?.hash ?? selectedBundle;
+    else if (tab === 'proposals' && hash) selectedProposal = hash;
     else if (tab === 'sidechains') queueMicrotask(() => document.getElementById('deposit-destination')?.focus());
   });
   async function vote(b: Bundle, v: 'upvote' | 'downvote' | 'abstain' | 'default') {

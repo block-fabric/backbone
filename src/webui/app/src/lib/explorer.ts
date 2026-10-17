@@ -66,6 +66,8 @@ export interface EscrowChange extends SlotRef {
   amount: number;
   total: number;
   destination?: string;
+  /** The destination of a deposit is an address of this chain (the explorer links it). */
+  mainchain?: boolean;
   bundle?: string;
   paid?: number;
   payouts?: number;
@@ -190,4 +192,45 @@ export function voteFormText(form: VoteForm): string {
     default:
       return t('no vote message (abstains on every sidechain)');
   }
+}
+
+// --- Addresses (the explorer's address view) ---
+
+/** An address as the wallet knows it (host wallet.address); amounts in sats. Of another wallet's: { mine: false }. */
+export interface AddressActivity {
+  mine: boolean;
+  label?: string;
+  received?: number;
+  spent?: number;
+  balance?: number;
+  immature?: number;
+  txCount?: number;
+  coinCount?: number;
+  /** [txid, height (-1: not in a block), time, received, spent], newest first. */
+  history?: [string, number, number, number, number][];
+  /** [txid, vout, amount, height, immature]. */
+  coins?: [string, number, number, number, boolean][];
+}
+
+/** What validateaddress says of an address: its script. */
+export interface ScriptInfo {
+  isscript?: boolean;
+  iswitness?: boolean;
+  witness_version?: number;
+  scriptPubKey?: string;
+}
+
+/** The kind of script an address pays to, in words. */
+export function scriptKindText(info: ScriptInfo): string {
+  if (info.iswitness) {
+    if (info.witness_version === 1) return t('Taproot (P2TR)');
+    if (info.witness_version === 0) return info.scriptPubKey?.length === 68 ? t('SegWit script (P2WSH)') : t('SegWit (P2WPKH)');
+    return t('SegWit version %1', info.witness_version ?? 0);
+  }
+  return info.isscript ? t('Script (P2SH)') : t('Legacy (P2PKH)');
+}
+
+/** What the search box of the explorer was given, if it may be an address (to ask the node): letters and digits only. */
+export function mayBeAddress(text: string): boolean {
+  return /^[A-Za-z0-9]{20,100}$/.test(text.trim());
 }

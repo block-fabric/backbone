@@ -97,6 +97,58 @@
     await sleep(400);
     await snapshot('explorer-bmm-activity-midnight');
 
+    // Links: the pool's payout marked "yours"; a payment of the block opened from its list, the coins it spends with
+    // their addresses (the pool's, "yours"), then the pool's address with its history; Back to the transaction and
+    // to the block.
+    const payouts = $('[aria-label="Payouts"]', coinbase);
+    await waitFor('the payout marked yours', () => $('[data-ours]', payouts), 20000);
+    await check('the pool payout is marked yours', /yours/.test(payouts.textContent), payouts.textContent.slice(0, 200));
+    // A payment of the pool's wallet spending a coin of the pool's address, in one of the last blocks: its block
+    // searched by height, the payment opened from the block's list.
+    let paying = null;
+    let payingBlock = null;
+    for (let h = tip; h > tip - 15 && !paying; h--) {
+      payingBlock = await rpc('getblock', [await rpc('getblockhash', [h]), 3]);
+      paying = payingBlock.tx.slice(1).find((x) => x.vin.some((i) => i.prevout?.scriptPubKey?.address === pool));
+    }
+    await check('a payment spends a coin of the pool address', !!paying);
+    if (payingBlock.hash !== top.hash) {
+      const box = $('#explorer-search');
+      box.value = String(payingBlock.height);
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      box.form.requestSubmit();
+      await waitFor('the block of the payment', () => $('#explorer-title')?.textContent.includes(payingBlock.height.toLocaleString('en-US')) || $('#explorer-title')?.textContent.includes(String(payingBlock.height)), 20000);
+    }
+    const txLink = await waitFor('the payment in the list', () => $$('ul[aria-label="Transactions of the block"] button').find((b) => b.textContent.includes(paying.txid)), 20000);
+    txLink.click();
+    const txView = await waitFor('the transaction view', () => $('section[aria-label="Transaction"]'), 20000);
+    await waitFor('its inputs with their addresses', () => $$('[data-ours]', txView).length > 0, 20000);
+    await check('the coin it spends links to its transaction', $$('button', txView).some((b) => b.textContent.includes(`${paying.vin[0].txid}:${paying.vin[0].vout}`)));
+    await check('its block is linked', $$('button', txView).some((b) => b.textContent.includes(payingBlock.hash)));
+    for (const b of $$('button[aria-label="Dismiss"]')) b.click();
+    $('#explorer-title').scrollIntoView({ block: 'start' });
+    await sleep(500);
+    await snapshot('explorer-links-tx-midnight');
+    const poolLink = $$('button', txView).find((b) => b.textContent.trim() === pool);
+    await check('the pool address is linked', !!poolLink);
+    poolLink.click();
+    const addrView = await waitFor('the address view', () => $('section[aria-label="Address"]'), 20000);
+    const history = await waitFor('its history', () => $('table[aria-label="Transactions of the address"]', addrView), 20000);
+    await check('the address view says it is the wallet\'s, with its label and history', /Pool payouts/.test(addrView.textContent) && $$('tbody tr', history).length >= 10, addrView.textContent.slice(0, 300));
+    for (const b of $$('button[aria-label="Dismiss"]')) b.click();
+    $('#explorer-title').scrollIntoView({ block: 'start' });
+    await sleep(500);
+    await snapshot('explorer-links-address-midnight');
+    const back = () => $$('button', $('#explorer-title').closest('section')).find((b) => b.textContent.trim() === 'Back');
+    back().click();
+    await waitFor('back to the transaction', () => $('section[aria-label="Transaction"]'), 20000);
+    back().click();
+    await waitFor('back to the block', () => $('section[aria-label="Coinbase"]'), 20000);
+    await check('Back returned to the block of the payment', $$('ul[aria-label="Transactions of the block"] button').some((b) => b.textContent.includes(paying.txid)));
+    $('section[aria-label="Coinbase"]').scrollIntoView({ block: 'start' });
+    await sleep(500);
+    await snapshot('explorer-links-yours-midnight');
+
     await finish();
   } catch (e) {
     await finish(e instanceof Error ? e : new Error(JSON.stringify(e)));

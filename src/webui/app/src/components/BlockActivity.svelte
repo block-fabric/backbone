@@ -4,8 +4,12 @@
   // payout, the witness commitment, the BIP300 messages M1-M4, the BIP301 accepts M7, other data), then the blind
   // merged mining it took, the sidechains proposed, acked and activated, its votes on withdrawal bundles, the bundles
   // proposed, paid out or failed and those still pending, and the deposits and withdrawals of the escrows.
-  // All of it decoded by the node (host explorer.block, src/webui/explorer.cpp).
+  // All of it decoded by the node (host explorer.block, src/webui/explorer.cpp). Its ids link to their views: transactions
+  // (ontx), addresses of this chain (onaddress, those of the open wallet marked "yours"), bundles and proposals on the
+  // Sidechains page; a sidechain's block hash (BMM) is no block of this chain: it says where to see it.
   import Amount from './Amount.svelte';
+  import AddressLink from './AddressLink.svelte';
+  import { goTo } from '../lib/nav.svelte';
   import CopyButton from './CopyButton.svelte';
   import SafeText from './SafeText.svelte';
   import { coinbaseTag } from '../lib/blocks';
@@ -13,7 +17,11 @@
   import { formatCount, shortHash } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
 
-  let { detail, ontx }: { detail: BlockDetail; ontx: (txid: string) => void } = $props();
+  let { detail, ontx, onaddress }: { detail: BlockDetail; ontx: (txid: string) => void; onaddress: (address: string) => void } = $props();
+  /** A bundle or a proposal, on the Sidechains page (its tab, the sidechain's slot and the hash chosen there). */
+  const openBundle = (slot: number | undefined, hash: string) => goTo('sidechains', 'withdrawals', slot === undefined ? '' : `${slot}:${hash}`);
+  const openProposal = (slot: number | undefined, hash: string) => goTo('sidechains', 'proposals', slot === undefined ? '' : `${slot}:${hash}`);
+  const sidechainBlockTip = (title: string | undefined) => (title ? t('A block of %1: see it in its own wallet', title) : t('A block of a sidechain: see it in its own wallet'));
 
   const tag = $derived(coinbaseTag(detail.script, 60));
   // The outputs in two lists side by side: what the coinbase says (BIP300/301 messages, commitments, data) and what
@@ -68,8 +76,24 @@
   {#if s.slot === undefined}<span class="faint">#{s.position}</span>
   {:else}<span class="sc">{#if s.title}<SafeText text={s.title} /> {/if}<span class="faint">slot {s.slot}</span></span>{/if}
 {/snippet}
-{#snippet hash(h: string, label: string)}
-  <span class="hashc"><span class="mono hash" title={h}>{shortHash(h, 8)}</span><CopyButton text={h} {label} /></span>
+{#snippet hash(h: string, label: string, tip?: string)}
+  <span class="hashc"><span class="mono hash" title={tip ?? h}>{shortHash(h, 8)}</span><CopyButton text={h} {label} /></span>
+{/snippet}
+{#snippet linked(h: string, label: string, tip: string, go: () => void)}
+  <span class="hashc"><button type="button" class="mono linkish hash" title={tip} onclick={go}>{shortHash(h, 8)}</button><CopyButton text={h} {label} /></span>
+{/snippet}
+{#snippet bundleHash(slot: number | undefined, h: string)}
+  {@render linked(h, 'Copy the bundle hash', t('See the bundle on the Sidechains page'), () => openBundle(slot, h))}
+{/snippet}
+{#snippet proposalHash(slot: number | undefined, h: string)}
+  {@render linked(h, 'Copy the proposal hash', t('See the proposal on the Sidechains page'), () => openProposal(slot, h))}
+{/snippet}
+{#snippet outputHash(o: BlockDetail['outputs'][number])}
+  {#if !o.hash}<span class="faint">–</span>
+  {:else if o.kind === 'bundle'}{@render bundleHash(o.slot, o.hash)}
+  {:else if o.kind === 'proposal' || o.kind === 'ack'}{@render proposalHash(o.slot, o.hash)}
+  {:else if o.kind === 'bmm'}{@render hash(o.hash, 'Copy the sidechain block hash', sidechainBlockTip(o.title))}
+  {:else}{@render hash(o.hash, 'Copy the hash')}{/if}
 {/snippet}
 {#snippet tx(txid: string)}
   <button type="button" class="mono linkish" title={txid} onclick={() => ontx(txid)}>{shortHash(txid, 8)}</button>
@@ -97,11 +121,11 @@
               <span class="kind" role="cell"><span class="badge" class:accent={o.kind !== 'payout' && o.kind !== 'witness' && o.kind !== 'data'}>{outputKindText(o)}</span></span>
               <span class="amt" role="cell">{#if o.value}<Amount sats={o.value} masked={false} />{/if}</span>
               <span class="what" role="cell">
-                {#if o.kind === 'payout'}<span class="mono break">{#if o.address}<SafeText text={o.address} />{:else}{o.type}{/if}</span>
+                {#if o.kind === 'payout'}<span class="mono break">{#if o.address}<AddressLink address={o.address} onopen={onaddress} />{:else}{o.type}{/if}</span>
                 {:else if o.kind === 'vote'}{voteFormText(o.form ?? '')} <span class="faint">· {formatCount(o.count ?? 0)} entries</span>
                 {:else if o.kind === 'witness'}{@render hash(o.hash ?? '', 'Copy the witness commitment')}
                 {:else if o.kind === 'data'}{#if o.text}<SafeText text={o.text} class="mono" />{:else}<span class="mono break faint">{o.hex}</span>{/if}
-                {:else}{@render sidechain(o)}{#if o.hash} {@render hash(o.hash, 'Copy the hash')}{/if}{/if}
+                {:else}{@render sidechain(o)}{#if o.hash} {@render outputHash(o)}{/if}{/if}
               </span>
             </div>
           {:else}
@@ -118,11 +142,11 @@
               <span class="kind" role="cell"><span class="badge" class:accent={o.kind !== 'payout' && o.kind !== 'witness' && o.kind !== 'data'}>{outputKindText(o)}</span></span>
               <span class="amt" role="cell">{#if o.value}<Amount sats={o.value} masked={false} />{/if}</span>
               <span class="what" role="cell">
-                {#if o.kind === 'payout'}<span class="mono break">{#if o.address}<SafeText text={o.address} />{:else}{o.type}{/if}</span>
+                {#if o.kind === 'payout'}<span class="mono break">{#if o.address}<AddressLink address={o.address} onopen={onaddress} />{:else}{o.type}{/if}</span>
                 {:else if o.kind === 'vote'}{voteFormText(o.form ?? '')} <span class="faint">· {formatCount(o.count ?? 0)} entries</span>
                 {:else if o.kind === 'witness'}{@render hash(o.hash ?? '', 'Copy the witness commitment')}
                 {:else if o.kind === 'data'}{#if o.text}<SafeText text={o.text} class="mono" />{:else}<span class="mono break faint">{o.hex}</span>{/if}
-                {:else}{@render sidechain(o)}{#if o.hash} {@render hash(o.hash, 'Copy the hash')}{/if}{/if}
+                {:else}{@render sidechain(o)}{#if o.hash} {@render outputHash(o)}{/if}{/if}
               </span>
             </div>
           {:else}
@@ -150,7 +174,7 @@
             {#each detail.bmm as b (b.slot)}
               <div class="row-line" role="row">
                 <span role="cell">{@render sidechain(b)}</span>
-                <span role="cell"><span class="faint">sidechain block</span> {@render hash(b.hash, 'Copy the sidechain block hash')}</span>
+                <span role="cell"><span class="faint">sidechain block</span> {@render hash(b.hash, 'Copy the sidechain block hash', sidechainBlockTip(b.title))}</span>
                 <span role="cell">{#if b.request}<span class="faint">request</span> {@render tx(b.request)}{/if}</span>
                 <span class="amt" role="cell">{#if b.bid !== undefined}<span class="faint">bid</span> <Amount sats={b.bid} masked={false} />{/if}</span>
               </div>
@@ -170,7 +194,7 @@
                   {#if r.state}<span class="badge" class:accent={r.state === 'proposed' || r.state === 'paid'} class:danger={r.state === 'failed'}>{bundleStateText(r.state)}</span>{/if}
                 </span>
                 <span role="cell">{@render sidechain(r.sc)}</span>
-                <span role="cell">{#if r.hash}{@render hash(r.hash, 'Copy the bundle hash')}{/if}</span>
+                <span role="cell">{#if r.hash}{@render bundleHash(r.sc.slot, r.hash)}{/if}</span>
                 <span class="amt" role="cell">{#if r.score !== undefined}<span class="faint">score</span> {formatCount(r.score)} / {formatCount(detail.minScore)}{/if}</span>
               </div>
             {/each}
@@ -190,11 +214,11 @@
             <span role="cell"><span class="badge accent">Proposed</span></span>
             <span role="cell">{@render sidechain(p)}{#if p.replaces} <span class="faint">replacing</span> <SafeText text={p.replaces} />{/if}</span>
             <span class="desc" role="cell"><SafeText text={p.description} /></span>
-            <span role="cell">{@render hash(p.hash, 'Copy the proposal hash')}</span>
+            <span role="cell">{@render proposalHash(p.slot, p.hash)}</span>
           </div>
         {/each}
         {#each detail.acks as a (a.slot + a.hash)}
-          <div class="row-line" role="row"><span role="cell"><span class="badge">Ack</span></span><span role="cell">{@render sidechain(a)}</span><span role="cell">{@render hash(a.hash, 'Copy the proposal hash')}</span></div>
+          <div class="row-line" role="row"><span role="cell"><span class="badge">Ack</span></span><span role="cell">{@render sidechain(a)}</span><span role="cell">{@render proposalHash(a.slot, a.hash)}</span></div>
         {/each}
       </div>
     {/if}
@@ -206,8 +230,8 @@
             <span role="cell"><span class="badge" class:accent={e.kind === 'deposit'} class:warning={e.kind === 'withdrawal'}>{e.kind === 'deposit' ? t('Deposit') : t('Withdrawal')}</span></span>
             <span role="cell">{@render sidechain(e)}</span>
             <span role="cell">
-              {#if e.kind === 'deposit'}<span class="faint">to</span> <SafeText text={e.destination} class="mono" />
-              {:else}<span class="faint">{formatCount(e.payouts ?? 0)} payouts of</span> <Amount sats={e.paid ?? 0} masked={false} />{#if e.fee !== undefined} <span class="faint">· fee</span> <Amount sats={e.fee} masked={false} />{/if}{/if}
+              {#if e.kind === 'deposit'}<span class="faint">to</span> {#if e.mainchain && e.destination}<AddressLink address={e.destination} onopen={onaddress} />{:else}<SafeText text={e.destination} class="mono" />{/if}
+              {:else}{#if e.bundle}<span class="faint">bundle</span> {@render bundleHash(e.slot, e.bundle)} {/if}<span class="faint">{formatCount(e.payouts ?? 0)} payouts of</span> <Amount sats={e.paid ?? 0} masked={false} />{#if e.fee !== undefined} <span class="faint">· fee</span> <Amount sats={e.fee} masked={false} />{/if}{/if}
               <span class="faint">· tx</span> {@render tx(e.txid)}
             </span>
             <span class="amt" role="cell">{#if e.kind === 'deposit'}<Amount sats={e.amount} plus masked={false} />{/if} <span class="faint">escrow</span> <Amount sats={e.total} masked={false} /></span>
