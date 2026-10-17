@@ -163,12 +163,15 @@ describe('the explorer of Chains', () => {
     const coinbase = await waitFor(() => screen.getByRole('region', { name: 'Coinbase' }));
     expect(coinbase.textContent).toContain('Block subsidy');
     expect(coinbase.textContent).toContain('/chains pool/');
-    const outputs = within(coinbase).getByRole('table', { name: 'Outputs of the coinbase' });
-    expect(outputs.textContent).toContain('Miner payout');
-    expect(outputs.textContent).toContain('Witness commitment');
-    expect(outputs.textContent).toContain('M7 BMM accept');
-    expect(outputs.textContent).toContain('M4 bundle votes');
-    expect(outputs.textContent).toContain('M2 proposal ack');
+    // The outputs split in two: the payouts on one side, the messages and data on the other.
+    const payouts = within(coinbase).getByRole('table', { name: 'Payouts' });
+    const messages = within(coinbase).getByRole('table', { name: 'Messages and data' });
+    expect(payouts.textContent).toContain('Miner payout');
+    expect(messages.textContent).not.toContain('Miner payout');
+    for (const kind of ['Witness commitment', 'M7 BMM accept', 'M4 bundle votes', 'M2 proposal ack']) {
+      expect(messages.textContent).toContain(kind);
+      expect(payouts.textContent).not.toContain(kind);
+    }
     const activity = screen.getByRole('region', { name: 'Drivechain activity' });
     const bmm = within(activity).getByRole('table', { name: 'BMM accepts' });
     expect(bmm.textContent).toContain('Thunder');

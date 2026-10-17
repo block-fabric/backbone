@@ -16,6 +16,11 @@
   let { detail, ontx }: { detail: BlockDetail; ontx: (txid: string) => void } = $props();
 
   const tag = $derived(coinbaseTag(detail.script, 60));
+  // The outputs in two lists side by side: what the coinbase says (BIP300/301 messages, commitments, data) and what
+  // it pays (the miner's payout and any other output with coins).
+  const hasBundles = $derived(!!(detail.votes.form || detail.proposed.length || detail.closed.length || detail.pending.length));
+  const payouts = $derived(detail.outputs.filter((o) => o.kind === 'payout' || o.value > 0));
+  const messages = $derived(detail.outputs.filter((o) => !(o.kind === 'payout' || o.value > 0)));
   const hidden = $derived(detail.outputCount - detail.outputs.length);
   const castVotes = $derived(detail.votes.entries.filter((v) => v.vote !== 'abstain').length);
   // One row per bundle of a sidechain, in the order of the slots: this block's vote on it, what became of it (proposed,
@@ -82,21 +87,49 @@
       <dt>Transaction</dt><dd>{@render tx(detail.coinbase)}</dd>
     </dl>
     <h3>Outputs ({formatCount(detail.outputCount)})</h3>
-    <div class="rows outputs" role="table" aria-label="Outputs of the coinbase">
-      {#each detail.outputs as o (o.n)}
-        <div class="row-line" role="row" data-kind={o.kind}>
-          <span class="faint n" role="cell">{o.n}</span>
-          <span class="kind" role="cell"><span class="badge" class:accent={o.kind !== 'payout' && o.kind !== 'witness' && o.kind !== 'data'}>{outputKindText(o)}</span></span>
-          <span class="what" role="cell">
-            {#if o.kind === 'payout'}<span class="mono break">{#if o.address}<SafeText text={o.address} />{:else}{o.type}{/if}</span>
-            {:else if o.kind === 'vote'}{voteFormText(o.form ?? '')} <span class="faint">· {formatCount(o.count ?? 0)} entries</span>
-            {:else if o.kind === 'witness'}{@render hash(o.hash ?? '', 'Copy the witness commitment')}
-            {:else if o.kind === 'data'}{#if o.text}<SafeText text={o.text} class="mono" />{:else}<span class="mono break faint">{o.hex}</span>{/if}
-            {:else}{@render sidechain(o)}{#if o.hash} {@render hash(o.hash, 'Copy the hash')}{/if}{/if}
-          </span>
-          <span class="amt" role="cell">{#if o.value}<Amount sats={o.value} masked={false} />{:else}<span class="faint">0</span>{/if}</span>
+    <div class="split">
+      <div class="split-side">
+        <h4 class="faint">{t('Messages and data')} ({formatCount(messages.length)})</h4>
+        <div class="rows outputs" role="table" aria-label="Messages and data">
+            {#each messages as o (o.n)}
+            <div class="row-line" role="row" data-kind={o.kind}>
+              <span class="faint n" role="cell">{o.n}</span>
+              <span class="kind" role="cell"><span class="badge" class:accent={o.kind !== 'payout' && o.kind !== 'witness' && o.kind !== 'data'}>{outputKindText(o)}</span></span>
+              <span class="amt" role="cell">{#if o.value}<Amount sats={o.value} masked={false} />{/if}</span>
+              <span class="what" role="cell">
+                {#if o.kind === 'payout'}<span class="mono break">{#if o.address}<SafeText text={o.address} />{:else}{o.type}{/if}</span>
+                {:else if o.kind === 'vote'}{voteFormText(o.form ?? '')} <span class="faint">· {formatCount(o.count ?? 0)} entries</span>
+                {:else if o.kind === 'witness'}{@render hash(o.hash ?? '', 'Copy the witness commitment')}
+                {:else if o.kind === 'data'}{#if o.text}<SafeText text={o.text} class="mono" />{:else}<span class="mono break faint">{o.hex}</span>{/if}
+                {:else}{@render sidechain(o)}{#if o.hash} {@render hash(o.hash, 'Copy the hash')}{/if}{/if}
+              </span>
+            </div>
+          {:else}
+            <p class="faint none">None</p>
+          {/each}
         </div>
-      {/each}
+      </div>
+      <div class="split-side">
+        <h4 class="faint">{t('Payouts')} ({formatCount(payouts.length)})</h4>
+        <div class="rows outputs" role="table" aria-label="Payouts">
+            {#each payouts as o (o.n)}
+            <div class="row-line" role="row" data-kind={o.kind}>
+              <span class="faint n" role="cell">{o.n}</span>
+              <span class="kind" role="cell"><span class="badge" class:accent={o.kind !== 'payout' && o.kind !== 'witness' && o.kind !== 'data'}>{outputKindText(o)}</span></span>
+              <span class="amt" role="cell">{#if o.value}<Amount sats={o.value} masked={false} />{/if}</span>
+              <span class="what" role="cell">
+                {#if o.kind === 'payout'}<span class="mono break">{#if o.address}<SafeText text={o.address} />{:else}{o.type}{/if}</span>
+                {:else if o.kind === 'vote'}{voteFormText(o.form ?? '')} <span class="faint">· {formatCount(o.count ?? 0)} entries</span>
+                {:else if o.kind === 'witness'}{@render hash(o.hash ?? '', 'Copy the witness commitment')}
+                {:else if o.kind === 'data'}{#if o.text}<SafeText text={o.text} class="mono" />{:else}<span class="mono break faint">{o.hex}</span>{/if}
+                {:else}{@render sidechain(o)}{#if o.hash} {@render hash(o.hash, 'Copy the hash')}{/if}{/if}
+              </span>
+            </div>
+          {:else}
+            <p class="faint none">None</p>
+          {/each}
+        </div>
+      </div>
     </div>
     {#if hidden > 0}<p class="faint">And {formatCount(hidden)} more outputs.</p>{/if}
   </div>
@@ -108,17 +141,42 @@
     {#if nothing}
       <p class="muted">This block did nothing on sidechains: no BMM, no votes, no deposits.</p>
     {/if}
-    {#if detail.bmm.length}
-      <h3>Blind merged mining ({detail.bmm.length})</h3>
-      <div class="rows" role="table" aria-label="BMM accepts">
-        {#each detail.bmm as b (b.slot)}
-          <div class="row-line" role="row">
-            <span role="cell">{@render sidechain(b)}</span>
-            <span role="cell"><span class="faint">sidechain block</span> {@render hash(b.hash, 'Copy the sidechain block hash')}</span>
-            <span role="cell">{#if b.request}<span class="faint">request</span> {@render tx(b.request)}{/if}</span>
-            <span class="amt" role="cell">{#if b.bid !== undefined}<span class="faint">bid</span> <Amount sats={b.bid} masked={false} />{/if}</span>
+    {#if detail.bmm.length || hasBundles}
+      <div class="split" class:one={!(detail.bmm.length && hasBundles)}>
+        <div class="split-side">
+        {#if detail.bmm.length}
+          <h3>Blind merged mining ({detail.bmm.length})</h3>
+          <div class="rows" role="table" aria-label="BMM accepts">
+            {#each detail.bmm as b (b.slot)}
+              <div class="row-line" role="row">
+                <span role="cell">{@render sidechain(b)}</span>
+                <span role="cell"><span class="faint">sidechain block</span> {@render hash(b.hash, 'Copy the sidechain block hash')}</span>
+                <span role="cell">{#if b.request}<span class="faint">request</span> {@render tx(b.request)}{/if}</span>
+                <span class="amt" role="cell">{#if b.bid !== undefined}<span class="faint">bid</span> <Amount sats={b.bid} masked={false} />{/if}</span>
+              </div>
+            {/each}
           </div>
-        {/each}
+        {/if}
+        </div>
+        <div class="split-side">
+        {#if detail.votes.form || detail.proposed.length || detail.closed.length || detail.pending.length}
+          <h3>Withdrawal bundles</h3>
+          <p class="faint votes-form">Votes: {voteFormText(detail.votes.form)}{#if detail.votes.form && castVotes}&nbsp;· {formatCount(castVotes)} cast{/if}{#if !detail.votes.known}&nbsp;· the sidechains they are for cannot be told{/if}</p>
+          <div class="rows" role="table" aria-label="Bundle votes and bundles">
+            {#each bundleRows as r (r.key)}
+              <div class="row-line" role="row" data-vote={r.vote?.vote} data-state={r.state}>
+                <span role="cell" class="badges">
+                  {#if r.vote}<span class="badge" class:accent={r.vote.vote === 'upvote'} class:danger={r.vote.vote === 'downvote'}>{voteEntryText(r.vote)}</span>{/if}
+                  {#if r.state}<span class="badge" class:accent={r.state === 'proposed' || r.state === 'paid'} class:danger={r.state === 'failed'}>{bundleStateText(r.state)}</span>{/if}
+                </span>
+                <span role="cell">{@render sidechain(r.sc)}</span>
+                <span role="cell">{#if r.hash}{@render hash(r.hash, 'Copy the bundle hash')}{/if}</span>
+                <span class="amt" role="cell">{#if r.score !== undefined}<span class="faint">score</span> {formatCount(r.score)} / {formatCount(detail.minScore)}{/if}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        </div>
       </div>
     {/if}
     {#if detail.proposals.length || detail.acks.length || detail.activations.length}
@@ -137,23 +195,6 @@
         {/each}
         {#each detail.acks as a (a.slot + a.hash)}
           <div class="row-line" role="row"><span role="cell"><span class="badge">Ack</span></span><span role="cell">{@render sidechain(a)}</span><span role="cell">{@render hash(a.hash, 'Copy the proposal hash')}</span></div>
-        {/each}
-      </div>
-    {/if}
-    {#if detail.votes.form || detail.proposed.length || detail.closed.length || detail.pending.length}
-      <h3>Withdrawal bundles</h3>
-      <p class="faint votes-form">Votes: {voteFormText(detail.votes.form)}{#if detail.votes.form && castVotes}&nbsp;· {formatCount(castVotes)} cast{/if}{#if !detail.votes.known}&nbsp;· the sidechains they are for cannot be told{/if}</p>
-      <div class="rows" role="table" aria-label="Bundle votes and bundles">
-        {#each bundleRows as r (r.key)}
-          <div class="row-line" role="row" data-vote={r.vote?.vote} data-state={r.state}>
-            <span role="cell" class="badges">
-              {#if r.vote}<span class="badge" class:accent={r.vote.vote === 'upvote'} class:danger={r.vote.vote === 'downvote'}>{voteEntryText(r.vote)}</span>{/if}
-              {#if r.state}<span class="badge" class:accent={r.state === 'proposed' || r.state === 'paid'} class:danger={r.state === 'failed'}>{bundleStateText(r.state)}</span>{/if}
-            </span>
-            <span role="cell">{@render sidechain(r.sc)}</span>
-            <span role="cell">{#if r.hash}{@render hash(r.hash, 'Copy the bundle hash')}{/if}</span>
-            <span class="amt" role="cell">{#if r.score !== undefined}<span class="faint">score</span> {formatCount(r.score)} / {formatCount(detail.minScore)}{/if}</span>
-          </div>
         {/each}
       </div>
     {/if}
@@ -182,7 +223,7 @@
 <style>
   .activity-grid {
     display: grid;
-    grid-template-columns: minmax(20rem, 0.85fr) minmax(24rem, 1.3fr);
+    grid-template-columns: minmax(26rem, 1fr) minmax(24rem, 1.1fr);
     gap: 1rem;
     align-items: start;
     margin-bottom: 1rem;
@@ -243,6 +284,35 @@
     grid-row: 2;
     font-size: 0.8rem;
   }
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 0.6rem;
+    align-items: start;
+  }
+  .split.one {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .split + h3 {
+    margin-top: 0.75rem;
+  }
+  /* Half a box is too narrow for four columns: two, the facts flowing left then right. */
+  .split-side > .rows:not(.outputs) > .row-line {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .split-side > h3:first-child {
+    margin-top: 0;
+  }
+  .split h4 {
+    margin: 0 0 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+  .none {
+    margin: 0;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.85rem;
+  }
   .hashc {
     display: inline-flex;
     align-items: center;
@@ -288,8 +358,13 @@
   .votes-form {
     margin: 0 0 0.4rem;
   }
-  @media (max-width: 1150px) {
+  @media (max-width: 1250px) {
     .activity-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 700px) {
+    .split {
       grid-template-columns: minmax(0, 1fr);
     }
   }
