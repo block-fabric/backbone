@@ -981,8 +981,23 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
                 return slot && *slot < max_sidechains;
             });
         }};
-        const bool bmm_request{drivechain::GetBmmRequest(tx).has_value()};
-        const bool drivechain_tx{bmm_request || is_treasury(tx)};
+        // Any output with a BMM request script (M8) counts, wherever it is (consensus reads output 0).
+        const auto bmm_scripts{[](const CTransaction& t) {
+            return std::count_if(t.vout.begin(), t.vout.end(), [](const CTxOut& out) { return drivechain::ParseBmmRequestScript(out.scriptPubKey).has_value(); });
+        }};
+        const bool bmm_request{bmm_scripts(tx) > 0};
+        const bool treasury{is_treasury(tx)};
+        const bool drivechain_tx{bmm_request || treasury};
+        // A BMM request is one a block without it evicts with all its descendants: one that is also
+        // a deposit (an escrow output) would take every later deposit of the sidechain with it.
+        if (bmm_request && treasury) {
+            return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "dc-bmm-request-deposit",
+                                 "a BMM request cannot also be a treasury transaction (deposit or withdrawal)");
+        }
+        // A request proper: the M8 script in output 0 (as consensus reads it), for a slot of the
+        // chain, and no other M8 script; the only kind of transaction that may spend an unconfirmed one.
+        const auto own_request{drivechain::GetBmmRequest(tx)};
+        const bool pure_request{own_request && own_request->slot < max_sidechains && bmm_scripts(tx) == 1 && !treasury};
         // Whatever its parents: a BMM request, which the next request of its sidechain has to
         // replace, and a deposit, which the next treasury transaction of its sidechain spends,
         // are kept small, so that a large one at a low fee rate cannot make replacing or
@@ -1006,6 +1021,16 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         for (const CTxIn& in : tx.vin) {
             const CTransactionRef parent{m_pool.get(in.prevout.hash)};
             if (!parent || in.prevout.n >= parent->vout.size()) continue;
+            // Only a BMM request may spend the outputs (any of them) of an unconfirmed BMM request: one
+            // is for the next block only, and a block without it takes it out of the mempool with
+            // everything spending it. A treasury transaction paid from its change would be, and so
+            // would every later deposit to its sidechain, which has to spend the escrow output it
+            // makes: anyone could evict all of them at no cost, block after block (audit 7, finding 1).
+            const bool parent_request{bmm_scripts(*parent) > 0};
+            if (parent_request && !pure_request) {
+                return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "dc-unconfirmed-parent",
+                                     strprintf("spends %s, a BMM request that is not confirmed: only another BMM request may", parent->GetHash().ToString()));
+            }
             // The escrow output: spent only by the next treasury transaction, as the escrow rules have
             // it. A deposit chained on an unconfirmed one is small, like a TRUC child: a large one at
             // a low fee rate would hold up every deposit chained after it. (A withdrawal, of any size,
@@ -1020,17 +1045,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
                 }
                 continue;
             }
-            const bool parent_request{drivechain::GetBmmRequest(*parent).has_value()};
             if (!parent_request && !is_treasury(*parent)) continue;
-            // Only a BMM request may spend the outputs of an unconfirmed BMM request: one is for the
-            // next block only, and a block without it takes it out of the mempool with everything
-            // spending it. A treasury transaction paid from its change would be, and so would every
-            // later deposit to its sidechain, which has to spend the escrow output it makes: anyone
-            // could evict all of them at no cost, block after block (audit 7, finding 1).
-            if (parent_request && !bmm_request) {
-                return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "dc-unconfirmed-parent",
-                                     strprintf("spends %s, a BMM request that is not confirmed: only another BMM request may", parent->GetHash().ToString()));
-            }
             if (!drivechain_tx || GetVirtualTransactionSize(tx) > TRUC_CHILD_MAX_VSIZE) {
                 return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "dc-unconfirmed-parent",
                                      strprintf("spends %s, a BMM request or treasury transaction that is not confirmed", parent->GetHash().ToString()));

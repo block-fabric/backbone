@@ -147,10 +147,13 @@ replaying every proposal and closure since its slot activated.
 ## Mempool: deposits and BMM requests
 
 * A BMM request is for the next block only, and the mempool drops it, with everything that spends
-  it, once a block without it is found. So only another BMM request may spend the outputs of an
-  unconfirmed one (`dc-unconfirmed-parent`): a deposit paid from its change, which every later
-  deposit to the sidechain would chain on (through the escrow output), would let anyone evict all of
-  them at no cost.
+  it, once a block without it is found. So only a BMM request proper (an M8 script in output 0, no
+  other M8 script, no escrow output) may spend any output of an unconfirmed one
+  (`dc-unconfirmed-parent`), and a transaction that is both a BMM request (an M8 script in any
+  output) and a treasury transaction is refused (`dc-bmm-request-deposit`): a deposit paid from a
+  request's change, or a request that is itself a deposit, which every later deposit to the
+  sidechain would chain on (through the escrow output), would let anyone evict all of them at no
+  cost. (Mempool policy only: in a block such a transaction is harmless, and stays valid.)
 * A deposit of the wallet's that the mempool drops nonetheless (another deposit, or a withdrawal,
   took its escrow output in a block; a replacement) is reported: `sidechain_deposit_dropped` in
   `gettransaction`/`listtransactions`, a warning in the log, `-walletnotify`. Its coins are
