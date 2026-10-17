@@ -225,6 +225,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         pblocktemplate->vTxFees.push_back(drivechain_additions.withdrawal_fees[i]);
         pblocktemplate->vTxSigOpsCost.push_back(WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*withdrawal));
         nBlockWeight += GetTransactionWeight(*withdrawal);
+        pblocktemplate->m_withdrawal_weight += GetTransactionWeight(*withdrawal);
         nBlockSigOpsCost += pblocktemplate->vTxSigOpsCost.back();
         nFees += drivechain_additions.withdrawal_fees[i];
         ++nBlockTx;

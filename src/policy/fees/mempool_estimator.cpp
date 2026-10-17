@@ -409,8 +409,14 @@ util::Expected<FeeRateEstimation, FeeRateEstimationError> MemPoolFeeRateEstimato
     if (!blocktemplate) return EstimationError(strprintf("%s: Failed to create block template for fee rate estimation", FeeRateEstimatorTypeToString(estimator_type)));
     // Sort again because the rounding up when converting from weight to vsize may cause slight misorder.
     std::sort(blocktemplate->m_package_feerates.begin(), blocktemplate->m_package_feerates.end(), [](const auto& a, const auto& b) { return ByRatio{a} > ByRatio{b}; });
-    // The percentiles are of a block of this chain, whose transactions may weigh less than Bitcoin's.
-    const auto percentiles = CalculateMaxWeightPercentiles(blocktemplate->m_package_feerates, m_chainman.GetConsensus().max_block_tx_weight);
+    // The percentiles are of a block of this chain, whose transactions may weigh less than Bitcoin's,
+    // and of the part of it that transactions from the mempool can have: the miner keeps room for the
+    // withdrawals that can be paid out (which pay what their bundle says, whatever the mempool). Of the
+    // whole block, the percentiles would fall in that room while a bundle is payable, and give the
+    // floor however full the mempool is.
+    const int64_t max_tx_weight{m_chainman.GetConsensus().max_block_tx_weight};
+    const int64_t withdrawal_weight{static_cast<int64_t>(std::min<uint64_t>(blocktemplate->m_withdrawal_weight, max_tx_weight))};
+    const auto percentiles = CalculateMaxWeightPercentiles(blocktemplate->m_package_feerates, std::max<int64_t>(max_tx_weight - withdrawal_weight, WITNESS_SCALE_FACTOR));
     // Fall back to a relayable floor (the higher of the min relay fee and the current
     // mempool min fee) for any percentile the mempool was too sparse to fill.
     const FeePerVSize floor{std::max(m_mempool.m_opts.min_relay_feerate, m_mempool.GetMinFee()).GetFeePerVSize()};

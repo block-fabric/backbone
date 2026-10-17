@@ -51,6 +51,9 @@ struct CBlockTemplate
     /* A vector of package fee rates, ordered by the sequence in which
      * packages are selected for inclusion in the block template.*/
     std::vector<FeePerVSize> m_package_feerates;
+    /** Drivechain: the weight of the withdrawals the miner put at the end of the block (from no
+     * mempool chunk, so not in m_package_feerates). */
+    uint64_t m_withdrawal_weight{0};
     /*
      * Template containing all coinbase transaction fields that are set by our
      * miner code.
