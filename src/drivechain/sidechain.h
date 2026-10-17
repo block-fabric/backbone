@@ -114,7 +114,17 @@ struct Sidechain {
 
 /** Work score of a bundle in the block that proposes it. */
 inline constexpr uint32_t NEW_BUNDLE_SCORE{1};
-/** Proposals (M1) a block may make; any beyond are ignored. */
+/**
+ * Proposals (M1) a block may make; any beyond are ignored.
+ *
+ * This is the only bound on the list of pending proposals, besides their life (a proposal nobody acks
+ * goes after activation_max_failures blocks): a miner with a share s of the blocks can keep about
+ * 8 * s * activation_max_failures / (1 - s) of them pending: some ten thousand (over 10 MB) at 30% on mainnet.
+ * Deliberately no cap on the list, total or per slot, and no fee: a list that is full refuses the
+ * next proposal, so whoever keeps it full (a minority miner, at no cost but coinbase bytes) would
+ * decide which sidechains can be proposed at all, where today a proposal needs only one block and
+ * activation needs a majority of the blocks. A cost in memory and disk is the lesser harm.
+ */
 inline constexpr size_t MAX_PROPOSALS_PER_BLOCK{8};
 
 /** A sidechain proposal that is collecting acks. */

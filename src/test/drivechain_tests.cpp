@@ -553,10 +553,24 @@ BOOST_AUTO_TEST_CASE(withdrawals)
     BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-votes-size");
     BOOST_CHECK(!chain.Connect({Votes({0}), Votes({0})}));
     BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-votes");
-    // The two byte form is for votes that need it.
+    // The two byte form is for votes that need it: a bundle index above VOTE_MAX_ONE_BYTE_INDEX.
+    // ABSTAIN and DOWNVOTE have one byte forms (0xFF, 0xFE), as MakeVoteMessage writes them.
     BOOST_CHECK(!chain.Connect({VoteScript({VoteForm::TWO_BYTES, {0}})}));
     BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-votes-form");
+    for (const uint16_t vote : {VOTE_ABSTAIN, VOTE_DOWNVOTE}) {
+        BOOST_CHECK(!chain.Connect({VoteScript({VoteForm::TWO_BYTES, {vote}})}));
+        BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-votes-form");
+        BOOST_CHECK(MakeVoteMessage({vote}).form == VoteForm::ONE_BYTE);
+    }
+    // Below canonical_votes_height (on a network whose chain had blocks before the rule), they are
+    // valid as they were; from that height on, not.
+    chain.params.canonical_votes_height = chain.height + 2;
     BOOST_REQUIRE(chain.Connect({VoteScript({VoteForm::TWO_BYTES, {VOTE_ABSTAIN}})}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(1)->bundles[0].score, 1U);
+    BOOST_CHECK(!chain.Connect({VoteScript({VoteForm::TWO_BYTES, {VOTE_ABSTAIN}})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-votes-form");
+    chain.params.canonical_votes_height = 0;
+    BOOST_REQUIRE(chain.Connect({Votes({VOTE_ABSTAIN})}));
 
     while (chain.scdb.GetSlot(1)->bundles[0].score < static_cast<uint32_t>(chain.params.withdrawal_min_score)) {
         BOOST_REQUIRE(chain.Connect({Votes({0})}));
@@ -1758,7 +1772,26 @@ BOOST_AUTO_TEST_CASE(database_params_fingerprint)
     BOOST_CHECK(changed([](auto& p) { ++p.idle_expiry_blocks; }) != fingerprint);
     BOOST_CHECK(changed([](auto& p) { ++p.withdrawal_period; }) != fingerprint);
     BOOST_CHECK(changed([](auto& p) { --p.max_sidechains; }) != fingerprint);
+    BOOST_CHECK(changed([](auto& p) { ++p.canonical_votes_height; }) != fingerprint);
     BOOST_CHECK(changed([](auto&) {}) == fingerprint);
+    // The fingerprint a node keeps its database under takes in the block size limits as well: the
+    // database is derived anew under new ones, and the blocks are checked against them then.
+    {
+        Consensus::Params consensus{};
+        consensus.drivechain = params;
+        const uint256 node_fingerprint{ParamsFingerprint(consensus)};
+        BOOST_CHECK(node_fingerprint != fingerprint);
+        Consensus::Params other{consensus};
+        --other.max_block_weight;
+        BOOST_CHECK(ParamsFingerprint(other) != node_fingerprint);
+        other = consensus;
+        --other.max_block_tx_weight;
+        BOOST_CHECK(ParamsFingerprint(other) != node_fingerprint);
+        other = consensus;
+        ++other.drivechain.withdrawal_period;
+        BOOST_CHECK(ParamsFingerprint(other) != node_fingerprint);
+        BOOST_CHECK(ParamsFingerprint(Consensus::Params{consensus}) == node_fingerprint);
+    }
     const uint256 other{changed([](auto& p) { ++p.upvote_expiry_blocks; })};
 
     const fs::path path{m_path_root / "drivechain_fingerprint"};

@@ -5258,6 +5258,10 @@ bool Chainstate::PrepareDrivechainDB(const CBlockIndex* rebuild_from, bilingual_
     case drivechain::Database::Format::OTHER_VERSION:
         // Laid out another way (by an older version): built anew from the blocks.
         LogInfo("The sidechain database is in an older format; it is rebuilt from the blocks");
+        // A new format comes with a new version, whose drivechain rules may differ in code alone (the
+        // parameters, and so their fingerprint, unchanged): blocks found invalid under the old rules
+        // are judged again, as for other parameters.
+        ResetAllBlockFailureFlags();
         db.Wipe();
         break;
     case drivechain::Database::Format::OTHER_PARAMS:
@@ -5377,6 +5381,18 @@ bool Chainstate::RollForwardSidechainDB(drivechain::SidechainDB& scdb, const CBl
         CBlock block;
         if (!m_blockman.ReadBlock(block, *next)) {
             LogError("%s: failed to read block %s", __func__, next->GetBlockHash().ToString());
+            return false;
+        }
+        // The block size limits are part of the parameter fingerprint: under new ones the database is
+        // derived anew, and a block of the active chain they no longer allow is found here, like a
+        // block that breaks new drivechain rules (ContextualCheckBlock checks them for new blocks).
+        const Consensus::Params& consensus{m_chainman.GetConsensus()};
+        int64_t tx_weight{0};
+        for (size_t i{1}; i < block.vtx.size(); ++i) tx_weight += GetTransactionWeight(*block.vtx[i]);
+        if (GetBlockWeight(block) > consensus.max_block_weight ||
+            (consensus.max_block_tx_weight < consensus.max_block_weight && tx_weight > consensus.max_block_tx_weight)) {
+            LogError("%s: block %s is larger than the block size limits allow (bad-blk-weight)", __func__, next->GetBlockHash().ToString());
+            if (invalid) *invalid = next;
             return false;
         }
         drivechain::BlockUndo undo;

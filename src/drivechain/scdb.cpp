@@ -25,11 +25,20 @@ int Age(int proposed_height, int height) { return height - proposed_height + 1; 
 uint256 ParamsFingerprint(const Consensus::DrivechainParams& params)
 {
     // Every field: a parameter added later has to be added here as well.
-    static_assert(sizeof(Consensus::DrivechainParams) == 10 * sizeof(int32_t), "a new drivechain parameter goes into the fingerprint");
+    static_assert(sizeof(Consensus::DrivechainParams) == 11 * sizeof(int32_t), "a new drivechain parameter goes into the fingerprint");
     HashWriter hasher{};
     hasher << std::string{"Chains drivechain parameters"} << params.max_sidechains << params.activation_period << params.activation_max_failures
            << params.replacement_period << params.withdrawal_period << params.withdrawal_min_score << params.max_pending_bundles
-           << params.idle_expiry_blocks << params.upvote_expiry_blocks << params.unvoted_forget_blocks;
+           << params.idle_expiry_blocks << params.upvote_expiry_blocks << params.unvoted_forget_blocks << params.canonical_votes_height;
+    return hasher.GetHash();
+}
+
+uint256 ParamsFingerprint(const Consensus::Params& consensus)
+{
+    // The block size limits as well: the database is derived anew from the blocks under new ones,
+    // and the blocks of the active chain are checked against them then (RollForwardSidechainDB).
+    HashWriter hasher{};
+    hasher << ParamsFingerprint(consensus.drivechain) << consensus.max_block_weight << consensus.max_block_tx_weight;
     return hasher.GetHash();
 }
 
@@ -480,9 +489,15 @@ bool SidechainDB::ConnectBlock(const CBlock& block, int height, const Consensus:
         case VoteForm::ONE_BYTE:
         case VoteForm::TWO_BYTES:
             if (votes->votes.size() != votable.size()) return invalid("bad-dc-votes-size");
-            // The two byte form is only for votes that do not fit in one.
-            if (votes->form == VoteForm::TWO_BYTES && std::all_of(votes->votes.begin(), votes->votes.end(), [](uint16_t v) { return v <= VOTE_MAX_ONE_BYTE_INDEX; })) {
-                return invalid("bad-dc-votes-form");
+            // The two byte form is only for votes that do not fit in one: a bundle index above
+            // VOTE_MAX_ONE_BYTE_INDEX (ABSTAIN and DOWNVOTE have one byte forms, see MakeVoteMessage).
+            if (votes->form == VoteForm::TWO_BYTES) {
+                const bool canonical{height >= params.canonical_votes_height};
+                if (std::all_of(votes->votes.begin(), votes->votes.end(), [&](uint16_t v) {
+                        return v <= VOTE_MAX_ONE_BYTE_INDEX || (canonical && (v == VOTE_ABSTAIN || v == VOTE_DOWNVOTE));
+                    })) {
+                    return invalid("bad-dc-votes-form");
+                }
             }
             for (size_t i{0}; i < votes->votes.size(); ++i) {
                 const uint16_t entry{votes->votes[i]};

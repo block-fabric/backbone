@@ -68,9 +68,14 @@ replaying every proposal and closure since its slot activated.
   data of an older version wipes it and rebuilds it from the blocks when it starts (a pruned node,
   which no longer has them, has to be started with `-reindex`). The snapshot and the format marker
   also carry a fingerprint of all the drivechain parameters of the network (`ParamsFingerprint`):
-  periods, expiries, limits. A node whose parameters changed (a new release that changes a period,
-  say) finds a fingerprint that does not match, and wipes and rebuilds
-  the drivechain data from genesis the same way, rather than keep a state derived under the old rules.
+  periods, expiries, limits, and the block size limits (`max_block_weight`, `max_block_tx_weight`).
+  A node whose parameters changed (a new release that changes a period, say) finds a fingerprint
+  that does not match, and wipes and rebuilds the drivechain data from genesis the same way, rather
+  than keep a state derived under the old rules. The rebuild checks each block of the active chain
+  against the block size limits as well, and blocks found invalid before (under other parameters, or
+  by an older version: a new format) are judged again.
+  A pruned node never deletes the blocks after the last snapshot written (the next start brings the
+  snapshot forward from them), and a flush writes the snapshot before it deletes block files.
 * Per block, what it did that sidechain software follows (the bundles it closed, paid or failed,
   those it proposed, those pending after it with their scores, and its escrow changes): for good,
   for `getsidechainevents` and `listsidechaindeposits`. The pending bundles cost about 36 bytes per
@@ -130,3 +135,24 @@ replaying every proposal and closure since its slot activated.
   reorg and the next flush can leave records of others); they are skipped without counting towards
   `count`, and an `after` whose record is such a stale one resumes from the record of the same
   transaction in the active chain, or is refused.
+* Proposals (M1): a block makes 8 at most, and one nobody acks goes after `activation_max_failures`
+  blocks; the list of pending proposals has no other bound. A cap on it (total or per slot) or a fee
+  would let whoever keeps the list full (a minority miner, for coinbase bytes) decide which
+  sidechains can be proposed at all; a miner with 30% of the blocks can keep some ten thousand
+  pending (over 10 MB) instead, which costs memory and disk only.
+* Vote messages (M4) in the two byte form must need it (an index above 253; ABSTAIN and DOWNVOTE
+  have one byte forms). On testnet this holds from `canonical_votes_height`, set at a deploy; from
+  genesis on the other networks.
+
+## Mempool: deposits and BMM requests
+
+* A BMM request is for the next block only, and the mempool drops it, with everything that spends
+  it, once a block without it is found. So only another BMM request may spend the outputs of an
+  unconfirmed one (`dc-unconfirmed-parent`): a deposit paid from its change, which every later
+  deposit to the sidechain would chain on (through the escrow output), would let anyone evict all of
+  them at no cost.
+* A deposit of the wallet's that the mempool drops nonetheless (another deposit, or a withdrawal,
+  took its escrow output in a block; a replacement) is reported: `sidechain_deposit_dropped` in
+  `gettransaction`/`listtransactions`, a warning in the log, `-walletnotify`. Its coins are
+  spendable again; `createsidechaindeposit` with `replaces=<txid>` makes it again, spending a coin
+  the dropped one spent, so that only one of the two can ever be mined.

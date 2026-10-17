@@ -29,11 +29,20 @@
 #include <cstdint>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <span>
 #include <utility>
 
 using namespace util::hex_literals;
+
+/**
+ * Testnet: height from which a two byte vote message (M4) must need two bytes (see
+ * Consensus::DrivechainParams::canonical_votes_height). PLACEHOLDER: never active until it is set at
+ * deploy time to a height a few blocks above the testnet tip. Changing it changes the drivechain
+ * parameter fingerprint: the sidechain database is rebuilt from the blocks once at the next start.
+ */
+static constexpr int TESTNET_CANONICAL_VOTES_HEIGHT{std::numeric_limits<int>::max()};
 
 static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
@@ -239,6 +248,9 @@ public:
         consensus.drivechain.idle_expiry_blocks = 30;
         consensus.drivechain.upvote_expiry_blocks = 30;
         consensus.drivechain.unvoted_forget_blocks = 60;
+        // The canonical vote form, enforced from a height of this network's chain (blocks already on it
+        // were judged without it): see TESTNET_CANONICAL_VOTES_HEIGHT.
+        consensus.drivechain.canonical_votes_height = TESTNET_CANONICAL_VOTES_HEIGHT;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.enforce_BIP94 = false; // aserti3 is not subject to the timewarp attack
         consensus.fPowNoRetargeting = false;
@@ -454,6 +466,8 @@ public:
                 dc.upvote_expiry_blocks = value;
             } else if (name == "unvoted_forget_blocks") {
                 dc.unvoted_forget_blocks = value;
+            } else if (name == "canonical_votes_height") {
+                dc.canonical_votes_height = value;
             } else {
                 throw std::runtime_error(strprintf("Invalid name (%s) for -testdrivechainparam=name@value.", name));
             }

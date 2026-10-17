@@ -27,12 +27,18 @@
 #include <node/context.h>
 #include <node/kernel_notifications.h>
 #include <node/cpuminer.h>
+#include <node/miner.h>
 #include <node/utxo_snapshot.h>
+#include <policy/fees/estimator_args.h>
+#include <policy/fees/mempool_estimator.h>
+#include <policy/policy.h>
 #include <test/util/chainstate.h>
 #include <test/util/common.h>
 #include <test/util/logging.h>
 #include <test/util/setup_common.h>
+#include <test/util/txmempool.h>
 #include <txmempool.h>
+#include <util/feefrac.h>
 #include <util/time.h>
 #include <util/translation.h>
 #include <validation.h>
@@ -42,6 +48,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -408,7 +415,7 @@ BOOST_AUTO_TEST_CASE(older_database_format_is_rebuilt)
     LOCK(::cs_main);
     Chainstate& chainstate{ActiveChainstate()};
     const SidechainDB expected{chainstate.m_scdb};
-    const uint256 fingerprint{ParamsFingerprint(m_node.chainman->GetConsensus().drivechain)};
+    const uint256 fingerprint{ParamsFingerprint(m_node.chainman->GetConsensus())};
     const auto old_database{[&](const fs::path& path) {
         {
             CDBWrapper old{DBParams{.path = path, .cache_bytes = 1 << 20}};
@@ -555,6 +562,149 @@ BOOST_AUTO_TEST_CASE(roll_forward_needs_the_blocks)
         BOOST_CHECK(!chainstate.RollForwardSidechainDB(scdb, chainstate.m_chain.Tip(), header, header->nHeight));
     }
     BOOST_CHECK(scdb == chainstate.m_scdb);
+}
+
+BOOST_AUTO_TEST_CASE(roll_forward_checks_the_block_size_limits)
+{
+    // The block size limits are part of the fingerprint the database is kept under: under smaller
+    // ones it is derived anew, and a block of the active chain they no longer allow is found then,
+    // as one that breaks the drivechain rules is (and the chainstate goes back below it).
+    ActivateSidechain(0);
+    CreateAndProcessBlock({FirstDeposit(0, COIN, 1)}, coinbase_script);
+    Mine();
+    LOCK(::cs_main);
+    Chainstate& chainstate{ActiveChainstate()};
+    const CBlockIndex* tip{chainstate.m_chain.Tip()};
+    const CBlockIndex* large{tip->pprev};
+    CBlock block;
+    BOOST_REQUIRE(m_node.chainman->m_blockman.ReadBlock(block, *large));
+    BOOST_REQUIRE_EQUAL(block.vtx.size(), 2U);
+    const int64_t tx_weight{GetTransactionWeight(*block.vtx[1])};
+    // (The parameters of a test chain are not const: a smaller limit, as a new version might have.)
+    auto& consensus{const_cast<Consensus::Params&>(m_node.chainman->GetConsensus())};
+    const auto saved{consensus};
+    const auto roll_forward{[&](const CBlockIndex*& invalid) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+        SidechainDB scdb;
+        scdb.SetBlockHash(chainstate.m_chain.Genesis()->GetBlockHash());
+        invalid = nullptr;
+        const bool ok{chainstate.RollForwardSidechainDB(scdb, chainstate.m_chain.Genesis(), tip, tip->nHeight - DRIVECHAIN_UNDO_DEPTH, &invalid)};
+        BOOST_CHECK(scdb.GetBlockHash() == (ok ? tip : large->pprev)->GetBlockHash());
+        return ok;
+    }};
+    const CBlockIndex* invalid{nullptr};
+    BOOST_CHECK(roll_forward(invalid));
+    BOOST_CHECK(!invalid);
+
+    consensus.max_block_tx_weight = tx_weight - 1;
+    {
+        ASSERT_DEBUG_LOG("block " + large->GetBlockHash().ToString() + " is larger than the block size limits allow");
+        BOOST_CHECK(!roll_forward(invalid));
+    }
+    BOOST_CHECK(invalid == large);
+    consensus = saved;
+
+    consensus.max_block_weight = GetBlockWeight(block) - 1;
+    {
+        ASSERT_DEBUG_LOG("block " + large->GetBlockHash().ToString() + " is larger than the block size limits allow");
+        BOOST_CHECK(!roll_forward(invalid));
+    }
+    BOOST_CHECK(invalid == large);
+    consensus = saved;
+}
+
+BOOST_AUTO_TEST_CASE(fee_estimate_leaves_out_the_room_kept_for_withdrawals)
+{
+    // While a bundle is payable the miner keeps room for its withdrawal, which no mempool chunk
+    // takes: the percentiles of the mempool fee estimator are of the room transactions have.
+    const SidechainId slot{1};
+    ActivateSidechain(slot);
+    CreateAndProcessBlock({FirstDeposit(slot, 20 * COIN, 1)}, coinbase_script);
+    CMutableTransaction blind;
+    blind.vout.emplace_back(0, WithdrawalFeeScript(COIN / 100));
+    // Payouts to 34 byte scripts (as P2WSH or P2TR): some 170,000 weight.
+    for (int i{0}; i < 1000; ++i) blind.vout.emplace_back(COIN / 1000, CScript() << OP_1 << std::vector<unsigned char>(32, static_cast<unsigned char>(i)));
+    std::string error;
+    const auto bundle{m_node.chainman->m_drivechain_miner.AddBundle(slot, blind, error)};
+    BOOST_REQUIRE_MESSAGE(bundle, error);
+    const auto score{[&] {
+        LOCK(::cs_main);
+        const Slot* state{ActiveChainstate().m_scdb.GetSlot(slot)};
+        return state && !state->bundles.empty() ? state->bundles[0].score : 0U;
+    }};
+    while (score() < static_cast<uint32_t>(m_node.chainman->GetConsensus().drivechain.withdrawal_min_score)) Mine();
+
+    // Transactions of 4,000 weight or so: at a high fee rate as much as the room the withdrawal
+    // leaves to 3/4 of, then as much again at a low one.
+    const auto make_tx{[&] {
+        CMutableTransaction tx;
+        tx.vin.resize(1);
+        tx.vin[0].prevout.hash = Txid::FromUint256(m_rng.rand256());
+        tx.vin[0].scriptSig << OP_TRUE;
+        tx.vout.assign(95, CTxOut{1000, CScript() << OP_TRUE});
+        return MakeTransactionRef(tx);
+    }};
+    const int64_t tx_vsize{GetVirtualTransactionSize(*make_tx())};
+    const CAmount high_fee{100 * tx_vsize};
+    const CAmount low_fee{2 * tx_vsize};
+    const int64_t max_tx_weight{m_node.chainman->GetConsensus().max_block_tx_weight};
+    {
+        node::BlockCreateOptions options;
+        options.test_block_validity = false;
+        const auto empty_template{WITH_LOCK(::cs_main, return node::BlockAssembler(ActiveChainstate(), m_node.mempool.get(), options).CreateNewBlock())};
+        BOOST_REQUIRE(empty_template);
+        BOOST_CHECK_GT(empty_template->m_withdrawal_weight, 100'000U);
+        // Past 3/4 of the room the withdrawal leaves, short of 3/4 of the whole block.
+        const int64_t high_weight{(max_tx_weight - static_cast<int64_t>(empty_template->m_withdrawal_weight)) * 3 / 4 + 10'000};
+        BOOST_REQUIRE_LT(high_weight, max_tx_weight * 3 / 4);
+        TestMemPoolEntryHelper entry;
+        LOCK2(::cs_main, m_node.mempool->cs);
+        for (int64_t weight{0}; weight < high_weight; weight += tx_vsize * WITNESS_SCALE_FACTOR) {
+            TryAddToMempool(*m_node.mempool, entry.Fee(high_fee).FromTx(make_tx()));
+        }
+        for (int64_t weight{0}; weight < max_tx_weight / 2; weight += tx_vsize * WITNESS_SCALE_FACTOR) {
+            TryAddToMempool(*m_node.mempool, entry.Fee(low_fee).FromTx(make_tx()));
+        }
+    }
+    m_node.mempool->SetLoadTried(true);
+    MemPoolFeeRateEstimator estimator{MempoolPolicyEstimatorPath(*m_node.args), *m_node.mempool, *m_node.chainman};
+    // Enough recent blocks (empty ones: the mempool is healthy) for an estimate.
+    unsigned int height{1000};
+    for (size_t i{0}; i < MEMPOOL_HEALTH_WINDOW_BLOCKS; ++i) {
+        auto empty{std::make_shared<CBlock>()};
+        empty->vtx.push_back(make_tx());
+        estimator.MempoolTxsRemovedForBlock(empty, {}, height++);
+    }
+    const auto economical{estimator.EstimateFeeRate(/*conservative=*/false)};
+    BOOST_REQUIRE(economical);
+    // The 75th percentile of the whole block would be a low fee transaction.
+    BOOST_CHECK(economical->feerate == FeeFrac(high_fee, tx_vsize));
+}
+
+BOOST_AUTO_TEST_CASE(older_database_format_judges_failed_blocks_again)
+{
+    // A new database format comes with a new version, whose drivechain rules may differ in code alone:
+    // as under other parameters, the blocks found invalid before are judged again.
+    Mine();
+    LOCK(::cs_main);
+    Chainstate& chainstate{ActiveChainstate()};
+    CBlockIndex* failed{chainstate.m_chain.Tip()};
+    // Not the tip of a chain: failed with no reason the chain can see, flagged by hand.
+    failed->nStatus |= BLOCK_FAILED_VALID;
+    const uint256 fingerprint{ParamsFingerprint(m_node.chainman->GetConsensus())};
+    auto current{std::move(m_node.chainman->m_blockman.m_drivechain_db)};
+    {
+        CDBWrapper old{DBParams{.path = m_path_root / "older_drivechain", .cache_bytes = 1 << 20}};
+        old.Write(uint8_t{'v'}, uint32_t{7});
+    }
+    m_node.chainman->m_blockman.m_drivechain_db = std::make_unique<Database>(DBParams{.path = m_path_root / "older_drivechain", .cache_bytes = 1 << 20}, fingerprint);
+    BOOST_REQUIRE(DrivechainDB().CheckFormat() == Database::Format::OTHER_VERSION);
+    bilingual_str error;
+    {
+        ASSERT_DEBUG_LOG("1 blocks found invalid under the former drivechain parameters are judged again");
+        BOOST_CHECK(chainstate.LoadDrivechainState(error));
+    }
+    BOOST_CHECK(!(failed->nStatus & BLOCK_FAILED_VALID));
+    m_node.chainman->m_blockman.m_drivechain_db = std::move(current);
 }
 
 BOOST_AUTO_TEST_CASE(sweep_erases_undo_data_out_of_reach)
@@ -796,7 +946,8 @@ BOOST_AUTO_TEST_CASE(test_drivechain_params)
         return args;
     }};
     const auto args{parse({"max_sidechains@5", "activation_period@6", "activation_max_failures@7", "replacement_period@8", "withdrawal_period@9",
-                           "withdrawal_min_score@10", "max_pending_bundles@11", "idle_expiry_blocks@12", "upvote_expiry_blocks@13", "unvoted_forget_blocks@14"})};
+                           "withdrawal_min_score@10", "max_pending_bundles@11", "idle_expiry_blocks@12", "upvote_expiry_blocks@13", "unvoted_forget_blocks@14",
+                           "canonical_votes_height@15"})};
     const auto params{CreateChainParams(*args, ChainType::REGTEST)};
     const Consensus::DrivechainParams& dc{params->GetConsensus().drivechain};
     BOOST_CHECK_EQUAL(dc.max_sidechains, 5U);
@@ -809,6 +960,12 @@ BOOST_AUTO_TEST_CASE(test_drivechain_params)
     BOOST_CHECK_EQUAL(dc.idle_expiry_blocks, 12);
     BOOST_CHECK_EQUAL(dc.upvote_expiry_blocks, 13);
     BOOST_CHECK_EQUAL(dc.unvoted_forget_blocks, 14);
+    BOOST_CHECK_EQUAL(dc.canonical_votes_height, 15);
+    // From genesis by default; on testnet, from a height set at deploy (its blocks before were judged without it).
+    BOOST_CHECK_EQUAL(CreateChainParams(*parse({}), ChainType::REGTEST)->GetConsensus().drivechain.canonical_votes_height, 0);
+    BOOST_CHECK_EQUAL(CreateChainParams(*parse({}), ChainType::MAIN)->GetConsensus().drivechain.canonical_votes_height, 0);
+    BOOST_CHECK_EQUAL(CreateChainParams(*parse({}), ChainType::SIGNET)->GetConsensus().drivechain.canonical_votes_height, 0);
+    BOOST_CHECK_GT(CreateChainParams(*parse({}), ChainType::TESTNET)->GetConsensus().drivechain.canonical_votes_height, 0);
     // Other parameters, other fingerprint.
     BOOST_CHECK(ParamsFingerprint(dc) != ParamsFingerprint(CreateChainParams(*parse({}), ChainType::REGTEST)->GetConsensus().drivechain));
 
@@ -867,6 +1024,79 @@ BOOST_FIXTURE_TEST_CASE(cpu_miner_on_signet, SignetSetup)
     BOOST_CHECK(!miner.Start(1, CScript() << OP_TRUE, error));
     BOOST_CHECK_EQUAL(error, "Blocks of a signet need a signature; use contrib/signet/miner instead");
     BOOST_CHECK(!miner.GetStats().running);
+}
+
+namespace {
+struct PrunedDrivechainSetup : public TestChain100Setup {
+    PrunedDrivechainSetup() : TestChain100Setup{ChainType::REGTEST, {.extra_args = {"-prune=1", "-fastprune"}}} {}
+};
+
+/** The order of the lines that contain one of `messages`, as they are logged. */
+struct LogOrder {
+    std::vector<std::string> messages;
+    std::vector<std::string> seen;
+    std::list<std::function<void(const std::string&)>>::iterator callback;
+    explicit LogOrder(std::vector<std::string> m) : messages{std::move(m)}
+    {
+        callback = LogInstance().PushBackCallback([this](const std::string& line) {
+            for (const std::string& message : messages) {
+                if (line.find(message) != std::string::npos) seen.push_back(message);
+            }
+        });
+    }
+    ~LogOrder() { LogInstance().DeleteCallback(callback); }
+};
+} // namespace
+
+BOOST_FIXTURE_TEST_CASE(pruning_keeps_the_blocks_after_the_snapshot, PrunedDrivechainSetup)
+{
+    // The snapshot of the sidechain database is brought forward at startup from the blocks after it:
+    // pruning never takes those, and a flush writes the snapshot before it deletes any block file
+    // (should it stop between the two, the snapshot is ahead of the coins and is taken back by its
+    // undo data at the next start).
+    // Blocks of 4 kB (a large coinbase output): many block files (of 64 kB with -fastprune).
+    const CScript script{CScript() << OP_RETURN << std::vector<unsigned char>(4000, 0x42)};
+    for (int i{0}; i < 400; ++i) CreateAndProcessBlock({}, script);
+    Chainstate& chainstate{m_node.chainman->ActiveChainstate()};
+    node::BlockManager& blockman{m_node.chainman->m_blockman};
+    BOOST_REQUIRE(blockman.IsPruneMode());
+    const auto have_data{[&](int height) { return WITH_LOCK(::cs_main, return (chainstate.m_chain[height]->nStatus & BLOCK_HAVE_DATA) != 0); }};
+    const int tip_height{WITH_LOCK(::cs_main, return chainstate.m_chain.Height())};
+    BOOST_REQUIRE(have_data(1));
+    LogInstance().EnableCategory(BCLog::BENCH);
+    LogInstance().EnableCategory(BCLog::PRUNE);
+
+    // The database at another block than the coins (no snapshot written in this flush): no block
+    // after the last snapshot written goes.
+    const int snapshot_height{150};
+    {
+        LOCK(::cs_main);
+        const uint256 at{chainstate.m_scdb.GetBlockHash()};
+        chainstate.m_scdb.SetBlockHash(uint256{0x42});
+        chainstate.m_drivechain_snapshot_height = snapshot_height;
+        {
+            ASSERT_DEBUG_LOG(strprintf("the sidechain database snapshot limited pruning to height %d", snapshot_height));
+            PruneBlockFilesManual(chainstate, tip_height - 300);
+        }
+        chainstate.m_scdb.SetBlockHash(at);
+    }
+    BOOST_CHECK(!have_data(1));
+    for (int height{snapshot_height + 1}; height <= tip_height; ++height) BOOST_REQUIRE(have_data(height));
+
+    // At the block of the coins: the flush writes the snapshot of the tip, then deletes files.
+    {
+        LogOrder order{{"write the sidechain database snapshot started", "unlink pruned files started"}};
+        PruneBlockFilesManual(chainstate, tip_height - 290);
+        BOOST_CHECK(order.seen == (std::vector<std::string>{"write the sidechain database snapshot started", "unlink pruned files started"}));
+    }
+    BOOST_CHECK(!have_data(snapshot_height + 1));
+    LOCK(::cs_main);
+    BOOST_CHECK_EQUAL(chainstate.m_drivechain_snapshot_height, tip_height);
+    SidechainDB saved;
+    BOOST_REQUIRE(blockman.m_drivechain_db->ReadState(chainstate.DrivechainStateName(), saved));
+    BOOST_CHECK(saved.GetBlockHash() == chainstate.m_chain.Tip()->GetBlockHash());
+    LogInstance().DisableCategory(BCLog::BENCH);
+    LogInstance().DisableCategory(BCLog::PRUNE);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

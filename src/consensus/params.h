@@ -122,6 +122,13 @@ struct DrivechainParams {
      */
     int upvote_expiry_blocks{144};
     int unvoted_forget_blocks{1008};
+    /**
+     * From this height on, a vote message (M4) in the two byte form is valid only if a vote in it
+     * needs two bytes: a bundle index above 253. ABSTAIN and DOWNVOTE fit in one byte (0xFF, 0xFE),
+     * so a message of only those, in two bytes, is the non-canonical form of a one byte message.
+     * (Before it, any two byte message with a value above 253, ABSTAIN and DOWNVOTE included, was.)
+     */
+    int canonical_votes_height{0};
 };
 
 /**

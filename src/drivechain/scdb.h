@@ -29,6 +29,8 @@ namespace drivechain {
  * say) is derived anew.
  */
 uint256 ParamsFingerprint(const Consensus::DrivechainParams& params);
+/** The fingerprint the database of a node is kept under: of the drivechain parameters, and of the block size limits. */
+uint256 ParamsFingerprint(const Consensus::Params& consensus);
 
 /** What became of a bundle that is no longer pending. */
 struct ClosedBundle {
