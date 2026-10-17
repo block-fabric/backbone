@@ -3009,6 +3009,18 @@ bool Chainstate::FlushStateToDisk(
             if (limiting_lock) {
                 LogDebug(BCLog::PRUNE, "%s limited pruning to height %d\n", limiting_lock.value(), last_prune);
             }
+            // Never the blocks the sidechain database would be brought forward from at the next start:
+            // those after the snapshot of it that is on disk once this flush is done (this flush writes
+            // one of the tip, see below, when the database is at the block the coins are).
+            {
+                const CBlockIndex* coins_tip{m_blockman.LookupBlockIndex(CoinsTip().GetBestBlock())};
+                const bool snapshot_now{coins_tip && m_scdb.GetBlockHash() == coins_tip->GetBlockHash()};
+                const int snapshot_height{snapshot_now ? coins_tip->nHeight : m_drivechain_snapshot_height};
+                if (snapshot_height < last_prune) {
+                    last_prune = std::max(0, snapshot_height);
+                    LogDebug(BCLog::PRUNE, "the sidechain database snapshot limited pruning to height %d\n", last_prune);
+                }
+            }
 
             if (nManualPruneHeight > 0) {
                 LOG_TIME_MILLIS_WITH_CATEGORY("find files to prune (manual)", BCLog::BENCH);
@@ -3067,6 +3079,18 @@ bool Chainstate::FlushStateToDisk(
 
                 m_blockman.WriteBlockIndexDB();
             }
+            // The snapshot of the sidechain database that matches the coins about to be flushed, before
+            // any block file goes: should the node stop before the coins are flushed (or the write
+            // fail, which ends here), the snapshot is ahead of the coins, and the next start takes it
+            // back with its undo data (LoadDrivechainState), where the other way round it would have to
+            // be brought forward from blocks that are gone.
+            if (!CoinsTip().GetBestBlock().IsNull() && m_scdb.GetBlockHash() == CoinsTip().GetBestBlock()) {
+                LOG_TIME_MILLIS_WITH_CATEGORY("write the sidechain database snapshot", BCLog::BENCH);
+
+                m_blockman.m_drivechain_db->WriteState(DrivechainStateName(), m_scdb);
+                if (const CBlockIndex* snapshot{m_blockman.LookupBlockIndex(m_scdb.GetBlockHash())}) m_drivechain_snapshot_height = snapshot->nHeight;
+            }
+
             // Finally remove any pruned files
             if (fFlushForPrune) {
                 LOG_TIME_MILLIS_WITH_CATEGORY("unlink pruned files", BCLog::BENCH);
@@ -3083,12 +3107,9 @@ bool Chainstate::FlushStateToDisk(
                 if (!CheckDiskSpace(m_chainman.m_options.datadir, 48 * 2 * 2 * CoinsTip().GetDirtyCount())) {
                     return FatalError(m_chainman.GetNotifications(), state, _("Disk space is too low!"));
                 }
-                // Flush the chainstate (which may refer to block index entries).
+                // Flush the chainstate (which may refer to block index entries). The snapshot of the
+                // sidechain database that matches it was written above.
                 empty_cache ? CoinsTip().Flush() : CoinsTip().Sync();
-                // Keep a snapshot of the sidechain database that matches the coins on disk.
-                if (m_scdb.GetBlockHash() == CoinsTip().GetBestBlock()) {
-                    m_blockman.m_drivechain_db->WriteState(DrivechainStateName(), m_scdb);
-                }
                 m_last_flushed_block = m_blockman.LookupBlockIndex(CoinsTip().GetBestBlock());
                 EraseDrivechainUndo();
                 full_flush_completed = true;
@@ -5270,6 +5291,7 @@ bool Chainstate::LoadDrivechainState(bilingual_str& error)
     // On failure ReadState leaves `scdb` empty: nothing half read is used.
     if (db.ReadState(DrivechainStateName(), scdb) && scdb.GetBlockHash() == tip->GetBlockHash()) {
         m_scdb = std::move(scdb);
+        m_drivechain_snapshot_height = tip->nHeight;
         db.WriteFormatVersion();
         SweepDrivechainUndo(*tip);
         return true;
@@ -5325,6 +5347,7 @@ bool Chainstate::LoadDrivechainState(bilingual_str& error)
                 // is rolled forward from).
                 LogInfo("Interrupted while bringing the sidechain database to the chain tip; it goes on from block %s next time", scdb.GetBlockHash().ToString());
                 db.WriteState(DrivechainStateName(), scdb);
+                if (const CBlockIndex* saved{m_blockman.LookupBlockIndex(scdb.GetBlockHash())}) m_drivechain_snapshot_height = saved->nHeight;
                 db.WriteFormatVersion();
             }
             return false;
@@ -5337,6 +5360,7 @@ bool Chainstate::LoadDrivechainState(bilingual_str& error)
 
     m_scdb = std::move(scdb);
     db.WriteState(DrivechainStateName(), m_scdb);
+    m_drivechain_snapshot_height = tip->nHeight;
     db.WriteFormatVersion();
     SweepDrivechainUndo(*tip);
     return true;

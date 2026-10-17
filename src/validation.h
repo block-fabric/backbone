@@ -864,6 +864,9 @@ public:
      * reorg from there must still find the undo data of the blocks within reach.
      */
     void EraseDrivechainUndo() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    //! Height of the block of the last snapshot of the sidechain database written to disk (-1: none
+    //! known). Blocks after it are never pruned: the next start brings the snapshot forward from them.
+    int m_drivechain_snapshot_height GUARDED_BY(::cs_main){-1};
     //! Height up to which EraseDrivechainUndo erased the undo data of the active chain.
     int m_drivechain_undo_erased_height GUARDED_BY(::cs_main){-1};
     //! How many blocks EraseDrivechainUndo erases the undo data of in one batch (tests make it smaller).
