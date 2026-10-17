@@ -475,6 +475,8 @@ UniValue BlockDetail(ChainstateManager& chainman, const uint256& hash)
             if (const auto fee{fee_of(change.tx_index)}) entry.pushKV("fee", *fee);
         } else {
             entry.pushKV("destination", change.destination);
+            // A destination that is an address of this chain (the explorer links it); a sidechain's own address is not.
+            if (IsValidDestinationString(change.destination)) entry.pushKV("mainchain", true);
         }
         escrow.push_back(std::move(entry));
     }

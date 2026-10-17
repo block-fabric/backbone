@@ -487,6 +487,8 @@ BOOST_AUTO_TEST_CASE(explorer_blocks_and_their_coinbase)
     BOOST_CHECK_EQUAL(d["escrow"][0]["amount"].getInt<int64_t>(), 20 * COIN);
     BOOST_CHECK_EQUAL(d["escrow"][0]["total"].getInt<int64_t>(), 20 * COIN);
     BOOST_CHECK_EQUAL(d["escrow"][0]["destination"].get_str(), "erin");
+    // A sidechain's address, not one of this chain: not marked for a link.
+    BOOST_CHECK(d["escrow"][0]["mainchain"].isNull());
     BOOST_CHECK_EQUAL(d["fees"].getInt<int64_t>(), deposit_fee);
 
     // A BMM request (M8) and its accept (M7) in the coinbase: the bid is the fee of the request.
