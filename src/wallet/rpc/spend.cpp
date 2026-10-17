@@ -361,7 +361,7 @@ static void AllowDrivechainParents(CCoinControl& coin_control, bool bmm_request_
  * that do not belong to the wallet and need no signature.
  * @return the id of the signed transaction
  */
-static Txid SignAndCommit(CWallet& wallet, CMutableTransaction& mtx, const std::map<COutPoint, Coin>& external)
+static Txid SignAndCommit(CWallet& wallet, CMutableTransaction& mtx, const std::map<COutPoint, Coin>& external, std::optional<Txid> replaces = std::nullopt)
 {
     std::map<COutPoint, Coin> coins{external};
     {
@@ -386,7 +386,7 @@ static Txid SignAndCommit(CWallet& wallet, CMutableTransaction& mtx, const std::
     }
 
     const CTransactionRef tx{MakeTransactionRef(std::move(mtx))};
-    wallet.CommitTransaction(tx, /*replaces_txid=*/std::nullopt, /*comment=*/std::nullopt, /*comment_to=*/std::nullopt);
+    wallet.CommitTransaction(tx, /*replaces_txid=*/replaces, /*comment=*/std::nullopt, /*comment_to=*/std::nullopt);
     if (CommittedTransactionRefused(wallet, tx)) {
         wallet.AbandonTransaction(tx->GetHash());
         throw JSONRPCError(RPC_WALLET_ERROR, "The transaction was not accepted into the mempool; another deposit to this sidechain may have been made at the same time");
@@ -405,13 +405,16 @@ RPCMethod createsidechaindeposit()
             {"slot", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sidechain slot number"},
             {"destination", RPCArg::Type::STR, RPCArg::Optional::NO, "The deposit address that the wallet of the sidechain gives (s<slot>_<address>_<checksum>), which is checked; or any other text the sidechain understands, which is not"},
             {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The amount in " + CURRENCY_UNIT + " to deposit"},
+            {"replaces", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The txid of a deposit of this wallet to the same sidechain that was dropped (see \"sidechain_deposit_dropped\" in\n"
+             "gettransaction), which this one makes again: it spends the coins of the wallet that one spent, so that only one of the two can ever be mined"},
         },
         RPCResult{RPCResult::Type::OBJ, "", "",
         {
             {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
             {RPCResult::Type::STR_AMOUNT, "total", "The amount held in escrow by the sidechain after this deposit"},
         }},
-        RPCExamples{HelpExampleCli("createsidechaindeposit", "0 \"sidechainaddress\" 1.5")},
+        RPCExamples{HelpExampleCli("createsidechaindeposit", "0 \"sidechainaddress\" 1.5") +
+                    HelpExampleCli("-named createsidechaindeposit", "slot=0 destination=\"sidechainaddress\" amount=1.5 replaces=\"txid\"")},
         [&](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
 {
     std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
@@ -459,6 +462,50 @@ RPCMethod createsidechaindeposit()
         {CNoDestination{escrow_script}, escrow.amount + amount, /*fSubtractFeeFromAmount=*/false},
         {CNoDestination{drivechain::DestinationScript(destination)}, 0, /*fSubtractFeeFromAmount=*/false},
     };
+    // Made again in place of a deposit that was dropped: with at least one of the coins of the wallet
+    // that one spent (or the escrow output it spent), so that the two conflict and the deposit is
+    // never made twice should the dropped one come back (its parents are public). Unless that one
+    // can never be mined anyway: a coin it spends was spent by a block.
+    std::optional<Txid> replaces;
+    if (!request.params[3].isNull()) {
+        replaces = Txid::FromUint256(ParseHashV(request.params[3], "replaces"));
+        LOCK(pwallet->cs_wallet);
+        const CWalletTx* dropped{pwallet->GetWalletTx(*replaces)};
+        if (!dropped) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "The deposit to make again is not in the wallet");
+        const auto dropped_slot{pwallet->OwnDepositSlot(*dropped)};
+        if (!dropped_slot) throw JSONRPCError(RPC_INVALID_PARAMETER, "The transaction to make again is not a deposit this wallet made");
+        if (*dropped_slot != static_cast<uint32_t>(slot)) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("The deposit to make again is to the sidechain in slot %u", *dropped_slot));
+        if (!pwallet->IsDroppedDeposit(*dropped)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "The deposit to make again was not dropped: it is confirmed, in the mempool, or can still get there");
+        }
+        for (const auto& [txid, wtx] : pwallet->mapWallet) {
+            if (wtx.m_replaces_txid == *replaces && !pwallet->IsDroppedDeposit(wtx) && (pwallet->GetTxDepthInMainChain(wtx) > 0 || wtx.InMempool())) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("The deposit was made again already: %s", txid.ToString()));
+            }
+        }
+        bool shared{false};
+        bool dead{false};
+        for (const CTxIn& in : dropped->GetTx()->vin) {
+            if (escrow.has_output && in.prevout == escrow.outpoint) {
+                shared = true;
+                continue;
+            }
+            const CWalletTx* prev{pwallet->GetWalletTx(in.prevout.hash)};
+            if (!prev || in.prevout.n >= prev->GetTx()->vout.size() || !pwallet->IsMine(prev->GetTx()->vout[in.prevout.n])) {
+                // Another escrow output: spent by a block, if it is not the sidechain's any more and confirmed.
+                continue;
+            }
+            if (pwallet->IsSpentInBlock(in.prevout)) dead = true;
+            if (pwallet->GetTxDepthInMainChain(*prev) < 0 || prev->isAbandoned() || pwallet->IsSpent(in.prevout) || pwallet->IsLockedCoin(in.prevout)) continue;
+            coin_control.Select(in.prevout);
+            shared = true;
+        }
+        if (!shared && !dead) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "The coins the dropped deposit spent are spent by another transaction that is not confirmed, or come from "
+                                                 "transactions that were dropped too: wait for a block, or make those again first");
+        }
+    }
+
     // The mempool takes a deposit of MAX_DRIVECHAIN_TX_VSIZE at most, and one that spends the
     // treasury output of an unconfirmed deposit only as large as a TRUC child (dc-unconfirmed-parent).
     const bool after_unconfirmed{escrow.has_output && pwallet->chain().isInMempool(escrow.outpoint.hash)};
@@ -486,7 +533,7 @@ RPCMethod createsidechaindeposit()
     }
 
     CMutableTransaction mtx{*res->tx};
-    const Txid txid{SignAndCommit(*pwallet, mtx, external)};
+    const Txid txid{SignAndCommit(*pwallet, mtx, external, replaces)};
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("txid", txid.GetHex());

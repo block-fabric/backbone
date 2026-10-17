@@ -177,6 +177,7 @@ BASE_SCRIPTS = [
     'feature_drivechain_rejects.py',
     'feature_drivechain_wallet.py',
     'feature_drivechain_blockspace.py',
+    'feature_drivechain_deposit_eviction.py',
     'rpc_setgenerate.py',
     'feature_reindex_readonly.py',
     'wallet_labels.py',

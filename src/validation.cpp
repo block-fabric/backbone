@@ -971,7 +971,8 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // follows it. Like a TRUC transaction it takes no unconfirmed children that could pin it there,
     // with their size or their low fee, but small ones of its kind: the next treasury transaction
     // through the escrow output (a withdrawal of any size), and a request or treasury transaction paid from its change (a
-    // wallet that serves several sidechains). Not for transactions a reorg brings back.
+    // wallet that serves several sidechains) -- but the change of a BMM request pays only another request.
+    // Not for transactions a reorg brings back.
     if (!bypass_limits) {
         const uint32_t max_sidechains{m_active_chainstate.m_chainman.GetConsensus().drivechain.max_sidechains};
         const auto is_treasury{[&](const CTransaction& t) {
@@ -1019,7 +1020,17 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
                 }
                 continue;
             }
-            if (!drivechain::GetBmmRequest(*parent) && !is_treasury(*parent)) continue;
+            const bool parent_request{drivechain::GetBmmRequest(*parent).has_value()};
+            if (!parent_request && !is_treasury(*parent)) continue;
+            // Only a BMM request may spend the outputs of an unconfirmed BMM request: one is for the
+            // next block only, and a block without it takes it out of the mempool with everything
+            // spending it. A treasury transaction paid from its change would be, and so would every
+            // later deposit to its sidechain, which has to spend the escrow output it makes: anyone
+            // could evict all of them at no cost, block after block (audit 7, finding 1).
+            if (parent_request && !bmm_request) {
+                return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "dc-unconfirmed-parent",
+                                     strprintf("spends %s, a BMM request that is not confirmed: only another BMM request may", parent->GetHash().ToString()));
+            }
             if (!drivechain_tx || GetVirtualTransactionSize(tx) > TRUC_CHILD_MAX_VSIZE) {
                 return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "dc-unconfirmed-parent",
                                      strprintf("spends %s, a BMM request or treasury transaction that is not confirmed", parent->GetHash().ToString()));

@@ -1200,13 +1200,20 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const TxState& state, const 
     // Notify UI of new or updated transaction
     NotifyTransactionChanged(hash, fInsertedNew ? CT_NEW : CT_UPDATED);
 
-#if HAVE_SYSTEM
     // notify an external script when a wallet transaction comes in or is updated
+    RunTxNotifyScript(wtx);
+
+    return &wtx;
+}
+
+void CWallet::RunTxNotifyScript(const CWalletTx& wtx) const
+{
+#if HAVE_SYSTEM
     std::string strCmd = m_notify_tx_changed_script;
 
     if (!strCmd.empty())
     {
-        ReplaceAll(strCmd, "%s", hash.GetHex());
+        ReplaceAll(strCmd, "%s", wtx.GetHash().GetHex());
         if (auto* conf = wtx.state<TxStateConfirmed>())
         {
             ReplaceAll(strCmd, "%b", conf->confirmed_block_hash.GetHex());
@@ -1227,8 +1234,59 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const TxState& state, const 
         t.detach(); // thread runs free
     }
 #endif
+}
 
-    return &wtx;
+std::optional<uint32_t> CWallet::OwnDepositSlot(const CWalletTx& wtx) const
+{
+    AssertLockHeld(cs_wallet);
+    const CTransaction& tx{*wtx.GetTx()};
+    for (const CTxOut& out : tx.vout) {
+        if (const auto slot{drivechain::ParseEscrowScript(out.scriptPubKey)}) {
+            // A withdrawal spends an escrow output alone: the wallet makes deposits only.
+            if (!IsFromMe(tx)) return std::nullopt;
+            return slot;
+        }
+    }
+    return std::nullopt;
+}
+
+bool CWallet::IsSpentInBlock(const COutPoint& outpoint) const
+{
+    AssertLockHeld(cs_wallet);
+    for (auto [spend, end]{mapTxSpends.equal_range(outpoint)}; spend != end; ++spend) {
+        const auto spender{mapWallet.find(spend->second)};
+        if (spender != mapWallet.end() && GetTxDepthInMainChain(spender->second) > 0) return true;
+    }
+    return false;
+}
+
+bool CWallet::IsDroppedDeposit(const CWalletTx& wtx) const
+{
+    AssertLockHeld(cs_wallet);
+    if (!OwnDepositSlot(wtx) || GetTxDepthInMainChain(wtx) > 0 || wtx.InMempool()) return false;
+    return wtx.isAbandoned() || wtx.isBlockConflicted() || m_dropped_deposits.contains(wtx.GetHash());
+}
+
+void CWallet::NotifyDroppedDeposit(const CWalletTx& wtx)
+{
+    AssertLockHeld(cs_wallet);
+    const auto slot{OwnDepositSlot(wtx)};
+    if (!slot || GetTxDepthInMainChain(wtx) > 0 || wtx.InMempool()) return;
+    // Replaced by a transaction of the wallet's own (bumpfee, or the deposit made again): not lost.
+    for (const CTxIn& in : wtx.GetTx()->vin) {
+        for (auto [spend, end]{mapTxSpends.equal_range(in.prevout)}; spend != end; ++spend) {
+            if (spend->second == wtx.GetHash()) continue;
+            const auto other{mapWallet.find(spend->second)};
+            if (other != mapWallet.end() && !other->second.isAbandoned() && !other->second.isBlockConflicted()) return;
+        }
+    }
+    if (!m_dropped_deposits.insert(wtx.GetHash()).second) return;
+    // Not silently: the user asked for this deposit, and it will not happen unless made again.
+    WalletLogPrintf("Warning: deposit %s to the sidechain in slot %u was dropped from the mempool and will not be mined as it is; its coins "
+                    "are spendable again. Make it again with createsidechaindeposit, giving this txid as \"replaces\" so that only one of the "
+                    "two can ever be mined\n", wtx.GetHash().ToString(), *slot);
+    NotifyTransactionChanged(wtx.GetHash(), CT_UPDATED);
+    RunTxNotifyScript(wtx);
 }
 
 bool CWallet::LoadToWallet(CWalletTx&& wtx_in)
@@ -1615,6 +1673,8 @@ void CWallet::transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRe
                 m_drivechain_abandon_retry.insert(tx->GetHash());
             }
         }
+        // A deposit the user asked for that will not be mined as it is: say so.
+        if (const auto dropped{mapWallet.find(tx->GetHash())}; dropped != mapWallet.end()) NotifyDroppedDeposit(dropped->second);
     }
     RetryDrivechainAbandons();
 
@@ -1736,6 +1796,7 @@ void CWallet::blockConnected(const ChainstateRole& role, const interfaces::Block
     for (const Txid& txid : stale_deposits) {
         if (const auto it{mapWallet.find(txid)}; it != mapWallet.end() && !it->second.isAbandoned() && AbandonTransaction(it->second)) {
             WalletLogPrintf("Abandoned deposit %s, whose treasury input another deposit spends\n", txid.ToString());
+            NotifyDroppedDeposit(it->second);
         }
     }
     RetryDrivechainAbandons();

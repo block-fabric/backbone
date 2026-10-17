@@ -436,6 +436,12 @@ private:
     std::optional<uint256> m_rescan_resume_block GUARDED_BY(cs_wallet);
     /** Abandon the drivechain transactions of m_drivechain_abandon_retry that now can be. */
     void RetryDrivechainAbandons() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Deposits of the wallet's the mempool dropped (and the user was told about), since the wallet was loaded. */
+    std::set<Txid> m_dropped_deposits GUARDED_BY(cs_wallet);
+    /** Tell the user (log, -walletnotify, the UI) that a deposit of the wallet's will not be mined as it is, once. */
+    void NotifyDroppedDeposit(const CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Run the -walletnotify command for a transaction. */
+    void RunTxNotifyScript(const CWalletTx& wtx) const;
 
     std::map<OutputType, ScriptPubKeyMan*> m_external_spk_managers;
     std::map<OutputType, ScriptPubKeyMan*> m_internal_spk_managers;
@@ -585,6 +591,8 @@ public:
     };
     SpendType HowSpent(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool IsSpent(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    //! Whether a transaction of the wallet's in the active chain spends the output.
+    bool IsSpentInBlock(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     // Whether this or any known scriptPubKey with the same single key has been spent.
     bool IsSpentKey(const CScript& scriptPubKey) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
@@ -905,6 +913,11 @@ public:
     /* Mark a transaction (and it in-wallet descendants) as abandoned so its inputs may be respent. */
     bool AbandonTransaction(const Txid& hashTx);
     bool AbandonTransaction(CWalletTx& tx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
+    /** The sidechain slot of a deposit this wallet made (a transaction with an escrow output that spends the wallet's coins). */
+    std::optional<uint32_t> OwnDepositSlot(const CWalletTx& wtx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Whether a deposit this wallet made was dropped: not confirmed, not in the mempool, and abandoned or conflicted. */
+    bool IsDroppedDeposit(const CWalletTx& wtx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /** Mark a transaction as replaced by another transaction. */
     bool MarkReplaced(const Txid& originalHash, const Txid& newHash);

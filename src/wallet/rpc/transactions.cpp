@@ -72,6 +72,7 @@ static void WalletTxToJSON(const CWallet& wallet, const CWalletTx& wtx, UniValue
     if (wtx.m_comment_to) entry.pushKV("to", *wtx.m_comment_to);
     if (wtx.m_replaces_txid) entry.pushKV("replaces_txid", wtx.m_replaces_txid->ToString());
     if (wtx.m_replaced_by_txid) entry.pushKV("replaced_by_txid", wtx.m_replaced_by_txid->ToString());
+    if (wallet.OwnDepositSlot(wtx)) entry.pushKV("sidechain_deposit_dropped", wallet.IsDroppedDeposit(wtx));
 }
 
 struct tallyitem
@@ -420,6 +421,8 @@ static std::vector<RPCResult> TransactionDescriptionString()
            {
                {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
            }},
+           {RPCResult::Type::BOOL, "sidechain_deposit_dropped", /*optional=*/true, "Only for a deposit to a sidechain that this wallet made: whether it was dropped and will not be\n"
+               "mined as it is (its coins are spendable again). Make it again with createsidechaindeposit, giving its txid as \"replaces\"."},
            {RPCResult::Type::STR, "to", /*optional=*/true, "If a comment to is associated with the transaction."},
            {RPCResult::Type::NUM_TIME, "time", "The transaction time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::NUM_TIME, "timereceived", "The time received expressed in " + UNIX_EPOCH_TIME + "."},
