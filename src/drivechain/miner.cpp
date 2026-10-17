@@ -203,7 +203,18 @@ Vote MinerState::ResolveVote(SidechainId slot, const std::vector<Bundle>& pendin
 {
     LOCK(m_mutex);
     const auto it{m_votes.find(slot)};
-    if (it != m_votes.end()) return it->second;
+    if (it != m_votes.end()) {
+        // An upvote of a bundle that is not pending (not proposed yet, or no longer pending) is no
+        // vote at all: the block abstains. Said so here, so that what listwithdrawalbundles shows is
+        // what the blocks cast.
+        if (it->second.type == Vote::Type::UPVOTE &&
+            std::none_of(pending.begin(), pending.end(), [&](const Bundle& b) { return b.hash == it->second.bundle; })) {
+            Vote abstain;
+            abstain.type = Vote::Type::ABSTAIN;
+            return abstain;
+        }
+        return it->second;
+    }
     Vote vote;
     vote.type = m_default_vote;
     if (m_default_vote != Vote::Type::UPVOTE) return vote;

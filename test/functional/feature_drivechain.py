@@ -245,6 +245,12 @@ class DrivechainTest(BitcoinTestFramework):
         assert_equal(node.listwithdrawalbundles()[0]["score"], 1)
 
         assert_raises_rpc_error(-8, "needs the hash", node.setwithdrawalvote, SLOT, "upvote")
+        # An upvote of a bundle that is not pending (one not proposed yet, say) casts no vote: the
+        # blocks abstain, and the node says so rather than "downvote" for the bundles that are.
+        node.setwithdrawalvote(SLOT, "upvote", "ab" * 32)
+        assert_equal(node.listwithdrawalbundles()[0]["vote"], "abstain")
+        self.mine()
+        assert_equal(node.listwithdrawalbundles()[0]["score"], 1)
         node.setwithdrawalvote(SLOT, "downvote")
         self.mine()
         assert_equal(node.listwithdrawalbundles()[0]["score"], 0)
