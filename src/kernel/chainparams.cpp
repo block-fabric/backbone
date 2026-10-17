@@ -36,14 +36,6 @@
 
 using namespace util::hex_literals;
 
-/**
- * Testnet: height from which a two byte vote message (M4) must need two bytes (see
- * Consensus::DrivechainParams::canonical_votes_height). PLACEHOLDER: never active until it is set at
- * deploy time to a height a few blocks above the testnet tip. Changing it changes the drivechain
- * parameter fingerprint: the sidechain database is rebuilt from the blocks once at the next start.
- */
-static constexpr int TESTNET_CANONICAL_VOTES_HEIGHT{std::numeric_limits<int>::max()};
-
 static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
     CMutableTransaction txNew;
@@ -248,9 +240,9 @@ public:
         consensus.drivechain.idle_expiry_blocks = 30;
         consensus.drivechain.upvote_expiry_blocks = 30;
         consensus.drivechain.unvoted_forget_blocks = 60;
-        // The canonical vote form, enforced from a height of this network's chain (blocks already on it
-        // were judged without it): see TESTNET_CANONICAL_VOTES_HEIGHT.
-        consensus.drivechain.canonical_votes_height = TESTNET_CANONICAL_VOTES_HEIGHT;
+        // The canonical vote form from the first block (the test network was reset on 17/Oct/2026 with
+        // every rule from block 0).
+        consensus.drivechain.canonical_votes_height = 0;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.enforce_BIP94 = false; // aserti3 is not subject to the timewarp attack
         consensus.fPowNoRetargeting = false;
@@ -282,11 +274,12 @@ public:
         m_min_prune_target = MIN_PRUNE_TARGET;
 
         // The genesis reward pays an unspendable output: there is no premine.
-        // Restarted on 08/Oct/2026, after a fourth security audit changed the drivechain and sidechain rules.
-        genesis = CreateGenesisBlock("Chains testnet 08/Oct/2026 after the fourth audit: one chain to mine them all", CScript() << OP_RETURN, 1791511194, 959884959, 0x1d00ffff, 1, 50 * COIN);
+        // Reset on 17/Oct/2026 (after the seventh audit), with every rule from block 0; restarted before on
+        // 08/Oct/2026 ("Chains testnet 08/Oct/2026 after the fourth audit: one chain to mine them all").
+        genesis = CreateGenesisBlock("Chains testnet 17/Oct/2026: a fresh start", CScript() << OP_RETURN, 1792210201, 554687656, 0x1d00ffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"000000000d299de396d2bea052a8411d4410da5464ec79ec9648b77e8a824f24"});
-        assert(genesis.hashMerkleRoot == uint256{"806158a4b6d576cdb331b74225d8d7efaf6c6ff2b41b758934ebf9e4860f3c4a"});
+        assert(consensus.hashGenesisBlock == uint256{"000000002a936e1d0749da638f3fdb6950bcfc10e6d82848c3bedccd208724b1"});
+        assert(genesis.hashMerkleRoot == uint256{"21f24c9597db46e18501a7df4bbb7d98507facc9a421305e1d126f03b5d7d07b"});
 
         // No DNS or fixed seeds yet; peers are added with -addnode.
         vFixedSeeds.clear();
@@ -306,7 +299,7 @@ public:
         m_assumeutxo_data = {};
 
         chainTxData = ChainTxData{
-            .nTime    = 1791511194,
+            .nTime    = 1792210201,
             .tx_count = 1,
             .dTxRate  = 0,
         };

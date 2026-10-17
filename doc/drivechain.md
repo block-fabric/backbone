@@ -141,8 +141,8 @@ replaying every proposal and closure since its slot activated.
   sidechains can be proposed at all; a miner with 30% of the blocks can keep some ten thousand
   pending (over 10 MB) instead, which costs memory and disk only.
 * Vote messages (M4) in the two byte form must need it (an index above 253; ABSTAIN and DOWNVOTE
-  have one byte forms). On testnet this holds from `canonical_votes_height`, set at a deploy; from
-  genesis on the other networks.
+  have one byte forms), from genesis on every network (`canonical_votes_height` 0; the test network
+  has it from its first block since its reset of 17/Oct/2026).
 
 ## Mempool: deposits and BMM requests
 

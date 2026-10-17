@@ -961,11 +961,11 @@ BOOST_AUTO_TEST_CASE(test_drivechain_params)
     BOOST_CHECK_EQUAL(dc.upvote_expiry_blocks, 13);
     BOOST_CHECK_EQUAL(dc.unvoted_forget_blocks, 14);
     BOOST_CHECK_EQUAL(dc.canonical_votes_height, 15);
-    // From genesis by default; on testnet, from a height set at deploy (its blocks before were judged without it).
+    // From genesis on every network (the test network since its reset of 17/Oct/2026).
     BOOST_CHECK_EQUAL(CreateChainParams(*parse({}), ChainType::REGTEST)->GetConsensus().drivechain.canonical_votes_height, 0);
     BOOST_CHECK_EQUAL(CreateChainParams(*parse({}), ChainType::MAIN)->GetConsensus().drivechain.canonical_votes_height, 0);
     BOOST_CHECK_EQUAL(CreateChainParams(*parse({}), ChainType::SIGNET)->GetConsensus().drivechain.canonical_votes_height, 0);
-    BOOST_CHECK_GT(CreateChainParams(*parse({}), ChainType::TESTNET)->GetConsensus().drivechain.canonical_votes_height, 0);
+    BOOST_CHECK_EQUAL(CreateChainParams(*parse({}), ChainType::TESTNET)->GetConsensus().drivechain.canonical_votes_height, 0);
     // Other parameters, other fingerprint.
     BOOST_CHECK(ParamsFingerprint(dc) != ParamsFingerprint(CreateChainParams(*parse({}), ChainType::REGTEST)->GetConsensus().drivechain));
 
