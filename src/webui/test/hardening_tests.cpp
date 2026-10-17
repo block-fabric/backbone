@@ -9,6 +9,7 @@
 #include <rpc/request.h>
 #include <test/util/setup_common.h>
 #include <webui/bridge.h>
+#include <webui/confirm.h>
 #include <webui/events.h>
 #include <webui/icontint.h>
 #include <webui/rpcpolicy.h>
@@ -155,8 +156,24 @@ BOOST_AUTO_TEST_CASE(page_rpc_policy)
                                 "addnode", "setban", "pruneblockchain", "savemempool", "invalidateblock", "submitblock", "loadwallet", "unloadwallet"}) {
         BOOST_CHECK_MESSAGE(!webui::PageRpcPolicy(refused), refused);
     }
-    // The methods that need the keys go through wallet.withKeys, which unlocks for the call alone.
-    for (const char* keyed : {"createsidechaindeposit", "send", "walletprocesspsbt", "signmessage"}) BOOST_CHECK(webui::KeyedWalletRpc(keyed));
+    // Audit 7 #1: what pays, signs, unlocks or changes the votes of the node is never the page's to call: the host decodes it
+    // and asks on the desktop first (confirm.h, rpc.confirmed), the passphrase of a locked wallet typed there.
+    for (const char* spends : {"send", "walletprocesspsbt", "sendrawtransaction", "createsidechaindeposit", "walletpassphrase", "setwithdrawalvote",
+                               "setdefaultwithdrawalvote", "acksidechain", "createsidechainproposal", "removesidechainproposal", "setgenerate", "signmessage"}) {
+        BOOST_CHECK_MESSAGE(!webui::PageRpcPolicy(spends), spends);
+        BOOST_CHECK_MESSAGE(!webui::KeyedWalletRpc(spends), spends);
+    }
+    using Kind = webui::confirm::Method::Kind;
+    const auto& confirmed{webui::confirm::Methods()};
+    for (const char* node_method : {"setwithdrawalvote", "setdefaultwithdrawalvote", "acksidechain", "createsidechainproposal", "removesidechainproposal", "setgenerate"}) {
+        BOOST_REQUIRE_MESSAGE(confirmed.contains(node_method), node_method);
+        BOOST_CHECK(confirmed.at(node_method).kind == Kind::NODE);
+    }
+    for (const char* wallet_method : {"createsidechaindeposit", "signmessage"}) {
+        BOOST_REQUIRE_MESSAGE(confirmed.contains(wallet_method), wallet_method);
+        BOOST_CHECK(confirmed.at(wallet_method).kind == Kind::SPEND);
+    }
+    for (const auto& [name, method] : confirmed) BOOST_CHECK_MESSAGE(!webui::PageRpcPolicy(name), name);
     for (const char* other : {"dumpwallet", "walletpassphrase", "sendtoaddress", "backupwallet"}) BOOST_CHECK(!webui::KeyedWalletRpc(other));
 
     Answers answers;

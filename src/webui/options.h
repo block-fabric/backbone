@@ -100,6 +100,8 @@ public:
      * signet; 550 MiB, so 1 GB, on regtest).
      */
     static int MinPruneGB(const ArgsManager& args);
+    /** The largest prune size taken, in GB (a petabyte): more is no size a disk has, and overflows the MiB of -prune (audit 7 #17). */
+    static constexpr int64_t MAX_PRUNE_GB{1'000'000};
     /** The prune size offered when none is set: 2 GB as in chains-qt, or the least of the chain if more. */
     static int DefaultPruneGB(const ArgsManager& args);
     /**

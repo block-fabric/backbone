@@ -12,6 +12,7 @@
   import Icon from '../components/Icon.svelte';
   import { checkAddress } from '../lib/address';
   import { ask, errorText, inform, withUnlock, type Choice } from '../lib/dialogs.svelte';
+  import { recipientLine } from '../lib/sendconfirm';
   import { FILTERS, saveBase64As, safeFileName } from '../lib/files';
   import { niceTimeOffset } from '../lib/format';
   import { go, nav } from '../lib/nav.svelte';
@@ -320,7 +321,7 @@
     busy = true;
     let prepared: Prepared | null = null;
     try {
-      prepared = await withUnlock(wallet, (passphrase) => api.prepare(recipients, cc, feeChoice, passphrase));
+      prepared = await withUnlock(wallet, () => api.prepare(recipients, cc, feeChoice));
     } catch (e) {
       busy = false;
       await inform(t('Send Coins'), errorText(e), 'warning');
@@ -331,11 +332,9 @@
 
     const info = current.info ?? (await refreshInfo());
     const multi = wallets.list.length > 1;
-    const lines = prepared.recipients.map((r) => {
-      let amount = formatAmount(r.amount, prefs.unit, { withUnit: true });
-      if (multi) amount = t("%1 from wallet '%2'", amount, walletDisplayName(wallet));
-      return r.label ? `${t("%1 to '%2'", amount, r.label)} (${r.address})` : t('%1 to %2', amount, r.address);
-    });
+    // One line per recipient, the address first and whole, then the amount, then the label (one line, quoted: audit 7 #4).
+    // What is sent is shown again by the desktop, read from the transaction, before it is signed.
+    const lines = prepared.recipients.map((r) => recipientLine(r.address, r.amount, r.label, multi ? wallet : null));
     const enableSend = !prepared.privateKeysDisabled || prepared.externalSigner;
     let review = t('Please, review your transaction.');
     if (prepared.privateKeysDisabled && !prepared.externalSigner) {
@@ -376,7 +375,13 @@
         busy = false;
         await presentPsbt(psbt, prepared.recipients);
       } else {
-        const result = await api.commit(prepared.token);
+        // The desktop shows what the transaction pays and asks; a no there sends nothing.
+        const result = await withUnlock(wallet, () => api.commit(prepared!.token));
+        if (!result) {
+          busy = false;
+          toast('info', t('Send Coins'), t('Nothing was sent: it was declined.'));
+          return;
+        }
         busy = false;
         if (!result.complete && result.psbt) {
           // A hardware wallet signed only part of it (a multisig wallet).

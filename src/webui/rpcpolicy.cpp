@@ -35,21 +35,16 @@ const std::map<std::string, Bridge::Thread>& Methods()
         {"help", WORKER},
         {"listbanned", WORKER},
         {"uptime", WORKER},
-        // Mining with the processor (the Mine page).
+        // Mining with the processor (the Mine page): turning it on is confirmed (rpc.confirmed, confirm.cpp).
         {"getgenerate", WORKER},
-        {"setgenerate", WORKER},
-        // Drivechains (the Sidechains page).
-        {"acksidechain", WORKER},
-        {"createsidechainproposal", WORKER},
+        // Drivechains (the Sidechains page): what they read. Deposits, votes, acks and proposals are confirmed on the
+        // desktop first (rpc.confirmed, confirm.cpp: audit 7 #1).
         {"getdrivechaininfo", WORKER},
         {"getsidechainevents", WORKER},
         {"listactivesidechains", WORKER},
         {"listsidechaindeposits", WORKER},
         {"listsidechainproposals", WORKER},
         {"listwithdrawalbundles", WORKER},
-        {"removesidechainproposal", WORKER},
-        {"setdefaultwithdrawalvote", WORKER},
-        {"setwithdrawalvote", WORKER},
         // Addresses, scripts and PSBTs (multisig lounge, proof of funds, crypto tools).
         {"createpsbt", WORKER},
         {"decodepsbt", WORKER},
@@ -57,11 +52,10 @@ const std::map<std::string, Bridge::Thread>& Methods()
         {"finalizepsbt", WORKER},
         {"getdescriptorinfo", WORKER},
         {"scantxoutset", LONG},
-        {"sendrawtransaction", WORKER},
         {"utxoupdatepsbt", WORKER},
         {"validateaddress", WORKER},
         {"verifymessage", WORKER},
-        // Wallets: what the pages read, and the unlock "for a while" the user asks for.
+        // Wallets: what the pages read. Unlocking is the host's (wallet.unlock: the passphrase typed in its dialog).
         {"getaddressinfo", WORKER},
         {"getbalances", WORKER},
         {"getnewaddress", WORKER},
@@ -69,13 +63,8 @@ const std::map<std::string, Bridge::Thread>& Methods()
         {"listunspent", WORKER},
         {"listwallets", WORKER},
         {"walletlock", WORKER},
-        {"walletpassphrase", WORKER},
-        // What needs the keys: run as is by a wallet that needs no unlocking (a locked one answers -13,
-        // and the page asks for the passphrase and goes through wallet.withKeys).
-        {"createsidechaindeposit", WORKER},
-        {"send", WORKER},
-        {"signmessage", WORKER},
-        {"walletprocesspsbt", WORKER},
+        // Nothing that spends or signs: payments, signatures of messages and of PSBTs, and broadcasts go through the host
+        // (walletapi.cpp, confirm.cpp), which shows what they do in its own dialog first (audit 7 #1).
     };
     return methods;
 }
@@ -97,8 +86,9 @@ std::vector<std::string> PageRpcMethods()
 
 bool KeyedWalletRpc(const std::string& method)
 {
-    static const std::set<std::string> methods{"createsidechaindeposit", "send", "signmessage", "walletprocesspsbt"};
-    return methods.contains(method);
+    // None of the page's methods of Chains needs the keys: what does goes through the host (confirm.cpp).
+    (void)method;
+    return false;
 }
 
 } // namespace webui
