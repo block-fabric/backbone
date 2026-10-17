@@ -6,9 +6,13 @@
 #include <base58.h>
 #include <common/args.h>
 #include <crypto/sha256.h>
+#include <drivechain/miner.h>
+#include <drivechain/sidechain.h>
 #include <key_io.h>
 #include <interfaces/node.h>
 #include <node/context.h>
+#include <node/miner.h>
+#include <pow.h>
 #include <rpc/server.h>
 #include <test/util/setup_common.h>
 #include <util/fs.h>
@@ -18,6 +22,7 @@
 #include <webui/appconfig.h>
 #include <webui/bridge.h>
 #include <webui/console.h>
+#include <webui/explorer.h>
 #include <webui/guard.h>
 #include <webui/nodeapi.h>
 #include <webui/options.h>
@@ -405,6 +410,175 @@ BOOST_AUTO_TEST_CASE(node_api)
     BOOST_CHECK(!api.Call("peers.ban", Obj({{"id", 7}, {"seconds", 3600}})).get_bool());
     BOOST_CHECK(!api.Call("peers.disconnect", Obj({{"id", 7}})).get_bool());
     BOOST_CHECK_THROW(api.Call("bans.unban", Obj({{"address", "not an address"}})), webui::HostError);
+}
+
+// The explorer of chains-app (explorer.block, explorer.blocks with details): a sidechain proposed, acked and
+// activated, a deposit, a BMM request and its accept, a bundle proposed and voted on: what each block's coinbase
+// says and what the block did, decoded by the node.
+BOOST_AUTO_TEST_CASE(explorer_blocks_and_their_coinbase)
+{
+    using namespace drivechain;
+    auto node{interfaces::MakeNode(m_node)};
+    webui::NodeApi api{[&]() -> interfaces::Node& { return *node; }, [](const std::string&) { return false; }, [](const webui::Window::ConfirmDialog&) { return false; }};
+    const CScript script{CScript() << ToByteVector(coinbaseKey.GetPubKey()) << OP_CHECKSIG};
+    const auto detail{[&](const CBlock& block) { return api.Call("explorer.block", Obj({{"hash", block.GetHash().GetHex()}})); }};
+    const auto of_kind{[](const UniValue& outputs, const std::string& kind) {
+        std::vector<UniValue> found;
+        for (const UniValue& o : outputs.getValues()) {
+            if (o["kind"].get_str() == kind) found.push_back(o);
+        }
+        return found;
+    }};
+    const SidechainId slot{1};
+    const auto& dc{m_node.chainman->GetConsensus().drivechain};
+
+    // A plain block: the miner's payout, the subsidy, no drivechain activity.
+    const CBlock plain{CreateAndProcessBlock({}, script)};
+    UniValue d{detail(plain)};
+    BOOST_CHECK_EQUAL(d["height"].getInt<int>(), 101);
+    BOOST_CHECK(d["active"].get_bool());
+    BOOST_CHECK_EQUAL(d["subsidy"].getInt<int64_t>(), plain.vtx[0]->GetValueOut());
+    BOOST_CHECK_EQUAL(d["fees"].getInt<int64_t>(), 0);
+    BOOST_CHECK_EQUAL(d["unclaimed"].getInt<int64_t>(), 0);
+    BOOST_CHECK_EQUAL(of_kind(d["outputs"], "payout").size(), 1U);
+    BOOST_CHECK_EQUAL(of_kind(d["outputs"], "payout")[0]["type"].get_str(), "pubkey");
+    BOOST_CHECK_EQUAL(of_kind(d["outputs"], "witness").size(), 1U);
+    BOOST_CHECK(d["bmm"].empty() && d["proposals"].empty() && d["acks"].empty() && d["escrow"].empty());
+
+    // A sidechain proposed (M1), acked (M2) by the blocks after, activated.
+    Sidechain sidechain;
+    sidechain.slot = slot;
+    sidechain.title = "Testchain";
+    sidechain.description = "A test sidechain";
+    sidechain.hash_id1 = uint256{1};
+    m_node.chainman->m_drivechain_miner.AddProposal(sidechain);
+    const CBlock proposing{CreateAndProcessBlock({}, script)};
+    d = detail(proposing);
+    BOOST_REQUIRE_EQUAL(d["proposals"].size(), 1U);
+    BOOST_CHECK_EQUAL(d["proposals"][0]["title"].get_str(), "Testchain");
+    BOOST_CHECK_EQUAL(d["proposals"][0]["slot"].getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(d["proposals"][0]["hash"].get_str(), sidechain.GetHash().GetHex());
+    BOOST_CHECK_EQUAL(of_kind(d["outputs"], "proposal").size(), 1U);
+    const CBlock acking{CreateAndProcessBlock({}, script)};
+    d = detail(acking);
+    BOOST_REQUIRE_EQUAL(d["acks"].size(), 1U);
+    BOOST_CHECK_EQUAL(d["acks"][0]["title"].get_str(), "Testchain");
+    BOOST_CHECK_EQUAL(d["acks"][0]["hash"].get_str(), sidechain.GetHash().GetHex());
+    BOOST_CHECK_EQUAL(of_kind(d["outputs"], "ack")[0]["slot"].getInt<int>(), 1);
+    CBlock activating;
+    for (int i{2}; i < dc.activation_period; ++i) activating = CreateAndProcessBlock({}, script);
+    BOOST_REQUIRE(WITH_LOCK(::cs_main, return m_node.chainman->ActiveChainstate().m_scdb.IsActive(slot)));
+    d = detail(activating);
+    BOOST_REQUIRE_EQUAL(d["activations"].size(), 1U);
+    BOOST_CHECK_EQUAL(d["activations"][0]["title"].get_str(), "Testchain");
+
+    // A deposit (M5) to its escrow, paying a fee.
+    const CTransactionRef& funds{m_coinbase_txns.at(0)};
+    const CAmount deposit_fee{10'000};
+    const auto deposit{CreateValidTransaction({funds}, {COutPoint{funds->GetHash(), 0}}, 1, {coinbaseKey},
+                                              {{20 * COIN, EscrowScript(slot)}, {0, DestinationScript("erin")}, {funds->vout[0].nValue - 20 * COIN - deposit_fee, script}},
+                                              std::nullopt, std::nullopt).first};
+    const CBlock depositing{CreateAndProcessBlock({deposit}, script)};
+    d = detail(depositing);
+    BOOST_REQUIRE_EQUAL(d["escrow"].size(), 1U);
+    BOOST_CHECK_EQUAL(d["escrow"][0]["kind"].get_str(), "deposit");
+    BOOST_CHECK_EQUAL(d["escrow"][0]["slot"].getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(d["escrow"][0]["title"].get_str(), "Testchain");
+    BOOST_CHECK_EQUAL(d["escrow"][0]["amount"].getInt<int64_t>(), 20 * COIN);
+    BOOST_CHECK_EQUAL(d["escrow"][0]["total"].getInt<int64_t>(), 20 * COIN);
+    BOOST_CHECK_EQUAL(d["escrow"][0]["destination"].get_str(), "erin");
+    BOOST_CHECK_EQUAL(d["fees"].getInt<int64_t>(), deposit_fee);
+
+    // A BMM request (M8) and its accept (M7) in the coinbase: the bid is the fee of the request.
+    const uint256 side_block{uint256{0x42}};
+    const CTransactionRef& more{m_coinbase_txns.at(1)};
+    const CAmount bid{25'000};
+    BmmRequest request;
+    request.slot = slot;
+    request.side_block_hash = side_block;
+    request.prev_main_block_hash = depositing.GetHash();
+    const auto bmm_tx{CreateValidTransaction({more}, {COutPoint{more->GetHash(), 0}}, 2, {coinbaseKey},
+                                             {{0, BmmRequestScript(request)}, {more->vout[0].nValue - bid, script}}, std::nullopt, std::nullopt).first};
+    CBlock merged{CreateBlock({bmm_tx}, script)};
+    {
+        CMutableTransaction coinbase{*merged.vtx[0]};
+        coinbase.vout[0].nValue += bid;
+        coinbase.vout.emplace_back(0, BmmAcceptScript(slot, side_block));
+        merged.vtx[0] = MakeTransactionRef(std::move(coinbase));
+        node::RegenerateCommitments(merged, *m_node.chainman);
+        while (!CheckProofOfWork(merged.GetHash(), merged.nBits, m_node.chainman->GetConsensus())) ++merged.nNonce;
+        BOOST_REQUIRE(m_node.chainman->ProcessNewBlock(std::make_shared<const CBlock>(merged), true, true, nullptr));
+        BOOST_REQUIRE(WITH_LOCK(::cs_main, return m_node.chainman->ActiveChain().Tip()->GetBlockHash()) == merged.GetHash());
+    }
+    d = detail(merged);
+    BOOST_REQUIRE_EQUAL(d["bmm"].size(), 1U);
+    BOOST_CHECK_EQUAL(d["bmm"][0]["slot"].getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(d["bmm"][0]["title"].get_str(), "Testchain");
+    BOOST_CHECK_EQUAL(d["bmm"][0]["hash"].get_str(), side_block.GetHex());
+    BOOST_CHECK_EQUAL(d["bmm"][0]["request"].get_str(), bmm_tx.GetHash().GetHex());
+    BOOST_CHECK_EQUAL(d["bmm"][0]["bid"].getInt<int64_t>(), bid);
+    BOOST_CHECK_EQUAL(of_kind(d["outputs"], "bmm")[0]["hash"].get_str(), side_block.GetHex());
+    BOOST_CHECK_EQUAL(d["fees"].getInt<int64_t>(), bid);
+    BOOST_CHECK_EQUAL(d["reward"].getInt<int64_t>(), d["subsidy"].getInt<int64_t>() + bid);
+
+    // A withdrawal bundle handed to the miner: proposed (M3) in the next block, upvoted (M4) in the one after.
+    CMutableTransaction blind;
+    blind.vout.emplace_back(0, WithdrawalFeeScript(COIN / 100));
+    blind.vout.emplace_back(COIN, script);
+    std::string error;
+    const auto bundle{m_node.chainman->m_drivechain_miner.AddBundle(slot, blind, error)};
+    BOOST_REQUIRE_MESSAGE(bundle, error);
+    const CBlock proposing_bundle{CreateAndProcessBlock({}, script)};
+    d = detail(proposing_bundle);
+    BOOST_REQUIRE_EQUAL(d["proposed"].size(), 1U);
+    BOOST_CHECK_EQUAL(d["proposed"][0]["hash"].get_str(), bundle->GetHex());
+    BOOST_CHECK_EQUAL(of_kind(d["outputs"], "bundle")[0]["hash"].get_str(), bundle->GetHex());
+    BOOST_REQUIRE_EQUAL(d["pending"].size(), 1U);
+    BOOST_CHECK_EQUAL(d["pending"][0]["bundles"][0]["score"].getInt<int>(), 1);
+    const CBlock voting{CreateAndProcessBlock({}, script)};
+    d = detail(voting);
+    BOOST_CHECK_EQUAL(d["votes"]["form"].get_str(), "one");
+    BOOST_CHECK(d["votes"]["known"].get_bool());
+    BOOST_REQUIRE_EQUAL(d["votes"]["entries"].size(), 1U);
+    const UniValue& vote{d["votes"]["entries"][0]};
+    BOOST_CHECK_EQUAL(vote["slot"].getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(vote["title"].get_str(), "Testchain");
+    BOOST_CHECK_EQUAL(vote["vote"].get_str(), "upvote");
+    BOOST_CHECK_EQUAL(vote["bundle"].get_str(), bundle->GetHex());
+    BOOST_CHECK_EQUAL(d["pending"][0]["bundles"][0]["score"].getInt<int>(), 2);
+    BOOST_CHECK_EQUAL(d["minScore"].getInt<int>(), dc.withdrawal_min_score);
+    BOOST_CHECK_EQUAL(of_kind(d["outputs"], "vote")[0]["form"].get_str(), "one");
+
+    // The list's rows with their summaries, newest first: the vote, the bundle, the BMM block, the deposit.
+    UniValue rows{api.Call("explorer.blocks", Obj({{"count", 4}, {"details", true}}))};
+    BOOST_REQUIRE_EQUAL(rows.size(), 4U);
+    BOOST_CHECK_EQUAL(rows[0][1].get_str(), voting.GetHash().GetHex());
+    const UniValue& voted{rows[0][5]};
+    BOOST_CHECK_EQUAL(voted["votes"].getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(voted["voteForm"].get_str(), "one");
+    BOOST_CHECK_EQUAL(voted["weight"].getInt<int64_t>(), GetBlockWeight(voting));
+    BOOST_CHECK_EQUAL(voted["payout"].get_str(), "");
+    BOOST_CHECK_EQUAL(voted["payouts"].getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(rows[1][5]["bundles"].getInt<int>(), 1);
+    const UniValue& merged_row{rows[2][5]};
+    BOOST_CHECK_EQUAL(merged_row["bmm"].size(), 1U);
+    BOOST_CHECK_EQUAL(merged_row["bmm"][0].getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(merged_row["fees"].getInt<int64_t>(), bid);
+    BOOST_CHECK_EQUAL(merged_row["reward"].getInt<int64_t>(), merged_row["subsidy"].getInt<int64_t>() + bid);
+    BOOST_CHECK_EQUAL(merged_row["coinbase"].get_str(), merged.vtx[0]->GetHash().GetHex());
+    BOOST_CHECK_EQUAL(rows[3][5]["escrow"].getInt<int>(), 1);
+    // Without details, the rows stay the index's alone; with them, MAX_DETAILED_ROWS at most.
+    BOOST_CHECK_EQUAL(api.Call("explorer.blocks", Obj({{"count", 2}}))[0].size(), 5U);
+    BOOST_CHECK_EQUAL(api.Call("explorer.blocks", Obj({{"count", webui::explorer::MAX_DETAILED_ROWS}, {"details", true}})).size(), static_cast<size_t>(webui::explorer::MAX_DETAILED_ROWS));
+    BOOST_CHECK_THROW(api.Call("explorer.blocks", Obj({{"count", webui::explorer::MAX_DETAILED_ROWS + 1}, {"details", true}})), webui::HostError);
+    BOOST_CHECK_THROW(api.Call("explorer.blocks", Obj({{"count", 1}, {"details", "yes"}})), webui::HostError);
+    // A hash that is no block, or not a hash.
+    BOOST_CHECK_THROW(api.Call("explorer.block", Obj({{"hash", uint256{7}.GetHex()}})), webui::HostError);
+    BOOST_CHECK_THROW(api.Call("explorer.block", Obj({{"hash", "xyz"}})), webui::HostError);
+    // The genesis block: its subsidy, no fees, nothing on sidechains.
+    const UniValue genesis{api.Call("explorer.block", Obj({{"hash", Params().GenesisBlock().GetHash().GetHex()}}))};
+    BOOST_CHECK_EQUAL(genesis["height"].getInt<int>(), 0);
+    BOOST_CHECK_EQUAL(genesis["fees"].getInt<int>(), 0);
 }
 
 BOOST_AUTO_TEST_CASE(node_options)

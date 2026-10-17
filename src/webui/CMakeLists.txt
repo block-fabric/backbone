@@ -69,6 +69,7 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   dialog.cpp
   guard.cpp
   events.cpp
+  explorer.cpp
   i18n.cpp
   icontint.cpp
   nodeapi.cpp

@@ -29,6 +29,7 @@
 #include <webui/bridge.h>
 #include <webui/confirm.h>
 #include <webui/console.h>
+#include <webui/explorer.h>
 
 #include <algorithm>
 #include <fstream>
@@ -72,6 +73,7 @@ constexpr int64_t MAX_EXPLORER_ROWS{10'000};
 const std::vector<std::string> METHODS{
     "console.check", "console.run", "peers.disconnect", "peers.ban", "bans.unban", "drivechain.depositAddress",
     "tools.hashes", "tools.merkle", "tools.decode", "timestamp.hashFile", "timestamp.search", "explorer.blocks",
+    "explorer.block",
 };
 } // namespace
 
@@ -285,11 +287,17 @@ UniValue NodeApi::Call(const std::string& method, const UniValue& params)
         // lacks in parts (all of them: part after part; on a new tip: only the new ones), never the whole chain at once
         // (audit 7 #12). The index entries are taken under cs_main, the rows made without it (an entry of the block
         // index stays as long as the node runs). Each row: [height, hash, time, transactions, difficulty]; its size
-        // and weight are read (getblock) for the rows a page shows.
+        // and weight are read for the rows a page shows: with `details`, at most explorer::MAX_DETAILED_ROWS rows, each
+        // with a sixth element, the summary of its block (explorer::BlockSummary: reward, fees, coinbase, BMM, votes),
+        // the blocks read from disk one by one without cs_main.
         const node::NodeContext* context{m_node().context()};
         if (!context || !context->chainman) throw HostError("The chain is not loaded yet");
+        const UniValue& details_value{Param(params, "details")};
+        if (!details_value.isNull() && !details_value.isBool()) throw HostError(BRIDGE_INVALID_REQUEST, "details: true or false");
+        const bool details{details_value.isBool() && details_value.get_bool()};
+        const int64_t max_rows{details ? explorer::MAX_DETAILED_ROWS : MAX_EXPLORER_ROWS};
         const int64_t asked{ParamInt(params, "count")};
-        if (asked < 1 || asked > MAX_EXPLORER_ROWS) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("count: 1 to %d", MAX_EXPLORER_ROWS));
+        if (asked < 1 || asked > max_rows) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("count: 1 to %d", max_rows));
         const UniValue& from_value{Param(params, "from")};
         if (!from_value.isNull() && !from_value.isNum()) throw HostError(BRIDGE_INVALID_REQUEST, "from: a height");
         std::vector<const CBlockIndex*> indexes;
@@ -311,9 +319,22 @@ UniValue NodeApi::Call(const std::string& method, const UniValue& params)
             row.push_back(index->GetBlockTime());
             row.push_back(static_cast<int64_t>(index->nTx));
             row.push_back(GetDifficulty(*index));
+            if (details) {
+                // A block that cannot be read (pruned) has no summary.
+                CBlock block;
+                row.push_back(context->chainman->m_blockman.ReadBlock(block, *index) ? explorer::BlockSummary(block, index->nHeight, context->chainman->GetConsensus()) : UniValue{});
+            }
             rows.push_back(std::move(row));
         }
         return rows;
+    }
+    if (method == "explorer.block") {
+        // The coinbase of a block and what it did to the sidechains (explorer::BlockDetail): one block, read without cs_main.
+        const node::NodeContext* context{m_node().context()};
+        if (!context || !context->chainman) throw HostError("The chain is not loaded yet");
+        const auto hash{uint256::FromHex(ParamStr(params, "hash"))};
+        if (!hash) throw HostError(BRIDGE_INVALID_REQUEST, "hash: a block hash is needed");
+        return explorer::BlockDetail(*context->chainman, *hash);
     }
     if (method == "timestamp.search") {
         interfaces::Node& node{m_node()};

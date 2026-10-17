@@ -36,6 +36,9 @@ class Bridge;
  *   tools.decode {text}             Base58Check and Bech32 contents of a string
  *   timestamp.hashFile {path}       the SHA-256 of a file the user chose (TimestampDialog)
  *   timestamp.search {payload, from, count}  look for a stamp in `count` blocks from `from` back
+ *   explorer.blocks {count, from?, details?}  rows of the explorer's list from the block index; with details
+ *                                   (100 rows at most), the summary of each block's coinbase (explorer.h)
+ *   explorer.block {hash}           the coinbase of a block and its drivechain activity (explorer::BlockDetail)
  */
 class NodeApi
 {
