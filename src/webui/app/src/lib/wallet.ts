@@ -386,6 +386,55 @@ export interface TxRecord {
   trusted: boolean;
 }
 
+/**
+ * The records of one transaction merged into one: the wallet's own outputs (a send to itself) are halves of the same
+ * transaction, listed by the node as a send and a receive. The record kept is the one that pays out most (else the
+ * first), with the sums of the credits, debits and amounts of all of them: the net in the coin, the fee included.
+ */
+export function mergeByTxid(records: readonly TxRecord[], merge: (txid: string) => boolean): TxRecord[] {
+  const groups = new Map<string, TxRecord[]>();
+  for (const r of records) {
+    if (!merge(r.txid)) continue;
+    const g = groups.get(r.txid);
+    if (g) g.push(r);
+    else groups.set(r.txid, [r]);
+  }
+  if (!groups.size) return records as TxRecord[];
+  const out: TxRecord[] = [];
+  const done = new Set<string>();
+  for (const r of records) {
+    const g = groups.get(r.txid);
+    if (!g) {
+      out.push(r);
+      continue;
+    }
+    if (done.has(r.txid)) continue;
+    done.add(r.txid);
+    if (g.length === 1) {
+      out.push(r);
+      continue;
+    }
+    const base = g.reduce((a, b) => (b.amount < a.amount ? b : a));
+    const credit = g.reduce((n, x) => n + x.credit, 0n);
+    const debit = g.reduce((n, x) => n + x.debit, 0n);
+    const amount = g.reduce((n, x) => n + x.amount, 0n);
+    out.push({ ...base, credit, debit, amount });
+  }
+  return out;
+}
+
+/**
+ * The one record of a transaction for its notices (the toast, the desktop, the bell): its halves merged. A
+ * transaction that pays the wallet itself is listed by the node as a send and a receive of almost nothing: one
+ * notice of the send with its net, never a "received 0" beside it (user feedback 2026-10-19). Undefined when none
+ * of the records is of it.
+ */
+export function noticeRecordOf(records: readonly TxRecord[], txid: string): TxRecord | undefined {
+  const own = records.filter((r) => r.txid === txid);
+  if (own.length === 0) return undefined;
+  return mergeByTxid(own, () => true)[0];
+}
+
 /** The records as the host sends them: one array each (RecordJson in walletapi.cpp). */
 export function parseRecords(raw: unknown[][]): TxRecord[] {
   return raw.map((r) => {

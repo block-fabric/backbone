@@ -334,10 +334,42 @@ mode"). `lib/uimode.svelte.ts` holds it:
 * `simpleMode()` in a template or a `$derived` follows the preference. A page
   may hide sections, tabs or columns in Simple mode, never what a beginner
   needs; a page with no simple variant shows the same in both.
+* **The navigation of Simple mode is one short list, the same in every app**
+  (the rule; user feedback 2026-10-19; the rule is written whole in the
+  sidechain template's doc/webui.md): Home · Send · Receive · **Activity** (the
+  Transactions page) · **Move coins** (the Sidechains page; a sidechain's
+  Drivechains) · at most three main features of the chain (Chains has none of
+  its own) · Settings, each in plain words (`simpleTitle`) with a line saying
+  what it is for (`simpleSummary`), shown under its name. The sidebar groups
+  them as Home · *Your money* · *Features* · Settings. Everything else
+  (Overview, Manage wallets, the explorer, mining, the tools, the node window)
+  is Advanced's: the palette and links still reach it, and the wallets are
+  managed from the wallet's card of the sidebar. `lib/uimode.svelte.ts`
+  (`simpleNavPages()`) holds it; `test/simple-nav.test.ts` checks it.
 * Pages marked `advanced: true` in `PAGES` (the advanced transactions, the
-  tools, the node window, solo mining, the kit) leave the sidebar, the
-  workspace tabs and Home's quick actions in Simple mode; the palette and links
-  still reach them.
+  tools, the node window, solo mining, the kit) leave Home's quick actions in
+  Simple mode as well.
+* **Names told apart** (user feedback 2026-10-19): the section is *Wallet*, the
+  page that creates, opens, backs up and encrypts wallets **Manage wallets**
+  (its id `wallets`, and so its links and shortcuts, unchanged).
+* **The sidebar folds** into a rail of icons (user feedback 2026-10-19): the
+  button at its foot, **Ctrl+B**, or the palette ("Collapse the sidebar"); each
+  icon says its page and what it is for in its tooltip. A preference
+  (`prefs.sidebarCollapsed`), kept per network; in the workspace layout the
+  areas other than the current one show their icon only. A window narrower than
+  760 px keeps the drawer. The list scrolls with its bar at the sidebar's right
+  edge.
+* **The icon of the app** is the mark of Chains (two links), drawn by
+  `app/scripts/appicon.py --brand …` into `app/public/icon-256.png` (window,
+  tray, the desktop entry's `chains` icon) and `res/icons/app.ico` (the program,
+  its window and tray on Windows, the installer), never the coin of Bitcoin; GTK
+  names the window `chains-app` (X11 class, Wayland app id), as the desktop
+  entry's StartupWMClass.
+* **One notice per transaction**: a transaction that pays the wallet itself is
+  listed by the node as a send and a receive; the notices merge them
+  (`noticeRecordOf`), never a "received 0" beside a send. A burst of
+  transactions (a rescan, a script) is one change for the pages: the history and
+  the addresses are read again once per 150 ms (`BURST_MS`).
 * `components/Term.svelte` (`<Term id="bmm">merge-mined</Term>`) explains a word
   of the trade from `lib/glossary.ts` on hover, focus or a tap; a chain adds
   its own words with `addTerms()`.

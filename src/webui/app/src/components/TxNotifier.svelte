@@ -2,11 +2,12 @@
   import { t } from '../lib/i18n.svelte';
   // Notices of new transactions of the wallets (BitcoinGUI::incomingTransaction): date, amount,
   // type, label or address. Many at once (a rescan) make one notice, as in chains-qt.
+  // One notice per transaction (noticeRecordOf): its halves to the wallet itself are merged, the net shown.
   import { host } from '../lib/rpc';
   import { node, prefs, toast, wallets } from '../lib/state.svelte';
   import { formatTime } from '../lib/format';
   import { formatAmount } from '../lib/units';
-  import { addressText, typeText, walletDisplayName } from '../lib/wallet';
+  import { addressText, noticeRecordOf, typeText, walletDisplayName } from '../lib/wallet';
   import { recordsOf } from '../lib/walletdata.svelte';
 
   const MAX_NOTICES = 3;
@@ -37,14 +38,19 @@
       } catch {
         // The wallet went away meanwhile.
       }
+      const told = new Set<string>();
       for (const { wallet, txid } of batch) {
         if (wallet !== wallets.current) {
           toast('info', t('New transaction'), t('In wallet %1', walletDisplayName(wallet)));
           if (desktop) host.notify(t('New transaction'), t('In wallet %1', walletDisplayName(wallet))).catch(() => undefined);
           continue;
         }
-        for (const r of fresh.filter((x) => x.txid === txid)) {
-          const incoming = r.amount >= 0n;
+        // One notice per transaction (its halves merged).
+        if (told.has(txid)) continue;
+        told.add(txid);
+        for (const r of [noticeRecordOf(fresh, txid)].filter((x) => x !== undefined)) {
+          // A net of nothing out of the wallet's own coins (a move to itself) is a send, not an income of 0.
+          const incoming = r.amount > 0n || (r.amount === 0n && r.debit === 0n);
           const amount = prefs.mask ? '••••••' : formatAmount(r.amount, prefs.unit, { withUnit: true, plus: true });
           const lines = [t('Date: %1', formatTime(r.time)), t('Amount: %1', amount), t('Type: %1', typeText(r.type) || t('Other'))];
           if (wallets.list.length > 1) lines.push(t('Wallet: %1', walletDisplayName(wallet)));

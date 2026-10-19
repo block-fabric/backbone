@@ -393,7 +393,7 @@ describe('the layouts', () => {
     expect(nav.page).toBe('mine');
     // Every page in the sidebar, Home first.
     const side = screen.getByRole('navigation', { name: 'Pages' });
-    expect(within(side).getAllByRole('button', { name: /Home|Overview|Wallets|^Tools|Settings/ }).length).toBeGreaterThanOrEqual(5);
+    expect(within(side).getAllByRole('button', { name: /Home|Overview|Manage wallets|^Tools|Settings/ }).length).toBeGreaterThanOrEqual(5);
   }, 20000);
 
   it('dashboard: the Deposit and Withdrawals of a sidechain open the real tabs, the sidechain chosen', async () => {
