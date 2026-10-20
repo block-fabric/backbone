@@ -5,7 +5,7 @@
   // hidden. Their look is the app's, sent again when it changes.
   import { look as themeLook } from '../lib/themestore.svelte';
   import { prefs } from '../lib/state.svelte';
-  import { hub, sidechainHost } from '../lib/sidechains.svelte';
+  import { hub, refreshSidechains, sidechainHost } from '../lib/sidechains.svelte';
   import { loadPacks, packHost, packs, tellFrame } from '../lib/packs.svelte';
   import { activeModule, currentLook, frameShown, liveModules, modules } from '../lib/modules.svelte';
   import ModuleFrame from './ModuleFrame.svelte';
@@ -25,8 +25,10 @@
     });
   });
 
+  // The packs built in: asked again until known (the host may not answer before its node is ready).
   $effect(() => {
-    void loadPacks();
+    void hub.list;
+    if (!packs.loaded) void loadPacks();
   });
 
   // Whether each module's pages can be shown: asked again when its node starts or stops.
@@ -42,6 +44,15 @@
         () => undefined,
       );
     }
+  });
+
+  // A module starting (its node runs, its wallet not ready yet): its state asked again until it is ready, the host's
+  // events aside (one may say "running" before the node answers).
+  $effect(() => {
+    const waiting = (hub.list?.chains ?? []).some((c) => c.enabled && (c.state === 'starting' || (c.state === 'running' && !c.ready)));
+    if (!waiting) return;
+    const timer = setInterval(() => void refreshSidechains(), 2000);
+    return () => clearInterval(timer);
   });
 
   const live = $derived(liveModules());

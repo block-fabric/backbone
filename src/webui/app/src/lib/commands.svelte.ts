@@ -18,7 +18,7 @@ import { pageTitleSource, simpleMode, switchModeLabel, toggleUiMode } from './ui
 // The menus: what concerns the chain (sidechains, mining, the explorer) before the tools.
 export const MENU_GROUPS = ['Your wallet', 'Banking', 'Chains', 'Tools', 'Window', 'This node'] as const;
 export type MenuGroup = (typeof MENU_GROUPS)[number];
-export type CommandGroup = 'Go to' | MenuGroup | 'Layout' | 'Display' | 'Network';
+export type CommandGroup = 'Go to' | MenuGroup | 'Layout' | 'Display' | 'Network' | 'Modules';
 
 export interface Command {
   /** Stable: tests and the mapping of doc/webui-layouts.md use it. */
@@ -227,16 +227,16 @@ export function moduleCommands(): Command[] {
   const out: Command[] = [];
   const on = (hub.list?.chains ?? []).filter((c) => c.enabled);
   if (on.length === 0) return out;
-  out.push({ id: 'module.chains', group: 'Go to', label: 'Switch to %1', arg: productName(), icon: 'modules', run: () => openChains('home'), keywords: 'module switch' });
+  out.push({ id: 'module.chains', group: 'Modules', label: 'Switch to %1', arg: productName(), icon: 'modules', run: () => openChains('home'), keywords: 'module switch' });
   for (const c of on) {
-    out.push({ id: `module.${c.stem}`, group: 'Go to', label: 'Switch to %1', arg: c.name, icon: 'modules', run: () => openModule(c.stem), keywords: `module switch ${c.stem}` });
+    out.push({ id: `module.${c.stem}`, group: 'Modules', label: 'Switch to %1', arg: c.name, icon: 'modules', run: () => openModule(c.stem), keywords: `module switch ${c.stem}` });
     const m = modules.manifests[c.stem];
     if (!m) continue;
     for (const p of m.pages) {
-      out.push({ id: `module.${c.stem}.${p.id}`, group: 'Go to', label: '%1', arg: `${c.name}: ${p.title}`, icon: 'modules', run: () => openModule(c.stem, p.id), keywords: `${c.stem} ${p.summary}` });
+      out.push({ id: `module.${c.stem}.${p.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${p.title}`, icon: 'modules', run: () => openModule(c.stem, p.id), keywords: `${c.stem} ${p.summary}` });
     }
     for (const x of m.commands) {
-      out.push({ id: `module.${c.stem}.cmd.${x.id}`, group: 'Go to', label: '%1', arg: `${c.name}: ${x.label}`, icon: 'modules', run: () => openModule(c.stem, x.page, x.tab ?? ''), keywords: c.stem });
+      out.push({ id: `module.${c.stem}.cmd.${x.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${x.label}`, icon: 'modules', run: () => openModule(c.stem, x.page, x.tab ?? ''), keywords: c.stem });
     }
   }
   return out;

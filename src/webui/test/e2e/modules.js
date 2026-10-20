@@ -26,7 +26,8 @@
     await waitFor(`${name}: the window gone`, async () => (await dialogWindow('kind')) === 'none', 20000);
   }
   async function shot(name) {
-    $$('.toast button[aria-label="Dismiss"]').forEach((b) => b.click());
+    $$('button[aria-label="Dismiss"]').forEach((b) => b.click());
+    if (T().toasts) T().toasts.list.splice(0);
     await sleep(400);
     await snapshot(name);
   }
@@ -146,6 +147,15 @@
     await bmm('layers', 1);
     await check('the send is confirmed on Layers', !(await frameRpc('getrawmempool')).includes(send.txid));
 
+    // An asset of its own, for the portfolio: reserved and registered (one question), asked in the trusted dialog.
+    await desktop({ always: true });
+    await frameHost('rpc.confirmed', { method: 'reserveasset', params: ['GOLD'], wallet: 'main', then: { method: 'registerasset', params: ['GOLD', 100000, 2] } });
+    await bmm('layers', 4);
+    await frameHost('rpc.confirmed', { method: 'registerasset', params: ['GOLD', 100000, 2], wallet: 'main', authorizedOnly: true });
+    await bmm('layers', 1);
+    await desktop({ always: false });
+    await desktop({ clear: true });
+
     // Its pages in the main shell (the frame is told the page by the app).
     await openPage('trade', 'Trade');
     await check('the breadcrumbs say where', /Layers/.test($('.crumbs').textContent) && /Trade|Swap/.test($('.crumbs').textContent), $('.crumbs').textContent);
@@ -162,6 +172,8 @@
     await waitFor('the app\'s pages again', () => T().nav.page === 'home' && !$('[data-module-page]'), 10000);
     await check('the app\'s own pages back in the sidebar', !$('[data-module-page]') && $$('nav.sidebar .entry').length > 5);
     await waitFor('the portfolio', () => $('[data-portfolio-row="layers"]'), 30000);
+    await waitFor('the asset of Layers in the portfolio', () => /GOLD/.test($('[data-portfolio-row="layers"]').textContent), 60000).catch(() => null);
+    await check('the portfolio lists the asset Layers\' wallet holds', /GOLD/.test($('[data-portfolio-row="layers"]').textContent), $('[data-portfolio-row="layers"]').textContent);
     await sleep(1500);
     await shot('modules-portfolio');
     T().go('transactions');
@@ -180,7 +192,7 @@
     box.open = true;
     box.dispatchEvent(new Event('toggle'));
     await waitFor('update available', () => $(`[data-update-available="${T2}"]`), 60000);
-    box.scrollIntoView({ block: 'center' });
+    box.scrollIntoView({ block: 'nearest' });
     await sleep(800);
     await shot('modules-update-available');
     const pidBefore = (await chainOf('layers')).pid;

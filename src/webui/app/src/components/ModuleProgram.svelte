@@ -102,7 +102,7 @@
   {#if list}
     <fieldset class="releases">
       <legend class="caps">{t('Releases of %1', list.repo)}</legend>
-      {#each shown as r (r.tag)}
+      {#each shown as r, i (r.tag + ":" + i)}
         <label class="rel" class:off={!r.compatible} class:chosen={chosen === r.tag} data-release={r.tag} data-compatible={r.compatible ? 'yes' : 'no'}>
           <input type="radio" name="release-{stem}" value={r.tag} disabled={!r.compatible || working} checked={chosen === r.tag} onchange={() => (chosen = r.tag)} />
           <span class="what">

@@ -102,7 +102,7 @@
         </div>
       </div>
       {#if moduleSummary?.trusted != null}
-        <div class="wc-foot"><span class="balance" data-field="module-balance"><ModuleAmount text={moduleSummary.trusted} unit={manifest?.unit ?? ''} /></span></div>
+        <div class="wc-foot"><span class="balance" data-field="module-balance"><ModuleAmount text={moduleSummary.trusted} unit={manifest?.unit ?? ''} coins /></span></div>
       {/if}
     </section>
   {:else if wallets.list.length > 0}

@@ -13,7 +13,7 @@
   import Dashboard from './layouts/Dashboard.svelte';
   import Workspace from './layouts/Workspace.svelte';
   import { followHistory } from '../lib/history.svelte';
-  import { activeModule, clearModal, frameShown, modules } from '../lib/modules.svelte';
+  import { activeModule, clearModal, frameShown, moduleName, moduleTitle, modules } from '../lib/modules.svelte';
   import { hub } from '../lib/sidechains.svelte';
 
   // Back and forward: the app's (lib/history.svelte.ts), for its pages and the modules' alike.
@@ -22,6 +22,9 @@
   $effect(() => {
     if (nav.page !== 'sidechain' && hub.selected !== 'chains') untrack(() => (hub.selected = 'chains'));
   });
+  // The title strip: the module shown and its page, its wallet (the app's own page and wallet else).
+  const stripTitle = $derived(activeModule() ? `${moduleName(activeModule())} · ${moduleTitle(activeModule())}` : pageTitleSource(nav.page));
+  const stripDetail = $derived(activeModule() ? (modules.summaries[activeModule()]?.wallet ?? '') : wallets.current !== null ? wallets.current || 'default wallet' : '');
   // A dialog of a module's pages is open: the app's window is dimmed around its page, as for a dialog of its own.
   const dimmed = $derived(!!activeModule() && frameShown() && !!modules.modal[activeModule()]);
   // Another module or page shown: the dim of the one before goes (it cannot follow the user around).
@@ -61,7 +64,7 @@
 <div class="frame">
   <!-- The integrated title bar: the workspace's is its top bar; the dashboard has a slim strip. -->
   {#if prefs.layout !== 'workspace'}
-    <TitleStrip title={pageTitleSource(nav.page)} detail={wallets.current !== null ? wallets.current || 'default wallet' : ''} />
+    <TitleStrip title={stripTitle} detail={stripDetail} />
   {/if}
   <div class="layout">
     {#if prefs.layout === 'workspace'}

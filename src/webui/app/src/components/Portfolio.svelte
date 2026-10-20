@@ -54,8 +54,8 @@
           <tr data-portfolio-row={r.stem}>
             <td><button type="button" class="link" onclick={() => openModule(r.stem, 'home')}><span class="mark">{r.name.slice(0, 1)}</span> <SafeText text={r.name} /></button> {#if st.tone !== 'ok'}<span class="badge small-badge">{t(st.key, ...st.args)}</span>{/if}</td>
             <td class="muted"><SafeText text={r.wallet || '—'} /></td>
-            <td class="num" data-field="trusted"><ModuleAmount text={r.trusted} unit={r.unit} /></td>
-            <td class="num"><ModuleAmount text={r.pending} /></td>
+            <td class="num" data-field="trusted"><ModuleAmount text={r.trusted} unit={r.unit} coins /></td>
+            <td class="num"><ModuleAmount text={r.pending} coins /></td>
             <td>
               {#if r.assets.length}
                 <span class="assets">{#each r.assets.slice(0, 4) as a, i (i)}<span class="asset"><ModuleAmount text={a.amount} /> <SafeText text={a.name} /></span>{/each}{#if r.assets.length > 4}<span class="muted">+{r.assets.length - 4}</span>{/if}</span>

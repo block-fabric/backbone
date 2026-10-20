@@ -495,3 +495,14 @@ describe('the program of a module: the download step', () => {
     expect(document.querySelector('[data-action="download"]')?.textContent).toContain('Update to 20261021.1');
   });
 });
+
+describe('the palette groups', () => {
+  it('has each group once (its key), the modules\' in a group of their own', () => {
+    hub.list = { network: 'regtest', rpcServer: true, chainsDataDir: '/data', chains: [entry('layers')] };
+    modules.manifests.layers = parseManifest(MANIFEST)!;
+    const titles: string[] = [];
+    for (const c of buildCommands()) if (titles.at(-1) !== c.group) titles.push(c.group);
+    expect(new Set(titles).size).toBe(titles.length);
+    expect(titles.at(-1)).toBe('Modules');
+  });
+});

@@ -66,7 +66,7 @@
       <tr><th>{t('Chain')}</th><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Label')}</th><th class="num">{t('Amount')}</th></tr>
     </thead>
     <tbody>
-      {#each rows as r (r.chain + r.txid + r.category + r.address + r.amount)}
+      {#each rows as r, i (i)}
         <tr data-chain-tx={r.chain} ondblclick={() => open(r)}>
           <td><button type="button" class="chip" onclick={() => open(r)} title={t('Open in %1', r.name)}><SafeText text={r.name} /></button></td>
           <td>{formatTime(r.time)}</td>

@@ -4,8 +4,10 @@
   import { prefs } from '../lib/state.svelte';
   import SafeText from './SafeText.svelte';
 
-  let { text, unit = '', plus = false }: { text: string | null | undefined; unit?: string; plus?: boolean } = $props();
-  const shown = $derived(text === null || text === undefined ? '–' : plus && !text.startsWith('-') && Number(text) > 0 ? `+${text}` : text);
+  // coins: the module's own coin, with its 8 decimals as the app writes its own (an asset keeps its own decimals).
+  let { text, unit = '', plus = false, coins = false }: { text: string | null | undefined; unit?: string; plus?: boolean; coins?: boolean } = $props();
+  const padded = $derived(text && coins && /^-?[0-9]+(\.[0-9]{0,8})?$/.test(text) ? (text.includes('.') ? text.padEnd(text.indexOf('.') + 9, '0') : `${text}.00000000`) : text);
+  const shown = $derived(padded === null || padded === undefined ? '–' : plus && !padded.startsWith('-') && Number(padded) > 0 ? `+${padded}` : padded);
 </script>
 
 <span class="amount num" title={prefs.mask ? 'Hidden: privacy mode' : undefined} data-module-amount>

@@ -28,7 +28,7 @@
   }
   const hubList = () => host('sidechains.list');
   const chainOf = async (stem) => (await hubList()).chains.find((c) => c.stem === stem);
-  const frame = () => $('iframe.pack');
+  const frame = () => $('iframe.module-frame:not([hidden])');
   let rid = 1;
   // A request as the pages in the frame make it: the frame's messages, once the page knows which frame sent them, go
   // through route (lib/packs.svelte.ts) for that frame's sidechain. The frame itself is of another origin: the test
