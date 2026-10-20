@@ -554,7 +554,8 @@ static RPCMethod getmininginfo()
                         {RPCResult::Type::NUM, "networkhashps", "The network hashes per second"},
                         {RPCResult::Type::NUM, "pooledtx", "The size of the mempool"},
                         {RPCResult::Type::STR_AMOUNT, "blockmintxfee", "Minimum feerate of packages selected for block inclusion in " + CURRENCY_UNIT + "/kvB"},
-                        {RPCResult::Type::STR, "chain", "current network name (" LIST_CHAIN_NAMES ")"},
+                        {RPCResult::Type::STR, "chain", "current network name: on the eCash networks what eCash's node reports (main on ecash and ecashbeta, testnet4 on ecashtest); otherwise main, test, signet or regtest (Chains)"},
+                {RPCResult::Type::STR, "network", "the network (" LIST_CHAIN_NAMES ")"},
                         {RPCResult::Type::STR_HEX, "signet_challenge", /*optional=*/true, "The block challenge (aka. block script), in hexadecimal (only present if the current network is a signet)"},
                         {RPCResult::Type::OBJ, "next", "The next block",
                         {
@@ -596,7 +597,8 @@ static RPCMethod getmininginfo()
     obj.pushKV("pooledtx", mempool.size());
     const auto mining_options{node::FlattenMiningOptions(node.mining_args)};
     obj.pushKV("blockmintxfee", ValueFromAmount(CHECK_NONFATAL(mining_options.block_min_fee_rate)->GetFeePerK()));
-    obj.pushKV("chain", chainman.GetParams().GetChainTypeString());
+    obj.pushKV("chain", ChainTypeToCompatName(chainman.GetParams().GetChainType()));
+    obj.pushKV("network", chainman.GetParams().GetChainTypeString());
 
     UniValue next(UniValue::VOBJ);
     CBlockIndex next_index;
@@ -759,6 +761,7 @@ static RPCMethod getblocktemplate()
                 {"rules", RPCArg::Type::ARR, RPCArg::Optional::NO, "A list of strings",
                 {
                     {"segwit", RPCArg::Type::STR, RPCArg::Optional::NO, "(literal) indicates client side segwit support"},
+                    {"bip300301", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "(literal) on the eCash networks: indicates that the client puts the BIP300/BIP301 commitments (drivechain_coinbase_outputs) in its coinbase"},
                     {"str", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "other client side supported softfork deployment"},
                 }},
                 {"longpollid", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "delay processing request until the result would vary significantly from the \"longpollid\" of a prior template"},
@@ -1009,6 +1012,18 @@ static RPCMethod getblocktemplate()
         throw JSONRPCError(RPC_INVALID_PARAMETER, "getblocktemplate must be called with the segwit rule set (call with {\"rules\": [\"segwit\"]})");
     }
 
+    // eCash (ecash-com/bitcoin): the template's coinbase has to carry the BIP300/BIP301 commitments. This
+    // node gives them (drivechain_coinbase_outputs, coinbasetxn), so a client that says it puts them in
+    // its coinbase (the drivechain or coinbasetxn capability) is served, as is the bip300301_enforcer and
+    // whoever acknowledges the bip300301 rule; other callers are refused, as eCash's node refuses them,
+    // unless -deprecatedrpc=getblocktemplate.
+    if (consensusParams.ecash && !setClientRules.contains("bip300301") && !drivechain_client && !want_coinbasetxn &&
+        !setClientRules.contains("drivechain") && !IsDeprecatedRPCEnabled("getblocktemplate")) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "getblocktemplate on an eCash network must acknowledge the BIP300/BIP301 commitments: "
+                                                  "call with {\"rules\": [\"segwit\", \"bip300301\"]} and put drivechain_coinbase_outputs in the coinbase, "
+                                                  "or ask for the coinbasetxn capability");
+    }
+
     // Update block. A template with the requests for blind merged mining and one without are kept apart.
     static CBlockIndex* pindexPrev_by_kind[2];
     static int64_t time_start_by_kind[2];
@@ -1114,6 +1129,9 @@ static RPCMethod getblocktemplate()
         aRules.push_back("!segwit");
         aRules.push_back("taproot");
     }
+    // eCash: a miner that does not understand the BIP300/BIP301 commitments of the coinbase must not
+    // mine the template, modified or not (BIP9 "!" rule), as on eCash's node.
+    if (consensusParams.ecash) aRules.push_back("!bip300301");
     if (consensusParams.signet_blocks) {
         // indicate to miner that they must understand signet rules
         // when attempting to mine with this template
