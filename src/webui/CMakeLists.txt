@@ -154,7 +154,7 @@ if(WIN32)
 elseif(APPLE)
   target_link_libraries(chains-app "-framework WebKit" "-framework Cocoa")
 endif()
-# The target keeps its name (chains-app); the executable is the product's: estack-app.
+# The target keeps its name (chains-app); the executable is the product's: backbone-app.
 set_target_properties(chains-app PROPERTIES OUTPUT_NAME ${CLIENT_NAME_LOWER}-app)
 install_binary_component(chains-app)
 if(NOT WIN32 AND NOT APPLE)

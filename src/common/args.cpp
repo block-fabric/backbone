@@ -34,10 +34,10 @@
 #include <utility>
 #include <variant>
 
-const char * const ESTACK_CONF_FILENAME = CLIENT_NAME_LOWER ".conf";
+const char * const PRODUCT_CONF_FILENAME = CLIENT_NAME_LOWER ".conf";
 const char * const CHAINS_CONF_FILENAME = "chains.conf";
 const char * const ECASH_CONF_FILENAME = "ecash.conf";
-const char * const BITCOIN_CONF_FILENAME = ESTACK_CONF_FILENAME;
+const char * const BITCOIN_CONF_FILENAME = PRODUCT_CONF_FILENAME;
 const char * const BITCOIN_SETTINGS_FILENAME = "settings.json";
 
 ArgsManager gArgs;
@@ -353,7 +353,7 @@ fs::path ArgsManager::GetDataDir(bool net_specific) const
             return path;
         }
     } else {
-        // eStack's data directory for the eCash networks, Chains' for the Chains networks.
+        // Backbone's data directory for the eCash networks, Chains' for the Chains networks.
         path = GetDefaultDataDir(EcashFamily_());
     }
 
@@ -872,7 +872,7 @@ fs::path ChooseWindowsDataDir(const fs::path& legacy, const fs::path& local, con
     // half-removed old install) may create it, and switching the node to an empty
     // folder on the next start would look as if the chain and the wallet were gone.
     for (const char* name : {"blocks", "chainstate", "wallets", "testnet", "signet", "regtest", "betanet", "testnet4",
-                             ESTACK_CONF_FILENAME, CHAINS_CONF_FILENAME, BITCOIN_SETTINGS_FILENAME, ".lock"}) {
+                             PRODUCT_CONF_FILENAME, CHAINS_CONF_FILENAME, BITCOIN_SETTINGS_FILENAME, ".lock"}) {
         if (exists(legacy / fs::u8path(name))) return legacy;
     }
     return local;
@@ -880,12 +880,12 @@ fs::path ChooseWindowsDataDir(const fs::path& legacy, const fs::path& local, con
 
 fs::path GetDefaultDataDir(bool ecash)
 {
-    // eStack (the eCash networks), and Chains (the Chains networks, CHN):
+    // Backbone (the eCash networks), and Chains (the Chains networks, CHN):
     // Windows:
-    //   old: C:\Users\Username\AppData\Roaming\eStack, ...\Roaming\Chains
-    //   new: C:\Users\Username\AppData\Local\eStack, ...\Local\Chains
-    // macOS: ~/Library/Application Support/eStack, ~/Library/Application Support/Chains
-    // Unix-like: ~/.estack, ~/.chains
+    //   old: C:\Users\Username\AppData\Roaming\Backbone, ...\Roaming\Chains
+    //   new: C:\Users\Username\AppData\Local\Backbone, ...\Local\Chains
+    // macOS: ~/Library/Application Support/Backbone, ~/Library/Application Support/Chains
+    // Unix-like: ~/.backbone, ~/.chains
     const std::string name{ecash ? CLIENT_NAME : "Chains"};
 #ifdef WIN32
     // Windows
@@ -904,7 +904,7 @@ fs::path GetDefaultDataDir(bool ecash)
     // macOS
     return pathRet / "Library/Application Support" / fs::u8path(name);
 #else
-    // Unix-like: ~/.estack, ~/.chains
+    // Unix-like: ~/.backbone, ~/.chains
     return pathRet / fs::u8path("." + ToLower(name));
 #endif
 #endif
@@ -981,7 +981,7 @@ std::variant<ChainType, std::string> ArgsManager::GetChainArg_() const
     if (fRegTest) return ChainType::REGTEST;
     if (fSigNet) return ChainType::SIGNET;
     if (fTestNet) return ChainType::TESTNET;
-    // eStack: eCash's main network unless a Chains network is asked for.
+    // Backbone: eCash's main network unless a Chains network is asked for.
     return ChainType::ECASH;
 }
 
@@ -998,13 +998,13 @@ bool ArgsManager::EcashFamily_() const
 std::string ArgsManager::ConfigFileName_(const fs::path& datadir) const
 {
     AssertLockHeld(cs_args);
-    // The file the data directory has: estack.conf, else chains.conf (a Chains data directory, or one made
+    // The file the data directory has: backbone.conf, else chains.conf (a Chains data directory, or one made
     // for the tests), else ecash.conf (a data directory of eCash's own client, used as it is). Without
     // any, the file of the data directory family asked for.
-    for (const char* name : {ESTACK_CONF_FILENAME, CHAINS_CONF_FILENAME, ECASH_CONF_FILENAME}) {
+    for (const char* name : {PRODUCT_CONF_FILENAME, CHAINS_CONF_FILENAME, ECASH_CONF_FILENAME}) {
         if (!datadir.empty() && fs::exists(datadir / fs::u8path(name))) return name;
     }
-    return EcashFamily_() ? ESTACK_CONF_FILENAME : CHAINS_CONF_FILENAME;
+    return EcashFamily_() ? PRODUCT_CONF_FILENAME : CHAINS_CONF_FILENAME;
 }
 
 std::string ArgsManager::GetConfigFileName() const

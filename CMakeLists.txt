@@ -26,10 +26,10 @@ get_directory_property(precious_variables CACHE_VARIABLES)
 #=============================
 # Project / Package metadata
 #=============================
-# The product: eStack (eCash node and drivechains). Its spelling is here only: the executables
-# (estackd, estack-cli, estack-app...), the data directory (~/.estack, %LOCALAPPDATA%\eStack), the
-# configuration file (estack.conf) and the user agent follow it.
-set(CLIENT_NAME "eStack")
+# The product: Backbone (eCash node and drivechains). Its spelling is here only: the executables
+# (backboned, backbone-cli, backbone-app...), the data directory (~/.backbone, %LOCALAPPDATA%\Backbone), the
+# configuration file (backbone.conf) and the user agent follow it.
+set(CLIENT_NAME "Backbone")
 string(TOLOWER "${CLIENT_NAME}" CLIENT_NAME_LOWER)
 set(CLIENT_VERSION_MAJOR 32)
 set(CLIENT_VERSION_MINOR 0)

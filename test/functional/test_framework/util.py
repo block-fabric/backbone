@@ -333,14 +333,14 @@ def get_binary_paths(config):
 
     paths = types.SimpleNamespace()
     binaries = {
-        "estack": "BITCOIN_BIN",
-        "estackd": "BITCOIND",
+        "backbone": "BITCOIN_BIN",
+        "backboned": "BITCOIND",
         "bench_bitcoin": "BITCOIN_BENCH",
-        "estack-cli": "BITCOINCLI",
-        "estack-util": "BITCOINUTIL",
-        "estack-tx": "BITCOINTX",
-        "estack-chainstate": "BITCOINCHAINSTATE",
-        "estack-wallet": "BITCOINWALLET",
+        "backbone-cli": "BITCOINCLI",
+        "backbone-util": "BITCOINUTIL",
+        "backbone-tx": "BITCOINTX",
+        "backbone-chainstate": "BITCOINCHAINSTATE",
+        "backbone-wallet": "BITCOINWALLET",
     }
     # Set paths to bitcoin core binaries allowing overrides with environment
     # variables.

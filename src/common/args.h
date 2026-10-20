@@ -24,9 +24,9 @@
 
 class ArgsManager;
 
-//! The configuration file of an eStack data directory (the eCash networks): BITCOIN_CONF_FILENAME.
-extern const char * const ESTACK_CONF_FILENAME;
-//! That of a Chains data directory (the Chains networks), also read in any data directory that has one and no estack.conf.
+//! The configuration file of an Backbone data directory (the eCash networks): BITCOIN_CONF_FILENAME.
+extern const char * const PRODUCT_CONF_FILENAME;
+//! That of a Chains data directory (the Chains networks), also read in any data directory that has one and no backbone.conf.
 extern const char * const CHAINS_CONF_FILENAME;
 //! That of a data directory of eCash's own client, read where there is neither (a drop-in).
 extern const char * const ECASH_CONF_FILENAME;
@@ -368,7 +368,7 @@ public:
      */
     ChainType GetChainType() const EXCLUSIVE_LOCKS_REQUIRED(!cs_args);
 
-    /** The name of the configuration file of the data directory (estack.conf, chains.conf or ecash.conf). */
+    /** The name of the configuration file of the data directory (backbone.conf, chains.conf or ecash.conf). */
     std::string GetConfigFileName() const EXCLUSIVE_LOCKS_REQUIRED(!cs_args);
 
     /**
@@ -482,9 +482,9 @@ private:
      */
     std::variant<ChainType, std::string> GetChainArg() const EXCLUSIVE_LOCKS_REQUIRED(!cs_args);
     std::variant<ChainType, std::string> GetChainArg_() const EXCLUSIVE_LOCKS_REQUIRED(cs_args);
-    //! Whether the arguments so far ask for an eCash network (eStack's data directory) rather than a Chains one.
+    //! Whether the arguments so far ask for an eCash network (Backbone's data directory) rather than a Chains one.
     bool EcashFamily_() const EXCLUSIVE_LOCKS_REQUIRED(cs_args);
-    //! The name of the configuration file read in `datadir` (see ESTACK_CONF_FILENAME).
+    //! The name of the configuration file read in `datadir` (see PRODUCT_CONF_FILENAME).
     std::string ConfigFileName_(const fs::path& datadir) const EXCLUSIVE_LOCKS_REQUIRED(cs_args);
 
     // Helper function for LogArgs().

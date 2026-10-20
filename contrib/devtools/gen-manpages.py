@@ -10,13 +10,13 @@ import tempfile
 import argparse
 
 BINARIES = [
-'bin/estack',
-'bin/estackd',
-'bin/estack-cli',
-'bin/estack-tx',
-'bin/estack-wallet',
-'bin/estack-util',
-'bin/estack-app',
+'bin/backbone',
+'bin/backboned',
+'bin/backbone-cli',
+'bin/backbone-tx',
+'bin/backbone-wallet',
+'bin/backbone-util',
+'bin/backbone-app',
 ]
 
 parser = argparse.ArgumentParser(
@@ -51,7 +51,7 @@ versions = []
 for relpath in BINARIES:
     abspath = os.path.join(builddir, relpath)
     # Prevent the GUI from emitting a localized version string for --version and --help
-    is_gui = relpath == "bin/estack-app"
+    is_gui = relpath == "bin/backbone-app"
     try:
         cmd_args = ["--version"]
         if is_gui:

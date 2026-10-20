@@ -64,7 +64,7 @@ std::optional<ConfigError> InitConfig(ArgsManager& args, SettingsAbortFn setting
 
         // Show an error or warn/log if there is a bitcoin.conf file in the
         // datadir that is being ignored.
-        // The file of that data directory (estack.conf, chains.conf or ecash.conf, see ArgsManager::GetConfigFileName).
+        // The file of that data directory (backbone.conf, chains.conf or ecash.conf, see ArgsManager::GetConfigFileName).
         const std::string conf_name{args.GetConfigFileName()};
         const fs::path base_config_path = base_path / fs::u8path(conf_name);
         if (fs::exists(base_config_path)) {

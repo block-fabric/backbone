@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 The eStack developers
+# Copyright (c) 2026 The Backbone developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """The eCash fork on regtest: one node with Bitcoin's rules, one with eCash's (-testecash) and a fork

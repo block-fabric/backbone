@@ -453,7 +453,7 @@ if(BUILD_FUZZ_BINARY)
   add_subdirectory(test/fuzz)
 endif()
 
-# Names of the executables: estackd, estack-cli... (CLIENT_NAME_LOWER). The targets keep their upstream
+# Names of the executables: backboned, backbone-cli... (CLIENT_NAME_LOWER). The targets keep their upstream
 # names so that the build files stay easy to compare with upstream.
 set(n ${CLIENT_NAME_LOWER})
 foreach(name_pair

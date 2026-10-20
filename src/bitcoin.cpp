@@ -29,7 +29,7 @@ Options:
   -h, --help             Show full help message
 
 Commands:
-  gui [ARGS]     Start GUI, equivalent to running 'estack-app [ARGS]'.
+  gui [ARGS]     Start GUI, equivalent to running 'backbone-app [ARGS]'.
   node [ARGS]    Start node, equivalent to running 'bitcoind [ARGS]' or 'bitcoin-node [ARGS]'.
   rpc [ARGS]     Call RPC method, equivalent to running 'bitcoin-cli -named [ARGS]'.
   wallet [ARGS]  Call wallet command, equivalent to running 'bitcoin-wallet [ARGS]'.
@@ -42,7 +42,7 @@ Additional less commonly used commands:
   bench [ARGS]      Run bench command, equivalent to running 'bench_bitcoin [ARGS]'.
   chainstate [ARGS] Run bitcoin kernel chainstate util, equivalent to running 'bitcoin-chainstate [ARGS]'.
   test [ARGS]       Run unit tests, equivalent to running 'test_bitcoin [ARGS]'.
-  test-gui [ARGS]   Run GUI unit tests, equivalent to running 'test_estack-app [ARGS]'.
+  test-gui [ARGS]   Run GUI unit tests, equivalent to running 'test_backbone-app [ARGS]'.
 )";
 
 static constexpr auto HELP_SHORT = R"(

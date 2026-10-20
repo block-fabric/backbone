@@ -14,7 +14,7 @@
 void SetupChainParamsBaseOptions(ArgsManager& argsman)
 {
     argsman.AddArg("-chain=<chain>", "Use the chain <chain> (default: ecash). Allowed values: " LIST_CHAIN_NAMES ". "
-                   "ecash, ecashbeta and ecashtest are eCash's main network, its betanet and its test network (testnet4), with their data in the eStack data directory; "
+                   "ecash, ecashbeta and ecashtest are eCash's main network, its betanet and its test network (testnet4), with their data in the Backbone data directory; "
                    "main, test, signet and regtest are the Chains (CHN) networks, in the Chains data directory.", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-regtest", "Enter regression test mode, which uses a special chain in which blocks can be solved instantly. "
                  "This is intended for regression testing tools and app development. Equivalent to -chain=regtest.", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);
@@ -56,7 +56,7 @@ std::unique_ptr<CBaseChainParams> CreateBaseChainParams(const ChainType chain)
     case ChainType::REGTEST:
         return std::make_unique<CBaseChainParams>("regtest", 29554);
     // eCash: the ports of ecash-com/bitcoin, so that a pool, a miner or a wallet made for an eCash node
-    // needs no change. Main is the root of the eStack data directory, as on eCash; betanet (a separate
+    // needs no change. Main is the root of the Backbone data directory, as on eCash; betanet (a separate
     // eCash client of its own, whose main it is) has a folder, and the test network the folder of
     // testnet4, as on eCash.
     case ChainType::ECASH:
