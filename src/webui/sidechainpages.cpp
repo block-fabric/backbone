@@ -2,6 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <bitcoin-build-config.h> // IWYU pragma: keep
+
 #include <webui/sidechainpages.h>
 
 #include <logging.h>
@@ -75,14 +77,20 @@ std::string_view AssetText(const Asset& asset)
 SidechainPages::Route SidechainPages::RouteOf(const std::string& method)
 {
     // What only a whole app does: never from the pages of a sidechain in this one.
-    static const std::set<std::string> refused{"app.quit", "app.restart", "app.updateLanguage", "node.paths", "node.setNetworkActive", "options.get", "options.set",
-                                               "options.apply", "options.cancel", "options.reset", "options.chooseFile", "options.chooseProgram", "options.validProxy"};
+    // What a pack does not need, and must not do to the whole app (least privilege: its own chain's reads, the spends
+    // through the trusted dialog, harmless things of the window): quitting, the app's options and quit guard, the tray,
+    // its help windows.
+    static const std::set<std::string> refused{"app.quit", "app.restart", "app.updateLanguage", "app.quitGuard", "app.help", "app.about", "tray.state",
+                                               "node.paths", "node.setNetworkActive", "options.get", "options.set", "options.apply", "options.cancel",
+                                               "options.reset", "options.chooseFile", "options.chooseProgram", "options.validProxy"};
     static const std::vector<std::string_view> refused_prefixes{"intro.", "test.", "sidechainNodes.", "sidechains.", "pack."};
     // What the app answers for the frame (it has no window, no settings, no files of its own).
-    static const std::set<std::string> local{"app.hello", "app.info", "app.locale", "prefs.get", "prefs.set", "file.choose", "peg.deposit", "node.getSetting"};
-    // What the app itself does, as for its own pages: the clipboard, links, notices, the files chosen in its chooser.
-    static const std::set<std::string> hub{"clipboard.read", "clipboard.write", "app.open", "app.notify", "dialog.prepare", "file.read", "file.write",
-                                           "app.languages", "app.quitGuard", "app.help", "app.about", "tray.state"};
+    // Checked here first: links only (app.open of a URL, which asks for one not the app's own), notices named after the
+    // chain, files only those chosen for this chain's pages.
+    static const std::set<std::string> local{"app.hello", "app.info", "app.locale", "prefs.get", "prefs.set", "file.choose", "file.read", "file.write",
+                                             "app.open", "app.notify", "peg.deposit", "node.getSetting"};
+    // What the app itself does, as for its own pages: the clipboard, the dialog window made ahead, the list of languages.
+    static const std::set<std::string> hub{"clipboard.read", "clipboard.write", "dialog.prepare", "app.languages"};
     if (refused.contains(method)) return Route::REFUSE;
     for (const auto& p : refused_prefixes) {
         if (method.starts_with(p)) return Route::REFUSE;
@@ -181,7 +189,7 @@ UniValue SidechainPages::Call(const std::string& stem, const UniValue& request)
     if (kind == "rpc") return Daemon(stem, clean);
     switch (RouteOf(method)) {
     case Route::REFUSE:
-        throw HostError(BRIDGE_METHOD_NOT_FOUND, strprintf("%s is not offered to the pages of a sidechain in the Chains app", method));
+        throw HostError(BRIDGE_METHOD_NOT_FOUND, strprintf("%s is not offered to the pages of a sidechain in the %s app", method, CLIENT_NAME));
     case Route::LOCAL:
         return Local(stem, method, clean.find_value("params"));
     case Route::HUB:
@@ -398,6 +406,36 @@ UniValue SidechainPages::Local(const std::string& stem, const std::string& metho
             m_chosen[stem][chosen.get_str()] = {write, std::chrono::steady_clock::now()};
         }
         return chosen;
+    }
+    if (method == "file.read" || method == "file.write") {
+        // Only a file chosen in the app's chooser for these pages (not one chosen for another chain or for Chains).
+        const UniValue& path{Param(params, "path")};
+        const bool write{method == "file.write"};
+        bool chosen{false};
+        if (path.isStr()) {
+            LOCK(m_mutex);
+            const auto& files{m_chosen[stem]};
+            const auto it{files.find(path.get_str())};
+            chosen = it != files.end() && (!write || it->second.first) && std::chrono::steady_clock::now() - it->second.second <= CHOSEN_FILE_TIME;
+        }
+        if (!chosen) throw HostError(BRIDGE_INVALID_REQUEST, write ? "Only a file chosen by the user for these pages can be written" : "Only a file chosen by the user for these pages can be read");
+        return m_hooks.hub(method, params);
+    }
+    if (method == "app.open") {
+        // A link only: the app asks first for one that is not its own. Never its log, its configuration, or else.
+        if (Str(params, "what") != "url") throw HostError(BRIDGE_METHOD_NOT_FOUND, "The pages of a sidechain open links only");
+        UniValue only{UniValue::VOBJ};
+        only.pushKV("what", "url");
+        only.pushKV("url", Param(params, "url"));
+        return m_hooks.hub("app.open", only);
+    }
+    if (method == "app.notify") {
+        // A notice of the desktop, named after its chain: never one that looks like Chains' own.
+        UniValue notice{UniValue::VOBJ};
+        notice.pushKV("title", strprintf("%s: %s", m_hooks.name(stem), Str(params, "title")));
+        if (Param(params, "body").isStr()) notice.pushKV("body", Param(params, "body"));
+        if (Param(params, "level").isStr()) notice.pushKV("level", Param(params, "level"));
+        return m_hooks.hub("app.notify", notice);
     }
     if (method == "peg.deposit") return m_hooks.deposit(stem, params);
     throw HostError(BRIDGE_METHOD_NOT_FOUND, strprintf("No host method %s", method));

@@ -140,11 +140,12 @@ BOOST_AUTO_TEST_CASE(routes)
     BOOST_CHECK(SidechainPages::RouteOf("bitassets.store.load") == Route::DAEMON);
     BOOST_CHECK(SidechainPages::RouteOf("fastblocks.bond") == Route::DAEMON);
     BOOST_CHECK(SidechainPages::RouteOf("clipboard.write") == Route::HUB);
-    BOOST_CHECK(SidechainPages::RouteOf("file.read") == Route::HUB);
+    BOOST_CHECK(SidechainPages::RouteOf("file.read") == Route::LOCAL);
+    BOOST_CHECK(SidechainPages::RouteOf("app.open") == Route::LOCAL);
     BOOST_CHECK(SidechainPages::RouteOf("prefs.set") == Route::LOCAL);
     BOOST_CHECK(SidechainPages::RouteOf("window.minimize") == Route::LOCAL);
     BOOST_CHECK(SidechainPages::RouteOf("peg.deposit") == Route::LOCAL);
-    for (const char* m : {"app.quit", "app.restart", "options.set", "intro.choose", "test.exit", "sidechains.enable", "pack.call", "sidechainNodes.start", "node.setNetworkActive"}) {
+    for (const char* m : {"app.quit", "app.restart", "app.quitGuard", "tray.state", "app.help", "app.about", "options.set", "intro.choose", "test.exit", "sidechains.enable", "pack.call", "sidechainNodes.start", "node.setNetworkActive"}) {
         BOOST_CHECK_MESSAGE(SidechainPages::RouteOf(m) == Route::REFUSE, m);
     }
 }
@@ -278,6 +279,19 @@ BOOST_AUTO_TEST_CASE(app_answers_for_the_frame)
     BOOST_CHECK(pages.Call("layers", Json(R"({"kind":"host","method":"app.hello","params":{}})")).find_value("info").find_value("embedded").get_bool());
     BOOST_CHECK_EXCEPTION(pages.Call("layers", SEND), HostError, [](const HostError& e) { return e.code == BRIDGE_NOT_READY; });
     BOOST_CHECK_EQUAL(d.HostCalls(), 0);
+    // Least privilege: links only, never the app's log or configuration; no quit guard, no tray; a notice named
+    // after its chain; a file only if chosen for these pages.
+    BOOST_CHECK_EXCEPTION(pages.Call("layers", Json(R"({"kind":"host","method":"app.open","params":{"what":"debuglog"}})")), HostError, [](const HostError& e) { return e.code == BRIDGE_METHOD_NOT_FOUND; });
+    BOOST_CHECK_EXCEPTION(pages.Call("layers", Json(R"({"kind":"host","method":"app.open","params":{"what":"config"}})")), HostError, [](const HostError& e) { return e.code == BRIDGE_METHOD_NOT_FOUND; });
+    BOOST_CHECK_EQUAL(pages.Call("layers", Json(R"({"kind":"host","method":"app.open","params":{"what":"url","url":"https://example.org"}})")).get_str(), "hub:app.open");
+    for (const char* m : {"app.quitGuard", "tray.state"}) {
+        UniValue r{UniValue::VOBJ};
+        r.pushKV("kind", "host");
+        r.pushKV("method", m);
+        r.pushKV("params", UniValue{UniValue::VOBJ});
+        BOOST_CHECK_EXCEPTION(pages.Call("layers", r), HostError, [](const HostError& e) { return e.code == BRIDGE_METHOD_NOT_FOUND; });
+    }
+    BOOST_CHECK_EXCEPTION(pages.Call("layers", Json(R"({"kind":"host","method":"file.read","params":{"path":"/etc/passwd"}})")), HostError, [](const HostError& e) { return e.code == BRIDGE_INVALID_REQUEST; });
     // A deposit: the app's own (Chains' confirmation).
     BOOST_CHECK_EQUAL(pages.Call("layers", Json(R"({"kind":"host","method":"peg.deposit","params":{"destination":"x","amount":"1"}})")).get_str(), "deposited");
     pages.Stop();

@@ -9,6 +9,7 @@
   import { errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
   import { hub, refreshSidechains, sidechainHost } from '../lib/sidechains.svelte';
+  import { app } from '../lib/state.svelte';
   import { firstRunSteps, resources, restoreWords, seedGrid, totalResources, type FirstRunChoices, type FirstRunStep } from '../lib/unified';
 
   let { onclose }: { onclose: () => void } = $props();
@@ -18,6 +19,8 @@
   let step = $state<FirstRunStep>('welcome');
   let wroteDown = $state(false);
   let restoreText = $state('');
+  // The name of the app (the product may be renamed: never written out here).
+  const productName = $derived(app.info?.name || 'Chains');
   let progress = $state<{ stem: string; name: string; status: 'waiting' | 'starting' | 'on' | 'error'; error?: string }[]>([]);
   let finishing = $state(false);
   let finished = $state(false);
@@ -102,7 +105,7 @@
       <p>The 12 or 24 words, in order, separated by spaces. Chains and the sidechains you pick are brought back from them; their history is read again from the chains, which can take a while.</p>
       <textarea class="words" rows="3" bind:value={restoreText} spellcheck="false" autocomplete="off" aria-label={t('Backup phrase')}></textarea>
       <p class="muted small">{t('%1 words', restored.words.length)}{restored.ok ? '' : ' · 12 or 24 are needed'}</p>
-      <p class="note" data-advice="fresh-seed"><Icon name="info" size={14} /> Use a phrase made for Chains, not the one of a Bitcoin wallet: the same phrase gives the same keys on both chains, and your addresses on one could be linked to the other.</p>
+      <p class="note" data-advice="fresh-seed"><Icon name="info" size={14} /> {t('Use a phrase made for %1, not the one of a Bitcoin wallet: the same phrase gives the same keys on both chains, and your addresses on one could be linked to the other.', productName)}</p>
       <p class="note"><Icon name="info" size={14} /> Preview: the words are not used yet (the single seed comes in a later version).</p>
     {:else if step === 'network'}
       <h3>Network</h3>

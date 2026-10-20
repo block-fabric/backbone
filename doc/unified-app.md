@@ -389,6 +389,26 @@ Run: `run_unified.py --app build_app/bin/chains-app --sidechain-bindir ~/skydoge
 [--sidechain-bindir ~/skydoge/fastblocks/build_rel/bin] --tmp … --shots …` (or ctest `webui_e2e_unified`
 with `-DWEBUI_E2E_SIDECHAIN_BINDIR=…`). Pictures of the prototype (Midnight): `~/skydoge/media/unified-app/`.
 
+Phase 2 adds:
+
+- `src/webui/test/sidechainpages_tests.cpp` — routes; a question of the daemon shown with the chain named,
+  then exactly the same request with the token; a no runs nothing; a wrong passphrase asked again; a refused
+  token; a second question; files only chosen in the app's chooser; the look the app's. `assets_tests`:
+  the packs' origins and policy. `supervisor_tests`: the whitelists; with a real `layersd`, the app's user
+  is refused `sendtoaddress` and `dumpwallet` by the daemon.
+- In the template and every sidechain: `remotehost_tests` (tokens once, other call, other question, other
+  wallet, expiry; digest; events; chosen files), `rpc_describeconfirmation.py` (the kit's questions, sends,
+  a locked wallet, the pages' policy, files, events) and `rpc_describeconfirmation_<chain>.py` (the chain's
+  own questions; a call changed after its question refused). Functional tests take
+  `TEST_RUNNER_PORT_MIN=49100 TEST_RUNNER_PORT_RANGE=200` to stay in the ports of this machine's tests.
+- `src/webui/test/e2e/run_packs.py` + `packs.js` (ctest `webui_e2e_packs`, with
+  `-DWEBUI_E2E_THUNDER_BINDIR`): Layers and Thunder on; Layers' pages in the app; a deposit into Layers
+  (Chains' own question); a send, an asset transfer and a DEX swap on Layers, each in the trusted dialog
+  "On Layers", confirmed in a block; a no sends nothing; an RPC spend, a request of the tests and quit
+  refused to the pages; the frames isolated both ways; a client that changes a call after its question
+  refused by the daemon (and the token not taken twice); Thunder's pages, a deposit and a send; the pages
+  of Thunder cannot pay into Layers. Pictures (Midnight) in `~/skydoge/media/unified-app/phase2/`.
+
 ## 12. Decisions of the user (2026-10-20)
 
 The seven questions of phase 1, all decided as recommended:
@@ -514,6 +534,7 @@ sidechain by hand, downloads from the app (phase 4).
 | 14 | **A token used by someone else** | Tokens bind, they do not authenticate: whoever has the daemon's cookie can spend anyway; the app's own password exists in its memory only | — |
 | 15 | **The passphrase** | Typed in the app's dialog, sent to the daemon on 127.0.0.1 with the token, wiped from the app's memory after (as `walletpassphrase` would); the wallet is locked again after the call | rpc_describeconfirmation.py (locked wallet) |
 | 16 | **Deception** in the question | The chain's name and mark come from the app (its catalog, its pack), not the daemon; the daemon's rows go through the dialog's own checks (bidi marks written out, images only PNG/JPEG checked) | dialog tests (IMAGE rows ported to Chains) |
+| 18 | **Found by review (MEDIUM): too broad host methods for packs** (`app.open` of any kind, `app.quitGuard`, `tray.state`, help windows) | Least privilege: a pack gets its own chain's reads, the spend path through the trusted dialog, and harmless window things only: `app.open` of a URL only (the app asks first for one not its own; never its log or configuration), notices named after the chain, `file.read`/`file.write` only of a file chosen for that chain's pages; `app.quitGuard`, `tray.state`, `app.help`, `app.about` refused | sidechainpages_tests |
 | 17 | **Found:** a crash of `<stem>d` at shutdown (a flush of events scheduled on a freed host) | Stopped at Interrupt, freed in Shutdown once the scheduler stopped | every functional test stops its nodes |
 
 ### 13.6 Coverage per chain

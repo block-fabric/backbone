@@ -79,7 +79,7 @@
     await host('sidechains.enable', { stem: 'thunder', wallet: 'separate' });
     await waitFor('both running', async () => (await chainOf('layers')).ready && (await chainOf('thunder')).ready, 120000);
     const packList = await host('pack.list');
-    await check('the pages of Layers and Thunder are built in, at pinned commits', ['layers', 'thunder'].every((s) => packList.some((p) => p.stem === s && /^[0-9a-f]{40}$/.test(p.commit) && p.hostApi === 1)), JSON.stringify(packList));
+    await check('the pages of all seven sidechains are built in, at pinned commits', ['layers', 'fastblocks', 'thunder', 'bitnames', 'bitassets', 'zside', 'hivemind'].every((s) => packList.some((p) => p.stem === s && /^[0-9a-f]{40}$/.test(p.commit) && p.hostApi === 1)), JSON.stringify(packList));
     const info = await host('pack.info', { stem: 'layers' });
     await check('the node of Layers speaks this version', info.compatible === true && info.hostApi === 1, JSON.stringify(info));
     await bmm('layers', 2);

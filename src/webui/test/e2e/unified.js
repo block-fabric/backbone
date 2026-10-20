@@ -84,6 +84,10 @@
     await check('the switcher: Chains, then Layers', $$('.switcher .chain').map((b) => b.dataset.chain).join(',') === 'chains,layers');
     await check('Layers shown', T().nav.page === 'sidechain' && window.__chainsHub.selected === 'layers');
     await waitFor('Layers running', async () => (await layersOf()).ready, 90000);
+    // Its own pages show once its node runs (phase 2, packs.js); its node's overview is a click away.
+    await sleep(1500);
+    const itsNode = () => $$('.sidechain-view .bar button').find((b) => b.textContent.includes('Its node'));
+    if (itsNode()) itsNode().click();
     await waitFor('Layers in step with Chains', () => $('[data-field="sync"]') && $('[data-field="sync"]').dataset.synced === 'yes', 120000);
     // The runner has Layers make a few blocks (merged mined by Chains), as a miner would.
     await checkpoint('bmm', 1000);
@@ -107,7 +111,7 @@
     } catch (e) {
       refused = true;
     }
-    await check('the pages cannot spend on a sidechain (phase 1)', refused);
+    await check('the read-only overview offers no spend on a sidechain', refused);
     const height = await host('sidechains.rpc', { stem: 'layers', method: 'getblockcount' });
     await check('the pages read a sidechain', typeof height === 'number');
     await sleep(3200);

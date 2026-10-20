@@ -1885,7 +1885,7 @@ UniValue App::PackDeposit(const std::string& stem, const UniValue& params)
         const UniValue wallets{node->executeRpc("listwallets", UniValue{UniValue::VARR}, "/")};
         if (wallets.isArray() && !wallets.empty() && wallets[0].isStr()) wallet = wallets[0].get_str();
     }
-    if (wallet.empty()) throw HostError(-18, "Chains has no wallet loaded to pay the deposit from");
+    if (wallet.empty()) throw HostError(-18, strprintf("%s has no wallet loaded to pay the deposit from", CLIENT_NAME));
     // The slot of the address: Chains' own describer says the sidechain of that slot by its title, and a slot that is
     // not this sidechain's.
     UniValue args{UniValue::VARR};
