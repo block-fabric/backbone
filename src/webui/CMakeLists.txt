@@ -89,6 +89,7 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   events.cpp
   explorer.cpp
   i18n.cpp
+  moduleinstaller.cpp
   icontint.cpp
   nodeapi.cpp
   nodeevents.cpp

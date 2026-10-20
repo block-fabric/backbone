@@ -35,6 +35,7 @@ class Bridge;
 class NodeApi;
 class SidechainSupervisor;
 class SidechainPages;
+class ModuleInstaller;
 class EventHub;
 class NodeEvents;
 class OptionsJournal;
@@ -87,6 +88,9 @@ private:
     UniValue PackDeposit(const std::string& stem, const UniValue& params);
     //! The supervisor of the sidechains, once the node is ready; throws HostError before.
     std::shared_ptr<SidechainSupervisor> Supervisor() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    std::shared_ptr<ModuleInstaller> Installer() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! The downloads, updates and rollbacks of the sidechains' programs (modules.*, moduleinstaller.h).
+    void RegisterModuleMethods(Bridge& b);
     //! Make the supervisor (the node is ready) and start the sidechains enabled.
     void StartSidechains() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     //! The RPC server of the node runs (started now if it did not), for the sidechains. Throws HostError.
@@ -180,6 +184,8 @@ private:
     std::shared_ptr<SidechainSupervisor> m_supervisor GUARDED_BY(m_mutex);
     //! The pages of the sidechains, in frames of the page (doc/unified-app.md §13): made with the supervisor.
     std::shared_ptr<SidechainPages> m_pages GUARDED_BY(m_mutex);
+    //! The downloads of the sidechains' programs from their releases (modules.*): made with the supervisor.
+    std::shared_ptr<ModuleInstaller> m_installer GUARDED_BY(m_mutex);
     //! The password of the user the sidechain daemons reach this node as (an -rpcauth of this run only).
     std::string m_sidechain_rpc_password;
     //! The folder the user last chose for the data of each sidechain (the page can only set one chosen so).

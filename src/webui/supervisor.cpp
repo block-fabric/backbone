@@ -350,17 +350,28 @@ fs::path SidechainSupervisor::NetDataDir(const std::string& stem) const
     return net.empty() ? DataDir(stem) : DataDir(stem) / fs::PathFromString(net);
 }
 
-std::optional<fs::path> SidechainSupervisor::FindBinary(const std::string& stem) const
+namespace {
+std::string DaemonName(const std::string& stem)
 {
 #ifdef WIN32
-    const std::string name{stem + "d.exe"};
+    return stem + "d.exe";
 #else
-    const std::string name{stem + "d"};
+    return stem + "d";
 #endif
+}
+} // namespace
+
+std::optional<fs::path> SidechainSupervisor::FindBinary(const std::string& stem) const
+{
+    const std::string name{DaemonName(stem)};
+    // In order: the folder the user set, the version downloaded and made current, the programs bundled next to the
+    // app (the offline path), where a download of phase 1 went.
     std::vector<fs::path> dirs;
     if (const UniValue dir{Setting(stem, "binDir")}; dir.isStr() && !dir.get_str().empty()) dirs.push_back(fs::PathFromString(dir.get_str()));
+    if (m_options.downloaded) {
+        if (const auto d{m_options.downloaded(stem)}) dirs.push_back(*d);
+    }
     for (const auto& d : m_options.bin_dirs) dirs.push_back(d);
-    // Where a download of phase 2 goes.
     dirs.push_back(HomeDir(stem) / "bin");
     for (const auto& d : dirs) {
         const fs::path candidate{d / fs::PathFromString(name)};
@@ -368,6 +379,24 @@ std::optional<fs::path> SidechainSupervisor::FindBinary(const std::string& stem)
         if (std::filesystem::is_regular_file(candidate, ec)) return candidate;
     }
     return std::nullopt;
+}
+
+std::string SidechainSupervisor::BinarySource(const std::string& stem) const
+{
+    const std::string name{DaemonName(stem)};
+    const auto has{[&](const fs::path& d) {
+        std::error_code ec;
+        return std::filesystem::is_regular_file(d / fs::PathFromString(name), ec);
+    }};
+    if (const UniValue dir{Setting(stem, "binDir")}; dir.isStr() && !dir.get_str().empty() && has(fs::PathFromString(dir.get_str()))) return "folder";
+    if (m_options.downloaded) {
+        if (const auto d{m_options.downloaded(stem)}; d && has(*d)) return "download";
+    }
+    for (const auto& d : m_options.bin_dirs) {
+        if (has(d)) return "bundled";
+    }
+    if (has(HomeDir(stem) / "bin")) return "folder";
+    return "none";
 }
 
 int SidechainSupervisor::RpcPort(const std::string& stem) const
@@ -1066,6 +1095,7 @@ UniValue SidechainSupervisor::List() const
         if (!ec) entry.pushKV("freeGB", static_cast<double>(space.available) / 1e9);
         const auto binary{FindBinary(s.stem)};
         entry.pushKV("program", binary ? fs::PathToString(*binary) : std::string{});
+        entry.pushKV("programSource", BinarySource(s.stem));
         entry.pushKV("rpcPort", RpcPort(s.stem));
         entry.pushKV("port", P2pPort(s.stem));
         entry.pushKV("wallet", WalletMode(s.stem));

@@ -13,6 +13,7 @@ add_executable(test_chains-app
   events_tests.cpp
   hardening_tests.cpp
   i18n_tests.cpp
+  moduleinstaller_tests.cpp
   nodeapi_tests.cpp
   nodeevents_tests.cpp
   singleinstance_tests.cpp

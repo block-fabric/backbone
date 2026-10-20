@@ -69,8 +69,11 @@ public:
         int mainchain_rpc_port{0};
         std::string mainchain_rpc_user;
         std::string mainchain_rpc_password;
-        //! Folders searched for <stem>d after the folder set for that sidechain (in order).
+        //! Folders searched for <stem>d after the folder set for that sidechain and its download (in order): the
+        //! programs bundled next to the app, -sidechainbindir (the offline path).
         std::vector<fs::path> bin_dirs;
+        //! The folder of the version of a sidechain downloaded and made current (ModuleInstaller), if any.
+        std::function<std::optional<fs::path>(const std::string& stem)> downloaded;
         //! 0: each sidechain on its own default ports; else RPC port_base + 2 i, peers port_base + 2 i + 1 (i: catalog order).
         int port_base{0};
         //! Given to every daemon after the arguments of the app (tests: -listen=0).
@@ -104,6 +107,11 @@ public:
     /** The data of the network of this app in it (the daemon makes a folder per network but main). */
     fs::path NetDataDir(const std::string& stem) const;
     std::optional<fs::path> FindBinary(const std::string& stem) const;
+    /**
+     * Where the program of a sidechain comes from: "folder" (a folder the user set for it), "download" (a release
+     * downloaded and checked by ModuleInstaller), "bundled" (next to the app, or -sidechainbindir), "none".
+     */
+    std::string BinarySource(const std::string& stem) const;
     int RpcPort(const std::string& stem) const;
     int P2pPort(const std::string& stem) const;
     /** The arguments its daemon is started with (after the program). Never a password: PasswordFile holds it. */

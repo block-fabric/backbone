@@ -83,7 +83,7 @@ SidechainPages::Route SidechainPages::RouteOf(const std::string& method)
     static const std::set<std::string> refused{"app.quit", "app.restart", "app.updateLanguage", "app.quitGuard", "app.help", "app.about", "tray.state",
                                                "node.paths", "node.setNetworkActive", "options.get", "options.set", "options.apply", "options.cancel",
                                                "options.reset", "options.chooseFile", "options.chooseProgram", "options.validProxy"};
-    static const std::vector<std::string_view> refused_prefixes{"intro.", "test.", "sidechainNodes.", "sidechains.", "pack."};
+    static const std::vector<std::string_view> refused_prefixes{"intro.", "test.", "sidechainNodes.", "sidechains.", "pack.", "modules."};
     // What the app answers for the frame (it has no window, no settings, no files of its own).
     // Checked here first: links only (app.open of a URL, which asks for one not the app's own), notices named after the
     // chain, files only those chosen for this chain's pages.

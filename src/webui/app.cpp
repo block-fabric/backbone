@@ -42,6 +42,7 @@
 #include <webui/options.h>
 #include <webui/rpcpolicy.h>
 #include <webui/sidechainpages.h>
+#include <webui/moduleinstaller.h>
 #include <webui/supervisor.h>
 #include <webui/singleinstance.h>
 #ifdef WIN32
@@ -150,6 +151,10 @@ void SetupUIArgs(ArgsManager& argsman)
     argsman.AddArg("-sidechainbindir=<dir>", "Folder with the programs of sidechains this app runs (<name>d), searched before the folder of the app (can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::NETWORK_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-sidechainportbase=<port>", "Ports of the sidechains this app runs: RPC <port>+2i, peers <port>+2i+1 (default: the default ports of each sidechain)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-sidechainarg=<arg>", "An argument given to every sidechain daemon this app starts (can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-sidechainsignatures=<auto|require>", "Releases of sidechains downloaded by this app: \"require\" takes only those whose manifest is signed with the release key built into the app; \"auto\" checks a signature when there is one (default: auto)", ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
+    argsman.AddArg("-sidechainreleaseapi=<https url>", "Ask this mirror for the releases of the sidechains instead of GitHub (regtest only: the tests)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-sidechaindownloadcacert=<file>", "Trust this certificate for the downloads of the sidechains' releases (regtest only: the tests)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-sidechainreleasekey=<hex>", "Trust this release key (x-only public key) beside the keys built in (regtest only: the tests; can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
 #ifdef WEBUI_TEST_HOOKS
     // Only in a build for the tests (cmake -DWEBUI_TEST_HOOKS=ON): a release has neither the options nor the hooks.
     argsman.AddArg("-webuitestscript=<file>", "Run this script in the page once it is loaded, with the test methods of the bridge (for the tests of the app)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
@@ -722,6 +727,17 @@ void App::NodeThread()
         }
         if (pages) pages->Stop();
         if (supervisor) supervisor->StopAll();
+        {
+            // A download still running stops (nothing half done stays installed).
+            std::shared_ptr<ModuleInstaller> installer;
+            {
+                LOCK(m_mutex);
+                installer = m_installer;
+            }
+            if (installer) {
+                for (const auto& stem : ModuleInstaller::AllowedStems()) installer->Cancel(stem);
+            }
+        }
         LogInfo("webui: shutting the node down");
         m_node->appShutdown();
         LogInfo("webui: node stopped");
@@ -1360,6 +1376,7 @@ void App::RegisterHostMethods()
     // Nodes tab (start, stop and download by hand: SidechainNodes) is gone; its download and check of a release stays
     // in sidechainnodes.cpp for download-on-enable (phase 4).
     RegisterSidechainMethods(b);
+    RegisterModuleMethods(b);
 
     // The options of the node (OptionsModel), in settings.json; the flag of a restart in the preferences.
     const auto options{[this, need_node]() {
@@ -1745,6 +1762,13 @@ std::shared_ptr<SidechainSupervisor> App::Supervisor()
     return m_supervisor;
 }
 
+std::shared_ptr<ModuleInstaller> App::Installer()
+{
+    LOCK(m_mutex);
+    if (!m_installer) throw HostError(BRIDGE_NOT_READY, "The node is not running");
+    return m_installer;
+}
+
 void App::EnsureRpcServer()
 {
     if (IsRPCRunning()) return;
@@ -1777,6 +1801,38 @@ void App::StartSidechains()
 #endif
     options.port_base = m_args.GetIntArg("-sidechainportbase", 0);
     options.extra_args = m_args.GetArgs("-sidechainarg");
+    // The programs downloaded from the sidechains' releases (doc/unified-app.md, downloads): before the bundled ones.
+    ModuleInstaller::Options module_options;
+    module_options.bin_root = m_args.GetDataDirBase() / "sidechains" / "bin";
+    std::optional<fs::path> cacert;
+    const bool test_overrides{m_args.IsArgSet("-sidechainreleaseapi") || m_args.IsArgSet("-sidechaindownloadcacert") || m_args.IsArgSet("-sidechainreleasekey")};
+    if (test_overrides && m_args.GetChainType() != ChainType::REGTEST) {
+        LogWarning("webui: -sidechainreleaseapi, -sidechaindownloadcacert and -sidechainreleasekey are for the tests, on regtest only: ignored");
+    } else if (test_overrides) {
+        std::string mirror{m_args.GetArg("-sidechainreleaseapi", "")};
+        while (mirror.ends_with('/')) mirror.pop_back();
+        if (!mirror.empty()) {
+            if (!mirror.starts_with("https://")) {
+                LogWarning("webui: -sidechainreleaseapi must be https://: ignored");
+            } else {
+                module_options.api_base = mirror;
+                module_options.download_base = mirror;
+            }
+        }
+        if (m_args.IsArgSet("-sidechaindownloadcacert")) cacert = fs::PathFromString(m_args.GetArg("-sidechaindownloadcacert", ""));
+        module_options.extra_keys = m_args.GetArgs("-sidechainreleasekey");
+    }
+    module_options.signatures = m_args.GetArg("-sidechainsignatures", "auto") == "require" ? "require" : "auto";
+    module_options.fetcher = ModuleInstaller::CurlFetcher(cacert);
+    auto installer{std::make_shared<ModuleInstaller>(std::move(module_options), [this](const std::string& stem) {
+        UniValue data{UniValue::VOBJ};
+        data.pushKV("stem", stem);
+        if (m_hub) m_hub->Emit("modules", std::move(data), "modules:" + stem);
+    })};
+    options.downloaded = [weak = std::weak_ptr<ModuleInstaller>{installer}](const std::string& stem) -> std::optional<fs::path> {
+        const auto installer{weak.lock()};
+        return installer ? installer->CurrentDir(stem) : std::nullopt;
+    };
     const std::string key{"sidechains:" + ChainTypeToString(m_args.GetChainType())};
     auto supervisor{std::make_shared<SidechainSupervisor>(
         std::move(options),
@@ -1824,6 +1880,7 @@ void App::StartSidechains()
         LOCK(m_mutex);
         m_supervisor = supervisor;
         m_pages = pages;
+        m_installer = installer;
     }
     // Chains alone unless a sidechain is enabled: then (only then) the RPC server and the daemons.
     if (!supervisor->AnyEnabled()) return;
@@ -2033,6 +2090,135 @@ void App::RegisterSidechainMethods(Bridge& b)
         }
         return out;
     }));
+}
+
+void App::RegisterModuleMethods(Bridge& b)
+{
+    // The downloads of the sidechains' programs (doc/unified-app.md, "Downloads and updates"): only for the app's own
+    // pages (the pages of a sidechain are refused every modules.* method, sidechainpages.cpp).
+    const auto stem_of{[](const UniValue& params) {
+        const std::string stem{ParamStr(params, "stem")};
+        if (!SidechainSupervisor::FindSpec(stem) || !ModuleInstaller::IsAllowed(stem)) throw HostError(BRIDGE_INVALID_REQUEST, "No such sidechain");
+        return stem;
+    }};
+    const auto tag_of{[](const UniValue& params) {
+        const std::string tag{ParamStr(params, "tag")};
+        if (!ModuleInstaller::IsValidTag(tag)) throw HostError(BRIDGE_INVALID_REQUEST, "No such release");
+        return tag;
+    }};
+    const auto guarded{[](auto fn) {
+        return [fn](const UniValue& params) -> UniValue {
+            try {
+                return fn(params);
+            } catch (const HostError&) {
+                throw;
+            } catch (const std::runtime_error& e) {
+                throw HostError(e.what());
+            }
+        };
+    }};
+    const auto changed{[this](const std::string& stem) {
+        UniValue data{UniValue::VOBJ};
+        data.pushKV("stem", stem);
+        if (m_hub) m_hub->Emit("sidechains", std::move(data), "sidechains:" + stem);
+    }};
+    // Another version made current: a daemon that runs is stopped first, then started on the new programs; one that does
+    // not start goes back to the version it ran.
+    const auto swap{[this, changed](const std::shared_ptr<SidechainSupervisor>& s, ModuleInstaller& installer, const std::string& stem, const std::function<void()>& make_current) {
+        const bool enabled{s->Enabled(stem)};
+        const auto stopped{[](const SidechainSupervisor::Status& st) { return st.pid == 0 && st.state != SidechainSupervisor::State::STOPPING; }};
+        if (enabled) {
+            s->Disable(stem);
+            if (!s->WaitFor(stem, stopped, s->GetOptions().stop_timeout + std::chrono::seconds{10})) throw std::runtime_error("Its node did not stop: the version was not changed.");
+        }
+        const auto before{installer.Current(stem)};
+        make_current();
+        changed(stem);
+        if (!enabled) return;
+        const auto ready{[](const SidechainSupervisor::Status& st) { return st.state == SidechainSupervisor::State::RUNNING && st.rpc_ready; }};
+        try {
+            s->Enable(stem);
+            if (s->WaitFor(stem, ready, std::chrono::minutes{3})) return;
+        } catch (const std::exception&) {
+        }
+        // The new version does not start: back to the one before.
+        const std::string now{installer.Current(stem).value_or("")};
+        s->Disable(stem);
+        s->WaitFor(stem, stopped, s->GetOptions().stop_timeout + std::chrono::seconds{10});
+        if (before && *before != now) installer.Activate(stem, *before);
+        changed(stem);
+        s->Enable(stem);
+        throw std::runtime_error(strprintf("Version %s did not start: %s", now, before ? strprintf("back to %s", *before) : std::string{"its node is off"}));
+    }};
+    b.RegisterHost("modules.releases", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        return Installer()->ReleasesJson(stem, s->BinarySource(stem), Param(params, "force").isTrue());
+    }), Bridge::Thread::LONG);
+    b.RegisterHost("modules.install", guarded([this, stem_of, tag_of, changed](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const std::string tag{tag_of(params)};
+        Installer()->Start(stem, tag, /*activate=*/true, [stem, changed](bool) { changed(stem); });
+        return UniValue{true};
+    }));
+    b.RegisterHost("modules.update", guarded([this, stem_of, tag_of, swap](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const std::string tag{tag_of(params)};
+        const auto s{Supervisor()};
+        const auto installer{Installer()};
+        // Installed beside the version that runs, then made current once its node stopped.
+        ModuleInstaller* raw{installer.get()};
+        installer->Start(stem, tag, /*activate=*/false, [s, raw, stem, tag, swap](bool ok) {
+            if (ok) swap(s, *raw, stem, [&] { raw->Activate(stem, tag); });
+        });
+        return UniValue{true};
+    }));
+    b.RegisterHost("modules.rollback", guarded([this, stem_of, swap](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        const auto installer{Installer()};
+        if (installer->Busy(stem)) throw HostError("A download of this sidechain is running: wait for it, or cancel it.");
+        if (!installer->Previous(stem)) throw HostError("There is no earlier version to go back to.");
+        swap(s, *installer, stem, [&] { installer->Rollback(stem); });
+        UniValue out{UniValue::VOBJ};
+        const auto current{installer->Current(stem)};
+        out.pushKV("current", current ? UniValue{*current} : UniValue{});
+        return out;
+    }), Bridge::Thread::LONG);
+    b.RegisterHost("modules.progress", guarded([this, stem_of](const UniValue& params) { return Installer()->Progress(stem_of(params)); }));
+    b.RegisterHost("modules.cancel", guarded([this, stem_of](const UniValue& params) {
+        Installer()->Cancel(stem_of(params));
+        return UniValue{true};
+    }));
+    b.RegisterHost("modules.checkUpdates", guarded([this](const UniValue& params) {
+        const auto s{Supervisor()};
+        const auto installer{Installer()};
+        const bool force{Param(params, "force").isTrue()};
+        UniValue updates{UniValue::VARR};
+        UniValue errors{UniValue::VARR};
+        for (const auto& spec : SidechainSupervisor::Catalog()) {
+            if (!s->Enabled(spec.stem) || !ModuleInstaller::IsAllowed(spec.stem)) continue;
+            try {
+                const auto tag{installer->UpdateFor(spec.stem, force)};
+                if (!tag) continue;
+                UniValue u{UniValue::VOBJ};
+                u.pushKV("stem", spec.stem);
+                u.pushKV("name", spec.name);
+                u.pushKV("current", installer->Current(spec.stem).value_or(""));
+                u.pushKV("latest", *tag);
+                updates.push_back(std::move(u));
+            } catch (const std::exception& e) {
+                UniValue err{UniValue::VOBJ};
+                err.pushKV("stem", spec.stem);
+                err.pushKV("error", e.what());
+                errors.push_back(std::move(err));
+            }
+        }
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("updates", std::move(updates));
+        out.pushKV("errors", std::move(errors));
+        return out;
+    }), Bridge::Thread::LONG);
 }
 
 int App::Run()
