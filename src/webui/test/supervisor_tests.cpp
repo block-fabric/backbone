@@ -9,6 +9,7 @@
 
 #include <test/util/setup_common.h>
 #include <util/fs.h>
+#include <util/fs_helpers.h>
 #include <webui/supervisor.h>
 
 #include <boost/test/unit_test.hpp>
@@ -380,6 +381,74 @@ BOOST_AUTO_TEST_CASE(real_daemon_start_stop_restart)
         BOOST_CHECK(!s.ThreadRunning());
         BOOST_CHECK(s.Enabled("layers"));
     }
+}
+BOOST_AUTO_TEST_CASE(real_daemon_adopts_existing_data_and_sees_its_own_app)
+{
+    // The folder of a sidechain that ran in its own app before (~/.chains/sidechains/<stem>/data of a user): its wallet
+    // is the one used, none is made; while its own app runs (the lock of its data held), it is not started, and the
+    // user is told why.
+    const auto bindir{TestSidechainDir()};
+    const auto chainsd{TestChainsd()};
+    if (!bindir || !chainsd) {
+        BOOST_TEST_MESSAGE("skipped: set CHAINS_TEST_SIDECHAIN_BINDIR to a folder with layersd (and have chainsd next to the test)");
+        return;
+    }
+    const fs::path base{m_args.GetDataDirBase()};
+    SidechainSupervisor::Options o{Regtest(base)};
+    o.bin_dirs = {*bindir};
+    Mainchain main{*chainsd, base / "chains", SidechainSupervisor::RpcAuthLine(o.mainchain_rpc_user, o.mainchain_rpc_password, "a1b2c3d4e5f60718293a4b5c6d7e8f90")};
+    BOOST_REQUIRE(main.pid > 0);
+    Memory memory;
+    SidechainSupervisor s{o, memory.Load(), memory.Store()};
+    const auto wallets{[&] {
+        try {
+            return s.Rpc("layers", "listwallets");
+        } catch (const std::exception&) {
+            return UniValue{UniValue::VARR};
+        }
+    }};
+    // A folder as an app of its own leaves it: a wallet "mine", none called "main", none loaded at the start.
+    s.Enable("layers");
+    BOOST_REQUIRE(s.WaitFor("layers", [&](const auto& st) { return st.rpc_ready && wallets().size() == 1; }, 120s));
+    UniValue mine{UniValue::VARR};
+    mine.push_back("mine");
+    s.Rpc("layers", "createwallet", mine);
+    s.Disable("layers");
+    BOOST_REQUIRE(s.WaitFor("layers", [](const auto& st) { return st.pid == 0; }, 90s));
+    fs::remove_all(s.NetDataDir("layers") / "wallets" / "main");
+    BOOST_REQUIRE(fs::exists(s.NetDataDir("layers") / "wallets" / "mine"));
+
+    // Its own app runs (another process holds the lock of its data): not started, said plainly.
+    int ready[2];
+    BOOST_REQUIRE(pipe(ready) == 0);
+    const pid_t holder{fork()};
+    BOOST_REQUIRE(holder >= 0);
+    if (holder == 0) {
+        close(ready[0]);
+        const bool locked{util::LockDirectory(s.NetDataDir("layers"), ".lock") == util::LockResult::Success};
+        const char c{locked ? '1' : '0'};
+        if (write(ready[1], &c, 1) != 1) _exit(1);
+        pause();
+        _exit(0);
+    }
+    close(ready[1]);
+    char c{0};
+    BOOST_REQUIRE(read(ready[0], &c, 1) == 1);
+    close(ready[0]);
+    BOOST_REQUIRE_EQUAL(c, '1');
+    BOOST_CHECK_EXCEPTION(s.Enable("layers"), std::runtime_error, [](const std::runtime_error& e) { return std::string{e.what()}.find("already running in its own app") != std::string::npos; });
+    BOOST_CHECK(!s.Enabled("layers"));
+    BOOST_CHECK_EQUAL(s.GetStatus("layers").pid, 0);
+    kill(holder, SIGTERM);
+    int status;
+    waitpid(holder, &status, 0);
+
+    // Quit: adopted as it is, its wallet "mine" loaded, no "main" made.
+    s.Enable("layers");
+    BOOST_REQUIRE(s.WaitFor("layers", [&](const auto& st) { return st.rpc_ready && wallets().size() == 1; }, 120s));
+    BOOST_CHECK_EQUAL(wallets()[0].get_str(), "mine");
+    BOOST_CHECK(!fs::exists(s.NetDataDir("layers") / "wallets" / "main"));
+    s.StopAll();
 }
 #endif
 

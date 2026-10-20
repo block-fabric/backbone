@@ -506,6 +506,20 @@ shielded sends, withdrawals), the two-step reveals (`then`, authorizations kept 
 app itself: Chains' own confirmed `createsidechaindeposit` from the wallet shown, Chains' own question, and
 only to a deposit address of that sidechain's slot.
 
+### 13.3b A sidechain that ran in its own app before
+
+The default folder of a sidechain (`<Chains datadir>/sidechains/<stem>/data`) is the one its own app used
+from the Sidechains page, so a user's existing data is **adopted as it is**: its chain (no reindex), its
+wallets (a wallet loaded at its start is kept; else "main" if there is one, else its first wallet; a new
+"main" only where it has none), its `<stem>.conf`, its validator key file and staking state (the app passes
+none of them, and touches none). The app's own arguments take the place of the conf's for the ports, the
+mainchain connection and `-server` only. If the folder is in use — its own app still runs (the lock of its
+data folder is held by another program) — it is not started and the user reads "Layers is already running in
+its own app (…): quit it first, then turn it on here" (`RunningElsewhere`, checked when turned on and before
+each start). Not handled: a conf with `mainchainrpcpassword=` (the daemon refuses it with the app's password
+file: remove that line); a sidechain whose data lives elsewhere (choose that folder in its settings).
+Tested in `supervisor_tests` (`real_daemon_adopts_existing_data_and_sees_its_own_app`, on scratch data).
+
 ### 13.4 The old *Sidechains → Nodes* tab
 
 Removed (decision 5): the page `SidechainNodes.svelte`, its tab, its command (now "Run sidechains" →

@@ -10,6 +10,7 @@
 #include <random.h>
 #include <support/cleanse.h>
 #include <tinyformat.h>
+#include <util/fs_helpers.h>
 #include <util/strencodings.h>
 #include <util/string.h>
 #include <util/threadnames.h>
@@ -480,10 +481,32 @@ void SidechainSupervisor::EnsureThread()
     m_thread = std::thread([this] { Loop(); });
 }
 
+std::string SidechainSupervisor::RunningElsewhere(const std::string& stem) const
+{
+    const Spec* spec{FindSpec(stem)};
+    if (!spec) return {};
+    // Its data folder in use: the lock a node takes on it (bitcoind's .lock) is held by another program, such as its
+    // own app run by itself. Its data is then left as it is: no second node on it.
+    const fs::path dir{NetDataDir(stem)};
+    if (!Exists(dir)) return {};
+    switch (util::LockDirectory(dir, ".lock", /*probe_only=*/true)) {
+    case util::LockResult::Success: return {};
+    case util::LockResult::ErrorLock:
+        return strprintf("%s is already running in its own app (or another program uses its data folder %s): quit it first, then turn it on here.", spec->name, fs::PathToString(dir));
+    case util::LockResult::ErrorWrite:
+        return strprintf("The data folder of %s (%s) cannot be written.", spec->name, fs::PathToString(dir));
+    }
+    return {};
+}
+
 void SidechainSupervisor::Enable(const std::string& stem, const std::optional<std::string>& wallet_mode)
 {
     const Spec* spec{FindSpec(stem)};
     if (!spec) throw Error(strprintf("There is no sidechain %s.", stem));
+    // Said at once, before anything changes: another node (its own app) has its data.
+    if (GetStatus(stem).pid == 0) {
+        if (const std::string running{RunningElsewhere(stem)}; !running.empty()) throw Error(running);
+    }
     if (!FindBinary(stem)) {
         throw Error(strprintf("The program of %s (%sd) is not on this computer: it is looked for next to this app and in the folder set for it.", spec->name, stem));
     }
@@ -592,6 +615,7 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
     if (!spec) return fail("unknown sidechain");
     const auto binary{FindBinary(stem)};
     if (!binary) return fail(strprintf("The program %sd is not on this computer.", stem));
+    if (const std::string running{RunningElsewhere(stem)}; !running.empty()) return fail(running);
     for (const int port : {RpcPort(stem), P2pPort(stem)}) {
         if (!PortFree(port)) return fail(strprintf("Port %d is in use: another %s node may run on this computer. Stop it, or give this one other ports.", port, spec->name));
     }
@@ -764,12 +788,20 @@ void SidechainSupervisor::Loop()
                         if (wallets.isArray() && !wallets.empty()) {
                             done = true;
                         } else {
+                            // A folder adopted from a standalone app keeps its wallet: "main" if it has one, else the
+                            // first of its wallets; a new one only where there is none.
+                            std::vector<std::string> found;
+                            const UniValue dir{Rpc(stem, "listwalletdir")};
+                            for (const UniValue& w : dir.find_value("wallets").getValues()) {
+                                if (w.find_value("name").isStr()) found.push_back(w.find_value("name").get_str());
+                            }
                             UniValue name{UniValue::VARR};
-                            name.push_back("main");
-                            try {
-                                Rpc(stem, "loadwallet", name);
-                            } catch (const std::exception&) {
+                            if (found.empty()) {
+                                name.push_back("main");
                                 Rpc(stem, "createwallet", name);
+                            } else {
+                                name.push_back(std::ranges::find(found, "main") != found.end() ? std::string{"main"} : found.front());
+                                Rpc(stem, "loadwallet", name);
                             }
                             done = true;
                         }

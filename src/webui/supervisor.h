@@ -133,6 +133,11 @@ public:
     void SetDataDir(const std::string& stem, const std::optional<fs::path>& dir, bool move);
     /** Remove the chain data of a disabled sidechain (blocks, state, logs); its wallets stay unless with_wallets. */
     void DeleteData(const std::string& stem, bool with_wallets);
+    /**
+     * Whether another program has the data of a sidechain (its own app run by itself, a node by hand: the lock of its
+     * data folder is held): "" when not, else what the user is to do ("Layers is already running in its own app...").
+     */
+    std::string RunningElsewhere(const std::string& stem) const;
     /** Whether a folder can be the data directory of a sidechain: "" when it can, else why not. */
     std::string CheckDataDir(const std::string& stem, const fs::path& dir) const;
 
