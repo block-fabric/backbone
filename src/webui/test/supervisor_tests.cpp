@@ -15,8 +15,10 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <fstream>
+#include <thread>
 
 #ifndef WIN32
 #include <csignal>
@@ -217,6 +219,30 @@ BOOST_AUTO_TEST_CASE(standalone_runs_nothing)
     BOOST_CHECK_EQUAL(list.size(), SidechainSupervisor::Catalog().size());
     BOOST_CHECK_EQUAL(list[0].find_value("stem").get_str(), "layers");
     BOOST_CHECK_EQUAL(list[0].find_value("program").get_str(), "");
+}
+
+BOOST_AUTO_TEST_CASE(wait_gives_up_when_stopping)
+{
+    // A waiter (the end of an update, doc/unified-app.md §15.3) does not outlive the app's stop by minutes.
+    Memory memory;
+    SidechainSupervisor s{Regtest(m_args.GetDataDirBase()), memory.Load(), memory.Store()};
+    BOOST_CHECK(!s.Stopping());
+    std::atomic<bool> waited{false};
+    std::atomic<bool> reached{true};
+    std::thread waiter{[&] {
+        reached = s.WaitFor("layers", [](const auto& st) { return st.rpc_ready; }, 10min);
+        waited = true;
+    }};
+    std::this_thread::sleep_for(200ms);
+    BOOST_CHECK(!waited.load());
+    const auto start{std::chrono::steady_clock::now()};
+    s.StopAll();
+    waiter.join();
+    BOOST_CHECK(s.Stopping());
+    BOOST_CHECK(!reached.load());
+    BOOST_CHECK(std::chrono::steady_clock::now() - start < 5s);
+    // A wait that starts after the stop returns at once.
+    BOOST_CHECK(!s.WaitFor("layers", [](const auto&) { return false; }, 10min));
 }
 
 #ifndef WIN32

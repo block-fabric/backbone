@@ -735,9 +735,8 @@ void App::NodeThread()
                 LOCK(m_mutex);
                 installer = m_installer;
             }
-            if (installer) {
-                for (const auto& stem : ModuleInstaller::AllowedStems()) installer->Cancel(stem);
-            }
+            // After the supervisor: the end of an update waits for its daemon, which no longer starts.
+            if (installer) installer->Stop();
         }
         LogInfo("webui: shutting the node down");
         m_node->appShutdown();
@@ -2237,11 +2236,16 @@ void App::RegisterModuleMethods(Bridge& b)
         changed(stem);
         if (!enabled) return;
         const auto ready{[](const SidechainSupervisor::Status& st) { return st.state == SidechainSupervisor::State::RUNNING && st.rpc_ready; }};
+        bool started{false};
         try {
             s->Enable(stem);
+            started = true;
             if (s->WaitFor(stem, ready, std::chrono::minutes{3})) return;
         } catch (const std::exception&) {
         }
+        // Not a failure of the new version: the app stops (the version stays, tried at the next start), or the user
+        // turned the sidechain off while it started (it stays off).
+        if (s->Stopping() || (started && !s->Enabled(stem))) return;
         // The new version does not start: back to the one before.
         const std::string now{installer.Current(stem).value_or("")};
         s->Disable(stem);
@@ -2443,6 +2447,15 @@ int App::Run()
     if (m_node && started && status == EXIT_SUCCESS) status = m_node->getExitStatus();
     for (auto& handler : m_node_handlers) handler->disconnect();
     m_node_events.reset();
+    // No thread may reach the window once it is gone: the downloads (and the end of an update, which emits) are
+    // waited for, and an event emitted later is only kept (a page that is not ready schedules no delivery).
+    std::shared_ptr<ModuleInstaller> installer;
+    {
+        LOCK(m_mutex);
+        installer = m_installer;
+    }
+    if (installer) installer->Stop();
+    m_hub->SetReady(false);
     m_window.reset();
     return status;
 }

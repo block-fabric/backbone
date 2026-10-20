@@ -19,6 +19,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <atomic>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -533,8 +534,9 @@ BOOST_AUTO_TEST_CASE(signatures)
     {
         // No key at all (a release build today): checksums only, each release said unsigned; required, nothing is taken.
         ModuleInstaller auto_mi{fx.Options("auto", /*trust_key=*/false)};
+        const auto releases{auto_mi.Releases("layers")};
         for (const char* tag : {"20261021.1", "20261022.1", "20261023.1"}) {
-            const auto* r{Find(auto_mi.Releases("layers"), tag)};
+            const auto* r{Find(releases, tag)};
             BOOST_CHECK(r->compatible && !r->signed_ok && r->unsigned_only);
         }
         const UniValue json{auto_mi.ReleasesJson("layers", "none")};
@@ -594,6 +596,33 @@ BOOST_AUTO_TEST_CASE(job_progress_and_cancel)
     BOOST_CHECK(!done_ok.load());
     BOOST_CHECK_EQUAL(*mi.Current("layers"), "20261021.1");
     BOOST_CHECK(Clean(fx.root / "bin" / "layers"));
+}
+
+BOOST_AUTO_TEST_CASE(stop_waits_for_the_jobs)
+{
+    // The app stops (doc/unified-app.md §17, the crash at exit): Stop() cancels a download, waits for its thread and
+    // its `done` (which may still be running), and no job starts after.
+    Fixture fx{m_args.GetDataDirBase() / "mi_stop"};
+    fx.Add({.tag = "20261021.1"});
+    fx.server.slow = fx.Url("20261021.1", ModuleInstaller::ArchiveName("layers", "20261021.1", PLATFORM));
+    ModuleInstaller mi{fx.Options()};
+    std::atomic<bool> done_started{false};
+    std::atomic<bool> done_finished{false};
+    mi.Start("layers", "20261021.1", true, [&](bool) {
+        done_started = true;
+        // An end of an update that still waits for its daemon.
+        std::this_thread::sleep_for(300ms);
+        done_finished = true;
+    });
+    for (int i{0}; i < 200 && mi.Progress("layers").find_value("state").get_str() != "downloading"; ++i) std::this_thread::sleep_for(10ms);
+    mi.Stop();
+    BOOST_CHECK(done_started.load());
+    BOOST_CHECK(done_finished.load());
+    BOOST_CHECK(!mi.Busy("layers"));
+    BOOST_CHECK_EQUAL(mi.Progress("layers").find_value("state").get_str(), "cancelled");
+    BOOST_CHECK(!mi.Current("layers"));
+    BOOST_CHECK(Contains(ErrorOf([&] { mi.Start("layers", "20261021.1", true); }), "stopping"));
+    mi.Stop();
 }
 
 BOOST_AUTO_TEST_CASE(supervisor_finds_the_download)

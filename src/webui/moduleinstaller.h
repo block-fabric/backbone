@@ -176,6 +176,11 @@ public:
     /** InstallNow on a thread of its own (one job per sidechain at a time); then `done(ok)` on that thread. Throws when one runs. */
     void Start(const std::string& stem, const std::string& tag, bool activate, std::function<void(bool ok)> done = {}, bool allow_older = false);
     void Cancel(const std::string& stem);
+    /**
+     * The app stops: every job is cancelled and its thread (with its `done`) waited for; no job starts after. Call it
+     * after the supervisor stopped (a `done` may wait for a daemon) and before the window goes. Idempotent.
+     */
+    void Stop();
     /** {state, tag, done, total, error}: idle, listing, downloading, verifying, unpacking, installing, done, failed, cancelled. */
     UniValue Progress(const std::string& stem) const;
     bool Busy(const std::string& stem) const;
@@ -213,6 +218,8 @@ private:
     mutable Mutex m_mutex;
     mutable std::condition_variable m_cv;
     std::map<std::string, Job> m_jobs GUARDED_BY(m_mutex);
+    //! Stop() was called: no job starts again.
+    bool m_stopped GUARDED_BY(m_mutex){false};
     std::map<std::string, Cached> m_cache GUARDED_BY(m_mutex);
     std::map<std::string, std::chrono::steady_clock::time_point> m_last_notify GUARDED_BY(m_mutex);
     //! The pointers (current, previous) of a sidechain are changed by one at a time.

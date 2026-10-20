@@ -407,9 +407,15 @@ ModuleInstaller::ModuleInstaller(Options options, NotifyFn notify) : m_options(s
 
 ModuleInstaller::~ModuleInstaller()
 {
+    Stop();
+}
+
+void ModuleInstaller::Stop()
+{
     std::vector<std::thread> threads;
     {
         LOCK(m_mutex);
+        m_stopped = true;
         for (auto& [stem, job] : m_jobs) {
             if (job.cancel) *job.cancel = true;
             if (job.thread.joinable()) threads.push_back(std::move(job.thread));
@@ -964,6 +970,7 @@ void ModuleInstaller::Start(const std::string& stem, const std::string& tag, boo
     auto cancel{std::make_shared<std::atomic<bool>>(false)};
     {
         LOCK(m_mutex);
+        if (m_stopped) throw Error("The app is stopping.");
         Job& job{m_jobs[stem]};
         if (job.running) throw Error("A download of this sidechain is already running.");
         old = std::move(job.thread);
@@ -1008,8 +1015,15 @@ void ModuleInstaller::Start(const std::string& stem, const std::string& tag, boo
         }
         SetJob(stem, [&](Job& j) { j.running = false; }, true);
     }};
-    LOCK(m_mutex);
-    m_jobs[stem].thread = std::move(thread);
+    {
+        LOCK(m_mutex);
+        // Not kept once Stop() collected the threads: it would be waited for by nobody (it was cancelled).
+        if (!m_stopped) {
+            m_jobs[stem].thread = std::move(thread);
+            return;
+        }
+    }
+    thread.join();
 }
 
 void ModuleInstaller::Cancel(const std::string& stem)
