@@ -5,6 +5,11 @@
 // refused before any dialog; Receive on each chain; every chain's transactions in one list, with a filter; each chain's
 // wallets; Staking with Layers' validator; Assets. The runner (run_integrated.py) merged-mines the sidechains' blocks at
 // "CHECKPOINT bmm <stem> <count>". Pictures in Midnight.
+//
+// §19 (the UX round): one chain selector in the top bar for every page (All, or one chain), the chain of Send and
+// Receive picked in the form's tiles (in step with it), sections that go for a chain they do not apply to, the Home
+// chart one line per chain, every chain's lists on Overview; with BitAssets and Hivemind on (when the runner has them),
+// their groups in the sidebar and a Hivemind position on Home ("CHECKPOINT hivemind trade 0": the runner trades).
 (async () => {
   const { host, rpc, sleep, log, T, waitFor, check, snapshot, finish } = E2E;
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -31,6 +36,11 @@
     el.value = value;
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }
+  // Scroll a page (or the sidebar) so that an element is at its top: only that box, never the window.
+  function scrollTo(el, box = $('#content')) {
+    if (!el || !box) return;
+    box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - 8;
+  }
   function choose(el, value) {
     el.value = value;
     el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -46,6 +56,17 @@
   const layersCall = (method, params = {}) => T().packs.route('layers', { rid: `e2e${Math.random()}`, kind: 'host', method, params });
   const confirmed = (method, params, more = {}) => layersCall('rpc.confirmed', { method, params, wallet: 'main', ...more });
   const summary = (stem) => host('chain.summary', { stem });
+  const extra = (window.__INTEGRATED && window.__INTEGRATED.extra) || [];
+  // The top bar's selector: open it, pick a chain (or All), and wait for every page to follow.
+  async function selectChain(id) {
+    if (T().prefs.chain === id && $('[data-global-chain]')?.dataset.globalChain === id) return;
+    const b = await waitFor('the chain selector of the top bar', () => $('[data-global-chain]'), 20000);
+    b.click();
+    const o = await waitFor(`the option ${id}`, () => $(`[data-chain-option="${id}"]`), 10000);
+    o.click();
+    await waitFor(`${id} selected`, () => T().prefs.chain === id && $('[data-global-chain]')?.dataset.globalChain === id, 10000);
+    await sleep(300);
+  }
 
   try {
     await waitFor('the node to run', () => T() && T().app.phase === 'ready' && T().node.tip, 120000);
@@ -63,7 +84,13 @@
     await check('Layers and Thunder active on Chains', active.includes(7) && active.includes(2), JSON.stringify(active));
     await host('sidechains.enable', { stem: 'layers', wallet: 'separate' });
     await host('sidechains.enable', { stem: 'thunder', wallet: 'separate' });
+    for (const stem of extra) {
+      await rpc('createsidechainproposal', [{ bitassets: 4, hivemind: 9 }[stem], { bitassets: 'BitAssets', hivemind: 'Hivemind' }[stem], 'e2e']);
+    }
+    if (extra.length) await rpc('generatetoaddress', [25, mining]);
+    for (const stem of extra) await host('sidechains.enable', { stem, wallet: 'separate' });
     await waitFor('both running', async () => (await chainOf('layers')).ready && (await chainOf('thunder')).ready, 120000);
+    for (const stem of extra) await waitFor(`${stem} running`, async () => (await chainOf(stem)).ready, 180000);
     await bmm('layers', 2);
     await bmm('thunder', 2);
     const caps = await host('chain.capabilities');
@@ -123,21 +150,44 @@
     await waitFor('the balances of Layers', () => /\d/.test($('[data-chain-card="layers"] [data-field="available"]').textContent) && $('[data-chain-card="layers"] [data-card-assets]'), 30000);
     await check('Home shows every chain, with Layers\' assets', $('[data-chain-card="layers"] [data-card-assets]').textContent.includes('GOLD'));
     await shot('integrated-overview');
-    $('[data-chain-chips="home"] [data-chain-chip="layers"]').click();
-    await waitFor('the filter of Home', () => !$('[data-chain-card="thunder"]') && $('[data-chain-card="layers"]'));
-    await check('the filter of Home remembered', T().prefs.chainViews.home === 'layers');
-    $('[data-chain-chips="home"] [data-chain-chip="all"]').click();
+    await check('no chips of chains in a section: one selector in the top bar', !$('[data-chain-chips]') && !$('[data-chain-picker]') && !!$('[data-global-chain="all"]'));
+    // The selector open, with All and each chain.
+    $('[data-global-chain]').click();
+    await waitFor('the list of chains', () => $('[data-global-chain-list] [data-chain-option="thunder"]'), 10000);
+    await check('the selector: All, then each chain with its mark', $$('[data-chain-option]').map((o) => o.dataset.chainOption).join(',') === ['all', 'chains', 'layers', 'thunder', ...extra].join(','), $$('[data-chain-option]').map((o) => o.dataset.chainOption).join(','));
+    await shot('ux-topbar-all');
+    $('[data-chain-option="layers"]').click();
+    await waitFor('Home follows the selection', () => !$('[data-chain-card="thunder"]') && $('[data-chain-card="layers"]') && !$('[data-chain-card="chains"]'), 20000);
+    await check('the selection remembered, for every page', T().prefs.chain === 'layers');
+    await check('Home with Layers: this app\'s own cards (mining, merged mining) gone', !$('[data-testid="mining-rate"]') && !$('[data-testid="bmm-line"]'));
+    await waitFor('the chart of Layers', () => $('[data-chain-chart="layers"]'), 30000);
+    await shot('ux-topbar-layers');
     go('overview');
+    await waitFor('Overview with Layers only', () => $('[data-chains-overview="overview"] [data-chain-card="layers"]') && !$('[data-chains-overview="overview"] [data-chain-card="thunder"]') && !$('#balances-title'), 30000);
+    // Ctrl+] goes on to the next chain (Thunder), then All after the last.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', ctrlKey: true, bubbles: true }));
+    await waitFor('Ctrl+] to Thunder', () => T().prefs.chain === 'thunder', 5000);
+    await selectChain('all');
     await waitFor('every chain on Overview', () => $('[data-chains-overview="overview"] [data-chain-card="thunder"]'), 30000);
+    await waitFor('every chain\'s latest blocks on Overview', () => $('[data-many-blocks="blocks"] [data-chain-column="layers"] li button') && $('[data-many-blocks="blocks"] [data-chain-column="thunder"] li button') && $('[data-many-blocks="blocks"] [data-chain-column="chains"] li button'), 30000);
+    await waitFor('every chain\'s recent transactions on Overview', () => $('[data-many-recent] [data-recent-tx="layers"]') && $('[data-many-recent] [data-recent-tx="chains"]'), 30000);
+    await check('Overview: the mempool of each chain', !!$('[data-many-blocks="mempool"] [data-chain-column="thunder"]'));
+    await shot('ux-overview-all');
+    scrollTo($('[data-many-recent]').closest('section'));
+    await sleep(300);
+    await shot('ux-overview-all-lists');
+    $('#content').scrollTo(0, 0);
 
     // 3. Send on Layers: the chain picked in the picker; a wrong-chain address refused before any dialog; GOLD sent.
     const layersTo = (await host('chain.receive', { stem: 'layers', label: 'GOLD to self' })).address;
     const thunderOwn = (await host('chain.receive', { stem: 'thunder' })).address;
     const chainsOwn = await rpc('getnewaddress', ['Not for Layers'], 'demo');
     go('send');
-    await waitFor('the chain picker of Send', () => $('[data-chain-picker="send"]'), 30000);
-    choose($('[data-chain-picker="send"]'), 'layers');
+    await waitFor('the chain tiles of Send', () => $('[data-chain-tiles="send"] [data-chain-tile="layers"]'), 30000);
+    await check('All selected: Send waits for a chain picked in its form', !!$('[data-send-wait]') && !!$('[data-chain-needed]') && !$('[data-sidechain-send]'));
+    $('[data-chain-tile="layers"]').click();
     await waitFor('the Send form of Layers', () => $('[data-sidechain-send="layers"] [data-send-asset]'), 30000);
+    await check('the chain picked in the form is the top bar\'s', T().prefs.chain === 'layers' && $('[data-global-chain]').dataset.globalChain === 'layers');
     const before = (await asked()).length;
     type($('[data-send-amount]'), '2');
     type($('[data-send-address]'), chainsOwn);
@@ -154,6 +204,7 @@
     await waitFor('the address of Layers taken', () => $('[data-address-ok]'), 20000);
     await sleep(400);
     await shot('integrated-send-layers-asset');
+    await shot('ux-send-layers-asset');
     await desktop({ show: true });
     $('[data-send-go]').click();
     await inWindow('integrated-dialog-layers-asset-send', true);
@@ -166,25 +217,28 @@
     await bmm('layers', 1);
     const rows = (await host('chain.transactions', { stem: 'layers' })).rows;
     await check('the asset send confirmed in a block of Layers', rows.some((r) => r.txid === sentTx && r.confirmations >= 1), sentTx);
-    // A coin send on Thunder through the same page (its question "On Thunder").
-    choose($('[data-chain-picker="send"]'), 'thunder');
+    // A coin send on Thunder through the same page (its question "On Thunder"): picked with the top bar's selector,
+    // the form's tiles follow.
+    await selectChain('thunder');
     await waitFor('the Send form of Thunder', () => $('[data-sidechain-send="thunder"] [data-send-amount]'), 30000);
+    await check('the form\'s tiles follow the top bar', $('[data-chain-tile="thunder"]').getAttribute('aria-checked') === 'true');
     await check('Thunder has no asset picker', !$('[data-sidechain-send="thunder"] [data-send-asset]'));
     type($('[data-send-amount]'), '1.5');
     type($('[data-send-address]'), thunderOwn);
     await waitFor('the address of Thunder taken', () => $('[data-address-ok]'), 20000);
+    await shot('ux-send-thunder-coin');
     await desktop({ yes: true });
     $('[data-send-go]').click();
     await waitFor('the Thunder send done', () => $('[data-send-done]') || $('[data-send-error]'), 60000);
     q = (await asked()).at(-1);
     await check('a coin send on Thunder asked "On Thunder"', !!$('[data-send-done]') && q.chain === 'Thunder' && q.rows.some((r) => /^1\.50000000 /.test(r.value)), JSON.stringify(q));
-    await check('Send remembers its chain', T().prefs.chainViews.send === 'thunder');
+    await check('the chain of Send is the selection, remembered', T().prefs.chain === 'thunder');
     await bmm('thunder', 1);
 
     // 4. Receive on each chain.
     go('receive');
-    await waitFor('the chain picker of Receive', () => $('[data-chain-picker="receive"]'), 30000);
-    choose($('[data-chain-picker="receive"]'), 'layers');
+    await waitFor('the chain tiles of Receive', () => $('[data-chain-tiles="receive"] [data-chain-tile="layers"]'), 30000);
+    $('[data-chain-tile="layers"]').click();
     await waitFor('Receive on Layers', () => $('[data-sidechain-receive="layers"] [data-receive-new]'), 30000);
     $('[data-receive-new]').click();
     await waitFor('a new address of Layers', () => $('[data-receive-address]'), 30000);
@@ -194,7 +248,8 @@
     $('[data-receive-deposit-address]').click();
     await waitFor('its deposit address', () => /s7_/.test($('[data-sidechain-receive="layers"]').textContent), 20000);
     await shot('integrated-receive');
-    choose($('[data-chain-picker="receive"]'), 'thunder');
+    await shot('ux-receive');
+    $('[data-chain-tile="thunder"]').click();
     await waitFor('Receive on Thunder', () => $('[data-sidechain-receive="thunder"] [data-receive-new]'), 30000);
     $('[data-receive-new]').click();
     await waitFor('a new address of Thunder', () => $('[data-sidechain-receive="thunder"] [data-receive-address]'), 30000);
@@ -203,19 +258,21 @@
 
     // 5. Transactions: every chain in one list, with a filter; a row's details in the app.
     go('transactions');
-    T().savePrefs({ chainViews: { ...T().prefs.chainViews, transactions: 'all' } });
+    await selectChain('all');
     await waitFor('every chain\'s transactions', () => $('tr[data-chain-tx="layers"]') && $('tr[data-chain-tx="thunder"]') && $('tr[data-chain-tx="chains"]'), 30000);
+    await check('no selector of chains in the page: the top bar\'s', !$('[data-chain-filter]') && !$('[data-chain-chips]'));
     await shot('integrated-transactions');
-    $('[data-chain-chip="layers"]').click();
+    await shot('ux-transactions');
+    await selectChain('layers');
     await waitFor('only Layers', () => $('tr[data-chain-tx="layers"]') && !$('tr[data-chain-tx="thunder"]') && !$('tr[data-chain-tx="chains"]'), 20000);
     $(`tr[data-chain-tx="layers"][data-txid="${sentTx}"]`)?.click() ?? $('tr[data-chain-tx="layers"]').click();
     await waitFor('its details in the app', () => $('[data-tx-chain="layers"]') && $('dialog[open] .details'), 30000);
     await check('a sidechain transaction\'s details shown by the app, not its module', T().nav.page === 'transactions');
     await shot('integrated-transaction-details');
     $$('dialog[open] button').find((b) => b.textContent.trim() === 'Close').click();
-    $('[data-chain-chip="chains"]').click();
+    await selectChain('chains');
     await waitFor('the app\'s own history', () => !$('[data-chain-activity]'), 20000);
-    $('[data-chain-chip="all"]').click();
+    await selectChain('all');
 
     // 6. Wallets: each chain's.
     go('wallets');
@@ -240,12 +297,24 @@
     await check('Staking shows the validator key of Layers\' node', $('[data-staking-chain="layers"]').textContent.includes('Validator'));
     await check('Staking only for the chains that stake', !$('[data-staking-chain="thunder"]'));
     await shot('integrated-staking');
+    await selectChain('thunder');
+    await waitFor('Staking with Thunder: said, not shown', () => $('[data-not-on-chain="thunder"]') && !$('[data-staking-chain]'), 20000);
+    await check('a page of what Thunder has not: its sections gone, the chains that have it a click away', !!$('[data-not-on-chain="thunder"] [data-show-chain="layers"]'));
+    await shot('ux-sections-staking-thunder');
+    await selectChain('all');
 
     // 9. Assets: every chain that has them; Trade, Layers' own page inside the app's.
     go('assets');
     await waitFor('the assets of Layers', () => $(`[data-asset-row="layers"][data-asset="${gold.id}"]`), 30000);
     await shot('integrated-assets');
     go('assets', 'trade');
+    if (extra.includes('bitassets')) {
+      // Two chains with a market of assets and All shown: Trade asks which (one chain's market).
+      await waitFor('Trade asks which chain', () => $('[data-trade-pick] [data-trade-chain="bitassets"]'), 20000);
+      $('[data-trade-pick] [data-trade-chain="layers"]').click();
+    } else {
+      await selectChain('layers');
+    }
     await waitFor('Trade inside the page', () => $('[data-module-embed="layers"]') && $('iframe.module-frame.embedded:not([hidden])'), 60000);
     await sleep(3000);
     const fr = $('iframe.module-frame.embedded');
@@ -254,12 +323,77 @@
     go('home');
     await waitFor('the frame no longer laid over the page', () => !$('iframe.module-frame.embedded:not([hidden])'), 20000);
 
-    // The module switcher still a way in, as a second one.
-    await check('the modules\' own pages still reached from the sidebar', !!$('[data-modules-way] .switcher'));
+    // The sidebar's Chain section: one group per sidechain, its features in it; no switcher, no top-level Staking/Assets.
+    await check('a group per sidechain in the sidebar', ['layers', 'thunder', ...extra].every((s) => $(`[data-chain-group="${s}"]`)) && !$('.switcher'));
+    await check('Layers\' group: Assets, Trade, Staking, its deposits, its own pages', ['assets', 'trade', 'staking', 'move', 'own'].every((i) => $(`[data-chain-item="layers:${i}"]`)));
+    $('[data-chain-item="layers:trade"]').click();
+    await waitFor('Layers: Trade from its group', () => T().nav.page === 'assets' && T().nav.tab === 'trade' && T().prefs.chain === 'layers', 20000);
+    go('home');
+    await selectChain('all');
+
+    // Hivemind (when the runner has it): coins in, a market traded by its own CLI, the open position on Home.
+    if (extra.includes('hivemind')) {
+      await bmm('hivemind', 2);
+      await desktop({ yes: true });
+      const hdep = await host('chain.deposit', { stem: 'hivemind', amount: '30' });
+      await check('a deposit into Hivemind', /^[0-9a-f]{64}$/.test(hdep.txid || ''), JSON.stringify(hdep));
+      await rpc('generatetoaddress', [1, mining]);
+      await bmm('hivemind', 2);
+      await waitFor('the deposit credited on Hivemind', async () => Number((await summary('hivemind')).balances.trusted) >= 29, 180000);
+      await log('CHECKPOINT hivemind trade 0');
+      await waitFor('a position of the wallet', async () => ((await host('chain.positions', { stem: 'hivemind' })).positions || []).length > 0, 180000);
+      go('home');
+      await waitFor('the open positions on Home', () => $('[data-market-positions] [data-position]'), 60000);
+      const row = $('[data-market-positions] [data-position]').textContent;
+      await check('the position: its market, Yes, 3 shares, its price and worth now', /Rain tomorrow\?/.test(row) && /Yes/.test(row) && /\b3\b|3\.0/.test(row) && /0\.\d{8}/.test(row), row);
+      await waitFor('the chart of every chain', () => $$('[data-chart-series]').length >= 3, 60000);
+      await check('the chart: a line per chain, a legend in each one\'s coin', $$('svg path.line').length >= 3);
+      scrollTo($('[data-chains-overview="home"]'));
+      await sleep(300);
+      await shot('ux-home-every-chain');
+      scrollTo($('[data-market-positions]'));
+      await sleep(300);
+      await shot('ux-home-chart-positions');
+      $('#content').scrollTo(0, 0);
+      {
+        T().savePrefs({ mask: true });
+        await sleep(600);
+        const masked = $('[data-market-positions]').textContent;
+        await check('the positions and the chart hidden in privacy mode', !/0\.\d{8}/.test(masked) && !$('[data-chain-chart] svg') && masked.includes('••••••'), masked);
+        T().savePrefs({ mask: false });
+      }
+      $('[data-open-markets]').click();
+      await waitFor('Markets → Positions', () => T().nav.page === 'markets' && T().nav.tab === 'positions' && $('[data-position]'), 30000);
+      await shot('ux-markets-positions');
+      await selectChain('all');
+    } else {
+      go('home');
+      await waitFor('the chart of every chain', () => $$('[data-chart-series]').length >= 2, 60000);
+      await shot('ux-home-chart-positions');
+    }
+
+    // The sidebar with the groups open, in Advanced and in Simple.
+    go('home');
+    T().savePrefs({ chainGroupsFolded: ['thunder'] });
+    await sleep(800);
+    scrollTo($('[data-chain-group="layers"]'), $('.sidebar .scroll'));
+    await sleep(300);
+    await shot('ux-sidebar-advanced');
+    scrollTo($('[data-chain-group="bitassets"]'), $('.sidebar .scroll'));
+    await sleep(300);
+    await shot('ux-sidebar-advanced-bitassets-hivemind');
+    T().savePrefs({ uiMode: 'simple' });
+    await sleep(800);
+    scrollTo($('[data-chain-group="layers"]'), $('.sidebar .scroll'));
+    await sleep(300);
+    await shot('ux-sidebar-simple');
+    T().savePrefs({ uiMode: 'advanced', chainGroupsFolded: [] });
+    await sleep(400);
 
     // Off again: nothing left running.
     await host('sidechains.disable', { stem: 'layers' });
     await host('sidechains.disable', { stem: 'thunder' });
+    for (const stem of extra) await host('sidechains.disable', { stem });
     await waitFor('both stopped', async () => (await host('sidechains.list')).chains.every((c) => c.pid === 0), 180000);
     await finish();
   } catch (e) {

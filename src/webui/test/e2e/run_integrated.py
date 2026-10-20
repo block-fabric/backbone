@@ -2,14 +2,17 @@
 # Copyright (c) 2026 The Chains developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""End-to-end test of the app's own pages over every chain it runs (doc/unified-app.md §18).
+"""End-to-end test of the app's own pages over every chain it runs (doc/unified-app.md §18, §19).
 
 Starts chains-app on regtest (a temporary data directory, a virtual display) with integrated.js in its page, and the
 daemons of Layers and Thunder from --sidechain-bindir (Layers with a validator key of its own, in its layers.conf, as a
 user's would be). The page turns both on and drives the app's own pages: Overview with every chain, a deposit into
 Layers from the Sidechains page, an asset sent on Layers from Send (the chain picked in its picker; a wrong-chain
-address refused first), Receive on each chain, Transactions of every chain, the wallets of each, Staking, Assets. This
-runner merged-mines the sidechains' blocks when the page asks ("CHECKPOINT bmm <stem> <count>").
+address refused first), Receive on each chain, Transactions of every chain, the wallets of each, Staking, Assets; the one
+chain selector of the top bar on every page (§19). With BitAssets and Hivemind in a --sidechain-bindir too, both are
+turned on as well: their groups in the sidebar, and a trade on a Hivemind market (made here with its own CLI, as its
+pages would) whose open position shows on Home. This runner merged-mines the sidechains' blocks when the page asks
+("CHECKPOINT bmm <stem> <count>") and makes the market ("CHECKPOINT hivemind trade 0").
 
     run_integrated.py --app build_app/bin/chains-app --sidechain-bindir ~/skydoge/layers/build_rel/bin \\
                       --sidechain-bindir ~/skydoge/thunder/build/bin --tmp <dir> --shots <dir>
@@ -18,6 +21,7 @@ Nothing outside --tmp is touched; the nodes use ports of their own (--port); onl
 """
 
 import argparse
+import json
 import os
 import secrets
 import shutil
@@ -30,6 +34,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_smoke import App, check_shutdown, environment, ports_taken, script  # noqa: E402
 from run_unified import daemons  # noqa: E402
 from run_packs import SIDECHAINS, bmm  # noqa: E402
+from run_unified import cli  # noqa: E402
+
+# The chains this run may turn on: (slot, place in the catalog: its ports), as run_packs has them for the first three
+# (its bmm reads its own table: the two more added there).
+SIDECHAINS.update({"bitassets": (4, 4), "hivemind": (9, 6)})
+REQUIRED = ("layers", "thunder")
+OPTIONAL = ("bitassets", "hivemind")
+
+
+def hivemind_trade(side_cli, datadir, port, bmm_one):
+    """A market on Hivemind and a purchase of Yes in it, by its own CLI (as its pages would ask): a position to show."""
+    side = [f"-datadir={datadir}/sidechains/hivemind/data", "-regtest", f"-rpcport={port}", "-rpcwallet=main"]
+    info = cli(side_cli, side + ["gethivemindinfo"])
+    decision = cli(side_cli, side + ["createdecision", "Will it rain tomorrow?", str(info["period"] + 2)])
+    bmm_one()
+    market = cli(side_cli, side + ["createmarket", "Rain tomorrow?", json.dumps([decision["id"]]), "10"])
+    bmm_one()
+    cli(side_cli, side + ["buyshares", market["id"], "1", "3"])
+    bmm_one()
+    return market["id"]
 
 
 def main():
@@ -45,11 +69,14 @@ def main():
         print("xvfb-run is needed", file=sys.stderr)
         return 2
     programs = {}
-    for stem in ("layers", "thunder"):
-        found = next((d for d in args.sidechain_bindir if (d / f"{stem}d").is_file()), None)
+    for stem in REQUIRED + OPTIONAL:
+        found = next((d for d in args.sidechain_bindir if (d / f"{stem}d").is_file() and (d / f"{stem}-cli").is_file()), None)
         if not found:
-            print(f"no {stem}d in {args.sidechain_bindir}", file=sys.stderr)
-            return 2
+            if stem in REQUIRED:
+                print(f"no {stem}d in {args.sidechain_bindir}", file=sys.stderr)
+                return 2
+            print(f"  no {stem}d in {args.sidechain_bindir}: run without it", flush=True)
+            continue
         programs[stem] = found / f"{stem}-cli"
     rpc_port, sc_base = args.port + 1, args.port + 10
     ports = {stem: sc_base + 2 * SIDECHAINS[stem][1] for stem in programs}
@@ -73,7 +100,8 @@ def main():
     key.chmod(0o600)
     (layers_data / "layers.conf").write_text(f"[regtest]\nvalidatorkeyfile={key}\n")
     page = base / "integrated.js"
-    page.write_text(script("integrated.js"))
+    extra = [s for s in OPTIONAL if s in programs]
+    page.write_text(script("integrated.js", f"window.__INTEGRATED = {json.dumps({'extra': extra})};\n"))
     chains_cli = args.app.parent / "chains-cli"
     failures = []
     app = App(args.app, ["-regtest", f"-port={args.port}", f"-rpcport={rpc_port}", "-listen=0", "-dnsseed=0", "-fixedseeds=0",
@@ -91,7 +119,10 @@ def main():
             try:
                 if what == "bmm":
                     bmm(chains_cli, programs[stem], datadir, rpc_port, stem, ports[stem], int(count))
-            except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as e:
+                elif what == "hivemind" and stem == "trade":
+                    one = lambda: bmm(chains_cli, programs["hivemind"], datadir, rpc_port, "hivemind", ports["hivemind"], 1)  # noqa: E731
+                    print(f"  a Hivemind market traded: {hivemind_trade(programs['hivemind'], datadir, ports['hivemind'], one)}", flush=True)
+            except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError, TypeError) as e:
                 failures.append(f"{what} {stem}: {e}")
             if "RESULT" in app.events:
                 break

@@ -564,6 +564,10 @@ sidechain by hand, downloads from the app (phase 4).
 | 28 | **A module's page inside an app's page** (§18 `ModuleEmbed`) | The same frame (its own origin, sandbox, messages only, §13.5 #10): only laid over a place of the page, clipped to the page's area; the page shown is checked (`setEmbed`: stem and page patterns); it may not dim the app (only the module shown may), its keys are not taken (not the module shown); lifted when the page is left | chains.test.ts, run_integrated (its own origin inside Assets → Trade) |
 | 29 | **Stored choices of the pages** (`chainViews`, `chainWallets`) | Checked when read back: chain ids `[a-z0-9]`, wallet names as #23; others dropped | chains.test.ts |
 | 30 | **Amounts of every chain in privacy mode** | Every sidechain amount of the new views through `ModuleAmount` (§13.5 #21) | modules.test.ts |
+| 31 | **The global selector and a spend** (§19: the chain of Send set from the top bar, a link, a sidebar item) | The selection only chooses which form is shown; the spend is built and checked exactly as before (§13.5 #23, #24): the host checks the address against every chain, the trusted dialog names the chain first with its mark from the app's catalog. A selection changed while a form is filled shows another chain's form (the typed address is not carried over: the form is made anew) | ux.test.ts, run_integrated |
+| 32 | **Stored choices** (`prefs.chain`, `prefs.chainGroupsFolded`) | Checked when read back: a chain id `[a-z0-9]{1,32}` or `all`, else All; folded groups chain ids only, at most 40 | chains.test.ts |
+| 33 | **Asset logos** (`chain.assetLogo`) | The chain's own host's logo (`bitassets.logo`, its bytes checked as its rules do); the app accepts only `data:image/png` or `data:image/jpeg` base64 of at most 44 KB for that asset, shown in an `<img>` only (img-src `data:` of the app's CSP), never as markup | chainadapter_tests (SVG, HTML, a URL, too large, another asset refused) |
+| 34 | **New reads** (`chain.positions`, `chain.activity`) | Reads only: of the chain's own pages' policy (`getwalletpositions`, `listmarkets`, `getrawmempool`) or the app's user's methods (`getblockhash`, `getblockheader`); an answer that asks is refused, not asked; bounded (200 positions, 6 blocks, 8 mempool rows of the first 5000); every amount through `ModuleAmount` (masked) | chainadapter_tests, ux.test.ts |
 
 ### 13.6 Coverage per chain
 
@@ -1057,3 +1061,150 @@ Pictures (Midnight) in `~/skydoge/media/unified-app/integrated/`: `integrated-ov
   payment to the credited address); a deposit made elsewhere shows as the chain's pending balance only.
 - Embedded pages are laid over their place (`position: fixed`); a page of the app that moves without scroll or resize
   events is followed by a 300 ms check.
+
+## 19. One chain selector, chains in the sidebar (2026-10-20, branch `unified-ux`)
+
+User feedback on §18: "Home provides a glance of every sidechain we have active, which it does. Hivemind should show
+our open positions too if any. Wallet balance graph should also have a balance per sidechain displayed. On overview the
+same thing: recent TX, latest blocks, latest TXs should also reflect all chains. The chain selector should be above,
+next to navigation, and work on every page, rather than putting selector inside sections; and sections be dynamic
+depending on the selection. On send, rather than a dropdown, … an extra selector inside the form, above Pay to … Same
+for receive. Transactions page already good, just move the selector into the one unified selector at the top." Then:
+"we should nest drivechain specific features under a section per activated drivechain in the left menu under the
+'CHAIN' category."
+
+### 19.1 One selector for every page
+
+- **In the top bar**, next to back/forward and the page's title (dashboard: after the breadcrumbs; workspace: after
+  the history buttons, where the module switcher was): *All chains*, then this app's own chain, then each sidechain on,
+  each with its mark and how its node is doing (`GlobalChainSelector`). Only there once a sidechain is on.
+- **Global, not per page** (`prefs.chain`, checked when read back; a chain turned off is forgotten: All). Proposed and
+  kept: what the user looks at is a chain, not a page of it; moving from Home to Send to Transactions keeps it. A
+  per-page memory was what made the chips of §18 hard to follow (each section a filter of its own).
+- **Keys and palette**: Ctrl+] the next (All → this app's → each sidechain → All), Ctrl+[ the one before; the palette
+  has "Show all chains", "Show only <chain>", "Next chain", "Previous chain", and every chain's items ("Layers: Trade").
+- **Every page follows it**. All: every chain. This app's own chain: the page as it was. One sidechain: only it, and
+  what does not apply to it goes: Home and Overview lose this app's cards (balance, network, mining, merged mining,
+  peers, the drivechain's slots) and show that chain's card, chart, transactions and blocks; Staking, Assets, Names and
+  Markets say "<chain> has no <feature>" with the chains that have it a click away (`NotOnThisChain`), and are not in
+  the workspace's tabs or the palette meanwhile; Sidechains shows that chain's panel; Transactions and Manage wallets
+  that chain's. Every chip and picker inside sections is gone (`ChainChips`, `ChainPicker`, the Transactions filter).
+- A link that acts on a chain (a card's Send, an asset's Send, a group's item) selects it.
+
+### 19.2 Send and Receive: the chain is the form's first field
+
+Above "Pay to", a tile per chain (`ChainTiles`: its mark, its name, what the wallet holds there in its own coin, the
+number of assets; a radio group, arrow keys), in step with the top bar both ways (the tile picked is the selection).
+With All selected, no form until a chain is picked ("Choose a chain first: each chain's coins are its own"). The form
+below is the chain's: on a sidechain, "What to send" as pills (the coin, then each asset with its logo and balance),
+the shielded account on zSide, the address checked against every chain as typed, its help line saying which chain's
+address it wants, a refusal as a callout ("Not an address to pay on Layers" and why), the amount with its unit, its
+decimals and "All of it" (a coin's fee then taken from the amount). Receive the same, with a line on what an address is
+for before one is made.
+
+### 19.3 Home and Overview over every chain
+
+- **The balance chart, one line per chain** (`ChainBalanceChart`), each in its chain's colour (§19.5) and in its own
+  coin: never added up. One chain shown: its line with its amounts at the right. Several: each line on its own scale
+  (one axis of amounts would mix coins), a legend with each chain's balance now and unit, the crosshair's tooltip each
+  chain's balance then, the words "Each line on its own scale, in its own coin". A sidechain's line is made from its
+  history (`chainBalanceHistory`): from what it holds now back through its latest 200 transactions (amounts and fees).
+  Privacy mode: not drawn, the legend masked.
+- **Hivemind's open positions** (`MarketPositions`, host `chain.positions`: the wallet's `getwalletpositions` joined to
+  `listmarkets`): a card on Home only when there are some (market, outcome "Yes"/"No" or the answers, shares, the
+  outcome's price now, what the shares are worth at it = shares × price exactly), its link to Markets → Positions (a
+  new tab). Every number masked in privacy mode.
+- **Recent transactions, latest blocks, latest transactions** of every chain shown: Overview's three panels and Home's
+  Transactions and Blocks tabs (`ManyChainRecent`, `ManyChainBlocks`; host `chain.activity`: a chain's latest six
+  blocks and its mempool's newest eight, the mempool read by the chain's own pages' policy). A row's details open in
+  the app as on Transactions.
+
+### 19.4 One group per sidechain in the sidebar
+
+The Chain section: *Sidechains* (the drivechain's own page: deposits, bundles, votes; kept there as the one place that
+is about every sidechain at once), then a folding group per sidechain on (`SidebarChainGroups`: its mark, its name, a
+dot for its node; folded groups remembered in `prefs.chainGroupsFolded`), holding what that chain adds, from its table
+(`lib/chaingroups.ts`):
+
+| Chain | Items |
+|---|---|
+| Layers | Assets, Trade, Staking, Deposit and withdraw, All its pages |
+| BitAssets | Assets, Trade, Deposit and withdraw, All its pages |
+| Hivemind | Markets, Positions, Votes (its own Decisions page), Deposit and withdraw, All its pages |
+| BitNames | Names, … |
+| zSide | Shielded (its own Private page), … |
+| FastBlocks | Staking, … |
+| Thunder | Deposit and withdraw, All its pages |
+
+An item selects its chain, then opens the app's page for it (Staking, Assets, Markets…) or the chain's own page. While
+a chain's own pages are shown, its group lists them (and "Its node") under "All its pages": the chain stays one place
+of the sidebar. The top-level Staking, Assets, Names, Markets entries and the "Their own pages" switcher are gone.
+Simple mode: the same groups in its Features section (Move coins for the deposits; no "All its pages").
+
+**Views over many chains**, without clutter: while All is selected, the Chain section keeps "All assets" when two
+chains or more have assets, and "All staking" when two or more stake (`aggregateItems`); with one chain selected they
+would repeat its group's item, and go. The palette always has them.
+
+The Wallet section keeps the shared pages (Home, Overview, Send, Receive, Transactions, Manage wallets), which follow
+the selector. The workspace layout (no sidebar) keeps its tabs, filtered by the selection, with the selector and, for a
+sidechain selected, a button to its own pages.
+
+### 19.5 Colours, logos
+
+Each chain one colour wherever it is drawn (`lib/chaincolors.ts`: its mark, its line, its tile): the slot of the
+eight-colour categorical palette of its place in the catalog (`--chain-<stem>`, stepped for the dark looks), not its
+pack's own colour (Layers and Thunder are both violet there: two lines alike); this app's chain the theme's accent. A filter never repaints the others. Asset logos (`chain.assetLogo`: the logo the
+chain's own host gives, `bitassets.logo`, checked again by the app as a PNG/JPEG `data:` URL, at most 44 KB; cached
+per chain and asset, four asked at a time), letters in their place until then or without one: on Assets and in Send.
+
+### 19.6 Found on the hub (fixed here)
+
+- **Available balances of a sidechain were too high**: `getbalances.mine.trusted` counts coins spent by transactions
+  not in the mempool (their sum is the negative `mine.nonmempool`); the hub's Layers showed 6161.54 where `getbalance`
+  says 990.31. Now `ChainAdapter::WalletBalances`: available = trusted + nonmempool (never below 0), as the chain's own
+  `getbalance`; used by Summary (Home's cards, Send's tiles and form), Manage wallets, and the supervisor's overview of
+  a module. Residual: a coin both unconfirmed and spent by a transaction not in the mempool stays in "pending".
+- **Stakes in base units** (250100000000 next to bonds in coins): `getposinfo`/`getvalidators` give integers of 10^-8;
+  shown as the chain's coin with its decimals (`fromBaseUnits`), masked in privacy mode.
+- **No asset logos on Assets**: §19.5.
+- **"Merged mining on: 0 blocks" on Layers**: its blocks are made by stake; said "Blocks by stake; anchors by merged
+  mining: N".
+
+### 19.7 Security (rows #31–#34 of §13.5)
+
+Unchanged: the trusted dialog with the chain named first and its mark, the wrong-chain refusal before anything is
+prepared or asked, exact amounts as text. New: see §13.5 #31–#34.
+
+### 19.8 Tests and pictures
+
+- vitest `src/test/ux.test.ts`: the selector (All by default, a chain picked remembered and sent to the host, not there
+  alone, Ctrl+]/Ctrl+[ round, the palette's entries and a chain's item run); sections per selection (pages available,
+  Staking with Thunder said with the chains that stake, Trade asks which chain with All); Send and Receive tiles in step
+  with the selector both ways, the form waiting with All, the tiles masked; the chart (a sidechain's history back from
+  its balance, two lines with a legend each in its unit, never a total, masked); Hivemind's positions (none: no card;
+  outcome, shares, price, worth exactly, the link, masked, gone with another chain); the sidebar's groups (each chain's
+  items, Simple's, an item selecting its chain, folding remembered, a module page from its group), the aggregates.
+  `chains.test.ts`, `modules.test.ts`, `unified.test.ts`, `layouts.test.ts` moved to the selector and the groups.
+- `chainadapter_tests`: available as `getbalance` counts it (a fixture with a negative `nonmempool`, in the summary
+  and the wallets list); positions joined to their market (a row of no market dropped, a read that asks refused, no
+  positions on a chain without markets); activity (blocks, the mempool's newest); asset logos (PNG/JPEG data URLs only:
+  SVG, HTML, markup, bad padding, a URL, too large refused; of another asset refused).
+- e2e `run_integrated.py` / `integrated.js` with BitAssets and Hivemind too when their daemons are given (a Hivemind
+  market made and traded by its own CLI, the position on Home and Markets → Positions): the selector on Home and
+  Overview, Ctrl+], every chain's lists on Overview, Send and Receive by their tiles (in step with the selector), the
+  Transactions page by the selector, Staking with Thunder, the sidebar's groups, Simple and Advanced: 44 checks pass
+  (Layers, Thunder, BitAssets, Hivemind on; nothing left running). `run_startup.py` (Chains alone) passes.
+- Pictures (Midnight) in `~/skydoge/media/unified-app/ux/`: `ux-topbar-all` (the selector open), `ux-topbar-layers`
+  (Home with Layers only), `ux-home-every-chain`, `ux-home-chart-positions`, `ux-overview-all`, `ux-overview-all-lists`,
+  `ux-send-layers-asset`, `ux-send-thunder-coin`, `ux-receive`, `ux-transactions`, `ux-sections-staking-thunder`,
+  `ux-markets-positions`, `ux-sidebar-advanced`, `ux-sidebar-advanced-bitassets-hivemind`, `ux-sidebar-simple`; and the
+  `integrated-*` pictures of §18 taken again.
+
+### 19.9 Open
+
+- **Per page or global**: global, as asked; a per-page memory could come back as an option if wanted.
+- **Several chains on one chart** are on their own scales (no shared axis of amounts: the coins differ); small
+  multiples (one small chart per chain) are the alternative if the shapes side by side read badly.
+- A sidechain's line uses its latest 200 transactions: an older wallet's line starts at what it held then.
+- The sidebar lists a chain's own pages under its group only while they are shown; listing them always would be long
+  (Layers has a dozen).

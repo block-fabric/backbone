@@ -248,7 +248,8 @@
 
   // Send and Receive, then what concerns the chain, then the tools (lib/layout.ts).
   // Simple mode leaves out the pages of Advanced (lib/uimode.svelte.ts).
-  const quickLinks = $derived(HOME_QUICK_ACTIONS.filter((q) => pageShown(q.page)));
+  // One sidechain shown: this app's own explorer and mining go (they are not that chain's).
+  const quickLinks = $derived(HOME_QUICK_ACTIONS.filter((q) => pageShown(q.page) && (withHost || q.page === 'send' || q.page === 'receive' || q.page === 'sidechains')));
   const simple = $derived(simpleMode());
   /** Simple mode: the meters of merged mining open on demand. */
   let bmmDetails = $state(false);
@@ -407,7 +408,7 @@
     <section class="panel chart-card" aria-labelledby="chart-title">
       <header class="chart-head">
         <div>
-          <h2 id="chart-title">{manyChains ? t('Balance of each chain') : t('Wallet balance')}</h2>
+          <h2 id="chart-title">{!manyChains ? t('Wallet balance') : sel === ALL ? t('Balance of each chain') : t('Balance on %1', entries.find((e) => e.id === sel)?.name ?? '')}</h2>
           {#if !manyChains && wallets.current !== null}
             <div class="figure">
               <span class="now big-amount"><Amount sats={latest} /></span>
