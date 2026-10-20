@@ -269,6 +269,8 @@ public:
     static std::vector<Bundle>::const_iterator WeakestBundle(const std::vector<Bundle>& bundles);
     /** Number of blocks a bundle has left to reach the minimum work score, as of `height`. */
     static int BlocksLeft(const Bundle& bundle, int height, const Consensus::DrivechainParams& params);
+    /** Whether a withdrawal (M6) of the bundle can be mined now, as far as its score goes. */
+    static bool Payable(const Bundle& bundle, const Consensus::DrivechainParams& params);
     /**
      * Whether a bundle fails in the block at `height` before that block's votes count, for going
      * too long without an upvote (DrivechainParams::upvote_expiry_blocks).

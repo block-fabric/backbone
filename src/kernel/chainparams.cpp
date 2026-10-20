@@ -430,6 +430,11 @@ public:
         consensus.drivechain.used_slot_max_age = 26300;
         consensus.drivechain.bundle_threshold = 13150;
         consensus.drivechain.bundle_max_age = 26300;
+        // Our safety rules for the enforcer (WithdrawalBundleSafety::MAINNET, MessageLimits::DEFAULT: upvote
+        // expiry 144, idle expiry 1008, 64 pending bundles, the defaults): policy until the enforcer adopts
+        // them at a height, which goes here (safety_activation_height, limits_activation_height).
+        consensus.drivechain.safety_activation_height = Consensus::DrivechainParams::NEVER;
+        consensus.drivechain.limits_activation_height = Consensus::DrivechainParams::NEVER;
 
         ApplyDeploymentOptions(opts.dep_opts);
 
@@ -508,6 +513,10 @@ public:
         consensus.drivechain.used_slot_max_age = 26300;
         consensus.drivechain.bundle_threshold = 13150;
         consensus.drivechain.bundle_max_age = 26300;
+        // Our safety rules for the enforcer (its betanet values: WithdrawalBundleSafety::MAINNET,
+        // MessageLimits::DEFAULT): policy until the enforcer adopts them at a height, which goes here.
+        consensus.drivechain.safety_activation_height = Consensus::DrivechainParams::NEVER;
+        consensus.drivechain.limits_activation_height = Consensus::DrivechainParams::NEVER;
 
         ApplyDeploymentOptions(opts.dep_opts);
 
@@ -600,6 +609,12 @@ public:
         consensus.drivechain.used_slot_max_age = 10;
         consensus.drivechain.bundle_threshold = 5;
         consensus.drivechain.bundle_max_age = 10;
+        // Our safety rules for the enforcer with its values for these thresholds (WithdrawalBundleSafety::SHORT):
+        // policy until it adopts them at a height.
+        consensus.drivechain.upvote_expiry_blocks = 5;
+        consensus.drivechain.idle_expiry_blocks = 5;
+        consensus.drivechain.safety_activation_height = Consensus::DrivechainParams::NEVER;
+        consensus.drivechain.limits_activation_height = Consensus::DrivechainParams::NEVER;
 
         ApplyDeploymentOptions(opts.dep_opts);
 
@@ -819,6 +834,10 @@ public:
             consensus.drivechain.used_slot_max_age = 10;
             consensus.drivechain.bundle_threshold = 5;
             consensus.drivechain.bundle_max_age = 10;
+            // Our safety rules for the enforcer: its values for these thresholds (WithdrawalBundleSafety::SHORT),
+            // not consensus unless -testdrivechainparam=safety_activation_height@<height> (and limits_...).
+            consensus.drivechain.upvote_expiry_blocks = 5;
+            consensus.drivechain.idle_expiry_blocks = 5;
         }
         for (const auto& [name, value] : opts.drivechain_params) {
             auto& dc{consensus.drivechain};
@@ -860,6 +879,10 @@ public:
                 dc.bundle_threshold = value;
             } else if (name == "bundle_max_age") {
                 dc.bundle_max_age = value;
+            } else if (name == "safety_activation_height") {
+                dc.safety_activation_height = value;
+            } else if (name == "limits_activation_height") {
+                dc.limits_activation_height = value;
             } else {
                 throw std::runtime_error(strprintf("Invalid name (%s) for -testdrivechainparam=name@value.", name));
             }

@@ -100,12 +100,57 @@ rates are in ECX on the eCash networks (`CURRENCY_UNIT`), in CHN on the Chains n
   slot, or one in a coinbase, is an ordinary output.
 - M7 for any slot; an M8 needs its slot's M7 and the parent block, one per slot.
 
-Chains' own safety rules are **not consensus on eCash** (they would fork the node off the enforcer's chain).
+Chains' own safety rules are **not consensus on eCash** (they would fork the node off the enforcer's chain),
+until the enforcer adopts them at a height (the activation switch below, unset on every network).
 They are kept as **policy of the block template** (`drivechain::MinerState::CreateBlockAdditions`): the vote
 message is first in the coinbase; no bundle is upvoted or paid out that was paid out before, or that was
 pending when another bundle of its slot was paid out (single payout, paid-bundle memory); no bundle is
 proposed to a full queue (the pending cap); the vote message is in the canonical form. Idle and upvote expiry
 have no policy form beyond never upvoting what the sidechain node does not vouch for.
+
+### Our safety rules for the enforcer: the activation switch
+
+Our two pull requests to the bip300301_enforcer (LayerTwo-Labs/bip300301_enforcer; local branches in
+`~/skydoge/enforcer`: `withdrawal-bundle-safety` 2a47533, `resource-limits-canonical` e1ca423) make the
+safety rules consensus from a per-network activation height. Backbone has the same switch, with the same
+semantics, in its enforcer mode (`Consensus::DrivechainParams`, `src/consensus/params.h`):
+
+| Parameter (enforcer) | Rules from that height (`src/drivechain/scdb.cpp`) | Reject reason |
+|---|---|---|
+| `safety_activation_height` (`WithdrawalBundleSafety`) | **Single payout**: a payout (M6) fails the slot's other pending bundles. **Paid-bundle memory**: an M3 of a bundle ever paid is invalid; an M6 of one is invalid (the mempool, which checks under the next block's rules, refuses it; in a block the failure step already failed it); a pending bundle ever paid fails. **Upvote expiry**: a bundle at least `upvote_expiry_blocks` old that none of the last `upvote_expiry_blocks` blocks, this one included, upvoted fails. **Idle expiry**: a bundle at least `idle_expiry_blocks` old with no vote fails. **At the activation block**: a bundle pending since (or proposed in) the block of its slot's latest payout fails. | `bad-dc-bundle-paid`, `bad-dc-withdrawal-paid` |
+| `limits_activation_height` (`MessageLimits`) | **Pending cap**: a slot holds `max_pending_bundles` (64); an M3 into a full slot fails its weakest bundle (lowest score, oldest first) if that has at most a new bundle's score (1), else it is invalid. One M3 per slot per block. **Canonical votes**: a two byte M4 needs a bundle index above 253 (not only abstains and alarms). A deposit destination of at most 100 bytes. One treasury output per transaction. | `bad-dc-bundles-full`, `bad-dc-multiple-bundles`, `bad-dc-votes-noncanonical`, `bad-dc-deposit-destination`, `bad-dc-multiple-treasury-outputs` |
+
+- **Unset on every network** (`DrivechainParams::NEVER`, -1): behaviour exactly as before, the rules being
+  policy of the block template only. When the enforcer adopts the rules at a height on a network, that
+  height goes into `src/kernel/chainparams.cpp` for it (`ecash`, `ecashbeta`, `ecashtest`), and they are
+  consensus from that block. The Chains networks are not affected (their own rules, `RULES_CHAINS`).
+- The values with them are the enforcer's: `upvote_expiry_blocks` 144, `idle_expiry_blocks` 1008 on `ecash` and
+  `ecashbeta` (`WithdrawalBundleSafety::MAINNET`); 5 and 5 on `ecashtest` and the eCash regtest
+  (`WithdrawalBundleSafety::SHORT`); `max_pending_bundles` 64, destinations of 100 bytes
+  (`MessageLimits::DEFAULT`). The parameter fingerprint of the drivechain database changes only once a height is
+  set (unset, it is the one it was).
+- Regtest: `-testdrivechainparam=safety_activation_height@<h>` and `limits_activation_height@<h>` (with
+  `-testecash`). The enforcer has them from genesis on its regtest; ours are unset unless given.
+- `getdrivechaininfo` says `rules`, `bundlethreshold`, `bundlemaxage`, `idleexpiryblocks`,
+  `safetyactivationheight` and `limitsactivationheight` (when set), and `singlepayout`: whether the next block
+  pays one bundle per slot (always on the Chains networks; on eCash from the safety height). Sidechains read it
+  to know whether the mainchain keeps single payout; until then they keep it on their side.
+- The block template under the active rules: it never pays a bundle that the block's failure step would fail
+  for its upvote expiry; it already never proposes into a full slot, proposes one bundle per slot, votes in the
+  canonical form and never votes for, proposes or pays a bundle that is paid or was pending at a payout.
+- Fixed with it: `sendwithdrawalbundle`, `listwithdrawalbundles` and `getwithdrawalbundle` judged a bundle
+  payable by Chains' `withdrawal_min_score` (64,800) also on eCash, so a sidechain's withdrawal was never
+  broadcast there; they use the enforcer's threshold now (`SidechainDB::Payable`: more votes than
+  `bundle_threshold`; `blocksleft` counts to `bundle_max_age`). And `sendwithdrawalbundle` refuses a bundle
+  paid before, or pending at a payout of its slot, as the template does.
+- Tests: `ecash_tests/enforcer_safety_activation_block` (two chains of the same blocks, with and without the
+  height: identical below it; at it, the bundles pending at the last payout and the paid one proposed again
+  fail; without it the paid bundle is paid a second time; the mempool check of that second payout under the
+  rules of 19 and 20), `enforcer_safety_rules` (each rule, active against never), `enforcer_message_limits`
+  (each limit valid below the height, invalid from it; eviction and refusal of a full slot),
+  `enforcer_miner_policy_under_safety_rules`; `test/functional/feature_ecash_safety_switch.py` (two nodes, one
+  with the heights: a non-canonical vote message valid on both below, refused by the switched node from the
+  height; `getdrivechaininfo`).
 
 ### Paid-bundle memory (security review, 2026-10-20)
 
@@ -189,6 +234,8 @@ and a headers sync with eCash's four seeds reached 973,880, tip `000000000000000
   -testecashfork=288@207fffff`, both `-testpowretarget`) split at the fork height; replay, magic locktime,
   repurpose (`-testrepurposetx`), OP_NOP8, a reorg across the fork, the bip300301 rule.
 - `test/functional/wallet_ecash_replay.py`: the wallet's defaults, a timelocked coin, the split.
+- `test/functional/feature_ecash_safety_switch.py` and `ecash_tests/enforcer_safety_*`, `enforcer_message_limits`:
+  the activation switch of our safety rules (above).
 
 ## Follow-ups
 

@@ -170,6 +170,7 @@ BASE_SCRIPTS = [
     'feature_reindex.py',
     'feature_drivechain.py',
     'feature_ecash_fork.py',
+    'feature_ecash_safety_switch.py',
     'wallet_ecash_replay.py',
     'feature_drivechain_bmm_index.py',
     'feature_drivechain_rules.py',

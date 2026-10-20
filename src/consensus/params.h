@@ -136,7 +136,9 @@ struct DrivechainParams {
      * which the eCash networks follow. The enforcer counts votes rather than age: the fields below are
      * its Thresholds, and the Chains-only rules above (single payout, closed bundle memory, idle and
      * upvote expiry, the queue cap, canonical votes) are no consensus there; the block template keeps
-     * them as policy (see node::BlockAssembler and drivechain::Miner).
+     * them as policy (see node::BlockAssembler and drivechain::Miner), until the heights below
+     * (safety_activation_height, limits_activation_height) make the enforcer's form of them consensus.
+     * idle_expiry_blocks, upvote_expiry_blocks and max_pending_bundles above are then the enforcer's values.
      */
     int32_t rules{RULES_CHAINS};
     static constexpr int32_t RULES_CHAINS{0};
@@ -156,6 +158,32 @@ struct DrivechainParams {
     /** Enforcer rules: a bundle is paid out with more votes than this; it fails when older than bundle_max_age blocks. */
     int bundle_threshold{13150};
     int bundle_max_age{26300};
+
+    /**
+     * Enforcer rules: the withdrawal bundle safety rules of our pull request to the bip300301_enforcer
+     * (LayerTwo-Labs/bip300301_enforcer, branch withdrawal-bundle-safety, WithdrawalBundleSafety), consensus from
+     * this height on; NEVER (the default on every network): never, the block template keeps them as policy.
+     * From it on: paying a bundle out fails the other pending bundles of its sidechain (single payout); a bundle
+     * paid out is never proposed (M3) nor paid (M6) again, and fails if it is pending again (paid-bundle memory);
+     * a bundle fails once upvote_expiry_blocks blocks in a row, this one included, did not upvote it, or once it
+     * is idle_expiry_blocks old with no vote (upvote and idle expiry); and at that very height, a bundle pending
+     * since (or proposed in) the block of the latest payout of its sidechain fails, as single payout would have
+     * failed it then. (The Chains rules have their own forms of these rules, always on.)
+     */
+    int safety_activation_height{NEVER};
+    /**
+     * Enforcer rules: the limits on BIP300 messages of our pull request to the enforcer (branch
+     * resource-limits-canonical, MessageLimits), consensus from this height on; NEVER: never. From it on: a slot
+     * holds at most max_pending_bundles pending bundles, an M3 into a full slot failing its weakest bundle (the
+     * lowest score, oldest first) if that has a score of NEW_BUNDLE_SCORE or less, and being invalid otherwise
+     * (pending cap); a block proposes at most one bundle per slot; a vote message in the two byte form carries a
+     * bundle index above 253 (canonical votes); a deposit names a destination of at most
+     * MAX_DEPOSIT_DESTINATION_SIZE bytes; a transaction creates at most one treasury output.
+     */
+    int limits_activation_height{NEVER};
+    static constexpr int NEVER{-1};
+    bool SafetyActive(int height) const { return EnforcerRules() && safety_activation_height != NEVER && height >= safety_activation_height; }
+    bool LimitsActive(int height) const { return EnforcerRules() && limits_activation_height != NEVER && height >= limits_activation_height; }
 };
 
 /**

@@ -33,6 +33,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <limits>
+
 #include <string>
 #include <vector>
 
@@ -791,6 +793,248 @@ BOOST_AUTO_TEST_CASE(enforcer_miner_policy)
     for (const CTxOut& out : additions.coinbase_outputs) {
         if (const auto votes{ParseVoteScript(out.scriptPubKey)}) BOOST_CHECK(votes->votes.empty() || votes->votes[0] != 0);
     }
+}
+
+//! The index of a pending bundle in its slot, as a vote names it.
+uint16_t IndexOf(const EnforcerChain& chain, SidechainId slot, const uint256& hash)
+{
+    const auto& bundles{chain.scdb.GetSlot(slot)->bundles};
+    for (size_t i{0}; i < bundles.size(); ++i) {
+        if (bundles[i].hash == hash) return static_cast<uint16_t>(i);
+    }
+    BOOST_FAIL("no such bundle");
+    return 0;
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_safety_activation_block)
+{
+    // Our withdrawal bundle safety rules for the enforcer (branch withdrawal-bundle-safety), from an
+    // activation height: two chains of the same blocks, one with it, one without (every network today).
+    EnforcerChain on, off;
+    for (EnforcerChain* chain : {&on, &off}) {
+        chain->params.upvote_expiry_blocks = 9;
+        chain->params.idle_expiry_blocks = 10;
+    }
+    BOOST_CHECK(!off.params.SafetyActive(std::numeric_limits<int>::max()));
+    on.params.safety_activation_height = 20;
+    BOOST_CHECK(!on.params.SafetyActive(19));
+    BOOST_CHECK(on.params.SafetyActive(20));
+    const CMutableTransaction blind_a{EnforcerChain::BlindBundle(COIN, 1000, 1)};
+    const CMutableTransaction blind_b{EnforcerChain::BlindBundle(COIN, 1000, 2)};
+    const uint256 a{blind_a.GetHash().ToUint256()}, b{blind_b.GetHash().ToUint256()}, c{0xc}, e{0xe};
+    CMutableTransaction second_payout;
+    for (EnforcerChain* chain : {&on, &off}) {
+        chain->Activate(MakeSidechain(2)); // up to 7
+        BOOST_REQUIRE(chain->Connect({}, {chain->DepositTx(2, 10 * COIN)})); // 8
+        BOOST_REQUIRE(chain->Connect({BundleScript(2, a), BundleScript(2, b), Votes({1})})); // 9
+        for (int i{0}; i < 3; ++i) BOOST_REQUIRE(chain->Connect({Votes({1})}));        // 10-12
+        // 13: b paid out; c proposed in the same block (after the votes); a still pending (no single payout yet).
+        BOOST_REQUIRE(chain->Connect({Votes({1}), BundleScript(2, c)}, {chain->WithdrawalTx(2, blind_b, COIN, 1000)}));
+        BOOST_CHECK(chain->scdb.WasPaid(2, b) == true);
+        BOOST_CHECK_EQUAL(chain->Score(2, a), 0U);
+        BOOST_CHECK_EQUAL(chain->Score(2, c), 1U);
+        // 14: b proposed again, which the enforcer's rules allow; 15-19: voted past the threshold.
+        BOOST_REQUIRE(chain->Connect({BundleScript(2, b)}));
+        BOOST_REQUIRE(chain->Connect({Votes({IndexOf(*chain, 2, b)})}));
+        BOOST_REQUIRE(chain->Connect({Votes({IndexOf(*chain, 2, b)}), BundleScript(2, e)})); // 16: e proposed
+        for (int i{0}; i < 3; ++i) BOOST_REQUIRE(chain->Connect({Votes({IndexOf(*chain, 2, b)})}));
+        BOOST_REQUIRE_EQUAL(chain->height, 19);
+        BOOST_CHECK_EQUAL(chain->Score(2, b), 6U);
+    }
+    BOOST_CHECK(on.scdb == off.scdb);
+
+    // The mempool checks a withdrawal under the rules of the next block: below the height, paying b again
+    // is valid (as with the enforcer today); from it, a bundle paid out is never paid again.
+    second_payout = on.WithdrawalTx(2, blind_b, COIN, 1000);
+    for (const int height : {19, 20}) {
+        SidechainDB scdb{on.scdb.Subset({2})};
+        SidechainDB::EscrowOutputs escrow_outputs{scdb.GetEscrowOutputs()};
+        BlockUndo undo;
+        std::string reason;
+        const bool valid{scdb.ConnectTx(CTransaction{second_payout}, on.params, escrow_outputs, undo, nullptr, reason, height)};
+        BOOST_CHECK_EQUAL(valid, height < 20);
+        if (!valid) BOOST_CHECK_EQUAL(reason, "bad-dc-withdrawal-paid");
+    }
+
+    // 20, the activation block: a (too old anyway) and c, pending at the payout of 13, fail as single payout
+    // would have failed them; b, proposed again, fails (paid-bundle memory) and stays remembered as paid at 13;
+    // e, proposed after the payout, stays.
+    BOOST_REQUIRE(on.Connect());
+    BOOST_REQUIRE(off.Connect());
+    BOOST_CHECK_EQUAL(on.Score(2, c), 0xFFFFFFFFU);
+    BOOST_CHECK(on.scdb.WasPaid(2, c) == false);
+    BOOST_CHECK_EQUAL(on.Score(2, b), 0xFFFFFFFFU);
+    BOOST_CHECK(on.scdb.WasPaid(2, b) == true);
+    BOOST_CHECK_EQUAL(on.scdb.GetClosed(2, b)->height, 13);
+    BOOST_CHECK_NE(on.Score(2, e), 0xFFFFFFFFU);
+    BOOST_CHECK_EQUAL(on.scdb.GetSlot(2)->bundles.size(), 1U);
+    // Without the rules: c and b still pending, and b can be paid a second time.
+    BOOST_CHECK_EQUAL(off.Score(2, c), 0U);
+    BOOST_CHECK_EQUAL(off.Score(2, b), 6U);
+    BOOST_REQUIRE(off.Connect({Votes({IndexOf(off, 2, b)})}, {off.WithdrawalTx(2, blind_b, COIN, 1000)}));
+    // With them: b cannot even be proposed again.
+    BOOST_CHECK(!on.Connect({BundleScript(2, b)}));
+    BOOST_CHECK_EQUAL(on.reject_reason, "bad-dc-bundle-paid");
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_safety_rules)
+{
+    // Single payout, paid-bundle memory, upvote and idle expiry: from the activation height (here the genesis)
+    // against never (the default).
+    for (const bool active : {false, true}) {
+        EnforcerChain chain;
+        chain.params.upvote_expiry_blocks = 8;
+        chain.params.idle_expiry_blocks = 6;
+        if (active) chain.params.safety_activation_height = 0;
+        chain.Activate(MakeSidechain(2));
+        BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+        const CMutableTransaction blind_d{EnforcerChain::BlindBundle(COIN, 1000, 4)};
+        const uint256 c{0xc}, d{blind_d.GetHash().ToUint256()}, e{0xe}, f{0xf};
+        BOOST_REQUIRE(chain.Connect({BundleScript(2, c), BundleScript(2, d), Votes({1})}));
+        for (int i{0}; i < 3; ++i) BOOST_REQUIRE(chain.Connect({Votes({1})}));
+        BOOST_REQUIRE(chain.Connect({Votes({1})}, {chain.WithdrawalTx(2, blind_d, COIN, 1000)}));
+        // Single payout: the other bundle of the slot fails with the payout.
+        BOOST_CHECK_EQUAL(chain.Score(2, c), active ? 0xFFFFFFFFU : 0U);
+        if (active) BOOST_CHECK(chain.scdb.WasPaid(2, c) == false);
+        // Paid-bundle memory: proposing the paid bundle again is invalid.
+        BOOST_CHECK_EQUAL(chain.Connect({BundleScript(2, d)}), !active);
+        if (active) {
+            BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-bundle-paid");
+            BOOST_REQUIRE(chain.Connect());
+        }
+        // Upvote expiry: a bundle that 8 blocks in a row did not upvote fails, at age 8 (the enforcer's
+        // rules alone keep it to its maximum age, 10).
+        BOOST_REQUIRE(chain.Connect({BundleScript(2, e)}));
+        const int e_height{chain.height};
+        while (chain.height < e_height + 7) BOOST_REQUIRE(chain.Connect());
+        BOOST_CHECK_EQUAL(chain.Score(2, e), 1U);
+        BOOST_REQUIRE(chain.Connect());
+        BOOST_CHECK_EQUAL(chain.Score(2, e), active ? 0xFFFFFFFFU : 1U);
+        // Idle expiry: a bundle with no vote fails at age 6 (before its upvote expiry).
+        BOOST_REQUIRE(chain.Connect({BundleScript(2, f)}));
+        const int f_height{chain.height};
+        BOOST_REQUIRE(chain.Connect({Votes({VOTE_DOWNVOTE})}));
+        BOOST_CHECK_EQUAL(chain.Score(2, f), 0U);
+        while (chain.height < f_height + 5) BOOST_REQUIRE(chain.Connect());
+        BOOST_CHECK_EQUAL(chain.Score(2, f), 0U);
+        BOOST_REQUIRE(chain.Connect());
+        BOOST_CHECK_EQUAL(chain.Score(2, f), active ? 0xFFFFFFFFU : 0U);
+        // An upvote within the window keeps a bundle, the block's own included: here in the 8th block
+        // after its proposal, which would otherwise fail it.
+        if (active) {
+            const uint256 g{0x9};
+            BOOST_REQUIRE(chain.Connect({BundleScript(2, g)}));
+            for (int i{0}; i < 9; ++i) {
+                if (i == 7) {
+                    BOOST_REQUIRE(chain.Connect({Votes({IndexOf(chain, 2, g)})}));
+                } else {
+                    BOOST_REQUIRE(chain.Connect());
+                }
+            }
+            BOOST_CHECK_EQUAL(chain.Score(2, g), 2U);
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_message_limits)
+{
+    // Our message limits for the enforcer (branch resource-limits-canonical): valid below the activation
+    // height, invalid from it.
+    EnforcerChain chain;
+    chain.params.max_pending_bundles = 2;
+    chain.Activate(MakeSidechain(2));
+    chain.Activate(MakeSidechain(3));
+    BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+    const std::string long_destination(MAX_DEPOSIT_DESTINATION_SIZE + 1, 'x');
+    const auto two_slots{[&] {
+        CMutableTransaction tx{chain.BaseTx()};
+        for (const SidechainId slot : {SidechainId{2}, SidechainId{3}}) {
+            if (const Slot* state{chain.scdb.GetSlot(slot)}; state->has_ctip) tx.vin.emplace_back(state->ctip.outpoint);
+            const Slot* state{chain.scdb.GetSlot(slot)};
+            tx.vout.emplace_back((state->has_ctip ? state->ctip.amount : 0) + COIN, EscrowScript(slot));
+            tx.vout.emplace_back(0, DestinationScript("d"));
+        }
+        return tx;
+    }};
+    const auto check_all{[&](bool limits) {
+        const SidechainDB before{chain.scdb};
+        const int height{chain.height};
+        // A two byte vote message of abstains and alarms only.
+        BOOST_CHECK_EQUAL(chain.Connect({VoteScript({VoteForm::TWO_BYTES, {VOTE_ABSTAIN, VOTE_DOWNVOTE}})}), !limits);
+        if (limits) BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-votes-noncanonical");
+        // Two bundles for a slot in a block.
+        BOOST_CHECK_EQUAL(chain.Connect({BundleScript(2, uint256{0x51}), BundleScript(2, uint256{0x52})}), !limits);
+        if (limits) BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-bundles");
+        // A deposit to a destination of 101 bytes.
+        BOOST_CHECK_EQUAL(chain.Connect({}, {chain.DepositTx(2, chain.scdb.GetSlot(2)->ctip.amount + COIN, long_destination)}), !limits);
+        if (limits) BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-deposit-destination");
+        // Two treasury outputs in one transaction.
+        BOOST_CHECK_EQUAL(chain.Connect({}, {two_slots()}), !limits);
+        if (limits) BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-treasury-outputs");
+        BOOST_CHECK_EQUAL(chain.height, limits ? height : height + 4);
+        if (limits) BOOST_CHECK(chain.scdb == before);
+    }};
+    check_all(/*limits=*/false);
+    // Below the height the slot holds more bundles than the cap (2).
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->bundles.size(), 2U);
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, uint256{0x53})}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->bundles.size(), 3U);
+    // Let those fail (maximum age), then the limits from the next block.
+    while (!chain.scdb.GetSlot(2)->bundles.empty()) BOOST_REQUIRE(chain.Connect());
+    chain.params.limits_activation_height = chain.height + 1;
+    check_all(/*limits=*/true);
+
+    // Pending cap: a full slot fails its weakest bundle (lowest score, oldest first) to make room, if that has
+    // a new bundle's score or less; otherwise the proposal is invalid.
+    const uint256 x{0x61}, y{0x62}, z{0x63}, w{0x64}, v{0x65};
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, x)}));
+    for (int i{0}; i < 3; ++i) BOOST_REQUIRE(chain.Connect({Votes({0, VOTE_ABSTAIN})}));
+    BOOST_REQUIRE(chain.Connect({Votes({0, VOTE_ABSTAIN}), BundleScript(2, y)}));
+    BOOST_CHECK_EQUAL(chain.Score(2, x), 5U);
+    BOOST_CHECK_EQUAL(chain.Score(2, y), 1U);
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, z)}));
+    BOOST_CHECK_EQUAL(chain.Score(2, y), 0xFFFFFFFFU);
+    BOOST_CHECK(chain.scdb.WasPaid(2, y) == false);
+    BOOST_CHECK_EQUAL(chain.Score(2, z), 1U);
+    BOOST_REQUIRE(chain.Connect({Votes({1, VOTE_ABSTAIN})})); // z 2, x 4: the weakest has more votes than a new bundle
+    BOOST_CHECK(!chain.Connect({BundleScript(2, w)}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-bundles-full");
+    BOOST_REQUIRE(chain.Connect({Votes({0, VOTE_ABSTAIN})})); // x 5, z 1: z goes
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, v)}));
+    BOOST_CHECK_EQUAL(chain.Score(2, z), 0xFFFFFFFFU);
+    BOOST_CHECK_EQUAL(chain.Score(2, v), 1U);
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->bundles.size(), 2U);
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_miner_policy_under_safety_rules)
+{
+    // The block template under our rules for the enforcer, active: its blocks are valid, one payout per
+    // sidechain, which fails the slot's other bundles.
+    EnforcerChain chain;
+    chain.params.safety_activation_height = 0;
+    chain.params.limits_activation_height = 0;
+    chain.params.upvote_expiry_blocks = 5;
+    chain.params.idle_expiry_blocks = 5;
+    chain.Activate(MakeSidechain(2));
+    BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+    MinerState miner;
+    std::string error;
+    const CMutableTransaction blind{EnforcerChain::BlindBundle(COIN, 1000, 5)};
+    const auto hash{miner.AddBundle(2, blind, error)};
+    BOOST_REQUIRE(hash);
+    // Someone else's bundle, pending beside ours.
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, uint256{0x77})}));
+    for (int i{0}; i < 10 && chain.scdb.WasPaid(2, *hash) != true; ++i) {
+        miner.Prune(chain.scdb, chain.height + 1);
+        const auto additions{miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1)};
+        std::vector<CScript> scripts;
+        for (const CTxOut& out : additions.coinbase_outputs) scripts.push_back(out.scriptPubKey);
+        std::vector<CMutableTransaction> withdrawals;
+        for (const CTransactionRef& tx : additions.withdrawals) withdrawals.emplace_back(*tx);
+        BOOST_REQUIRE_MESSAGE(chain.Connect(scripts, withdrawals), chain.reject_reason);
+    }
+    BOOST_CHECK(chain.scdb.WasPaid(2, *hash) == true);
+    BOOST_CHECK(chain.scdb.GetSlot(2)->bundles.empty());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

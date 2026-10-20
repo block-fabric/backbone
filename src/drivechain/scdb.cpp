@@ -28,7 +28,7 @@ int Age(int proposed_height, int height) { return height - proposed_height + 1; 
 uint256 ParamsFingerprint(const Consensus::DrivechainParams& params)
 {
     // Every field: a parameter added later has to be added here as well.
-    static_assert(sizeof(Consensus::DrivechainParams) == 19 * sizeof(int32_t), "a new drivechain parameter goes into the fingerprint");
+    static_assert(sizeof(Consensus::DrivechainParams) == 21 * sizeof(int32_t), "a new drivechain parameter goes into the fingerprint");
     HashWriter hasher{};
     hasher << std::string{"Chains drivechain parameters"} << params.max_sidechains << params.activation_period << params.activation_max_failures
            << params.replacement_period << params.withdrawal_period << params.withdrawal_min_score << params.max_pending_bundles
@@ -37,6 +37,10 @@ uint256 ParamsFingerprint(const Consensus::DrivechainParams& params)
     if (params.rules != Consensus::DrivechainParams::RULES_CHAINS || params.activation_height != 0) {
         hasher << params.rules << params.activation_height << params.unused_slot_threshold << params.unused_slot_max_age
                << params.used_slot_threshold << params.used_slot_max_age << params.bundle_threshold << params.bundle_max_age;
+    }
+    // The activation heights of our rules for the enforcer, once set (unset, the fingerprint is the one it was).
+    if (params.safety_activation_height != Consensus::DrivechainParams::NEVER || params.limits_activation_height != Consensus::DrivechainParams::NEVER) {
+        hasher << std::string{"enforcer safety rules"} << params.safety_activation_height << params.limits_activation_height;
     }
     return hasher.GetHash();
 }
@@ -108,7 +112,17 @@ int SidechainDB::Failures(const Proposal& proposal, int height)
 
 int SidechainDB::BlocksLeft(const Bundle& bundle, int height, const Consensus::DrivechainParams& params)
 {
+    // Enforcer rules: a bundle fails older than bundle_max_age (height - proposal height).
+    if (params.EnforcerRules()) return params.bundle_max_age - (height - bundle.height);
     return params.withdrawal_period - Age(bundle.height, height);
+}
+
+bool SidechainDB::Payable(const Bundle& bundle, const Consensus::DrivechainParams& params)
+{
+    // Enforcer rules: more votes than the threshold, as the mempool checks it (a block that upvotes a bundle
+    // at the threshold can pay it as well, its votes counting before its transactions).
+    if (params.EnforcerRules()) return bundle.score > static_cast<uint32_t>(params.bundle_threshold);
+    return bundle.score >= static_cast<uint32_t>(params.withdrawal_min_score);
 }
 
 bool SidechainDB::UpvoteExpired(const Bundle& bundle, int height, const Consensus::DrivechainParams& params)
@@ -198,6 +212,11 @@ SidechainDB SidechainDB::Subset(const std::set<SidechainId>& slots) const
     subset.m_block_hash = m_block_hash;
     for (const SidechainId id : slots) {
         if (const auto it{m_slots.find(id)}; it != m_slots.end()) subset.m_slots.emplace(id, it->second);
+        // The payouts of the sidechain, which a withdrawal under the safety rules of the enforcer rules
+        // must not repeat (paid records are never forgotten: as many as the sidechain had payouts).
+        for (auto it{m_closed.lower_bound({id, uint256{}})}; it != m_closed.end() && it->first.first == id; ++it) {
+            if (it->second.paid) subset.m_closed.emplace(it->first, it->second);
+        }
     }
     return subset;
 }
@@ -678,6 +697,10 @@ bool SidechainDB::ConnectTxEnforcer(const CTransaction& tx, const Consensus::Dri
         if (!created.contains(slot)) return invalid("bad-dc-escrow-spend");
     }
     if (created.empty()) return true;
+    // Message limits: one treasury output per transaction.
+    const bool limits_active{params.LimitsActive(height)};
+    const bool safety_active{params.SafetyActive(height)};
+    if (limits_active && created.size() > 1) return invalid("bad-dc-multiple-treasury-outputs");
 
     // Each new treasury output is a deposit (more than before) or a withdrawal (less); not both kinds
     // in one transaction, and one withdrawal at most.
@@ -708,12 +731,19 @@ bool SidechainDB::ConnectTxEnforcer(const CTransaction& tx, const Consensus::Dri
             if (bundle == slot.bundles.end()) return invalid("bad-dc-withdrawal-unknown");
             if (bundle->score <= static_cast<uint32_t>(params.bundle_threshold)) return invalid("bad-dc-withdrawal-score");
             if (any_deposit || any_withdrawal) return invalid("bad-dc-withdrawal-outputs");
+            // Paid-bundle memory (safety rules): a bundle proposed again before the rules applied is not paid twice.
+            if (safety_active && WasPaid(id, bundle->hash) == true) return invalid("bad-dc-withdrawal-paid");
             any_withdrawal = true;
-            // Only the bundle paid leaves the pending list (no single payout under these rules: the
-            // block template keeps that as policy, see MinerState::CreateBlockAdditions).
+            // Only the bundle paid leaves the pending list, unless the safety rules apply: then the other
+            // bundles of the sidechain fail (single payout). Before them the block template keeps that as
+            // policy (MinerState::CreateBlockAdditions).
             SaveSlot(id, undo);
             CloseBundle(id, *bundle, /*paid=*/true, height, undo);
             EraseBundle(slot, id, bundle - slot.bundles.begin(), undo);
+            if (safety_active) {
+                for (const Bundle& other : slot.bundles) CloseBundle(id, other, /*paid=*/false, height, undo);
+                for (size_t i{slot.bundles.size()}; i-- > 0;) EraseBundle(slot, id, i, undo);
+            }
             deposit.destination = WITHDRAWAL_RETURN_DEST;
             deposit.bundle = *blind_hash;
         } else if (new_amount > old_amount) {
@@ -721,6 +751,8 @@ bool SidechainDB::ConnectTxEnforcer(const CTransaction& tx, const Consensus::Dri
             std::optional<std::string> dest;
             if (vout + 1 < tx.vout.size()) dest = ParseDestinationScript(tx.vout[vout + 1].scriptPubKey);
             if (!dest) return invalid("bad-dc-deposit-destination");
+            // Message limits: a destination of at most MAX_DEPOSIT_DESTINATION_SIZE bytes.
+            if (limits_active && dest->size() > MAX_DEPOSIT_DESTINATION_SIZE) return invalid("bad-dc-deposit-destination");
             if (any_withdrawal) return invalid("bad-dc-withdrawal-outputs");
             any_deposit = true;
             deposit.destination = *dest;
@@ -803,6 +835,12 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
         }
     }
 
+    // Our rules for the enforcer, from their activation heights (DrivechainParams::safety_activation_height,
+    // limits_activation_height; as our pull requests to it, branches withdrawal-bundle-safety and
+    // resource-limits-canonical).
+    const bool safety_active{params.SafetyActive(height)};
+    const bool limits_active{params.LimitsActive(height)};
+    std::set<SidechainId> bundle_slots;
     std::map<SidechainId, uint256> bmm_accepts;
     std::map<SidechainId, Vote> block_votes;
     for (const Message& message : messages) {
@@ -839,11 +877,23 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
             break;
         }
         case Message::Kind::BUNDLE: {
-            // M3: for an active sidechain only, and not a bundle already pending; any number per slot.
+            // M3: for an active sidechain only, and not a bundle already pending; any number per slot
+            // (one, with the message limits).
+            if (!bundle_slots.insert(message.slot).second && limits_active) return invalid("bad-dc-multiple-bundles");
             const auto it{m_slots.find(message.slot)};
             if (it == m_slots.end()) return invalid("bad-dc-bundle-inactive-sidechain");
             Slot& slot{it->second};
             if (std::any_of(slot.bundles.begin(), slot.bundles.end(), [&](const Bundle& b) { return b.hash == message.hash; })) return invalid("bad-dc-bundle-known");
+            // Paid-bundle memory (safety rules): a bundle paid out is never proposed again.
+            if (safety_active && WasPaid(message.slot, message.hash) == true) return invalid("bad-dc-bundle-paid");
+            // Pending cap (message limits): a full slot makes room by failing its weakest bundle, only if
+            // nobody voted it up beyond a new bundle's score (BundleProposeEvicting).
+            if (limits_active && slot.bundles.size() >= params.max_pending_bundles) {
+                const auto weakest{WeakestBundle(slot.bundles)};
+                if (weakest == slot.bundles.end() || weakest->score > NEW_BUNDLE_SCORE) return invalid("bad-dc-bundles-full");
+                CloseBundle(message.slot, *weakest, /*paid=*/false, height, undo);
+                EraseBundle(slot, message.slot, weakest - slot.bundles.begin(), undo);
+            }
             Bundle bundle;
             bundle.hash = message.hash;
             bundle.height = height;
@@ -901,6 +951,12 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
                     std::all_of(votes.votes.begin(), votes.votes.end(), [](uint16_t v) { return v <= VOTE_MAX_ONE_BYTE_INDEX; })) {
                     return invalid("bad-dc-votes-form");
                 }
+                // Canonical votes (message limits): the two byte form needs a bundle index above 253; ABSTAIN
+                // and the alarm have one byte forms.
+                if (votes.form == VoteForm::TWO_BYTES && limits_active &&
+                    std::none_of(votes.votes.begin(), votes.votes.end(), [](uint16_t v) { return v > VOTE_MAX_ONE_BYTE_INDEX && v != VOTE_ABSTAIN && v != VOTE_DOWNVOTE; })) {
+                    return invalid("bad-dc-votes-noncanonical");
+                }
                 if (votes.votes.size() != m_slots.size()) return invalid("bad-dc-votes-size");
                 size_t i{0};
                 for (const auto& [id, slot] : m_slots) {
@@ -948,11 +1004,27 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
             ++i;
         }
     }
-    // Bundles older than their time fail.
+    // Bundles older than their time fail (handle_failed_m6ids). With the safety rules, also: at their
+    // activation height, those pending since (or proposed in) the block of their sidechain's latest payout;
+    // those paid out before (proposed again before the rules applied); those with no vote at the idle age;
+    // and those that upvote_expiry_blocks blocks in a row, this one included, did not upvote. The last
+    // upvote of a bundle is the height of the last block that upvoted it (its proposal's, if none did,
+    // which is older than any window in which this counts).
     for (auto& [id, slot] : m_slots) {
+        std::optional<int> last_payout;
+        if (safety_active && height == params.safety_activation_height) last_payout = LastPayoutHeight(id);
         for (size_t i{slot.bundles.size()}; i-- > 0;) {
-            if (age(slot.bundles[i].height) <= params.bundle_max_age) continue;
-            CloseBundle(id, slot.bundles[i], /*paid=*/false, height, undo);
+            const Bundle& bundle{slot.bundles[i]};
+            const int bundle_age{age(bundle.height)};
+            bool expired{bundle_age > params.bundle_max_age};
+            if (!expired && safety_active) {
+                expired = (last_payout && bundle.height <= *last_payout) ||
+                          WasPaid(id, bundle.hash) == true ||
+                          (bundle.score == 0 && bundle_age >= params.idle_expiry_blocks) ||
+                          (bundle_age >= params.upvote_expiry_blocks && int64_t{height} - bundle.last_upvote >= params.upvote_expiry_blocks);
+            }
+            if (!expired) continue;
+            CloseBundle(id, bundle, /*paid=*/false, height, undo);
             EraseBundle(slot, id, i, undo);
         }
     }

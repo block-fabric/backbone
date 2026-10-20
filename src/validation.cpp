@@ -814,7 +814,8 @@ bool MemPoolAccept::DrivechainChecks(Workspace& ws)
     drivechain::BlockUndo undo;
     std::string reject_reason;
     // A withdrawal is welcome once its bundle has the work score (BIP300 M6): any miner can then mine it.
-    if (!scdb.ConnectTx(tx, params, escrow_outputs, undo, nullptr, reject_reason)) {
+    // Under the rules of the next block (those with an activation height, DrivechainParams::SafetyActive).
+    if (!scdb.ConnectTx(tx, params, escrow_outputs, undo, nullptr, reject_reason, m_active_chainstate.m_chain.Height() + 1)) {
         return ws.m_state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, reject_reason);
     }
     return true;
@@ -5040,6 +5041,7 @@ drivechain::SidechainDB Chainstate::GetMempoolSidechainDB(const std::set<drivech
     drivechain::SidechainDB::EscrowOutputs escrow_outputs{scdb.GetEscrowOutputs()};
     drivechain::BlockUndo undo;
     std::string reject_reason;
+    const int next_height{m_chain.Height() + 1};
 
     for (const drivechain::SidechainId id : slots) {
         while (true) {
@@ -5064,7 +5066,7 @@ drivechain::SidechainDB Chainstate::GetMempoolSidechainDB(const std::set<drivech
                     drivechain::SidechainDB probe{scdb};
                     drivechain::SidechainDB::EscrowOutputs probe_outputs{escrow_outputs};
                     drivechain::BlockUndo probe_undo;
-                    if (probe.ConnectTx(*candidate, params, probe_outputs, probe_undo, nullptr, reject_reason)) {
+                    if (probe.ConnectTx(*candidate, params, probe_outputs, probe_undo, nullptr, reject_reason, next_height)) {
                         next = candidate;
                         break;
                     }
@@ -5072,7 +5074,7 @@ drivechain::SidechainDB Chainstate::GetMempoolSidechainDB(const std::set<drivech
             }
             if (!next) break;
             if (stop_before && stop_before->contains(next->GetHash())) break;
-            if (!scdb.ConnectTx(*next, params, escrow_outputs, undo, nullptr, reject_reason)) break;
+            if (!scdb.ConnectTx(*next, params, escrow_outputs, undo, nullptr, reject_reason, next_height)) break;
             if (applied) applied->insert(next->GetHash());
         }
     }

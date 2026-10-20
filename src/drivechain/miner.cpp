@@ -9,6 +9,7 @@
 #include <util/fs_helpers.h>
 
 #include <algorithm>
+#include <limits>
 
 namespace drivechain {
 
@@ -376,6 +377,9 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
     // Below the activation height there are no drivechain rules, and nothing to add.
     if (height >= 0 && height < params.activation_height) return additions;
     const bool enforcer{params.EnforcerRules()};
+    // The height whose rules apply (those with an activation height); unknown (negative), the latest ones.
+    const int rules_height{height >= 0 ? height : std::numeric_limits<int>::max()};
+    const bool safety_active{params.SafetyActive(rules_height)};
     // Enforcer's rules: a bundle paid out before (proposed again since), or one pending when another bundle
     // of its sidechain was paid out (a copy a reorg of the sidechain left behind, with the same withdrawals),
     // is one consensus would still pay; this node never helps it (Chains' single payout and closed bundle
@@ -493,7 +497,7 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
             add_message(BmmAcceptScript(request.slot, request.side_block_hash));
         }
         // The mempool only holds transactions that pass this, withdrawals of bundles with the work score included.
-        (void)after.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason);
+        (void)after.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason, rules_height);
     }
 
     // M6: pay out the bundles that have the work score.
@@ -512,6 +516,14 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
                 if (score <= static_cast<uint32_t>(params.bundle_threshold)) continue;
                 if (height >= 0 && height - bundle.height > params.bundle_max_age) continue;
                 if (dead(slot, bundle)) continue;
+                // With the safety rules, a bundle this block does not upvote and that went too long
+                // without an upvote fails before the block's transactions (upvote expiry).
+                if (safety_active && height >= 0) {
+                    const auto vote{block_votes.find(slot)};
+                    const bool upvoted{vote != block_votes.end() && vote->second.type == Vote::Type::UPVOTE && vote->second.bundle == bundle.hash};
+                    if (!upvoted && height - bundle.height >= params.upvote_expiry_blocks &&
+                        int64_t{height} - bundle.last_upvote >= params.upvote_expiry_blocks) continue;
+                }
             } else if (bundle.score < static_cast<uint32_t>(params.withdrawal_min_score)) continue;
             const auto blind_tx{GetBundle(slot, bundle.hash)};
             if (!blind_tx) continue;
@@ -523,7 +535,7 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
             if (!mtx) continue;
             const CTransactionRef tx{MakeTransactionRef(std::move(*mtx))};
             // A withdrawal the block already has from the mempool fails here, the bundle being paid.
-            if (!after.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason)) continue;
+            if (!after.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason, rules_height)) continue;
             additions.withdrawals.push_back(tx);
             additions.withdrawal_fees.push_back(fee);
             // One withdrawal per sidechain per block: the next one needs the new escrow output.

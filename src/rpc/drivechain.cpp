@@ -125,6 +125,13 @@ RPCMethod getdrivechaininfo()
             {RPCResult::Type::NUM, "withdrawalminscore", "Work score a withdrawal bundle needs to be paid out"},
             {RPCResult::Type::NUM, "maxpendingbundles", "Maximum number of pending withdrawal bundles per sidechain"},
             {RPCResult::Type::NUM, "upvoteexpiryblocks", "Blocks in a row without an upvote after which a pending bundle fails (counted from its proposal or its last upvote)"},
+            {RPCResult::Type::STR, "rules", "The drivechain rules: chains (those of the Chains networks) or enforcer (those of the bip300301_enforcer, on the eCash networks)"},
+            {RPCResult::Type::NUM, "bundlethreshold", /*optional=*/true, "Enforcer rules: a bundle is paid out with more votes than this"},
+            {RPCResult::Type::NUM, "bundlemaxage", /*optional=*/true, "Enforcer rules: a bundle fails older than this many blocks"},
+            {RPCResult::Type::NUM, "idleexpiryblocks", "Age at which a pending bundle with no vote fails (enforcer rules: with the safety rules only)"},
+            {RPCResult::Type::NUM, "safetyactivationheight", /*optional=*/true, "Enforcer rules: the height from which the withdrawal bundle safety rules (single payout, paid-bundle memory, upvote and idle expiry) are consensus; absent: never (they are policy of this node's block template)"},
+            {RPCResult::Type::NUM, "limitsactivationheight", /*optional=*/true, "Enforcer rules: the height from which the message limits (pending cap, one bundle per slot per block, canonical votes, deposit destination size, one treasury output per transaction) are consensus; absent: never"},
+            {RPCResult::Type::BOOL, "singlepayout", "Whether consensus fails the other pending bundles of a sidechain when one is paid out, in the next block (always on the Chains networks; on the eCash networks, from safetyactivationheight). Without it a paid bundle's copies stay payable: sidechains must not assume it"},
             {RPCResult::Type::NUM, "height", "Height of the block the sidechain database belongs to"},
             {RPCResult::Type::NUM, "activesidechains", "Number of active sidechains"},
             {RPCResult::Type::NUM, "proposals", "Number of sidechain proposals collecting acks"},
@@ -159,6 +166,15 @@ RPCMethod getdrivechaininfo()
     obj.pushKV("withdrawalminscore", params.withdrawal_min_score);
     obj.pushKV("maxpendingbundles", params.max_pending_bundles);
     obj.pushKV("upvoteexpiryblocks", params.upvote_expiry_blocks);
+    obj.pushKV("rules", params.EnforcerRules() ? "enforcer" : "chains");
+    if (params.EnforcerRules()) {
+        obj.pushKV("bundlethreshold", params.bundle_threshold);
+        obj.pushKV("bundlemaxage", params.bundle_max_age);
+    }
+    obj.pushKV("idleexpiryblocks", params.idle_expiry_blocks);
+    if (params.EnforcerRules() && params.safety_activation_height != Consensus::DrivechainParams::NEVER) obj.pushKV("safetyactivationheight", params.safety_activation_height);
+    if (params.EnforcerRules() && params.limits_activation_height != Consensus::DrivechainParams::NEVER) obj.pushKV("limitsactivationheight", params.limits_activation_height);
+    obj.pushKV("singlepayout", !params.EnforcerRules() || params.SafetyActive(height + 1));
     obj.pushKV("height", height);
     obj.pushKV("activesidechains", scdb.GetSlots().size());
     obj.pushKV("proposals", scdb.GetProposals().size());
@@ -503,7 +519,16 @@ RPCMethod sendwithdrawalbundle()
         if (!slot) return not_sent("no active sidechain in this slot");
         const auto bundle{std::find_if(slot->bundles.begin(), slot->bundles.end(), [&](const Bundle& b) { return b.hash == hash; })};
         if (bundle == slot->bundles.end()) return not_sent("the bundle is not pending");
-        if (bundle->score < static_cast<uint32_t>(chainman.GetConsensus().drivechain.withdrawal_min_score)) return not_sent("the bundle does not have the work score yet");
+        if (!SidechainDB::Payable(*bundle, chainman.GetConsensus().drivechain)) return not_sent("the bundle does not have the work score yet");
+        // Enforcer rules: a bundle paid out before, or pending when another of its slot was paid out, is one the
+        // rules may pay (again); this node never broadcasts it (as its block template never pays it).
+        if (chainman.GetConsensus().drivechain.EnforcerRules()) {
+            const SidechainDB& scdb{chainstate.m_scdb};
+            const auto last_payout{scdb.LastPayoutHeight(id)};
+            if (scdb.WasPaid(id, hash) == true || (last_payout && bundle->height <= *last_payout)) {
+                return not_sent("the bundle was paid out before, or was pending when another bundle of the sidechain was paid out");
+            }
+        }
         // The treasury output as the deposits in the mempool leave it.
         const drivechain::SidechainDB after{chainstate.GetMempoolSidechainDB({id})};
         const Slot* current{after.GetSlot(id)};
@@ -610,7 +635,7 @@ RPCMethod listwithdrawalbundles()
             obj.pushKV("score", bundle.score);
             obj.pushKV("lastupvote", bundle.last_upvote);
             obj.pushKV("blocksleft", SidechainDB::BlocksLeft(bundle, height, params));
-            obj.pushKV("payable", bundle.score >= static_cast<uint32_t>(params.withdrawal_min_score));
+            obj.pushKV("payable", SidechainDB::Payable(bundle, params));
             const auto blind{chainman.m_drivechain_miner.GetBundle(id, bundle.hash)};
             obj.pushKV("known", blind.has_value());
             std::string vote_str{"abstain"};
@@ -676,7 +701,7 @@ RPCMethod getwithdrawalbundle()
             result.pushKV("score", bundle.score);
             result.pushKV("lastupvote", bundle.last_upvote);
             result.pushKV("blocksleft", SidechainDB::BlocksLeft(bundle, height, params));
-            result.pushKV("payable", bundle.score >= static_cast<uint32_t>(params.withdrawal_min_score));
+            result.pushKV("payable", SidechainDB::Payable(bundle, params));
             PushBundlePayouts(result, chainman.m_drivechain_miner.GetBundle(id, hash));
             return result;
         }
