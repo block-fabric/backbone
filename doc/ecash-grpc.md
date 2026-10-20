@@ -250,7 +250,7 @@ scores, which the template's consensus uses (refund gating) and which the enforc
 (only the current votes, GetWithdrawalBundleProposals). The template branch `ecash-grpc` (worktree
 `~/skydoge/sidechain-template-ecash-grpc`) adds `-mainchaingrpcport`/`-mainchaingrpcauth`: its BMM requests and
 withdrawal bundles go through the enforcer's interface (Connect JSON over its own HTTP/1.1 client; the hand-off
-is its word on the bundle, the block producer's KNOWN policy upvotes it); following stays on JSON-RPC. Its
-`doc/mainchain-grpc.md` has what is mapped, the limits (it cannot take its word back), and the design of a full
+upvoted by the block producer; its word on the bundle, and following, stay on JSON-RPC, since the interface cannot withdraw a word). Its
+`doc/mainchain-grpc.md` has what is mapped, the limits, and the design of a full
 gRPC mode, which needs the pending scores per block from the enforcer (or a replay of the votes).
 `feature_sidechain_ecash.py --mainchaingrpc` runs the whole eCash scenario that way against backboned.
