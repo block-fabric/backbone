@@ -2158,7 +2158,7 @@ void App::RegisterModuleMethods(Bridge& b)
     b.RegisterHost("modules.install", guarded([this, stem_of, tag_of, changed](const UniValue& params) {
         const std::string stem{stem_of(params)};
         const std::string tag{tag_of(params)};
-        Installer()->Start(stem, tag, /*activate=*/true, [stem, changed](bool) { changed(stem); });
+        Installer()->Start(stem, tag, /*activate=*/true, [stem, changed](bool) { changed(stem); }, Param(params, "allowOlder").isTrue());
         return UniValue{true};
     }));
     b.RegisterHost("modules.update", guarded([this, stem_of, tag_of, swap](const UniValue& params) {
@@ -2170,7 +2170,7 @@ void App::RegisterModuleMethods(Bridge& b)
         ModuleInstaller* raw{installer.get()};
         installer->Start(stem, tag, /*activate=*/false, [s, raw, stem, tag, swap](bool ok) {
             if (ok) swap(s, *raw, stem, [&] { raw->Activate(stem, tag); });
-        });
+        }, Param(params, "allowOlder").isTrue());
         return UniValue{true};
     }));
     b.RegisterHost("modules.rollback", guarded([this, stem_of, swap](const UniValue& params) {

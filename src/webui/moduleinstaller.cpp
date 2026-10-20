@@ -627,19 +627,25 @@ void ModuleInstaller::Check(const std::string& stem, Release& r, const std::stri
     r.sha256 = sha;
     std::vector<std::string> keys{ReleaseKeys()};
     keys.insert(keys.end(), m_options.extra_keys.begin(), m_options.extra_keys.end());
-    if (r.signature) {
-        const std::string sig{FetchSmall(url(strprintf("manifest-%s.json.sig", prefix)), MAX_SIG_BYTES, tmp, cancelled)};
-        if (!keys.empty()) {
-            if (!VerifyManifestSignature(manifest_text, sig, keys)) {
-                r.reason = "Its signature does not verify with the release key of this app: refused.";
-                return;
-            }
-            r.signed_ok = true;
+    // Once a release key is configured, a release must be signed by it: leaving the signature out is no way around it.
+    // The manifest verified is the very one whose SHA-256 the package and SHA256SUMS were compared with above.
+    if (!keys.empty()) {
+        if (!r.signature) {
+            r.reason = "Not signed by the release key of this app: refused.";
+            return;
         }
+        const std::string sig{FetchSmall(url(strprintf("manifest-%s.json.sig", prefix)), MAX_SIG_BYTES, tmp, cancelled)};
+        if (!VerifyManifestSignature(manifest_text, sig, keys)) {
+            r.reason = "Its signature does not verify with the release key of this app: refused.";
+            return;
+        }
+        r.signed_ok = true;
+    } else {
+        // No key to check with (no release key made yet): its checksums only.
+        r.unsigned_only = true;
     }
     if (m_options.signatures == "require" && !r.signed_ok) {
-        r.reason = keys.empty() ? std::string{"Signed releases are required, and this app has no release key to check them yet."}
-                                : std::string{"Not signed with the release key of this app (signed releases are required)."};
+        r.reason = "Signed releases are required, and this app has no release key to check them yet.";
         return;
     }
     r.compatible = true;
@@ -755,6 +761,7 @@ UniValue ModuleInstaller::ReleasesJson(const std::string& stem, const std::strin
         e.pushKV("sums", r.sums);
         e.pushKV("manifest", r.manifest);
         e.pushKV("signed", r.signed_ok);
+        e.pushKV("unsigned", r.compatible && r.unsigned_only);
         e.pushKV("compatible", r.compatible);
         e.pushKV("reason", r.reason);
         if (r.compatible && !newest) newest = r.tag;
@@ -786,7 +793,7 @@ void ModuleInstaller::SetJob(const std::string& stem, const std::function<void(J
     if (tell && m_notify) m_notify(stem);
 }
 
-void ModuleInstaller::Install(const std::string& stem, const std::string& tag, bool activate, const std::function<bool()>& cancelled)
+void ModuleInstaller::Install(const std::string& stem, const std::string& tag, bool activate, bool allow_older, const std::function<bool()>& cancelled)
 {
     if (!IsAllowed(stem)) throw Error("No such sidechain");
     if (!IsValidTag(tag)) throw Error("No such release");
@@ -810,6 +817,9 @@ void ModuleInstaller::Install(const std::string& stem, const std::string& tag, b
     if (found == releases.end()) throw Error(strprintf("There is no release %s of %s.", tag, stem));
     const Release r{*found};
     if (!r.compatible) throw Error(strprintf("Release %s cannot be used by this app: %s", tag, r.reason));
+    if (const auto current{Current(stem)}; current && CompareTags(tag, *current) < 0 && !allow_older) {
+        throw Error(strprintf("Release %s is older than the version installed (%s): it is installed only when chosen as an older version.", tag, *current));
+    }
 
     const fs::path part{dir / fs::PathFromString(".download-" + tag + ".part")};
     const fs::path staging{dir / fs::PathFromString(".staging-" + tag + "-" + Random8())};
@@ -918,9 +928,9 @@ void ModuleInstaller::Install(const std::string& stem, const std::string& tag, b
     else Prune(stem, tag);
 }
 
-void ModuleInstaller::InstallNow(const std::string& stem, const std::string& tag, bool activate)
+void ModuleInstaller::InstallNow(const std::string& stem, const std::string& tag, bool activate, bool allow_older)
 {
-    Install(stem, tag, activate, {});
+    Install(stem, tag, activate, allow_older, {});
 }
 
 void ModuleInstaller::Activate(const std::string& stem, const std::string& tag)
@@ -946,7 +956,7 @@ void ModuleInstaller::Rollback(const std::string& stem)
     Activate(stem, *previous);
 }
 
-void ModuleInstaller::Start(const std::string& stem, const std::string& tag, bool activate, std::function<void(bool ok)> done)
+void ModuleInstaller::Start(const std::string& stem, const std::string& tag, bool activate, std::function<void(bool ok)> done, bool allow_older)
 {
     if (!IsAllowed(stem)) throw Error("No such sidechain");
     if (!IsValidTag(tag)) throw Error("No such release");
@@ -966,13 +976,13 @@ void ModuleInstaller::Start(const std::string& stem, const std::string& tag, boo
         job.cancel = cancel;
     }
     if (old.joinable()) old.join();
-    std::thread thread{[this, stem, tag, activate, cancel, done = std::move(done)] {
+    std::thread thread{[this, stem, tag, activate, allow_older, cancel, done = std::move(done)] {
         util::ThreadRename("webui-module-" + stem);
         bool ok{false};
         std::string error;
         std::string state;
         try {
-            Install(stem, tag, activate, [cancel] { return cancel->load(); });
+            Install(stem, tag, activate, allow_older, [cancel] { return cancel->load(); });
             ok = true;
             state = "done";
         } catch (const Cancelled&) {

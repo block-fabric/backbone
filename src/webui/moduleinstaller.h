@@ -131,6 +131,8 @@ public:
         bool manifest{false};
         bool signature{false};
         bool signed_ok{false};
+        //! No release key is configured: checked by its checksums only (shown "unsigned").
+        bool unsigned_only{false};
         bool compatible{false};
         //! Why not, in plain words ("" when compatible).
         std::string reason;
@@ -161,17 +163,18 @@ public:
 
     /**
      * Download, check and install a release now (the thread of a job, the tests). activate: made current at once
-     * (else Activate later: an update stops the daemon first). Throws std::runtime_error with what went wrong; nothing is
+     * (else Activate later: an update stops the daemon first). A version older than the current one only with
+     * allow_older (the user chose it; Rollback is the other way back). Throws std::runtime_error with what went wrong; nothing is
      * then installed, and what was there stays as it was.
      */
-    void InstallNow(const std::string& stem, const std::string& tag, bool activate = true);
+    void InstallNow(const std::string& stem, const std::string& tag, bool activate = true, bool allow_older = false);
     /** Make an installed version current; the current one becomes the previous one. Throws std::runtime_error. */
     void Activate(const std::string& stem, const std::string& tag);
     /** The previous version becomes current again (and the current one previous). Throws std::runtime_error. */
     void Rollback(const std::string& stem);
 
     /** InstallNow on a thread of its own (one job per sidechain at a time); then `done(ok)` on that thread. Throws when one runs. */
-    void Start(const std::string& stem, const std::string& tag, bool activate, std::function<void(bool ok)> done = {});
+    void Start(const std::string& stem, const std::string& tag, bool activate, std::function<void(bool ok)> done = {}, bool allow_older = false);
     void Cancel(const std::string& stem);
     /** {state, tag, done, total, error}: idle, listing, downloading, verifying, unpacking, installing, done, failed, cancelled. */
     UniValue Progress(const std::string& stem) const;
@@ -202,7 +205,7 @@ private:
     std::string FetchSmall(const std::string& url, uint64_t max, const fs::path& tmp, const std::function<bool()>& cancelled) const;
     std::vector<Release> List(const std::string& stem, const std::function<bool()>& cancelled) const;
     void Check(const std::string& stem, Release& r, const std::string& base, const fs::path& tmp, const std::function<bool()>& cancelled) const;
-    void Install(const std::string& stem, const std::string& tag, bool activate, const std::function<bool()>& cancelled);
+    void Install(const std::string& stem, const std::string& tag, bool activate, bool allow_older, const std::function<bool()>& cancelled);
     void SetJob(const std::string& stem, const std::function<void(Job&)>& change, bool force_notify = false);
 
     const Options m_options;

@@ -238,7 +238,7 @@ struct Fixture {
         server.files[BASE + "/repos/block-fabric/layers/releases?per_page=10"] = releases.write();
     }
 
-    ModuleInstaller::Options Options(const std::string& signatures = "auto", bool trust_key = true)
+    ModuleInstaller::Options Options(const std::string& signatures = "auto", bool trust_key = false)
     {
         ModuleInstaller::Options o;
         o.bin_root = root / "bin";
@@ -314,7 +314,7 @@ BOOST_AUTO_TEST_CASE(install_update_rollback)
     Fixture fx{m_args.GetDataDirBase() / "mi_install"};
     fx.Add({.tag = "20261021.1", .sig = "good"});
     fx.Add({.tag = "20261022.1", .sig = "good"});
-    ModuleInstaller mi{fx.Options()};
+    ModuleInstaller mi{fx.Options("auto", /*trust_key=*/true)};
     const auto list{mi.Releases("layers")};
     BOOST_REQUIRE_EQUAL(list.size(), 2U);
     BOOST_CHECK_EQUAL(list[0].tag, "20261022.1");
@@ -369,6 +369,18 @@ BOOST_AUTO_TEST_CASE(install_update_rollback)
     BOOST_CHECK_EQUAL(*mi.Current("layers"), "20261024.1");
     BOOST_CHECK_EQUAL(*mi.Previous("layers"), "20261022.1");
     BOOST_CHECK(!std::filesystem::exists(fx.root / "bin" / "layers" / "20261021.1"));
+
+    // An older release only when the user chose an older version.
+    const std::string older{ErrorOf([&] { mi.InstallNow("layers", "20261021.1"); })};
+    BOOST_CHECK_MESSAGE(Contains(older, "older than the version installed"), older);
+    BOOST_CHECK_EQUAL(*mi.Current("layers"), "20261024.1");
+    mi.InstallNow("layers", "20261021.1", /*activate=*/true, /*allow_older=*/true);
+    BOOST_CHECK_EQUAL(*mi.Current("layers"), "20261021.1");
+    BOOST_CHECK_EQUAL(*mi.Previous("layers"), "20261024.1");
+    mi.Rollback("layers");
+    BOOST_CHECK_EQUAL(*mi.Current("layers"), "20261024.1");
+    BOOST_CHECK_EQUAL(*mi.Previous("layers"), "20261021.1");
+    std::filesystem::remove_all(fx.root / "bin" / "layers" / "20261021.1");
 
     // Rolling back to a version gone: refused.
     std::filesystem::remove_all(fx.root / "bin" / "layers" / "20261022.1");
@@ -488,21 +500,26 @@ BOOST_AUTO_TEST_CASE(signatures)
     fx.Add({.tag = "20261022.1", .sig = "bad"});
     fx.Add({.tag = "20261023.1"});
     {
-        ModuleInstaller mi{fx.Options("auto")};
+        // A key is configured: a signature is needed in auto too (leaving it out is no way around it).
+        ModuleInstaller mi{fx.Options("auto", /*trust_key=*/true)};
         const auto list{mi.Releases("layers")};
         BOOST_CHECK(Find(list, "20261021.1")->compatible && Find(list, "20261021.1")->signed_ok);
+        BOOST_CHECK(!Find(list, "20261021.1")->unsigned_only);
         BOOST_CHECK(!Find(list, "20261022.1")->compatible);
         BOOST_CHECK(Contains(Find(list, "20261022.1")->reason, "signature does not verify"));
-        // Unsigned: taken while signatures are not required, said unsigned.
-        BOOST_CHECK(Find(list, "20261023.1")->compatible && !Find(list, "20261023.1")->signed_ok);
+        BOOST_CHECK(!Find(list, "20261023.1")->compatible);
+        BOOST_CHECK(Contains(Find(list, "20261023.1")->reason, "Not signed by the release key"));
+        BOOST_CHECK(Contains(ErrorOf([&] { mi.InstallNow("layers", "20261023.1"); }), "Not signed"));
+        const UniValue json{mi.ReleasesJson("layers", "none")};
+        BOOST_CHECK_EQUAL(json.find_value("keys").getInt<int>(), 1);
+        BOOST_CHECK(json.find_value("releases")[0].find_value("unsigned").isFalse());
     }
     {
-        ModuleInstaller mi{fx.Options("require")};
+        ModuleInstaller mi{fx.Options("require", /*trust_key=*/true)};
         const auto list{mi.Releases("layers")};
         BOOST_CHECK(Find(list, "20261021.1")->compatible);
         BOOST_CHECK(!Find(list, "20261022.1")->compatible);
         BOOST_CHECK(!Find(list, "20261023.1")->compatible);
-        BOOST_CHECK(Contains(Find(list, "20261023.1")->reason, "signed releases are required"));
     }
     {
         // Another key: the good signature is not by a key of this app.
@@ -514,10 +531,16 @@ BOOST_AUTO_TEST_CASE(signatures)
         BOOST_CHECK(!Find(mi.Releases("layers"), "20261021.1")->compatible);
     }
     {
-        // No key at all (a release build today): signatures cannot be checked; required, nothing is taken.
+        // No key at all (a release build today): checksums only, each release said unsigned; required, nothing is taken.
         ModuleInstaller auto_mi{fx.Options("auto", /*trust_key=*/false)};
-        BOOST_CHECK(Find(auto_mi.Releases("layers"), "20261021.1")->compatible);
-        BOOST_CHECK(!Find(auto_mi.Releases("layers"), "20261021.1")->signed_ok);
+        for (const char* tag : {"20261021.1", "20261022.1", "20261023.1"}) {
+            const auto* r{Find(auto_mi.Releases("layers"), tag)};
+            BOOST_CHECK(r->compatible && !r->signed_ok && r->unsigned_only);
+        }
+        const UniValue json{auto_mi.ReleasesJson("layers", "none")};
+        BOOST_CHECK_EQUAL(json.find_value("keys").getInt<int>(), 0);
+        BOOST_CHECK(json.find_value("releases")[0].find_value("unsigned").isTrue());
+        BOOST_CHECK(json.find_value("releases")[0].find_value("signed").isFalse());
         ModuleInstaller req_mi{fx.Options("require", /*trust_key=*/false)};
         BOOST_CHECK(Contains(Find(req_mi.Releases("layers"), "20261021.1")->reason, "no release key"));
     }
