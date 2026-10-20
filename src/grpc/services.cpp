@@ -71,12 +71,12 @@ Status InvalidField(std::string_view message, std::string_view field, std::strin
 /** The hex string of a ConsensusHex, Hex or ReverseHex field. */
 std::optional<std::string> WrappedHex(const Message& m, std::string_view field, Status& status)
 {
-    const Message* wrapper{m.GetMessage(field)};
+    const Message* wrapper{m.Sub(field)};
     if (!wrapper) {
         status = MissingField(m.Desc().full_name, field);
         return std::nullopt;
     }
-    const Message* hex{wrapper->GetMessage("hex")};
+    const Message* hex{wrapper->Sub("hex")};
     if (!hex) {
         status = MissingField(wrapper->Desc().full_name, "hex");
         return std::nullopt;
@@ -169,7 +169,7 @@ std::optional<uint256> ReadConsensusHash(const Message& m, std::string_view fiel
  */
 std::optional<SidechainId> ReadSlot(const Message& m, std::string_view field, std::string_view message, Status& status)
 {
-    const Message* wrapper{m.GetMessage(field)};
+    const Message* wrapper{m.Sub(field)};
     if (!wrapper) {
         status = MissingField(message, field);
         return std::nullopt;
@@ -257,19 +257,19 @@ void SetDeclaration(Message& parent, std::string_view field, const Declaration& 
 /** A declaration of a request (SidechainDeclaration -> V0), as TryFrom<SidechainDeclaration> (lib/proto.rs:498-566). */
 std::optional<drivechain::Sidechain> ReadDeclaration(const Message& req, std::string_view field, SidechainId slot, Status& status)
 {
-    const Message* decl{req.GetMessage(field)};
+    const Message* decl{req.Sub(field)};
     if (!decl) {
         status = MissingField(req.Desc().full_name, field);
         return std::nullopt;
     }
-    const Message* v0{decl->GetMessage("v0")};
+    const Message* v0{decl->Sub("v0")};
     if (!v0) {
         status = MissingField(decl->Desc().full_name, "sidechain_declaration");
         return std::nullopt;
     }
     const std::string v0_name{v0->Desc().full_name};
-    if (!v0->GetMessage("title")) { status = MissingField(v0_name, "title"); return std::nullopt; }
-    if (!v0->GetMessage("description")) { status = MissingField(v0_name, "description"); return std::nullopt; }
+    if (!v0->Sub("title")) { status = MissingField(v0_name, "title"); return std::nullopt; }
+    if (!v0->Sub("description")) { status = MissingField(v0_name, "description"); return std::nullopt; }
     const auto h1{ReadConsensusBytes(*v0, "hash_id_1", 32, status)};
     if (!h1) return std::nullopt;
     const auto h2{ReadRawHex(*v0, "hash_id_2", 20, status)};
@@ -277,8 +277,8 @@ std::optional<drivechain::Sidechain> ReadDeclaration(const Message& req, std::st
     drivechain::Sidechain sidechain;
     sidechain.slot = slot;
     sidechain.version = 0;
-    sidechain.title = v0->GetMessage("title")->GetString("value");
-    sidechain.description = v0->GetMessage("description")->GetString("value");
+    sidechain.title = v0->Sub("title")->GetString("value");
+    sidechain.description = v0->Sub("description")->GetString("value");
     std::memcpy(sidechain.hash_id1.begin(), h1->data(), 32);
     std::memcpy(sidechain.hash_id2.begin(), h2->data(), 20);
     if (sidechain.title.size() > 255) {
@@ -803,7 +803,7 @@ void ServicesImpl::RegisterValidator(Server& server)
         for (const CBlockIndex* p{Lookup(ctx, *hash)}; p && found.size() <= max_ancestors; p = p->pprev) {
             auto info{MakeBlockInfo(ctx.pool, ctx.Chainman(), *p, *slot)};
             if (!info) break;
-            const Message* c{info->GetMessage("bmm_commitment")};
+            const Message* c{info->Sub("bmm_commitment")};
             found.push_back(c ? std::optional<Message>{*c} : std::nullopt);
         }
         if (found.empty()) {
@@ -852,7 +852,7 @@ void ServicesImpl::RegisterValidator(Server& server)
         tx.version = 2;
         tx.nLockTime = 0;
         const auto slot_of{[&](const Message& m, std::optional<SidechainId>& out) {
-            const Message* wrapper{m.GetMessage("sidechain_number")};
+            const Message* wrapper{m.Sub("sidechain_number")};
             if (!wrapper) { st = MissingField(m.Desc().full_name, "sidechain_number"); return false; }
             const uint64_t v{wrapper->GetUInt("value")};
             if (v > 255) { st = InvalidField(m.Desc().full_name, "sidechain_number", util::ToString(v), "out of range integral type conversion attempted"); return false; }
@@ -887,7 +887,7 @@ void ServicesImpl::RegisterValidator(Server& server)
             if (!hash) return Fail(w, st);
             tx.vout.emplace_back(0, drivechain::BundleScript(*slot, *hash));
         }
-        const Message* ack{req.GetMessage("ack_bundles")};
+        const Message* ack{req.Sub("ack_bundles")};
         if (!ack) return Fail(w, MissingField(req.Desc().full_name, "ack_bundles"));
         drivechain::VoteMessage votes;
         const pb::FieldDesc* which{ack->WhichOneof("ack_bundles")};
@@ -897,7 +897,7 @@ void ServicesImpl::RegisterValidator(Server& server)
         } else if (which->name == "leading_by_50") {
             votes.form = drivechain::VoteForm::LEADING_BY_50;
         } else {
-            const Message& up{*ack->GetMessage("upvotes")};
+            const Message& up{*ack->Sub("upvotes")};
             bool two_bytes{false};
             for (size_t i{0}; i < up.Count("upvotes"); ++i) {
                 const uint64_t v{up.UIntAt("upvotes", i)};
@@ -945,7 +945,7 @@ void ServicesImpl::RegisterValidator(Server& server)
         const auto prev{ReadReverseHash(req, "prev_block_hash", st)};
         if (!prev) return Fail(w, st);
         std::optional<SidechainId> wanted;
-        if (const Message* sn{req.GetMessage("sidechain_number")}) {
+        if (const Message* sn{req.Sub("sidechain_number")}) {
             const uint64_t v{sn->GetUInt("value")};
             if (v > 255) return Fail(w, InvalidField(req.Desc().full_name, "sidechain_number", util::ToString(v), "out of range integral type conversion attempted"));
             wanted = static_cast<SidechainId>(v);
@@ -1035,7 +1035,7 @@ void ServicesImpl::RegisterValidator(Server& server)
         const auto slot{ReadSlot(req, "sidechain_id", req.Desc().full_name, st)};
         if (!slot) return Fail(w, st);
         std::optional<uint256> start;
-        if (req.GetMessage("start_block_hash")) {
+        if (req.Sub("start_block_hash")) {
             start = ReadReverseHash(req, "start_block_hash", st);
             if (!start) return Fail(w, st);
         }
@@ -1062,7 +1062,7 @@ void ServicesImpl::RegisterValidator(Server& server)
         // Blocks below the activation height have nothing for any sidechain: not read at all.
         const int skip_below{std::max(first, ctx.Params().activation_height)};
         const auto push{[&](const CBlockIndex* p, Message info) {
-            if (!info.GetMessage("bmm_commitment") && info.Count("events") == 0) return;
+            if (!info.Sub("bmm_commitment") && info.Count("events") == 0) return;
             Message& item{resp.Add("blocks")};
             item.Mutable("block_header_info") = MakeHeaderInfo(ctx.pool, *p);
             item.Mutable("block_info") = std::move(info);
@@ -1259,7 +1259,7 @@ void ServicesImpl::RegisterMining(Server& server)
     Ctx& ctx{m_ctx};
 
     Add(server, svc, "GenerateToAddress", [&ctx](const Message& req, const std::shared_ptr<Writer>& w) {
-        const uint64_t blocks{req.GetMessage("blocks") ? req.GetMessage("blocks")->GetUInt("value") : 1};
+        const uint64_t blocks{req.Sub("blocks") ? req.Sub("blocks")->GetUInt("value") : 1};
         if (blocks == 0) return Fail(w, {Code::INVALID_ARGUMENT, "must provide a positive number of blocks"});
         const std::string& address{req.GetString("address")};
         if (address.empty()) return Fail(w, MissingField(req.Desc().full_name, "address"));
@@ -1503,10 +1503,10 @@ void ServicesImpl::RegisterWallet(Server& server)
     // replay protection on eCash, not `height`).
     Add(server, svc, "CreateBmmCriticalDataTransaction", [&ctx, rpc](const Message& req, const std::shared_ptr<Writer>& w) {
         const std::string name{req.Desc().full_name};
-        if (!req.GetMessage("value_sats")) return Fail(w, MissingField(name, "value_sats"));
-        const uint64_t value{req.GetMessage("value_sats")->GetUInt("value")};
-        if (!req.GetMessage("height")) return Fail(w, MissingField(name, "height"));
-        const uint64_t height{req.GetMessage("height")->GetUInt("value")};
+        if (!req.Sub("value_sats")) return Fail(w, MissingField(name, "value_sats"));
+        const uint64_t value{req.Sub("value_sats")->GetUInt("value")};
+        if (!req.Sub("height")) return Fail(w, MissingField(name, "height"));
+        const uint64_t height{req.Sub("height")->GetUInt("value")};
         if (height >= 500'000'000) return Fail(w, InvalidField(name, "height", util::ToString(height), "invalid block height"));
         Status st;
         const auto slot{ReadSlot(req, "sidechain_id", name, st)};
@@ -1537,13 +1537,13 @@ void ServicesImpl::RegisterWallet(Server& server)
         Status st;
         const auto slot{ReadSlot(req, "sidechain_id", name, st)};
         if (!slot) return Fail(w, st);
-        if (!req.GetMessage("address")) return Fail(w, MissingField(name, "address"));
-        const std::string address{req.GetMessage("address")->GetString("value")};
+        if (!req.Sub("address")) return Fail(w, MissingField(name, "address"));
+        const std::string address{req.Sub("address")->GetString("value")};
         if (address.empty()) return Fail(w, {Code::INVALID_ARGUMENT, "address must be non-empty"});
-        if (!req.GetMessage("value_sats")) return Fail(w, MissingField(name, "value_sats"));
-        const uint64_t value{req.GetMessage("value_sats")->GetUInt("value")};
+        if (!req.Sub("value_sats")) return Fail(w, MissingField(name, "value_sats"));
+        const uint64_t value{req.Sub("value_sats")->GetUInt("value")};
         if (value == 0) return Fail(w, {Code::INVALID_ARGUMENT, "value_sats must be greater than zero"});
-        if (!req.GetMessage("fee_sats")) return Fail(w, MissingField(name, "fee_sats"));
+        if (!req.Sub("fee_sats")) return Fail(w, MissingField(name, "fee_sats"));
         if (!WITH_LOCK(::cs_main, return ctx.Chainman().ActiveChainstate().m_scdb.IsActive(*slot))) return Fail(w, {Code::FAILED_PRECONDITION, strprintf("sidechain %u is not active", *slot)});
         UniValue params(UniValue::VARR);
         params.push_back(static_cast<uint64_t>(*slot));
@@ -1749,7 +1749,7 @@ void ServicesImpl::RegisterWallet(Server& server)
             outputs.push_back(std::move(o));
         }
         std::optional<std::string> op_return;
-        if (req.GetMessage("op_return_message")) {
+        if (req.Sub("op_return_message")) {
             const auto bytes{ReadRawHex(req, "op_return_message", std::nullopt, st)};
             if (!bytes) return Fail(w, st);
             op_return = HexStr(*bytes);
@@ -1758,7 +1758,7 @@ void ServicesImpl::RegisterWallet(Server& server)
         if (outputs.empty() && !op_return && !drain) return Fail(w, {Code::INVALID_ARGUMENT, "no destinations or op_return_message provided"});
         if (drain && req.Count("required_utxos")) return Fail(w, {Code::INVALID_ARGUMENT, "cannot provide both drain_wallet_to and required_utxos"});
         UniValue options(UniValue::VOBJ);
-        if (const Message* fee{req.GetMessage("fee_rate")}) {
+        if (const Message* fee{req.Sub("fee_rate")}) {
             const pb::FieldDesc* which{fee->WhichOneof("fee")};
             if (!which) return Fail(w, MissingField(fee->Desc().full_name, "fee"));
             if (which->name == "sats") return Fail(w, {Code::UNIMPLEMENTED, "an absolute fee is not supported; give sat_per_vbyte"});
@@ -1822,7 +1822,7 @@ void ServicesImpl::RegisterWallet(Server& server)
     // The older interface's GenerateBlocks (cusf_sidechain_proto, wallet.proto:223-233), which
     // plain-bitassets and zside call: blocks to a new address of the wallet, one reply per block.
     Add(server, svc, "GenerateBlocks", [&ctx, rpc](const Message& req, const std::shared_ptr<Writer>& w) {
-        const uint64_t blocks{req.GetMessage("blocks") ? req.GetMessage("blocks")->GetUInt("value") : 1};
+        const uint64_t blocks{req.Sub("blocks") ? req.Sub("blocks")->GetUInt("value") : 1};
         if (blocks == 0) return Fail(w, {Code::INVALID_ARGUMENT, "must provide a positive number of blocks"});
         UniValue params(UniValue::VARR);
         params.push_back("");
@@ -1935,7 +1935,7 @@ void ServicesImpl::ProposeBundle(const Message& req, const std::shared_ptr<Write
     Status st;
     const auto slot{ReadSlot(req, "sidechain_id", name, st)};
     if (!slot) return Fail(w, st);
-    const Message* transaction{req.GetMessage("transaction")};
+    const Message* transaction{req.Sub("transaction")};
     if (!transaction) return Fail(w, MissingField(name, "transaction"));
     const std::string& bytes{transaction->GetString("value")};
     {

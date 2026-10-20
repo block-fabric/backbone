@@ -261,6 +261,8 @@ struct Request {
     size_t consumed{0};
     std::shared_ptr<Call> call;
     const Server::MethodEntry* entry{nullptr};
+    //! Not a content type of these protocols: HTTP 415.
+    bool bad_type{false};
 };
 
 std::string Header(const Request& r, const std::string& name)
@@ -349,14 +351,40 @@ bool DecodeMessage(bool json, std::string_view bytes, pb::Message& out, std::str
 }
 
 /** Begin a call for a request whose headers are in. It may end at once (an unknown method, say). */
+/** A Host or :authority a browser could not have been tricked into (DNS rebinding): an IP literal, localhost, or one allowed. */
+bool HostAllowed(const std::string& host_port, const std::vector<std::string>& allowed)
+{
+    if (host_port.empty()) return true;
+    std::string host{ToLowerAscii(host_port)};
+    if (host.starts_with('[')) return host.find(']') != std::string::npos; // an IPv6 literal
+    if (const auto colon{host.rfind(':')}; colon != std::string::npos) host.resize(colon);
+    if (host == "localhost" || std::find(allowed.begin(), allowed.end(), host) != allowed.end()) return true;
+    return !host.empty() && std::all_of(host.begin(), host.end(), [](char c) { return (c >= '0' && c <= '9') || c == '.'; });
+}
+
 void BeginCall(Server& server, Request& r, bool http2)
 {
     const auto kind{KindOf(r, http2)};
     const Server::MethodEntry* entry{server.Find(r.path)};
     const pb::MethodDesc* method{entry ? entry->desc : nullptr};
+    const Options& options{server.GetOptions()};
+    // Requests a web page could make (the server has no authentication, as the enforcer's): one from a page
+    // (an Origin header) is refused but from the origins allowed, as is a Host that is not this machine's.
+    const std::string origin{Header(r, "origin")};
+    if (!origin.empty() && std::find(options.allowed_origins.begin(), options.allowed_origins.end(), origin) == options.allowed_origins.end()) {
+        r.call = std::make_shared<Call>(kind ? kind->protocol : Protocol::CONNECT_UNARY, kind ? kind->json : true, method);
+        r.call->Finish({Code::PERMISSION_DENIED, "requests from web pages (Origin " + origin + ") are refused; see -grpcallowedorigin"});
+        return;
+    }
+    if (!HostAllowed(Header(r, "host"), options.allowed_hosts)) {
+        r.call = std::make_shared<Call>(kind ? kind->protocol : Protocol::CONNECT_UNARY, kind ? kind->json : true, method);
+        r.call->Finish({Code::PERMISSION_DENIED, "host " + Header(r, "host") + " refused (an IP address or localhost, or one of -grpcallowedhost)"});
+        return;
+    }
     if (!kind) {
         // Not a request of these protocols: answered with a Connect error (HTTP 415).
         r.call = std::make_shared<Call>(Protocol::CONNECT_UNARY, true, method);
+        r.bad_type = true;
         r.call->Finish({Code::UNKNOWN, "unsupported content type " + Header(r, "content-type")});
         return;
     }
@@ -364,6 +392,17 @@ void BeginCall(Server& server, Request& r, bool http2)
     if (!entry) {
         r.call->Finish({Code::UNIMPLEMENTED, "unknown procedure " + r.path});
         return;
+    }
+    // Connect's GET form only for reads (idempotency_level NO_SIDE_EFFECTS), as the protocol says.
+    if (r.method == "GET" && !method->no_side_effects) {
+        r.call->Finish({Code::INVALID_ARGUMENT, "GET is for methods without side effects; POST " + r.path});
+        return;
+    }
+    if (const Guard& guard{server.GetGuard()}) {
+        if (const auto refused{guard(r.path, r.headers)}) {
+            r.call->Finish(*refused);
+            return;
+        }
     }
     const bool streaming{method->client_streaming || method->server_streaming};
     if (kind->protocol == Protocol::CONNECT_UNARY && streaming) {
@@ -529,13 +568,14 @@ public:
         nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, OnStreamClose);
         nghttp2_option* option;
         nghttp2_option_new(&option);
-        // No limit on what the client may ask for at once beyond the streams below.
         nghttp2_option_set_max_deflate_dynamic_table_size(option, 4096);
+        // Flow control by hand: the window opens again only for the bytes taken in (see OnDataChunk).
+        nghttp2_option_set_no_auto_window_update(option, 1);
         nghttp2_session_server_new2(&m_session, callbacks, this, option);
         nghttp2_option_del(option);
         nghttp2_session_callbacks_del(callbacks);
         const nghttp2_settings_entry settings[]{
-            {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 1024},
+            {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 256},
             {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 1 << 20},
             {NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE, 64 << 10},
         };
@@ -584,13 +624,17 @@ public:
     {
         for (auto& [id, stream] : m_streams) {
             if (stream.request.call) stream.request.call->Cancel();
+            m_server.Release(stream.buffered);
         }
+        m_buffered = 0;
         m_streams.clear();
     }
 
 private:
     struct Stream {
         Request request;
+        //! Request bytes counted against the budgets.
+        size_t buffered{0};
         bool responded{false};
         bool deferred{false};
         bool trailers_sent{false};
@@ -620,7 +664,7 @@ private:
         const Protocol protocol{call.GetProtocol()};
         const bool trailers_only{protocol == Protocol::GRPC && state.finished && !state.has_data};
         if (protocol == Protocol::CONNECT_UNARY) {
-            const int status{state.status.ok() ? 200 : (stream.request.entry || state.status.code == Code::UNIMPLEMENTED ? ConnectHttpStatus(state.status.code) : 415)};
+            const int status{state.status.ok() ? 200 : stream.request.bad_type ? 415 : ConnectHttpStatus(state.status.code)};
             headers.emplace_back(":status", util::ToString(status));
             headers.emplace_back("content-type", state.status.ok() ? call.ContentType() : "application/json");
         } else {
@@ -709,6 +753,8 @@ private:
             const auto q{v.find('?')};
             r.path = v.substr(0, q);
             if (q != std::string::npos) r.query = v.substr(q + 1);
+        } else if (n == ":authority") {
+            r.headers["host"] = std::move(v);
         } else if (!n.starts_with(':')) {
             r.headers[n] = std::move(v);
         }
@@ -726,24 +772,56 @@ private:
         }
         if ((frame->hd.type == NGHTTP2_HEADERS || frame->hd.type == NGHTTP2_DATA) && (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) && r.call) {
             EndRequest(self.m_server, r);
+            // The request is decoded: its bytes are no longer buffered.
+            Stream& stream{it->second};
+            std::string{}.swap(r.body);
+            self.m_buffered -= stream.buffered;
+            self.m_server.Release(stream.buffered);
+            stream.buffered = 0;
         }
         (void)session;
         return 0;
     }
 
-    static int OnDataChunk(nghttp2_session*, uint8_t, int32_t id, const uint8_t* data, size_t len, void* user)
+    static int OnDataChunk(nghttp2_session* session, uint8_t, int32_t id, const uint8_t* data, size_t len, void* user)
     {
         auto& self{*static_cast<Http2*>(user)};
+        const Options& options{self.m_server.GetOptions()};
         const auto it{self.m_streams.find(id)};
-        if (it == self.m_streams.end()) return 0;
-        Request& r{it->second.request};
-        if (!r.call || r.call->Closed()) return 0;
-        if (r.body.size() + len > self.m_server.GetOptions().max_request_bytes + 16) {
-            r.call->Finish({Code::RESOURCE_EXHAUSTED, strprintf("request larger than %u bytes", self.m_server.GetOptions().max_request_bytes)});
+        // Bytes not taken in still count against the connection's window: given back to it alone.
+        if (it == self.m_streams.end()) {
+            nghttp2_session_consume_connection(session, len);
             return 0;
         }
+        Stream& stream{it->second};
+        Request& r{stream.request};
+        if (!r.call || r.call->Closed()) {
+            nghttp2_session_consume_connection(session, len);
+            return 0;
+        }
+        if (r.body.size() + len > options.max_request_bytes + 16) {
+            r.call->Finish({Code::RESOURCE_EXHAUSTED, strprintf("request larger than %u bytes", options.max_request_bytes)});
+            nghttp2_session_consume_connection(session, len);
+            return 0;
+        }
+        // The budgets of the connection and of the server: a stream over them is reset.
+        if (self.m_buffered + len > options.max_connection_buffer || !self.m_server.Reserve(len)) {
+            r.call->Cancel();
+            nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, id, NGHTTP2_ENHANCE_YOUR_CALM);
+            nghttp2_session_consume_connection(session, len);
+            return 0;
+        }
+        self.m_buffered += len;
+        stream.buffered += len;
         r.body.append(reinterpret_cast<const char*>(data), len);
+        nghttp2_session_consume(session, id, len);
+        const size_t before{r.body.size()};
         ContinueCall(self.m_server, r);
+        // A client stream's requests taken out of the body free their bytes.
+        const size_t freed{std::min(stream.buffered, before - r.body.size())};
+        stream.buffered -= freed;
+        self.m_buffered -= freed;
+        self.m_server.Release(freed);
         return 0;
     }
 
@@ -753,12 +831,16 @@ private:
         const auto it{self.m_streams.find(id)};
         if (it == self.m_streams.end()) return 0;
         if (it->second.request.call) it->second.request.call->Cancel();
+        self.m_buffered -= it->second.buffered;
+        self.m_server.Release(it->second.buffered);
         self.m_streams.erase(it);
         return 0;
     }
 
     nghttp2_session* m_session{nullptr};
     std::map<int32_t, Stream> m_streams;
+    //! Request bytes of all the streams.
+    size_t m_buffered{0};
 };
 
 /** HTTP/1.1: one request at a time (gRPC-Web and Connect; gRPC itself needs HTTP/2). */
@@ -770,6 +852,9 @@ public:
 
     bool Receive(std::span<const uint8_t> data) override
     {
+        // While a request is served, the next can only be small (pipelining); never more than a request.
+        const size_t cap{m_current ? size_t{64 << 10} : m_server.GetOptions().max_request_bytes + (64 << 10)};
+        if (m_in.size() + data.size() > cap) return false;
         m_in.append(reinterpret_cast<const char*>(data.data()), data.size());
         return Parse();
     }
@@ -782,7 +867,7 @@ public:
         if (call.GetProtocol() == Protocol::CONNECT_UNARY) {
             if (!state.finished) return true;
             const std::string body{call.Take(SIZE_MAX)};
-            const int status{state.status.ok() ? 200 : (m_current->entry || state.status.code == Code::UNIMPLEMENTED ? ConnectHttpStatus(state.status.code) : 415)};
+            const int status{state.status.ok() ? 200 : m_current->bad_type ? 415 : ConnectHttpStatus(state.status.code)};
             m_out += strprintf("HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %u\r\n%s\r\n", status, status == 200 ? "OK" : "Error",
                                state.status.ok() ? call.ContentType() : "application/json", body.size(), m_keep_alive ? "" : "Connection: close\r\n");
             m_out += body;
@@ -863,7 +948,7 @@ private:
                     const auto eol{m_in.find("\r\n")};
                     if (eol == std::string::npos) return true;
                     const auto size{TryParseHexInt(m_in.substr(0, eol))};
-                    if (!size) return false;
+                    if (!size || *size > m_server.GetOptions().max_request_bytes) return false;
                     if (*size == 0) {
                         const auto end{m_in.find("\r\n\r\n", eol)};
                         const auto end2{m_in.compare(eol, 4, "\r\n\r\n") == 0 ? eol : end};
@@ -982,6 +1067,17 @@ bool Server::Register(const std::string& service, const std::string& method, Han
     }
     return false;
 }
+
+bool Server::Reserve(size_t bytes)
+{
+    size_t now{m_buffered.load()};
+    do {
+        if (now + bytes > m_options.max_total_buffer) return false;
+    } while (!m_buffered.compare_exchange_weak(now, now + bytes));
+    return true;
+}
+
+void Server::Release(size_t bytes) { m_buffered -= std::min(bytes, m_buffered.load()); }
 
 std::vector<std::string> Server::Services() const
 {

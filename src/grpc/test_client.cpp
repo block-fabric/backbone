@@ -6,7 +6,7 @@
 // own C++ library (grpc++), when it is installed: an implementation of gRPC other than the server's,
 // as the sidechains' tonic is. It knows no message types: requests and replies are hex.
 //
-//   backbone-grpc-client HOST:PORT /package.Service/Method [--count N] [--timeout SECONDS]
+//   backbone-grpc-client HOST:PORT /package.Service/Method [--count N] [--timeout SECONDS] [--header NAME:VALUE]...
 //
 // Reads the request messages from stdin, one per line in hex (an empty line: an empty message), and
 // prints each reply as "MSG <hex>", then "STATUS <code> <message>". With --count it cancels the call
@@ -69,10 +69,17 @@ int main(int argc, char** argv)
     const std::string target{argv[1]}, method{argv[2]};
     long count{-1};
     double timeout{60};
+    std::vector<std::pair<std::string, std::string>> headers;
     for (int i{3}; i + 1 < argc; i += 2) {
         const std::string flag{argv[i]};
         if (flag == "--count") count = std::stol(argv[i + 1]);
         else if (flag == "--timeout") timeout = std::stod(argv[i + 1]);
+        else if (flag == "--header") {
+            const std::string h{argv[i + 1]};
+            const auto colon{h.find(':')};
+            if (colon == std::string::npos) return 2;
+            headers.emplace_back(h.substr(0, colon), h.substr(colon + 1));
+        }
     }
     std::vector<std::string> requests;
     for (std::string line; std::getline(std::cin, line);) {
@@ -90,6 +97,7 @@ int main(int argc, char** argv)
     const auto channel{grpc::CreateCustomChannel(target, grpc::InsecureChannelCredentials(), args)};
     grpc::GenericStub stub{channel};
     grpc::ClientContext context;
+    for (const auto& [name, value] : headers) context.AddMetadata(name, value);
     context.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(static_cast<long>(timeout * 1000)));
     grpc::CompletionQueue cq;
     const auto call{stub.PrepareCall(&context, method, &cq)};

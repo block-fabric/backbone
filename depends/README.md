@@ -79,6 +79,7 @@ The following can be set when running make: `make FOO=bar`
 - `CXX_STANDARD`: Set the C++ standard version used. Defaults to `c++20`.
 - `NO_BOOST`: Don't download/build/cache Boost
 - `NO_ZMQ`: Don't download/build/cache packages needed for enabling ZeroMQ
+- `NO_GRPC`: Don't download/build/cache libnghttp2, which the gRPC server (the bip300301_enforcer's interface) needs
 - `NO_WALLET`: Don't download/build/cache libs needed to enable the wallet (SQLite)
 - `NO_USDT`: Don't download/build/cache packages needed for enabling USDT tracepoints
 - `NO_WEBUI`: Don't download the WebView2 headers chains-app needs on Windows (a build without chains-app).

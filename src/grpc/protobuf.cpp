@@ -589,7 +589,7 @@ bool Pool::Load(std::span<const uint8_t> file_descriptor_set, std::string& error
                     auto s{std::make_unique<ServiceDesc>()};
                     Reader sr{b};
                     std::string sname;
-                    std::vector<std::tuple<std::string, std::string, std::string, bool, bool>> methods;
+                    std::vector<std::tuple<std::string, std::string, std::string, bool, bool, bool>> methods;
                     while (!sr.AtEnd()) {
                         int32_t sn; uint8_t sw;
                         if (!sr.Tag(sn, sw)) return false;
@@ -600,7 +600,7 @@ bool Pool::Load(std::span<const uint8_t> file_descriptor_set, std::string& error
                             if (!sr.Bytes(mb)) return false;
                             Reader mr{mb};
                             std::string mname, in, out;
-                            bool cs{false}, ss{false};
+                            bool cs{false}, ss{false}, no_side_effects{false};
                             while (!mr.AtEnd()) {
                                 int32_t mn; uint8_t mw;
                                 if (!mr.Tag(mn, mw)) return false;
@@ -610,20 +610,33 @@ bool Pool::Load(std::span<const uint8_t> file_descriptor_set, std::string& error
                                 else if (mn == 3 && mw == LEN) { if (!ReadString(mr, out)) return false; }
                                 else if (mn == 5 && mw == VARINT) { if (!mr.Varint(v)) return false; cs = v; }
                                 else if (mn == 6 && mw == VARINT) { if (!mr.Varint(v)) return false; ss = v; }
+                                else if (mn == 4 && mw == LEN) {
+                                    // MethodOptions: idempotency_level = 34 (NO_SIDE_EFFECTS = 1).
+                                    std::span<const uint8_t> ob;
+                                    if (!mr.Bytes(ob)) return false;
+                                    Reader opr{ob};
+                                    while (!opr.AtEnd()) {
+                                        int32_t on; uint8_t ow;
+                                        if (!opr.Tag(on, ow)) return false;
+                                        if (on == 34 && ow == VARINT) { uint64_t lv; if (!opr.Varint(lv)) return false; no_side_effects = lv == 1; }
+                                        else if (!opr.Skip(on, ow)) return false;
+                                    }
+                                }
                                 else if (!mr.Skip(mn, mw)) return false;
                             }
-                            methods.emplace_back(mname, in, out, cs, ss);
+                            methods.emplace_back(mname, in, out, cs, ss, no_side_effects);
                         } else if (!sr.Skip(sn, sw)) {
                             return false;
                         }
                     }
                     s->full_name = package.empty() ? sname : package + "." + sname;
-                    for (const auto& [mname, in, out, cs, ss] : methods) {
+                    for (const auto& [mname, in, out, cs, ss, nse] : methods) {
                         MethodDesc md;
                         md.name = mname;
                         // Resolved below; the names kept for now in a side table.
                         md.client_streaming = cs;
                         md.server_streaming = ss;
+                        md.no_side_effects = nse;
                         s->methods.push_back(md);
                         m_symbol_files[s->full_name + "." + mname] = filename;
                         pending_method_types.emplace_back(s.get(), s->methods.size() - 1, in, out);
@@ -814,7 +827,7 @@ void Message::SetString(std::string_view name, std::string value)
     slot[0].s = std::move(value);
 }
 
-const Message* Message::GetMessage(std::string_view name) const
+const Message* Message::Sub(std::string_view name) const
 {
     const Value* v{Singular(Lookup(name))};
     return v ? v->m.get() : nullptr;

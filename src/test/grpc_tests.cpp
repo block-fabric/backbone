@@ -99,7 +99,7 @@ struct H2Client {
     int32_t Call(const std::string& path, const std::string& body, const std::string& content_type = "application/grpc")
     {
         const std::vector<std::pair<std::string, std::string>> headers{
-            {":method", "POST"}, {":scheme", "http"}, {":authority", "test"}, {":path", path}, {"content-type", content_type}, {"te", "trailers"}};
+            {":method", "POST"}, {":scheme", "http"}, {":authority", "127.0.0.1:50051"}, {":path", path}, {"content-type", content_type}, {"te", "trailers"}};
         std::vector<nghttp2_nv> nvs;
         for (const auto& [n, v] : headers) {
             nvs.push_back({reinterpret_cast<uint8_t*>(const_cast<char*>(n.data())), reinterpret_cast<uint8_t*>(const_cast<char*>(v.data())), n.size(), v.size(), NGHTTP2_NV_FLAG_NONE});
@@ -246,7 +246,7 @@ BOOST_AUTO_TEST_CASE(binary_decoding)
     BOOST_CHECK_EQUAL(info.GetUInt("height"), 2U);
     // A message field seen twice is merged.
     BOOST_REQUIRE(info.Parse(ParseHex("0a060a040a026162" "0a00"), error));
-    BOOST_CHECK_EQUAL(info.GetMessage("block_hash")->GetMessage("hex")->GetString("value"), "ab");
+    BOOST_CHECK_EQUAL(info.Sub("block_hash")->Sub("hex")->GetString("value"), "ab");
     // Malformed: truncated, a wire type that does not fit, invalid UTF-8 in a string.
     Message bad{New("cusf.mainchain.v1.BlockHeaderInfo")};
     BOOST_CHECK(!bad.Parse(ParseHex("0a05"), error));
@@ -287,7 +287,7 @@ BOOST_AUTO_TEST_CASE(json_mapping)
     BOOST_REQUIRE(json.read(R"({"sidechain_id":7,"maxAncestors":"0","blockHash":{"hex":"aa"}})"));
     Message req{New("cusf.mainchain.v1.GetBlockInfoRequest")};
     BOOST_REQUIRE_MESSAGE(req.FromJson(json, error), error);
-    BOOST_CHECK_EQUAL(req.GetMessage("sidechain_id")->GetUInt("value"), 7U);
+    BOOST_CHECK_EQUAL(req.Sub("sidechain_id")->GetUInt("value"), 7U);
     BOOST_CHECK(req.Has("max_ancestors"));
     BOOST_CHECK_EQUAL(Hex(req), "0a060a040a0261611202080718" "00");
     BOOST_REQUIRE(json.read(R"({"policy":"WITHDRAWAL_BUNDLE_POLICY_ALARM"})"));
@@ -313,13 +313,17 @@ BOOST_AUTO_TEST_CASE(transport)
     // Without Start, handlers run on the connection's thread: the test is deterministic.
     std::shared_ptr<grpcsrv::Writer> stream_writer;
     BOOST_REQUIRE(server.Register("cusf.crypto.v1.CryptoService", "Ripemd160", [](const Message& req, const std::shared_ptr<grpcsrv::Writer>& w) {
-        if (!req.GetMessage("msg")) return w->Finish({grpcsrv::Code::INVALID_ARGUMENT, "Missing field: `msg` 100%"});
+        if (!req.Sub("msg")) return w->Finish({grpcsrv::Code::INVALID_ARGUMENT, "Missing field: `msg` 100%"});
         Message resp{New("cusf.crypto.v1.Ripemd160Response")};
         SetWrapped(resp, "digest", "00");
         w->Write(resp);
         w->Finish({});
     }));
     BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "SubscribeEvents", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) { stream_writer = w; }));
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "GetChainTip", [](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        w->Write(New("cusf.mainchain.v1.GetChainTipResponse"));
+        w->Finish({});
+    }));
     BOOST_CHECK(!server.Register("cusf.mainchain.v1.ValidatorService", "NoSuchMethod", {}));
 
     {
@@ -391,7 +395,7 @@ BOOST_AUTO_TEST_CASE(transport)
             c.Poll();
             return c.TakeOutput();
         }};
-        std::string out{exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}")};
+        std::string out{exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: 127.0.0.1:50051\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}")};
         BOOST_CHECK(out.starts_with("HTTP/1.1 400 "));
         BOOST_CHECK(out.find(R"({"code":"invalid_argument","message":"Missing field: `msg` 100%"})") != std::string::npos);
         Message req{New("cusf.crypto.v1.Ripemd160Request")};
@@ -406,13 +410,82 @@ BOOST_AUTO_TEST_CASE(transport)
         BOOST_CHECK(out.find(Envelope(std::string{"\x0a\x06\x0a\x04\x0a\x02\x30\x30"}) + Envelope("grpc-status: 0\r\n", 0x80)) != std::string::npos);
         out = exchange("POST /nope HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 0\r\n\r\n");
         BOOST_CHECK(out.starts_with("HTTP/1.1 501 "));
-        // Connect's GET form, for a method without side effects.
-        out = exchange("GET /cusf.crypto.v1.CryptoService/Ripemd160?encoding=json&message=%7B%22msg%22%3A%7B%22hex%22%3A%22%22%7D%7D HTTP/1.1\r\n\r\n");
+        // Connect's GET form: for a method without side effects only (idempotency_level NO_SIDE_EFFECTS).
+        out = exchange("GET /cusf.mainchain.v1.ValidatorService/GetChainTip?encoding=json&message=%7B%7D HTTP/1.1\r\n\r\n");
         BOOST_CHECK(out.starts_with("HTTP/1.1 200 OK"));
-        BOOST_CHECK(out.ends_with(R"({"digest":{"hex":"00"}})"));
+        BOOST_CHECK(out.ends_with(R"({})"));
+        out = exchange("GET /cusf.crypto.v1.CryptoService/Ripemd160?encoding=json&message=%7B%22msg%22%3A%7B%22hex%22%3A%22%22%7D%7D HTTP/1.1\r\n\r\n");
+        BOOST_CHECK(out.starts_with("HTTP/1.1 400 "));
+        // A request from a web page (an Origin header), or to a Host that is a name (DNS rebinding): refused.
+        out = exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nOrigin: http://evil.example\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}");
+        BOOST_CHECK(out.starts_with("HTTP/1.1 403 "));
+        out = exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: evil.example:50051\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}");
+        BOOST_CHECK(out.starts_with("HTTP/1.1 403 "));
+        out = exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: localhost:50051\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}");
+        BOOST_CHECK(out.starts_with("HTTP/1.1 400 ")); // let in: the handler's own error
+        out = exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: [::1]:50051\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n{}");
+        BOOST_CHECK(out.starts_with("HTTP/1.1 415 ")); // not a type of these protocols (a form a page could post)
         // gRPC needs HTTP/2.
         out = exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nContent-Type: application/grpc\r\nContent-Length: 0\r\n\r\n");
         BOOST_CHECK(out.starts_with("HTTP/1.1 415 "));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(limits)
+{
+    grpcsrv::Options options;
+    options.max_request_bytes = 1000;
+    options.max_connection_buffer = 2000;
+    grpcsrv::Server server{Pool(), options};
+    int calls{0};
+    BOOST_REQUIRE(server.Register("cusf.crypto.v1.CryptoService", "Ripemd160", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        ++calls;
+        w->Finish({});
+    }));
+    // The credential (-grpcauth): a guard that refuses a call without it.
+    server.SetGuard([](const std::string& path, const std::map<std::string, std::string>& headers) -> std::optional<grpcsrv::Status> {
+        if (headers.contains("authorization")) return std::nullopt;
+        return grpcsrv::Status{grpcsrv::Code::UNAUTHENTICATED, "token needed for " + path};
+    });
+    {
+        H2Client client{server};
+        const int32_t refused{client.Call("/cusf.crypto.v1.CryptoService/Ripemd160", Envelope(""))};
+        client.Pump();
+        BOOST_CHECK_EQUAL(client.responses[refused].headers.at("grpc-status"), "16");
+        BOOST_CHECK_EQUAL(calls, 0);
+    }
+    {
+        // Over the request size: RESOURCE_EXHAUSTED.
+        grpcsrv::Server open{Pool(), options};
+        BOOST_REQUIRE(open.Register("cusf.crypto.v1.CryptoService", "Ripemd160", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) { w->Finish({}); }));
+        H2Client client{open};
+        const int32_t big{client.Call("/cusf.crypto.v1.CryptoService/Ripemd160", Envelope(std::string(1500, 'x')))};
+        client.Pump();
+        BOOST_CHECK_EQUAL(client.responses[big].headers.at("grpc-status"), "8");
+    }
+    {
+        // A request within its size, but over the connection's budget of buffered bytes: the stream is reset.
+        grpcsrv::Options roomy{options};
+        roomy.max_request_bytes = 5000;
+        grpcsrv::Server lenient{Pool(), roomy};
+        BOOST_REQUIRE(lenient.Register("cusf.crypto.v1.CryptoService", "Ripemd160", [](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) { w->Finish({}); }));
+        H2Client client{lenient};
+        const int32_t id{client.Call("/cusf.crypto.v1.CryptoService/Ripemd160", Envelope(std::string(3000, 'y')))};
+        client.Pump();
+        BOOST_CHECK(client.responses[id].closed);
+        BOOST_CHECK_EQUAL(client.responses[id].error_code, uint32_t{NGHTTP2_ENHANCE_YOUR_CALM});
+        // The bytes are given back: the next request of the connection goes through.
+        const int32_t ok{client.Call("/cusf.crypto.v1.CryptoService/Ripemd160", Envelope(""))};
+        client.Pump();
+        BOOST_CHECK_EQUAL(client.responses[ok].headers.at("grpc-status"), "0");
+    }
+    {
+        // HTTP/1.1: a chunk declared over the limit closes the connection before anything is buffered.
+        grpcsrv::Connection c{server};
+        const std::string head{"POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n"};
+        BOOST_CHECK(!c.Receive(MakeUCharSpan(head + "fffff\r\n")));
+        grpcsrv::Connection c2{server};
+        BOOST_CHECK(!c2.Receive(MakeUCharSpan(std::string(2000 + (64 << 10), 'z'))));
     }
 }
 

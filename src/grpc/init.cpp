@@ -42,9 +42,17 @@ void AddGrpcOptions(ArgsManager& args)
                  ArgsManager::ALLOW_ANY | ArgsManager::NETWORK_ONLY, OptionsCategory::RPC);
     args.AddArg("-grpcallowip=<ip>", "Allow gRPC connections from this source, beside localhost: a single IP (e.g. 1.2.3.4), a network/netmask, a network/CIDR. Can be specified multiple times",
                  ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
-    args.AddArg("-grpcwallet=<name>", "The wallet that the gRPC WalletService (deposits, BMM requests, addresses) uses (default: the only wallet loaded). -nogrpcwallet does not serve WalletService",
+    args.AddArg("-grpcwallet=<name>", "Serve the gRPC WalletService (deposits, BMM requests, addresses, sends) with this wallet (empty: the only wallet loaded). "
+                                      "Default: served with the only wallet on ecashbeta, ecashtest and regtest; not served on ecash (main) unless given. -nogrpcwallet: not served",
                  ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
-    args.AddArg("-grpcallowstop", "Let gRPC ValidatorService.Stop shut the node down, as the enforcer does (default: 1)",
+    args.AddArg("-grpcallowstop", "Let gRPC ValidatorService.Stop shut the node down, as the enforcer does (default: 0)",
+                 ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
+    args.AddArg("-grpcauth=<token>", "Require this token (gRPC metadata \"authorization: Bearer <token>\") for WalletService, BlockProducerService, MiningService and ValidatorService.Stop. "
+                                     "The ValidatorService otherwise needs none, as the enforcer's. Required to bind to an address other than localhost",
+                 ArgsManager::ALLOW_ANY | ArgsManager::SENSITIVE, OptionsCategory::RPC);
+    args.AddArg("-grpcallowedorigin=<origin>", "Accept gRPC requests from web pages of this origin (e.g. http://localhost:3000); requests with another Origin header are refused. Can be specified multiple times",
+                 ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
+    args.AddArg("-grpcallowedhost=<name>", "Accept gRPC requests whose Host is this name, beside IP addresses and localhost (others are refused, against DNS rebinding). Can be specified multiple times",
                  ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
     args.AddArg("-grpcthreads=<n>", strprintf("Threads that serve gRPC calls (default: %d)", DEFAULT_GRPC_THREADS),
                  ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::RPC);
@@ -90,21 +98,44 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
             endpoints.emplace_back(host, port);
         }
     }
+    const std::string token{args.GetArg("-grpcauth", "")};
     std::vector<CService> binds;
     for (const auto& [host, port] : endpoints) {
         const std::optional<CService> addr{Lookup(host, port, false)};
         if (!addr) return InitError(strprintf(_("Cannot resolve -grpcbind address: '%s'"), host));
-        if (addr->IsBindAny()) LogWarning("The gRPC server has no authentication: it is not safe to expose to untrusted networks");
+        // Beyond this machine only with both an allow list and the credential: the ValidatorService has no
+        // authentication (as the enforcer's), the others then need the token.
+        if ((!addr->IsLocal() || addr->IsBindAny()) && (allow.empty() || token.empty())) {
+            return InitError(Untranslated(strprintf("-grpcbind=%s is not a loopback address: that needs -grpcallowip and -grpcauth", addr->ToStringAddrPort())));
+        }
         binds.push_back(*addr);
     }
 
     grpcsrv::Options options;
     options.threads = std::max<int>(1, args.GetIntArg("-grpcthreads", DEFAULT_GRPC_THREADS));
+    options.allowed_origins = args.GetArgs("-grpcallowedorigin");
+    for (const std::string& h : args.GetArgs("-grpcallowedhost")) options.allowed_hosts.push_back(ToLower(h));
     g_server = std::make_unique<grpcsrv::Server>(*g_pool, options);
+    if (!token.empty()) {
+        // The services that spend, mine, decide votes or stop the node need the token.
+        g_server->SetGuard([token](const std::string& path, const std::map<std::string, std::string>& headers) -> std::optional<grpcsrv::Status> {
+            const bool guarded{path.starts_with("/cusf.mainchain.v1.WalletService/") || path.starts_with("/cusf.mainchain.v1.BlockProducerService/") ||
+                               path.starts_with("/cusf.mainchain.v1.MiningService/") || path == "/cusf.mainchain.v1.ValidatorService/Stop"};
+            if (!guarded) return std::nullopt;
+            const auto it{headers.find("authorization")};
+            const std::string expected{"Bearer " + token};
+            if (it != headers.end() && it->second.size() == expected.size() && TimingResistantEqual(it->second, expected)) return std::nullopt;
+            return grpcsrv::Status{grpcsrv::Code::UNAUTHENTICATED, "this method needs the -grpcauth token (metadata authorization: Bearer <token>)"};
+        });
+    }
     grpcsrv::ServiceOptions service_options;
-    service_options.allow_stop = args.GetBoolArg("-grpcallowstop", true);
-    service_options.wallet_service = !args.IsArgNegated("-grpcwallet");
+    service_options.allow_stop = args.GetBoolArg("-grpcallowstop", false);
+    // WalletService spends: on eCash's main network only when asked for (-grpcwallet).
+    service_options.wallet_service = chain == ChainType::ECASH ? (args.IsArgSet("-grpcwallet") && !args.IsArgNegated("-grpcwallet")) : !args.IsArgNegated("-grpcwallet");
     service_options.wallet = service_options.wallet_service ? args.GetArg("-grpcwallet", "") : "";
+    LogInfo("gRPC: WalletService %s%s; Stop %s; token %s", service_options.wallet_service ? "served" : "not served",
+            service_options.wallet_service ? (service_options.wallet.empty() ? " (the only wallet)" : " (wallet " + service_options.wallet + ")") : (chain == ChainType::ECASH ? " (main network: -grpcwallet to serve it)" : ""),
+            service_options.allow_stop ? "allowed" : "refused (-grpcallowstop)", token.empty() ? "none" : "required for the wallet, block producer, mining and Stop");
     g_services = grpcsrv::RegisterServices(*g_server, *g_pool, node, service_options);
     if (!g_server->Start(binds, allow, error)) {
         g_services.reset();

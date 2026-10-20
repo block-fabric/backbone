@@ -11,6 +11,8 @@ with clients that are not the server's code: gRPC through gRPC's own C++ library
 built when grpc++ is installed) and the Connect protocol through http.client, each with this test's
 own protocol buffers codec (test_framework/cusf.py).
 """
+import http.client
+import json
 import os
 import socket
 import subprocess
@@ -18,7 +20,7 @@ from decimal import Decimal
 
 from test_framework.address import address_to_scriptpubkey
 from test_framework.cusf import (
-    ALREADY_EXISTS, FAILED_PRECONDITION, INTERNAL, INVALID_ARGUMENT, NOT_FOUND, OK, UNAVAILABLE, UNIMPLEMENTED,
+    ALREADY_EXISTS, FAILED_PRECONDITION, INTERNAL, INVALID_ARGUMENT, NOT_FOUND, OK, PERMISSION_DENIED, UNAUTHENTICATED, UNAVAILABLE, UNIMPLEMENTED,
     ConnectClient, GrpcClient, Schema, client_binary, descriptor_source, fields_of, rh, u32, unhex,
 )
 from test_framework.key import ECKey
@@ -33,6 +35,7 @@ W = 'cusf.mainchain.v1.WalletService/'
 B = 'cusf.mainchain.v1.BlockProducerService/'
 M = 'cusf.mainchain.v1.MiningService/'
 C = 'cusf.crypto.v1.CryptoService/'
+TOKEN = 's3cret'
 TITLE, DESCRIPTION = 'grpctest', 'a sidechain for the gRPC test'
 HASH_ID_1, HASH_ID_2 = bytes(range(32)), bytes(range(20))
 
@@ -90,7 +93,8 @@ class EcashGrpcTest(BitcoinTestFramework):
 
     def setup_network(self):
         self.grpc_port = free_port()
-        self.extra_args = [['-testecash', '-grpc', f'-grpcport={self.grpc_port}', '-fallbackfee=0.0002', '-grpcwallet=w']]
+        self.base_args = ['-testecash', '-grpc', f'-grpcport={self.grpc_port}', '-fallbackfee=0.0002', '-grpcwallet=w']
+        self.extra_args = [self.base_args + [f'-grpcauth={TOKEN}', '-grpcallowstop']]
         self.setup_nodes()
 
     def mine(self, n=1):
@@ -109,7 +113,9 @@ class EcashGrpcTest(BitcoinTestFramework):
         self.node = self.nodes[0]
         self.address = self.node.getnewaddress()
         schema = Schema.from_source(descriptor_source(self.config))
-        self.grpc = GrpcClient(client_binary(self.config), schema, f'127.0.0.1:{self.grpc_port}')
+        self.schema = schema
+        self.grpc = GrpcClient(client_binary(self.config), schema, f'127.0.0.1:{self.grpc_port}', [f'authorization:Bearer {TOKEN}'])
+        self.anonymous = GrpcClient(client_binary(self.config), schema, f'127.0.0.1:{self.grpc_port}')
         self.connect = ConnectClient(schema, '127.0.0.1', self.grpc_port)
         self.mine(110)
 
@@ -124,6 +130,7 @@ class EcashGrpcTest(BitcoinTestFramework):
         self.test_reorg()
         self.test_connect_protocol()
         self.test_errors()
+        self.test_security()
         self.test_stop()
 
     def test_health_and_reflection(self):
@@ -497,6 +504,42 @@ class EcashGrpcTest(BitcoinTestFramework):
         assert_equal(balance['has_synced'], True)
         address = self.grpc.unary(W + 'CreateNewAddress')['address']
         assert self.node.getaddressinfo(address)['ismine']
+
+    def test_security(self):
+        self.log.info('The token (-grpcauth): needed for the wallet, the block producer, mining and Stop; not for the validator (as the enforcer\'s)')
+        for path in [W + 'CreateNewAddress', B + 'GetBlockProducerState', M + 'GenerateToAddress', V + 'Stop']:
+            code, message, _ = self.anonymous.call(path, {})
+            assert_equal(code, UNAUTHENTICATED)
+        self.anonymous.unary(V + 'GetChainTip')
+        wrong = GrpcClient(self.grpc.binary, self.schema, self.grpc.address, ['authorization:Bearer wrong'])
+        assert_equal(wrong.call(W + 'CreateNewAddress', {})[0], UNAUTHENTICATED)
+
+        self.log.info('Web pages: a request with an Origin header, or a Host that is a name (DNS rebinding), is refused')
+        status, reply = self.connect.json('/' + V + 'GetChainTip', headers={'Origin': 'http://evil.example'})
+        assert_equal((status, reply['code']), (403, 'permission_denied'))
+        status, reply = self.connect.json('/' + V + 'GetChainTip', headers={'Host': f'evil.example:{self.grpc_port}'})
+        assert_equal((status, reply['code']), (403, 'permission_denied'))
+        assert_equal(self.connect.json('/' + V + 'GetChainTip', headers={'Host': f'localhost:{self.grpc_port}'})[0], 200)
+        # The GET form of Connect, for reads only (idempotency_level NO_SIDE_EFFECTS).
+        conn = http.client.HTTPConnection('127.0.0.1', self.grpc_port, timeout=30)
+        conn.request('GET', '/' + V + 'GetChainTip?encoding=json&message=%7B%7D')
+        resp = conn.getresponse()
+        assert_equal(resp.status, 200)
+        assert_equal(json.loads(resp.read())['blockHeaderInfo']['blockHash'], {'hex': self.node.getbestblockhash()})
+        conn.request('GET', '/' + W + 'CreateNewAddress?encoding=json&message=%7B%7D', headers={'Authorization': f'Bearer {TOKEN}'})
+        resp = conn.getresponse()
+        assert_equal((resp.status, json.loads(resp.read())['code']), (400, 'invalid_argument'))
+        conn.close()
+
+        self.log.info('Defaults: Stop refused without -grpcallowstop; no bind beyond localhost without -grpcallowip and -grpcauth')
+        self.restart_node(0, self.base_args)
+        code, message, _ = self.grpc.call(V + 'Stop', {})
+        assert_equal(code, PERMISSION_DENIED)
+        self.anonymous.unary(W + 'CreateNewAddress')  # no token set: no token needed (regtest serves the wallet by default)
+        self.stop_node(0)
+        self.nodes[0].assert_start_raises_init_error(self.base_args + ['-grpcbind=0.0.0.0'],
+                                                     'Error: -grpcbind=0.0.0.0:%d is not a loopback address: that needs -grpcallowip and -grpcauth' % self.grpc_port)
+        self.start_node(0, self.extra_args[0])
 
     def test_stop(self):
         self.log.info('Stop: the node shuts down (grpc.rs:476-490)')

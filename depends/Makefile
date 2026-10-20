@@ -37,6 +37,7 @@ SDK_PATH ?= $(BASEDIR)/SDKs
 NO_BOOST ?=
 NO_WALLET ?=
 NO_ZMQ ?=
+NO_GRPC ?=
 NO_USDT ?=
 NO_WEBUI ?=
 # Default NO_IPC value is 1 on Windows
@@ -155,6 +156,7 @@ boost_packages_$(NO_BOOST) = $(boost_packages)
 wallet_packages_$(NO_WALLET) = $(sqlite_packages)
 
 zmq_packages_$(NO_ZMQ) = $(zmq_packages)
+grpc_packages_$(NO_GRPC) = $(grpc_packages)
 ipc_packages_$(NO_IPC) = $(ipc_packages)
 usdt_packages_$(NO_USDT) = $(usdt_$(host_os)_packages)
 webui_packages_$(NO_WEBUI) = $(webui_$(host_os)_packages)
@@ -164,6 +166,10 @@ native_packages += $($(host_arch)_$(host_os)_native_packages) $($(host_os)_nativ
 
 ifneq ($(zmq_packages_),)
 packages += $(zmq_packages)
+endif
+
+ifneq ($(grpc_packages_),)
+packages += $(grpc_packages)
 endif
 
 ifneq ($(ipc_packages_),)
@@ -222,6 +228,7 @@ $(host_prefix)/toolchain.cmake : toolchain.cmake.in $(host_prefix)/.stamp_$(fina
             -e 's|@LDFLAGS_RELEASE@|$(strip $(host_release_LDFLAGS))|' \
             -e 's|@LDFLAGS_DEBUG@|$(strip $(host_debug_LDFLAGS))|' \
             -e 's|@zmq_packages@|$(zmq_packages_)|' \
+            -e 's|@grpc_packages@|$(grpc_packages_)|' \
             -e 's|@webui_packages@|$(webui_packages_)|' \
             -e 's|@wallet_packages@|$(wallet_packages_)|' \
             -e 's|@usdt_packages@|$(usdt_packages_)|' \

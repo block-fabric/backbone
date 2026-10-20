@@ -6,6 +6,8 @@ sqlite_packages=sqlite
 
 zmq_packages=zeromq
 
+grpc_packages=nghttp2
+
 ipc_packages = capnp
 multiprocess_native_packages = native_libmultiprocess native_capnp
 

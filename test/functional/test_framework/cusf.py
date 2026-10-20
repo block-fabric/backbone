@@ -29,7 +29,7 @@ FIXED32_TYPES = {FLOAT, FIXED32, SFIXED32}
 
 # gRPC status codes.
 OK, CANCELLED, UNKNOWN, INVALID_ARGUMENT, DEADLINE_EXCEEDED, NOT_FOUND, ALREADY_EXISTS, PERMISSION_DENIED, \
-    RESOURCE_EXHAUSTED, FAILED_PRECONDITION, ABORTED, OUT_OF_RANGE, UNIMPLEMENTED, INTERNAL, UNAVAILABLE = range(15)
+    RESOURCE_EXHAUSTED, FAILED_PRECONDITION, ABORTED, OUT_OF_RANGE, UNIMPLEMENTED, INTERNAL, UNAVAILABLE, DATA_LOSS, UNAUTHENTICATED = range(17)
 
 
 def read_varint(data, pos):
@@ -250,21 +250,28 @@ def u32(value):
 class GrpcClient:
     """gRPC over HTTP/2, with backbone-grpc-client (grpc++)."""
 
-    def __init__(self, binary, schema, address):
+    def __init__(self, binary, schema, address, headers=()):
         self.binary, self.schema, self.address = binary, schema, address
+        self.headers = list(headers)
+
+    def args(self, path, timeout):
+        out = [self.binary, self.address, '/' + path.lstrip('/'), '--timeout', str(timeout)]
+        for h in self.headers:
+            out += ['--header', h]
+        return out
 
     def call(self, path, request=None, raw=None, timeout=60):
         """(status code, status message, replies) of a call with one request."""
         req_type, reply_type, _ = self.schema.method(path)
         payload = raw if raw is not None else self.schema.encode(req_type, request or {})
-        out = subprocess.run([self.binary, self.address, '/' + path.lstrip('/'), '--timeout', str(timeout)], input=payload.hex() + '\n',
+        out = subprocess.run(self.args(path, timeout), input=payload.hex() + '\n',
                              capture_output=True, text=True, timeout=timeout + 30).stdout
         return self._parse(out, reply_type)
 
     def call_raw_lines(self, path, payloads, timeout=60):
         """A call with several requests (a client stream: server reflection)."""
         _, reply_type, _ = self.schema.method(path)
-        out = subprocess.run([self.binary, self.address, '/' + path.lstrip('/'), '--timeout', str(timeout)], input=''.join(p.hex() + '\n' for p in payloads),
+        out = subprocess.run(self.args(path, timeout), input=''.join(p.hex() + '\n' for p in payloads),
                              capture_output=True, text=True, timeout=timeout + 30).stdout
         return self._parse(out, reply_type)
 
@@ -295,7 +302,7 @@ class Stream:
     def __init__(self, client, path, request, timeout):
         req_type, self.reply_type, _ = client.schema.method(path)
         self.schema = client.schema
-        self.proc = subprocess.Popen([client.binary, client.address, '/' + path.lstrip('/'), '--timeout', str(timeout)], stdin=subprocess.PIPE,
+        self.proc = subprocess.Popen(client.args(path, timeout), stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE)
         self.proc.stdin.write((client.schema.encode(req_type, request).hex() + '\n').encode())
         self.proc.stdin.close()
@@ -351,16 +358,16 @@ class ConnectClient:
     def __init__(self, schema, host, port):
         self.schema, self.host, self.port = schema, host, port
 
-    def post(self, path, body, content_type):
+    def post(self, path, body, content_type, headers=None):
         conn = http.client.HTTPConnection(self.host, self.port, timeout=60)
-        conn.request('POST', path, body=body, headers={'Content-Type': content_type, 'Connect-Protocol-Version': '1'})
+        conn.request('POST', path, body=body, headers=dict({'Content-Type': content_type, 'Connect-Protocol-Version': '1'}, **(headers or {})))
         resp = conn.getresponse()
         data = resp.read()
         conn.close()
         return resp.status, resp.getheader('Content-Type'), data
 
-    def json(self, path, obj=None):
-        status, _, data = self.post(path, json.dumps(obj or {}), 'application/json')
+    def json(self, path, obj=None, headers=None):
+        status, _, data = self.post(path, json.dumps(obj or {}), 'application/json', headers)
         return status, json.loads(data)
 
     def proto(self, path, request=None):

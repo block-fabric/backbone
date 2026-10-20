@@ -73,9 +73,19 @@ public:
  */
 using Handler = std::function<void(const pb::Message& request, const std::shared_ptr<Writer>& writer)>;
 
+/** A check of each call (its path and headers, names in lower case) before it runs; a status refuses it. */
+using Guard = std::function<std::optional<Status>(const std::string& path, const std::map<std::string, std::string>& headers)>;
+
 struct Options {
     //! Largest request message, in bytes.
     size_t max_request_bytes{16 << 20};
+    //! Request bytes a connection may have buffered at once (all its streams), and all connections together.
+    size_t max_connection_buffer{64 << 20};
+    size_t max_total_buffer{256 << 20};
+    //! Origin header values let in. A request with another Origin (from a web page) is refused (CSRF).
+    std::vector<std::string> allowed_origins;
+    //! Host (or :authority) names let in besides IP literals and localhost; others are refused (DNS rebinding).
+    std::vector<std::string> allowed_hosts;
     //! Largest number of connections at a time.
     int max_connections{128};
     //! Worker threads for the handlers.
@@ -92,6 +102,11 @@ public:
 
     /** Register the method `/service/method` of the pool. @return false if the pool has no such method. */
     bool Register(const std::string& service, const std::string& method, Handler handler);
+    void SetGuard(Guard guard) { m_guard = std::move(guard); }
+    const Guard& GetGuard() const { return m_guard; }
+    /** Account for request bytes buffered (all connections); false if over the budget. */
+    bool Reserve(size_t bytes);
+    void Release(size_t bytes);
     /** The full names of the services with a method registered. */
     std::vector<std::string> Services() const;
 
@@ -127,6 +142,8 @@ private:
     Mutex m_mutex;
     std::vector<std::pair<std::thread, std::shared_ptr<std::atomic<bool>>>> m_connection_threads GUARDED_BY(m_mutex);
     std::atomic<int> m_connections{0};
+    std::atomic<size_t> m_buffered{0};
+    Guard m_guard;
 };
 
 /**

@@ -146,6 +146,12 @@ else()
   set(WITH_ZMQ ON CACHE BOOL "")
 endif()
 
+if("@grpc_packages@" MATCHES "^[ ]*$")
+  set(WITH_GRPC OFF CACHE BOOL "")
+else()
+  set(WITH_GRPC ON CACHE BOOL "")
+endif()
+
 if("@wallet_packages@" MATCHES "^[ ]*$")
   set(ENABLE_WALLET OFF CACHE BOOL "")
 else()

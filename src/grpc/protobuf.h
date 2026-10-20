@@ -78,6 +78,8 @@ struct MethodDesc {
     const MessageDesc* output{nullptr};
     bool client_streaming{false};
     bool server_streaming{false};
+    //! idempotency_level = NO_SIDE_EFFECTS: a read, which the Connect protocol may also serve to GET.
+    bool no_side_effects{false};
 };
 
 struct ServiceDesc {
@@ -148,8 +150,8 @@ public:
     void SetDouble(std::string_view name, double value);
     void SetString(std::string_view name, std::string value);
 
-    // Singular messages: nullptr if not set; Mutable sets it (empty) if it is not.
-    const Message* GetMessage(std::string_view name) const;
+    // Singular messages: nullptr if not set (Sub: not GetMessage, a macro on Windows); Mutable sets it (empty) if it is not.
+    const Message* Sub(std::string_view name) const;
     Message& Mutable(std::string_view name);
 
     // Repeated fields.
