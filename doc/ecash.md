@@ -66,6 +66,13 @@ run it with peers, see "Running the test network" below.
 the new field `network` has our name (`ecash`, `ecashbeta`, `ecashtest`, or the Chains name). Amounts and fee
 rates are in ECX on the eCash networks (`CURRENCY_UNIT`), in CHN on the Chains networks.
 
+## The enforcer's gRPC interface
+
+backboned serves the bip300301_enforcer's gRPC API (`cusf.mainchain.v1`, `cusf.crypto.v1`, health and reflection;
+gRPC, gRPC-Web and Connect) on 127.0.0.1:50051 by default on the eCash networks (`-grpc`, `-grpcport`), from
+its own state, so that sidechain software made for bitcoind + enforcer connects to it unchanged. Methods,
+semantics against the enforcer's code, defaults and security: [ecash-grpc.md](ecash-grpc.md).
+
 ## The eCash rules (as ecash-com/bitcoin)
 
 | Rule | Where |
@@ -262,6 +269,8 @@ and a headers sync with eCash's four seeds reached 973,880, tip `000000000000000
 7. Renames outside this repository: the GitHub repositories (block-fabric/backbone, block-fabric/backbone-<sidechain>),
    the unified-app supervisor, `~/skydoge/tools/build.sh` users, the release scripts (`chainsd.exe`…), the
    testnet tooling (`chainsd -testnet`), the explorer, the sidechains' mainchain client.
-8. Removal of the Chains networks once nothing uses them: the sidechains' CHN mainchain, the test hub
+8. The gRPC interface: the live differential tests against the enforcer and the LayerTwo sidechains
+   ([ecash-grpc.md](ecash-grpc.md) §10), once running their code is approved.
+9. Removal of the Chains networks once nothing uses them: the sidechains' CHN mainchain, the test hub
    (`~/skydoge/testnet`), the CHN releases, the explorer of the CHN test network, Chains' chainparams,
    aserti3, the 800k/400k weights, maturity 360, the Chains drivechain rules (`RULES_CHAINS`) and their tests.
