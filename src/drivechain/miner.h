@@ -129,8 +129,16 @@ public:
      *
      * @param[in] txs  the transactions selected for the block, without the coinbase
      */
+    /**
+     * Under the enforcer's rules (the eCash networks) the Chains-only rules are policy here: no bundle
+     * is upvoted or paid out that was paid out before, or that was pending when another bundle of its
+     * sidechain was paid out (single payout, paid-bundle memory), and no bundle is proposed to a full
+     * queue (the pending cap); the vote message (M4) comes first in the coinbase, so that it refers to
+     * the bundles as the previous block left them. `height` is the height of the block, if known.
+     */
     BlockAdditions CreateBlockAdditions(const SidechainDB& scdb, const Consensus::DrivechainParams& params,
-                                        const uint256& prev_block_hash, const std::vector<CTransactionRef>& txs) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+                                        const uint256& prev_block_hash, const std::vector<CTransactionRef>& txs,
+                                        int height = -1) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
 private:
     /** Write the state to m_path, if there is one. */

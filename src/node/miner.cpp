@@ -187,7 +187,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     chainman.m_drivechain_miner.Prune(m_chainstate.m_scdb, pindexPrev->nHeight + 1, history);
     const auto additions_for{[&](const std::vector<CTransactionRef>& txs) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         return chainman.m_drivechain_miner.CreateBlockAdditions(m_chainstate.m_scdb, chainparams.GetConsensus().drivechain,
-                                                                pindexPrev->GetBlockHash(), txs);
+                                                                pindexPrev->GetBlockHash(), txs, pindexPrev->nHeight + 1);
     }};
     const auto block_txs{[&] { return std::vector<CTransactionRef>{pblock->vtx.begin() + 1, pblock->vtx.end()}; }};
 
@@ -355,7 +355,7 @@ bool BlockAssembler::TestChunkBlockLimits(int64_t chunk_weight, int64_t chunk_si
 bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>& txs) const
 {
     for (const auto tx : txs) {
-        if (!IsFinalTx(tx.get().GetTx(), nHeight, m_lock_time_cutoff)) {
+        if (!IsFinalTx(tx.get().GetTx(), nHeight, m_lock_time_cutoff, chainparams.GetConsensus().replay_locktime)) {
             return false;
         }
         // Skipping the chunk skips the rest of its cluster, so the transactions that depend on the

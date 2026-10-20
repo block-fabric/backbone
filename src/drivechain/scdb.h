@@ -244,6 +244,8 @@ public:
         const auto it{m_closed.find({id, bundle_hash})};
         return it == m_closed.end() ? std::nullopt : std::optional<ClosedBundle>{it->second};
     }
+    /** The height of the last payout of the sidechain in `id` that is remembered, if any. */
+    std::optional<int> LastPayoutHeight(SidechainId id) const;
     /** Number of bundles remembered as paid out or failed. */
     size_t ClosedCount() const { return m_closed.size(); }
 
@@ -290,7 +292,24 @@ public:
 
     friend bool operator==(const SidechainDB&, const SidechainDB&) = default;
 
+    /** Score at which the enforcer's rules stop counting upvotes (its u16 vote count). */
+    static constexpr uint32_t ENFORCER_MAX_SCORE{0xFFFF};
+
 private:
+    /**
+     * ConnectBlock under the rules of the bip300301_enforcer (DrivechainParams::RULES_ENFORCER, the eCash
+     * networks), as of its commit 17eb2ce, the one betanet runs (lib/validator/task/mod.rs connect_block):
+     * the coinbase messages one after the other in output order, each seeing what those before it did;
+     * then the proposals and bundles that ran out of time; then the transactions.
+     */
+    [[nodiscard]] bool ConnectBlockEnforcer(const CBlock& block, int height, const Consensus::DrivechainParams& params,
+                                            BlockUndo& undo, std::vector<Deposit>* deposits, std::string& reject_reason);
+    /** ConnectTx under the enforcer's rules (handle_m5_m6): deposits to several sidechains at once, and so on. */
+    [[nodiscard]] bool ConnectTxEnforcer(const CTransaction& tx, const Consensus::DrivechainParams& params, EscrowOutputs& escrow_outputs,
+                                         BlockUndo& undo, std::vector<Deposit>* deposits, std::string& reject_reason, int height);
+    /** Upvote (or, with no bundle, downvote: the enforcer's alarm) the bundles of a sidechain, saving the change. */
+    void ApplyVote(SidechainId id, Slot& slot, const Vote& vote, int height, BlockUndo& undo);
+
     /** Remember the value of a slot before its first change in a block. */
     BlockUndo::SlotUndo& SaveSlot(SidechainId id, BlockUndo& undo) const;
     void EraseBundle(Slot& slot, SidechainId id, size_t index, BlockUndo& undo);

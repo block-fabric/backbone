@@ -368,10 +368,24 @@ bool MinerState::WasClosed(SidechainId slot, const uint256& hash) const
 }
 
 BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const Consensus::DrivechainParams& params,
-                                                const uint256& prev_block_hash, const std::vector<CTransactionRef>& txs) const
+                                                const uint256& prev_block_hash, const std::vector<CTransactionRef>& txs,
+                                                int height) const
 {
     BlockAdditions additions;
     const auto add_message = [&](const CScript& script) { additions.coinbase_outputs.emplace_back(0, script); };
+    // Below the activation height there are no drivechain rules, and nothing to add.
+    if (height >= 0 && height < params.activation_height) return additions;
+    const bool enforcer{params.EnforcerRules()};
+    // Enforcer's rules: a bundle paid out before (proposed again since), or one pending when another bundle
+    // of its sidechain was paid out (a copy a reorg of the sidechain left behind, with the same withdrawals),
+    // is one consensus would still pay; this node never helps it (Chains' single payout and closed bundle
+    // memory, as policy).
+    const auto dead{[&](SidechainId slot, const Bundle& bundle) {
+        if (!enforcer) return false;
+        if (scdb.WasPaid(slot, bundle.hash) == true) return true;
+        const auto last_payout{scdb.LastPayoutHeight(slot)};
+        return last_payout && bundle.height <= *last_payout;
+    }};
 
     // M1: one proposal per block.
     for (const Sidechain& sidechain : GetProposals()) {
@@ -398,7 +412,11 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
     bool any_vote{false};
     std::map<SidechainId, Vote> block_votes;
     for (const auto& [slot, bundles] : scdb.GetPendingBundles()) {
-        const Vote vote{ResolveVote(slot, bundles)};
+        Vote vote{ResolveVote(slot, bundles)};
+        if (vote.type == Vote::Type::UPVOTE) {
+            const auto target{std::find_if(bundles.begin(), bundles.end(), [&](const Bundle& b) { return b.hash == vote.bundle; })};
+            if (target != bundles.end() && (dead(slot, *target) || (enforcer && target->score >= SidechainDB::ENFORCER_MAX_SCORE))) vote.type = Vote::Type::ABSTAIN;
+        }
         uint16_t entry{VOTE_ABSTAIN};
         if (vote.type == Vote::Type::DOWNVOTE) {
             entry = VOTE_DOWNVOTE;
@@ -427,6 +445,8 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
         if (const auto vouched{Vouched(slot)}; vouched && *vouched != hash) continue;
         if (scdb.IsClosed(slot, hash) || WasClosed(slot, hash)) continue;
         if (std::any_of(state->bundles.begin(), state->bundles.end(), [&](const Bundle& b) { return b.hash == hash; })) continue;
+        // Enforcer's rules: no queue cap in consensus, nor a bundle pushed out; as policy, no bundle to a full queue.
+        if (enforcer && state->bundles.size() >= params.max_pending_bundles) continue;
         if (state->bundles.size() >= params.max_pending_bundles) {
             // The block's votes count before its new bundles: the queue makes room only if its
             // weakest bundle is still weak enough after this node's own vote.
@@ -446,7 +466,14 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
         add_message(BundleScript(slot, hash));
         proposed_slots.insert(slot);
     }
-    if (vote_script) add_message(*vote_script);
+    if (vote_script) {
+        if (enforcer) {
+            // First: the enforcer reads the messages in order, and the votes refer to the bundles before the block.
+            additions.coinbase_outputs.emplace(additions.coinbase_outputs.begin(), 0, *vote_script);
+        } else {
+            add_message(*vote_script);
+        }
+    }
 
     // Follow the escrow outputs through the transactions of the block: a
     // withdrawal spends the escrow output as the deposits of the block leave it.
@@ -472,7 +499,20 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
     // M6: pay out the bundles that have the work score.
     for (const auto& [slot, state] : scdb.GetSlots()) {
         for (const Bundle& bundle : state.bundles) {
-            if (bundle.score < static_cast<uint32_t>(params.withdrawal_min_score)) continue;
+            if (enforcer) {
+                // The votes of the block count before its transactions, and bundles out of time fail before them.
+                uint32_t score{bundle.score};
+                if (const auto vote{block_votes.find(slot)}; vote != block_votes.end()) {
+                    if (vote->second.type == Vote::Type::UPVOTE && vote->second.bundle == bundle.hash) {
+                        ++score;
+                    } else if (score > 0) {
+                        --score;
+                    }
+                }
+                if (score <= static_cast<uint32_t>(params.bundle_threshold)) continue;
+                if (height >= 0 && height - bundle.height > params.bundle_max_age) continue;
+                if (dead(slot, bundle)) continue;
+            } else if (bundle.score < static_cast<uint32_t>(params.withdrawal_min_score)) continue;
             const auto blind_tx{GetBundle(slot, bundle.hash)};
             if (!blind_tx) continue;
             const Slot* current{after.GetSlot(slot)};

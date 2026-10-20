@@ -10,6 +10,9 @@
 #include <script/script.h>
 
 #include <algorithm>
+#include <map>
+#include <set>
+#include <tuple>
 #include <limits>
 #include <optional>
 
@@ -25,11 +28,16 @@ int Age(int proposed_height, int height) { return height - proposed_height + 1; 
 uint256 ParamsFingerprint(const Consensus::DrivechainParams& params)
 {
     // Every field: a parameter added later has to be added here as well.
-    static_assert(sizeof(Consensus::DrivechainParams) == 11 * sizeof(int32_t), "a new drivechain parameter goes into the fingerprint");
+    static_assert(sizeof(Consensus::DrivechainParams) == 19 * sizeof(int32_t), "a new drivechain parameter goes into the fingerprint");
     HashWriter hasher{};
     hasher << std::string{"Chains drivechain parameters"} << params.max_sidechains << params.activation_period << params.activation_max_failures
            << params.replacement_period << params.withdrawal_period << params.withdrawal_min_score << params.max_pending_bundles
            << params.idle_expiry_blocks << params.upvote_expiry_blocks << params.unvoted_forget_blocks << params.canonical_votes_height;
+    // The fields of the enforcer's rules, where they apply (the Chains networks keep the fingerprint they had).
+    if (params.rules != Consensus::DrivechainParams::RULES_CHAINS || params.activation_height != 0) {
+        hasher << params.rules << params.activation_height << params.unused_slot_threshold << params.unused_slot_max_age
+               << params.used_slot_threshold << params.used_slot_max_age << params.bundle_threshold << params.bundle_max_age;
+    }
     return hasher.GetHash();
 }
 
@@ -68,6 +76,15 @@ std::vector<Bundle>::const_iterator SidechainDB::WeakestBundle(const std::vector
 {
     // The lowest score, and of those the oldest: the first in the list, which is oldest first.
     return std::min_element(bundles.begin(), bundles.end(), [](const Bundle& a, const Bundle& b) { return a.score < b.score; });
+}
+
+std::optional<int> SidechainDB::LastPayoutHeight(SidechainId id) const
+{
+    std::optional<int> last;
+    for (auto it{m_closed.lower_bound({id, uint256{}})}; it != m_closed.end() && it->first.first == id; ++it) {
+        if (it->second.paid && (!last || it->second.height > *last)) last = it->second.height;
+    }
+    return last;
 }
 
 SidechainDB::PendingBundles SidechainDB::GetPendingBundles() const
@@ -185,6 +202,13 @@ SidechainDB::EscrowOutputs SidechainDB::GetEscrowOutputs() const
 bool SidechainDB::ConnectTx(const CTransaction& tx, const Consensus::DrivechainParams& params, EscrowOutputs& escrow_outputs,
                             BlockUndo& undo, std::optional<Deposit>* deposit, std::string& reject_reason, int height)
 {
+    if (params.EnforcerRules()) {
+        std::vector<Deposit> found;
+        if (!ConnectTxEnforcer(tx, params, escrow_outputs, undo, deposit ? &found : nullptr, reject_reason, height)) return false;
+        if (deposit && !found.empty()) *deposit = found.front();
+        return true;
+    }
+
     const auto invalid = [&](const char* reason) {
         reject_reason = reason;
         return false;
@@ -297,6 +321,15 @@ bool SidechainDB::ConnectBlock(const CBlock& block, int height, const Consensus:
 
     if (block.vtx.empty() || !block.vtx[0]->IsCoinBase()) return invalid("bad-dc-no-coinbase");
     const uint256 block_hash{block.GetHash()};
+
+    // Below the activation height the drivechain rules do not apply (on eCash, the history before the
+    // fork, which is Bitcoin's): nothing is read, nothing changes.
+    if (height < params.activation_height) {
+        m_last_votes.clear();
+        m_block_hash = block_hash;
+        return true;
+    }
+    if (params.EnforcerRules()) return ConnectBlockEnforcer(block, height, params, undo, deposits, reject_reason);
 
     //
     // Read the messages in the coinbase. Messages for slots this software does
@@ -576,6 +609,364 @@ bool SidechainDB::ConnectBlock(const CBlock& block, int height, const Consensus:
         change.type = BlockUndo::BundleChange::Type::APPEND;
         change.id = id;
         undo.proposed.emplace_back(id, hash);
+    }
+
+    ForgetFailedBundles(height, params, undo);
+
+    m_block_hash = block_hash;
+    return true;
+}
+
+void SidechainDB::ApplyVote(SidechainId id, Slot& slot, const Vote& vote, int height, BlockUndo& undo)
+{
+    BlockUndo::BundleChange& change{undo.bundle_changes.emplace_back()};
+    change.type = BlockUndo::BundleChange::Type::VOTE;
+    change.id = id;
+    for (size_t i{0}; i < slot.bundles.size(); ++i) {
+        Bundle& bundle{slot.bundles[i]};
+        if (vote.type == Vote::Type::UPVOTE && bundle.hash == vote.bundle) {
+            change.upvoted = static_cast<uint32_t>(i);
+            change.last_upvote = bundle.last_upvote;
+            change.saturated = false;
+            ++bundle.score;
+            bundle.last_upvote = height;
+        } else if (bundle.score > 0) {
+            --bundle.score;
+        } else {
+            change.at_zero.push_back(static_cast<uint32_t>(i));
+        }
+    }
+}
+
+bool SidechainDB::ConnectTxEnforcer(const CTransaction& tx, const Consensus::DrivechainParams& params, EscrowOutputs& escrow_outputs,
+                                    BlockUndo& undo, std::vector<Deposit>* deposits, std::string& reject_reason, int height)
+{
+    const auto invalid = [&](const char* reason) {
+        reject_reason = reason;
+        return false;
+    };
+
+    // The treasury outputs this transaction spends (the current one of each sidechain, ctip_spends).
+    std::map<SidechainId, CAmount> spent;
+    for (const CTxIn& in : tx.vin) {
+        const auto it{escrow_outputs.find(in.prevout)};
+        if (it == escrow_outputs.end()) continue;
+        spent.emplace(it->second, m_slots.at(it->second).ctip.amount);
+    }
+    // The new ones: a treasury script for an active sidechain. For a slot without one it is an
+    // ordinary output (anyone can spend it).
+    std::map<SidechainId, uint32_t> created;
+    for (uint32_t i{0}; i < tx.vout.size(); ++i) {
+        const auto slot{ParseEscrowScript(tx.vout[i].scriptPubKey)};
+        if (!slot || !IsActive(*slot)) continue;
+        if (!created.emplace(*slot, i).second) return invalid("bad-dc-multiple-escrow-outputs");
+    }
+    // A treasury output is spent only by a transaction that makes the next one (TreasurySpentWithoutNewCtip).
+    for (const auto& [slot, amount] : spent) {
+        if (!created.contains(slot)) return invalid("bad-dc-escrow-spend");
+    }
+    if (created.empty()) return true;
+
+    // Each new treasury output is a deposit (more than before) or a withdrawal (less); not both kinds
+    // in one transaction, and one withdrawal at most.
+    bool any_deposit{false};
+    bool any_withdrawal{false};
+    std::vector<Deposit> found;
+    for (const auto& [id, vout] : created) {
+        Slot& slot{m_slots.at(id)};
+        CAmount old_amount{0};
+        if (slot.has_ctip) {
+            const auto it{spent.find(id)};
+            if (it == spent.end()) return invalid("bad-dc-escrow-unspent");
+            old_amount = it->second;
+        }
+        const CAmount new_amount{tx.vout[vout].nValue};
+        Deposit deposit;
+        deposit.slot = id;
+        deposit.burn_index = vout;
+        deposit.total = new_amount;
+        if (new_amount < old_amount) {
+            // Withdrawal (M6): the treasury output its only input, the new one output 0, and a bundle
+            // pending with more votes than the threshold.
+            if (tx.vin.size() != 1) return invalid("bad-dc-withdrawal-inputs");
+            if (vout != 0) return invalid("bad-dc-withdrawal-outputs");
+            const auto blind_hash{BlindWithdrawalHash(tx, old_amount)};
+            if (!blind_hash) return invalid("bad-dc-withdrawal-amount");
+            const auto bundle{std::find_if(slot.bundles.begin(), slot.bundles.end(), [&](const Bundle& b) { return b.hash == *blind_hash; })};
+            if (bundle == slot.bundles.end()) return invalid("bad-dc-withdrawal-unknown");
+            if (bundle->score <= static_cast<uint32_t>(params.bundle_threshold)) return invalid("bad-dc-withdrawal-score");
+            if (any_deposit || any_withdrawal) return invalid("bad-dc-withdrawal-outputs");
+            any_withdrawal = true;
+            // Only the bundle paid leaves the pending list (no single payout under these rules: the
+            // block template keeps that as policy, see MinerState::CreateBlockAdditions).
+            SaveSlot(id, undo);
+            CloseBundle(id, *bundle, /*paid=*/true, height, undo);
+            EraseBundle(slot, id, bundle - slot.bundles.begin(), undo);
+            deposit.destination = WITHDRAWAL_RETURN_DEST;
+            deposit.bundle = *blind_hash;
+        } else if (new_amount > old_amount) {
+            // Deposit (M5): OP_RETURN <destination> right after the treasury output, any destination.
+            std::optional<std::string> dest;
+            if (vout + 1 < tx.vout.size()) dest = ParseDestinationScript(tx.vout[vout + 1].scriptPubKey);
+            if (!dest) return invalid("bad-dc-deposit-destination");
+            if (any_withdrawal) return invalid("bad-dc-withdrawal-outputs");
+            any_deposit = true;
+            deposit.destination = *dest;
+            deposit.amount = new_amount - old_amount;
+        } else {
+            return invalid("bad-dc-escrow-amount");
+        }
+        found.push_back(std::move(deposit));
+    }
+    for (const Deposit& deposit : found) {
+        Slot& slot{m_slots.at(deposit.slot)};
+        SaveSlot(deposit.slot, undo);
+        if (slot.has_ctip) escrow_outputs.erase(slot.ctip.outpoint);
+        slot.has_ctip = true;
+        slot.ctip.outpoint = COutPoint{tx.GetHash(), deposit.burn_index};
+        slot.ctip.amount = deposit.total;
+        escrow_outputs.emplace(slot.ctip.outpoint, deposit.slot);
+    }
+    if (deposits) deposits->insert(deposits->end(), found.begin(), found.end());
+    return true;
+}
+
+bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Consensus::DrivechainParams& params,
+                                       BlockUndo& undo, std::vector<Deposit>* deposits, std::string& reject_reason)
+{
+    const auto invalid = [&](const char* reason) {
+        reject_reason = reason;
+        return false;
+    };
+    const uint256 block_hash{block.GetHash()};
+    const auto age{[&](int proposed_height) { return std::max(0, height - proposed_height); }};
+
+    //
+    // The coinbase messages, in output order (CoinbaseMessages): a script that does not parse as one is
+    // an ordinary output. Two proposals of the same sidechain, two acks for a slot, two vote messages
+    // or two BMM accepts for a slot make the block invalid.
+    //
+    struct Message {
+        enum class Kind { PROPOSAL, ACK, BUNDLE, VOTES, BMM_ACCEPT } kind;
+        Sidechain sidechain;
+        SidechainId slot{0};
+        uint256 hash;
+        VoteMessage votes;
+    };
+    std::vector<Message> messages;
+    {
+        std::set<std::pair<SidechainId, uint256>> proposals_seen;
+        std::set<SidechainId> acks_seen, accepts_seen;
+        bool votes_seen{false};
+        for (const CTxOut& out : block.vtx[0]->vout) {
+            const CScript& script{out.scriptPubKey};
+            if (script.empty() || script[0] != OP_RETURN) continue;
+            Message message;
+            if (auto proposal{ParseProposalScriptAnyDescription(script)}) {
+                message.kind = Message::Kind::PROPOSAL;
+                message.hash = proposal->GetHash();
+                message.slot = proposal->slot;
+                if (!proposals_seen.emplace(message.slot, message.hash).second) return invalid("bad-dc-duplicate-proposal");
+                message.sidechain = std::move(*proposal);
+            } else if (const auto ack{ParseAckScript(script)}) {
+                message.kind = Message::Kind::ACK;
+                std::tie(message.slot, message.hash) = *ack;
+                if (!acks_seen.insert(message.slot).second) return invalid("bad-dc-multiple-acks");
+            } else if (const auto bundle{ParseBundleScript(script)}) {
+                message.kind = Message::Kind::BUNDLE;
+                std::tie(message.slot, message.hash) = *bundle;
+            } else if (const auto votes{ParseVoteScript(script)}) {
+                message.kind = Message::Kind::VOTES;
+                if (votes_seen) return invalid("bad-dc-multiple-votes");
+                votes_seen = true;
+                message.votes = *votes;
+            } else if (const auto accept{ParseBmmAcceptScript(script)}) {
+                message.kind = Message::Kind::BMM_ACCEPT;
+                std::tie(message.slot, message.hash) = *accept;
+                if (!accepts_seen.insert(message.slot).second) return invalid("bad-dc-multiple-bmm-accepts");
+            } else {
+                continue;
+            }
+            messages.push_back(std::move(message));
+        }
+    }
+
+    std::map<SidechainId, uint256> bmm_accepts;
+    std::map<SidechainId, Vote> block_votes;
+    for (const Message& message : messages) {
+        switch (message.kind) {
+        case Message::Kind::PROPOSAL: {
+            // M1: a proposal that is already collecting acks is not made again (which would reset them).
+            if (GetProposal(message.slot, message.hash)) break;
+            Proposal proposal;
+            proposal.sidechain = message.sidechain;
+            proposal.hash = message.hash;
+            proposal.height = height;
+            m_proposals.push_back(std::move(proposal));
+            ++undo.proposals_added;
+            break;
+        }
+        case Message::Kind::ACK: {
+            // M2: an ack of nothing proposed, or of a proposal of this very block, is ignored.
+            const auto it{std::find_if(m_proposals.begin(), m_proposals.end(), [&](const Proposal& p) { return p.sidechain.slot == message.slot && p.hash == message.hash; })};
+            if (it == m_proposals.end() || it->height == height) break;
+            ++it->acks;
+            undo.acked.emplace_back(message.slot, message.hash);
+            // The ack that takes a proposal over the threshold, within its time, activates it: into an
+            // empty slot, or in place of the sidechain of the slot, which keeps its treasury and its bundles.
+            const bool used{IsActive(message.slot)};
+            const bool activated{used ? (it->acks > static_cast<uint32_t>(params.used_slot_threshold) && age(it->height) <= params.used_slot_max_age)
+                                      : (it->acks > static_cast<uint32_t>(params.unused_slot_threshold) && age(it->height) <= params.unused_slot_max_age)};
+            if (!activated) break;
+            BlockUndo::SlotUndo& saved{SaveSlot(message.slot, undo)};
+            Slot& slot{m_slots[message.slot]};
+            if (saved.existed && !saved.sidechain) saved.sidechain = slot.sidechain;
+            slot.sidechain = it->sidechain;
+            slot.activation_height = height;
+            RemoveProposal(it - m_proposals.begin(), undo);
+            break;
+        }
+        case Message::Kind::BUNDLE: {
+            // M3: for an active sidechain only, and not a bundle already pending; any number per slot.
+            const auto it{m_slots.find(message.slot)};
+            if (it == m_slots.end()) return invalid("bad-dc-bundle-inactive-sidechain");
+            Slot& slot{it->second};
+            if (std::any_of(slot.bundles.begin(), slot.bundles.end(), [&](const Bundle& b) { return b.hash == message.hash; })) return invalid("bad-dc-bundle-known");
+            Bundle bundle;
+            bundle.hash = message.hash;
+            bundle.height = height;
+            bundle.score = NEW_BUNDLE_SCORE;
+            bundle.last_upvote = height;
+            slot.bundles.push_back(bundle);
+            BlockUndo::BundleChange& change{undo.bundle_changes.emplace_back()};
+            change.type = BlockUndo::BundleChange::Type::APPEND;
+            change.id = message.slot;
+            undo.proposed.emplace_back(message.slot, message.hash);
+            break;
+        }
+        case Message::Kind::VOTES: {
+            // M4, on the bundles as the messages before it left them.
+            const VoteMessage& votes{message.votes};
+            const auto positive{[](const Slot& slot) { return std::any_of(slot.bundles.begin(), slot.bundles.end(), [](const Bundle& b) { return b.score > 0; }); }};
+            switch (votes.form) {
+            case VoteForm::REPEAT_PREVIOUS:
+                // What the previous block did, again, against the bundles as they are now.
+                for (const auto& [id, vote] : m_last_votes) {
+                    const auto it{m_slots.find(id)};
+                    if (it == m_slots.end()) continue;
+                    if (vote.type == Vote::Type::UPVOTE) {
+                        const auto bundle{std::find_if(it->second.bundles.begin(), it->second.bundles.end(), [&](const Bundle& b) { return b.hash == vote.bundle; })};
+                        if (bundle == it->second.bundles.end() || bundle->score >= ENFORCER_MAX_SCORE) continue;
+                        block_votes[id] = vote;
+                    } else if (vote.type == Vote::Type::DOWNVOTE && positive(it->second)) {
+                        block_votes[id] = vote;
+                    }
+                }
+                break;
+            case VoteForm::LEADING_BY_50:
+                for (const auto& [id, slot] : m_slots) {
+                    const Bundle* leader{nullptr};
+                    uint32_t second{0};
+                    for (const Bundle& bundle : slot.bundles) {
+                        if (!leader || bundle.score > leader->score) {
+                            if (leader) second = std::max(second, leader->score);
+                            leader = &bundle;
+                        } else {
+                            second = std::max(second, bundle.score);
+                        }
+                    }
+                    if (!leader || leader->score < second + LEADING_BY_50_MARGIN || leader->score >= ENFORCER_MAX_SCORE) continue;
+                    Vote vote;
+                    vote.type = Vote::Type::UPVOTE;
+                    vote.bundle = leader->hash;
+                    block_votes[id] = vote;
+                }
+                break;
+            case VoteForm::ONE_BYTE:
+            case VoteForm::TWO_BYTES: {
+                // The two byte form only if some value does not fit in one (an ABSTAIN or an alarm counts).
+                if (votes.form == VoteForm::TWO_BYTES &&
+                    std::all_of(votes.votes.begin(), votes.votes.end(), [](uint16_t v) { return v <= VOTE_MAX_ONE_BYTE_INDEX; })) {
+                    return invalid("bad-dc-votes-form");
+                }
+                if (votes.votes.size() != m_slots.size()) return invalid("bad-dc-votes-size");
+                size_t i{0};
+                for (const auto& [id, slot] : m_slots) {
+                    const uint16_t entry{votes.votes[i++]};
+                    if (entry == VOTE_ABSTAIN) continue;
+                    Vote vote;
+                    if (entry == VOTE_DOWNVOTE) {
+                        if (!positive(slot)) continue;
+                        vote.type = Vote::Type::DOWNVOTE;
+                    } else {
+                        if (entry >= slot.bundles.size()) return invalid("bad-dc-votes-index");
+                        if (slot.bundles[entry].score >= ENFORCER_MAX_SCORE) continue;
+                        vote.type = Vote::Type::UPVOTE;
+                        vote.bundle = slot.bundles[entry].hash;
+                    }
+                    block_votes[id] = vote;
+                }
+                break;
+            }
+            }
+            for (const auto& [id, vote] : block_votes) ApplyVote(id, m_slots.at(id), vote, height, undo);
+            break;
+        }
+        case Message::Kind::BMM_ACCEPT:
+            // M7, for any slot.
+            bmm_accepts.emplace(message.slot, message.hash);
+            break;
+        }
+    }
+    // What a REPEAT_PREVIOUS of the next block repeats: what this block's votes did.
+    m_last_votes = block_votes;
+
+    // Proposals that can no longer activate: too old, or with too many blocks without an ack left.
+    for (size_t i{0}; i < m_proposals.size();) {
+        const Proposal& proposal{m_proposals[i]};
+        const bool used{IsActive(proposal.sidechain.slot)};
+        const int max_age{used ? params.used_slot_max_age : params.unused_slot_max_age};
+        const int threshold{used ? params.used_slot_threshold : params.unused_slot_threshold};
+        const int max_fails{std::max(0, max_age - threshold)};
+        const int proposal_age{age(proposal.height)};
+        const int fails{std::max(0, proposal_age - static_cast<int>(proposal.acks))};
+        if (proposal_age > max_age || (proposal_age > max_fails && fails >= max_fails)) {
+            RemoveProposal(i, undo);
+        } else {
+            ++i;
+        }
+    }
+    // Bundles older than their time fail.
+    for (auto& [id, slot] : m_slots) {
+        for (size_t i{slot.bundles.size()}; i-- > 0;) {
+            if (age(slot.bundles[i].height) <= params.bundle_max_age) continue;
+            CloseBundle(id, slot.bundles[i], /*paid=*/false, height, undo);
+            EraseBundle(slot, id, i, undo);
+        }
+    }
+
+    //
+    // Transactions: deposits (M5), withdrawals (M6) and BMM requests (M8), in block order.
+    //
+    EscrowOutputs escrow_outputs{GetEscrowOutputs()};
+    std::set<SidechainId> bmm_requested;
+    for (size_t tx_index{1}; tx_index < block.vtx.size(); ++tx_index) {
+        const CTransaction& tx{*block.vtx[tx_index]};
+        std::vector<Deposit> found;
+        if (!ConnectTxEnforcer(tx, params, escrow_outputs, undo, deposits ? &found : nullptr, reject_reason, height)) return false;
+        for (const BmmRequest& request : GetBmmRequests(tx)) {
+            // A request is good for one block, built on the block it names, whose miner accepted it.
+            const auto accept{bmm_accepts.find(request.slot)};
+            if (accept == bmm_accepts.end() || accept->second != request.side_block_hash) return invalid("bad-dc-bmm-not-accepted");
+            if (request.prev_main_block_hash != block.hashPrevBlock) return invalid("bad-dc-bmm-prev-block");
+            if (!bmm_requested.insert(request.slot).second) return invalid("bad-dc-multiple-bmm-requests");
+        }
+        for (Deposit& deposit : found) {
+            deposit.tx = block.vtx[tx_index];
+            deposit.tx_index = static_cast<uint32_t>(tx_index);
+            deposit.block_hash = block_hash;
+            deposits->push_back(std::move(deposit));
+        }
     }
 
     ForgetFailedBundles(height, params, undo);
