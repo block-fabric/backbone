@@ -4,6 +4,7 @@
   // a row of a module opens that module's own Transactions, where its details and actions are.
   import { t } from '../lib/i18n.svelte';
   import SafeText from './SafeText.svelte';
+  import ModuleAmount from './ModuleAmount.svelte';
   import { formatTime } from '../lib/format';
   import { hub, sidechainHost } from '../lib/sidechains.svelte';
   import { chainTxs, mergeChainTxs, modules, moduleName, openModule, productName, type ChainTx } from '../lib/modules.svelte';
@@ -71,7 +72,7 @@
           <td>{formatTime(r.time)}</td>
           <td><SafeText text={r.category} /></td>
           <td class="addr" translate="no"><SafeText text={r.label || r.address || r.txid.slice(0, 16) + '…'} /></td>
-          <td class="num amt" class:neg={r.amount < 0} translate="no">{r.amount > 0 ? '+' : ''}{r.amount.toFixed(8)}</td>
+          <td class="num amt" class:neg={r.amount < 0} translate="no"><ModuleAmount text={r.amount.toFixed(8)} plus /></td>
         </tr>
       {:else}
         <tr><td colspan="5" class="muted">{loading ? t('Loading…') : t('No transactions yet')}</td></tr>

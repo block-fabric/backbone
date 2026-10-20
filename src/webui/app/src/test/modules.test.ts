@@ -2,7 +2,7 @@
 // sidebar, the messages of a module's frame (checked), back and forward, the palette, the combined views (portfolio,
 // every chain's transactions, the chain of a send, the status bar), the download step of the enable wizard.
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import Sidebar from '../components/Sidebar.svelte';
 import StatusBar from '../components/StatusBar.svelte';
 import Portfolio from '../components/Portfolio.svelte';
@@ -28,7 +28,10 @@ import {
   modules,
   moduleRoute,
   NODE_PAGE,
+  openChains,
   openModule,
+  clearModal,
+  MODAL_MAX_MS,
   parseManifest,
   parseSummary,
   portfolioRows,
@@ -227,8 +230,9 @@ describe('what a module\'s frame says is checked', () => {
     expect(say('notice', { kind: 'tx', wallet: 'main', txid: 'ab'.repeat(32) })).toBe(true);
     expect(say('notice', { kind: 'tx', wallet: 'main', txid: 'ab'.repeat(32) })).toBe(false);
     expect(say('unknown', {})).toBe(false);
-    expect(say('modal', { open: true })).toBe(true);
-    expect(modules.modal.layers).toBe(true);
+    // Not shown: it cannot dim the app.
+    expect(say('modal', { open: true })).toBe(false);
+    expect(modules.modal.layers).toBeFalsy();
   });
 });
 
@@ -310,11 +314,64 @@ describe('back and forward are the app\'s', () => {
 
   it('takes the app\'s shortcuts pressed in a frame: the palette, back, a page of the module', () => {
     say('manifest', MANIFEST);
+    modules.info.layers = { stem: 'layers', pack: packs.list[0], running: true, compatible: true, reason: '' };
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     openModule('layers', 'home');
     expect(say('key', { key: 'k', ctrl: true })).toBe(true);
     expect(palette.open).toBe(true);
     expect(say('key', { key: '9', alt: true })).toBe(true);
     expect(moduleRoute('layers').page).toBe('trade');
+  });
+
+  it('never lets a frame quit, minimize, toggle the mask or the sidebar; only the module shown, in focus, a few a second', () => {
+    say('manifest', MANIFEST);
+    modules.info.layers = { stem: 'layers', pack: packs.list[0], running: true, compatible: true, reason: '' };
+    const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    openModule('layers', 'home');
+    const before = { mask: prefs.mask, collapsed: prefs.sidebarCollapsed, font: prefs.fontAdjust };
+    for (const k of [{ key: 'q', ctrl: true }, { key: 'm', ctrl: true }, { key: 'M', ctrl: true, shift: true }, { key: 'b', ctrl: true }, { key: 'w', ctrl: true }, { key: '+', ctrl: true }, { key: 'Escape' }]) {
+      expect(say('key', k)).toBe(false);
+    }
+    expect(calls.some((c) => c.method === 'app.quit' || c.method === 'window.minimize')).toBe(false);
+    expect({ mask: prefs.mask, collapsed: prefs.sidebarCollapsed, font: prefs.fontAdjust }).toEqual(before);
+    // The window not in focus: nothing.
+    focus.mockReturnValue(false);
+    expect(say('key', { key: '9', alt: true })).toBe(false);
+    focus.mockReturnValue(true);
+    // Not the module shown: nothing.
+    openChains('home');
+    expect(say('key', { key: 'k', ctrl: true })).toBe(false);
+    openModule('layers', 'home');
+    // A flood: cut.
+    let taken = 0;
+    for (let i = 0; i < 30; i++) if (say('key', { key: '9', alt: true })) taken++;
+    expect(taken).toBeLessThanOrEqual(8);
+    focus.mockRestore();
+  });
+
+  it('a dim of the module shown lifts on a click, on Escape, when leaving it, and after a while; never elsewhere', async () => {
+    modules.info.layers = { stem: 'layers', pack: packs.list[0], running: true, compatible: true, reason: '' };
+    openModule('layers', 'home');
+    expect(say('modal', { open: true })).toBe(true);
+    expect(modules.modal.layers).toBe(true);
+    // Leaving the module lifts it (Shell does it on the move; here the call it makes).
+    clearModal('layers');
+    expect(modules.modal.layers).toBe(false);
+    // A click on the dim: lifted, and refused again for a few seconds.
+    say('modal', { open: true });
+    clearModal('layers', 3000);
+    expect(say('modal', { open: true })).toBe(false);
+    // At most MODAL_MAX_MS.
+    vi.useFakeTimers();
+    try {
+      clearModal('layers');
+      vi.setSystemTime(Date.now() + 5000);
+      expect(say('modal', { open: true })).toBe(true);
+      vi.advanceTimersByTime(MODAL_MAX_MS + 1);
+      expect(modules.modal.layers).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('puts the modules and their pages in the palette, named after them', () => {
@@ -340,6 +397,28 @@ describe('the views across modules', () => {
     await fireEvent.click(document.querySelector('[data-portfolio-row="layers"] .link') as HTMLElement);
     expect(activeModule()).toBe('layers');
     expect(moduleRoute('layers').page).toBe('home');
+  });
+
+  it('hides a module\'s amounts in privacy mode, as the app\'s own', async () => {
+    say('summary', { wallet: 'main', trusted: '3.00000000', pending: '0.10000000', assets: [{ name: 'GOLD', amount: '12' }] });
+    prefs.mask = true;
+    try {
+      render(Portfolio);
+      await waitFor(() => expect(document.querySelector('[data-portfolio-row="layers"]')).toBeTruthy());
+      const row = document.querySelector('[data-portfolio-row="layers"]')!;
+      expect(row.textContent).not.toContain('3.00000000');
+      expect(row.textContent).not.toContain('12');
+      expect(row.textContent).toContain('••••••');
+      openModule('layers', 'home');
+      render(Sidebar);
+      await waitFor(() => expect(document.querySelector('[data-field="module-balance"]')).toBeTruthy());
+      expect(document.querySelector('[data-field="module-balance"]')?.textContent).not.toContain('3.0');
+      render(ChainActivity, { chain: 'layers' });
+      await waitFor(() => expect(document.querySelector('tr[data-chain-tx="layers"]')).toBeTruthy());
+      expect(document.querySelector('tr[data-chain-tx="layers"]')?.textContent).not.toContain('1.25');
+    } finally {
+      prefs.mask = false;
+    }
   });
 
   it('every chain\'s transactions, newest first, a module\'s read from its node', async () => {

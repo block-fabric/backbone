@@ -327,7 +327,9 @@ export function onModuleMessage(stem: string, type: unknown, data: unknown): boo
       return addModuleNotice(stem, data) !== null;
     case 'modal': {
       const open = !!(data && typeof data === 'object' && (data as { open?: unknown }).open === true);
-      modules.modal[stem] = open;
+      // Only the module shown dims the app, for a while at most; the user can always leave (§13.5 #20).
+      if (open && (stem !== activeModule() || Date.now() < modalRefusedUntil[stem])) return false;
+      setModal(stem, open);
       return true;
     }
     case 'key':
@@ -467,4 +469,24 @@ export function chainTxs(stem: string, name: string, listed: unknown): ChainTx[]
 /** Newest first, every chain together. */
 export function mergeChainTxs(lists: ChainTx[][]): ChainTx[] {
   return lists.flat().sort((a, b) => b.time - a.time || a.chain.localeCompare(b.chain) || a.txid.localeCompare(b.txid));
+}
+
+/** How long a module's pages may dim the app at most; a click on the dim or Escape lifts it at once. */
+export const MODAL_MAX_MS = 5 * 60_000;
+const modalTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+const modalRefusedUntil: Record<string, number> = {};
+
+export function setModal(stem: string, open: boolean): void {
+  clearTimeout(modalTimers[stem]);
+  modules.modal[stem] = open;
+  if (open) modalTimers[stem] = setTimeout(() => clearModal(stem), MODAL_MAX_MS);
+}
+
+/** Lift the dim of a module (a click on it, Escape, leaving the module, its frame loaded again or hidden). */
+export function clearModal(stem?: string, holdMs = 0): void {
+  for (const s of stem ? [stem] : Object.keys(modules.modal)) {
+    clearTimeout(modalTimers[s]);
+    if (modules.modal[s]) modules.modal[s] = false;
+    if (holdMs > 0) modalRefusedUntil[s] = Date.now() + holdMs;
+  }
 }

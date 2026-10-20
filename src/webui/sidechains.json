@@ -5,37 +5,37 @@
     {
       "stem": "layers",
       "repo": "layers",
-      "commit": "49b61e9fa3760d7bf4f7b02dd386d405a6bb7dfe"
+      "commit": "221b5ef9a9a10cfb884e9b3cc2751d1b0942575e"
     },
     {
       "stem": "fastblocks",
       "repo": "fastblocks",
-      "commit": "f918901159672cf588f2162936413825de7a242b"
+      "commit": "90d566b0b4824afc6059d9d243be7e425e153631"
     },
     {
       "stem": "thunder",
       "repo": "thunder",
-      "commit": "a1b8a90eab2835a77e0233fd883d3b583fa9f6aa"
+      "commit": "8debdcf853df4869ec0473d6984717e4c3fa8f60"
     },
     {
       "stem": "bitnames",
       "repo": "bitnames",
-      "commit": "84f7a8fc2ce9f3d0d8feaab96c0ee3ab5667d9cf"
+      "commit": "95ce568299c96a1f10ddcb9b4adde9832ac99581"
     },
     {
       "stem": "bitassets",
       "repo": "bitassets",
-      "commit": "8ca04a1799b646c73443c23ee46b126acbf215d4"
+      "commit": "94822753e5d86463cfeb47997ad9b675506379e7"
     },
     {
       "stem": "zside",
       "repo": "zside",
-      "commit": "3c1e87749c0fad03b5bb037fe3bb89ac606c892e"
+      "commit": "8c327a20e81cbfbd89abfdf2ee6f20b9890ad92d"
     },
     {
       "stem": "hivemind",
       "repo": "hivemind",
-      "commit": "0f8d8d1f30c5cc414b5ddc081ca7ecd1fe3f8777"
+      "commit": "73f4405414f1fcefa963a38bfe7e1eea3d627a67"
     }
   ]
 }

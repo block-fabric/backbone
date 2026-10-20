@@ -10,6 +10,7 @@
   import { t } from '../lib/i18n.svelte';
   import Brand from './Brand.svelte';
   import SafeText from './SafeText.svelte';
+  import ModuleAmount from './ModuleAmount.svelte';
   import Icon from './Icon.svelte';
   import MenuButton from './MenuButton.svelte';
   import WalletPicker from './WalletPicker.svelte';
@@ -101,7 +102,7 @@
         </div>
       </div>
       {#if moduleSummary?.trusted != null}
-        <div class="wc-foot"><span class="num balance" data-field="module-balance"><SafeText text={moduleSummary.trusted} /> <span class="muted"><SafeText text={manifest?.unit ?? ''} /></span></span></div>
+        <div class="wc-foot"><span class="balance" data-field="module-balance"><ModuleAmount text={moduleSummary.trusted} unit={manifest?.unit ?? ''} /></span></div>
       {/if}
     </section>
   {:else if wallets.list.length > 0}

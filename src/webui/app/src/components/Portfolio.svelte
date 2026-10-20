@@ -7,6 +7,7 @@
   import Amount from './Amount.svelte';
   import Icon from './Icon.svelte';
   import SafeText from './SafeText.svelte';
+  import ModuleAmount from './ModuleAmount.svelte';
   import { go } from '../lib/nav.svelte';
   import { wallets } from '../lib/state.svelte';
   import { hub, sidechainHost } from '../lib/sidechains.svelte';
@@ -53,11 +54,11 @@
           <tr data-portfolio-row={r.stem}>
             <td><button type="button" class="link" onclick={() => openModule(r.stem, 'home')}><span class="mark">{r.name.slice(0, 1)}</span> <SafeText text={r.name} /></button> {#if st.tone !== 'ok'}<span class="badge small-badge">{t(st.key, ...st.args)}</span>{/if}</td>
             <td class="muted"><SafeText text={r.wallet || '—'} /></td>
-            <td class="num" data-field="trusted">{#if r.trusted !== null}<SafeText text={r.trusted} /> <span class="muted"><SafeText text={r.unit} /></span>{:else}—{/if}</td>
-            <td class="num">{#if r.pending !== null}<SafeText text={r.pending} />{:else}—{/if}</td>
+            <td class="num" data-field="trusted"><ModuleAmount text={r.trusted} unit={r.unit} /></td>
+            <td class="num"><ModuleAmount text={r.pending} /></td>
             <td>
               {#if r.assets.length}
-                <span class="assets">{#each r.assets.slice(0, 4) as a, i (i)}<span class="asset"><SafeText text={a.amount} /> <SafeText text={a.name} /></span>{/each}{#if r.assets.length > 4}<span class="muted">+{r.assets.length - 4}</span>{/if}</span>
+                <span class="assets">{#each r.assets.slice(0, 4) as a, i (i)}<span class="asset"><ModuleAmount text={a.amount} /> <SafeText text={a.name} /></span>{/each}{#if r.assets.length > 4}<span class="muted">+{r.assets.length - 4}</span>{/if}</span>
               {:else}<span class="muted">—</span>{/if}
             </td>
           </tr>

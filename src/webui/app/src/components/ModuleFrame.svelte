@@ -3,7 +3,7 @@
   // chromeless: no border, the app's look, the size of the main area. The app owns where it is (the sidebar, back and
   // forward): it tells the frame the page to show; the frame tells it where a link of its pages went.
   import { packUrl, registerFrame, tellFrame, tellPhase } from '../lib/packs.svelte';
-  import { currentLook, modules, moduleRoute, NODE_PAGE } from '../lib/modules.svelte';
+  import { clearModal, currentLook, modules, moduleRoute, NODE_PAGE } from '../lib/modules.svelte';
 
   let { stem, name, running, visible, above = false }: { stem: string; name: string; running: boolean; visible: boolean; above?: boolean } = $props();
   let frame: HTMLIFrameElement | undefined = $state();
@@ -18,6 +18,8 @@
 
   function onload() {
     loaded = true;
+    // Loaded again: whatever it said before (a dialog open) is gone with it.
+    clearModal(stem);
     tellFrame(stem, 'look', currentLook());
     const r = modules.routes[stem];
     if (r && r.page !== NODE_PAGE) tellFrame(stem, 'navigate', r);
@@ -29,6 +31,7 @@
 
   // Shown: the page it should be at (the app may have moved while it was hidden), and the keyboard follows.
   $effect(() => {
+    if (!visible) clearModal(stem);
     if (!loaded || !visible) return;
     const r = moduleRoute(stem);
     if (r.page !== NODE_PAGE) tellFrame(stem, 'navigate', r);
