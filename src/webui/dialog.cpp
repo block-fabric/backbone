@@ -81,6 +81,23 @@ std::string_view LevelName(Level level)
     return "warning";
 }
 
+bool IsImageDataUrl(std::string_view value)
+{
+    if (value.size() > MAX_IMAGE_URL) return false;
+    std::string_view data;
+    for (std::string_view prefix : {std::string_view{"data:image/png;base64,"}, std::string_view{"data:image/jpeg;base64,"}}) {
+        if (value.starts_with(prefix)) data = value.substr(prefix.size());
+    }
+    if (data.empty() || data.size() % 4 != 0) return false;
+    for (size_t i{0}; i < data.size(); ++i) {
+        const char c{data[i]};
+        const bool b64{(c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/'};
+        // '=' only as the padding: the last one or two.
+        if (!b64 && !(c == '=' && i + 2 >= data.size() && (i + 1 == data.size() || data[i + 1] == '='))) return false;
+    }
+    return true;
+}
+
 std::string_view RowKindName(Row::Kind kind)
 {
     switch (kind) {
@@ -90,6 +107,7 @@ std::string_view RowKindName(Row::Kind kind)
     case Row::Kind::TOTAL: return "total";
     case Row::Kind::HEADING: return "heading";
     case Row::Kind::NOTE: return "note";
+    case Row::Kind::IMAGE: return "image";
     }
     return "text";
 }
@@ -150,6 +168,19 @@ UniValue PageData(const Request& request)
             break;
         }
         UniValue r{UniValue::VOBJ};
+        if (row.kind == Row::Kind::IMAGE) {
+            // A picture of PNG or JPEG bytes, whole, or nothing: never a URL of another kind, never cut.
+            r.pushKV("label", guard::OneLine(row.label, MAX_ROW_LABEL));
+            if (IsImageDataUrl(row.value)) {
+                r.pushKV("value", row.value);
+                r.pushKV("kind", std::string{RowKindName(Row::Kind::IMAGE)});
+            } else {
+                r.pushKV("value", "(a picture that cannot be shown)");
+                r.pushKV("kind", std::string{RowKindName(Row::Kind::TEXT)});
+            }
+            rows.push_back(std::move(r));
+            continue;
+        }
         r.pushKV("label", guard::OneLine(row.label, MAX_ROW_LABEL));
         // An address (any destination) on one line, whole: never cut, so never taken for another by its ends.
         r.pushKV("value", row.kind == Row::Kind::ADDRESS ? Shown(guard::OneLine(row.value, MAX_ROW_VALUE), MAX_ROW_VALUE) : Shown(row.value, MAX_ROW_VALUE));
@@ -158,12 +189,25 @@ UniValue PageData(const Request& request)
     }
     out.pushKV("rows", std::move(rows));
     out.pushKV("look", request.look.isObject() ? request.look : UniValue{UniValue::VOBJ});
+    if (!request.chain.empty()) {
+        // The chain the question is about (a sidechain the app runs): its name and network in fixed words, its mark only
+        // as a picture checked here.
+        UniValue chain{UniValue::VOBJ};
+        chain.pushKV("name", guard::OneLine(request.chain, MAX_ROW_LABEL));
+        chain.pushKV("network", guard::OneLine(request.chain_network, MAX_ROW_LABEL));
+        if (IsImageDataUrl(request.chain_logo)) chain.pushKV("logo", request.chain_logo);
+        out.pushKV("chain", std::move(chain));
+    }
     return out;
 }
 
 std::string FallbackText(const UniValue& page)
 {
     std::string text{page.find_value("message").isStr() ? page.find_value("message").get_str() : std::string{}};
+    // The chain first, when it is not Chains: the user knows where it happens before what.
+    if (const UniValue& chain{page.find_value("chain")}; chain.isObject() && chain.find_value("name").isStr()) {
+        text = strprintf("On %s (%s).\n\n%s", chain.find_value("name").get_str(), chain.find_value("network").isStr() ? chain.find_value("network").get_str() : std::string{}, text);
+    }
     const UniValue& rows{page.find_value("rows")};
     if (rows.isArray() && !rows.empty()) {
         text += "\n";
@@ -172,6 +216,7 @@ std::string FallbackText(const UniValue& page)
             const std::string value{row.find_value("value").isStr() ? row.find_value("value").get_str() : std::string{}};
             const std::string kind{row.find_value("kind").isStr() ? row.find_value("kind").get_str() : std::string{}};
             if (kind == "heading") text += "\n" + label + (value.empty() ? "" : " " + value);
+            else if (kind == "image") text += "\n" + label + ": (a picture, shown in the app's own dialog)";
             else text += "\n" + (label.empty() ? value : label + ": " + value);
         }
     }

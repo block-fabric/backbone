@@ -14,8 +14,8 @@
     await snapshot('audit-lang-fr-send');
     // An error of the host in a notice: shown as the host wrote it, never partly translated ("%1 and %2" made
     // "… sidechain et of its programs …"); the words of the app around it in French.
-    const error = await host('sidechainNodes.add', { name: '', stem: '', slot: 0 }).then(() => null, (e) => e);
-    await check('M6 the host answers with an error', !!error && /and of its programs/.test(error.message), String(error && error.message));
+    const error = await host('sidechains.setDataDir', { stem: 'layers', dir: '/nowhere/chosen', move: false }).then(() => null, (e) => e);
+    await check('M6 the host answers with an error', !!error && /Choose the folder first|not running/.test(error.message), String(error && error.message));
     T().toast('error', T().t('Settings'), error.message);
     await sleep(300);
     const notice = document.querySelector('.toast');

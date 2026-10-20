@@ -43,6 +43,24 @@ else()
     VERBATIM
   )
   set(webui_dist_stamp ${webui_dist}/index.html)
+
+  # The pages of the sidechains (doc/unified-app.md §13): each from its repository at the commit pinned in
+  # sidechains.json, built as a pack into /packs/<stem>/ of the interface. Off: the package "Chains" (no sidechains).
+  option(WEBUI_SIDECHAIN_PACKS "Build the pages of the sidechains (src/webui/sidechains.json) into chains-app." ON)
+  set(WEBUI_SIDECHAIN_REPOS "${PROJECT_SOURCE_DIR}/.." CACHE PATH "The folder with the repositories of the sidechains (layers, thunder, ...), for their pages at the pinned commits.")
+  if(WEBUI_SIDECHAIN_PACKS)
+    find_program(NODE_EXECUTABLE node REQUIRED)
+    add_custom_command(
+      OUTPUT ${webui_dist}/packs/index.json
+      COMMAND ${NODE_EXECUTABLE} ${webui_app_dir}/scripts/packs.mjs --config ${CMAKE_CURRENT_SOURCE_DIR}/sidechains.json
+        --repos ${WEBUI_SIDECHAIN_REPOS} --out ${webui_dist}/packs --work ${CMAKE_CURRENT_BINARY_DIR}/packs-src
+      DEPENDS ${webui_dist}/index.html ${CMAKE_CURRENT_SOURCE_DIR}/sidechains.json ${webui_app_dir}/scripts/packs.mjs ${webui_app_dir}/public/packs/shim.js
+      WORKING_DIRECTORY ${webui_app_dir}
+      COMMENT "Building the pages of the sidechains into chains-app (packs at their pinned commits)"
+      VERBATIM
+    )
+    list(APPEND webui_dist_stamp ${webui_dist}/packs/index.json)
+  endif()
 endif()
 
 add_custom_command(
@@ -76,6 +94,7 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   nodeevents.cpp
   options.cpp
   sidechainnodes.cpp
+  sidechainpages.cpp
   supervisor.cpp
   singleinstance.cpp
   windowframe.cpp

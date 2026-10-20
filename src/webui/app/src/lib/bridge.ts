@@ -75,6 +75,14 @@ function currentTransport(): Transport {
   throw new BridgeError(ErrorCode.NOT_READY, 'No connection to the node');
 }
 
+/**
+ * A request as it is, to the host, its answer as it comes (an exact result still {"$rawjson": text}): for the pages of
+ * a sidechain in a frame (lib/packs.svelte.ts), whose own bridge reads the answer.
+ */
+export function sendRaw(body: BridgeRequest & { params?: unknown }): Promise<unknown> {
+  return currentTransport()(body as BridgeRequest);
+}
+
 export function hasHost(): boolean {
   return transport !== null || (typeof window !== 'undefined' && typeof window.__chains === 'function');
 }

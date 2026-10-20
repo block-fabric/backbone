@@ -33,8 +33,8 @@ namespace webui {
 class AppConfig;
 class Bridge;
 class NodeApi;
-class SidechainNodes;
 class SidechainSupervisor;
+class SidechainPages;
 class EventHub;
 class NodeEvents;
 class OptionsJournal;
@@ -79,6 +79,12 @@ public:
 private:
     void RegisterHostMethods();
     void RegisterSidechainMethods(Bridge& b);
+    //! The pages of the sidechains, once the node is ready; throws HostError before.
+    std::shared_ptr<SidechainPages> Pages() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! A host method of the app run for the pages of a sidechain, on the thread it must run on.
+    UniValue RunHost(const std::string& method, const UniValue& params);
+    //! A deposit into a sidechain from its pages: Chains' own confirmed createsidechaindeposit, from the wallet shown.
+    UniValue PackDeposit(const std::string& stem, const UniValue& params);
     //! The supervisor of the sidechains, once the node is ready; throws HostError before.
     std::shared_ptr<SidechainSupervisor> Supervisor() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     //! Make the supervisor (the node is ready) and start the sidechains enabled.
@@ -170,10 +176,10 @@ private:
     std::unique_ptr<NodeApi> m_node_api;
     //! The RPC methods that pay, sign or change the votes of the node, confirmed on the desktop (confirm.h).
     std::unique_ptr<confirm::ConfirmedRpc> m_confirmed_rpc;
-    //! The nodes of sidechains run from here.
-    std::unique_ptr<SidechainNodes> m_sidechain_nodes;
     //! The sidechains this app runs (Settings → Sidechains, doc/unified-app.md): made when the node is ready.
     std::shared_ptr<SidechainSupervisor> m_supervisor GUARDED_BY(m_mutex);
+    //! The pages of the sidechains, in frames of the page (doc/unified-app.md §13): made with the supervisor.
+    std::shared_ptr<SidechainPages> m_pages GUARDED_BY(m_mutex);
     //! The password of the user the sidechain daemons reach this node as (an -rpcauth of this run only).
     std::string m_sidechain_rpc_password;
     //! The folder the user last chose for the data of each sidechain (the page can only set one chosen so).

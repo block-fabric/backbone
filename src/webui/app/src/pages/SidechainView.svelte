@@ -1,8 +1,11 @@
 <script lang="ts">
-  // A sidechain this app runs, chosen in the chain switcher (doc/unified-app.md): how it is doing, its
-  // height and how it keeps up with Chains, the balance of its wallet, its last blocks. Read-only in
-  // phase 1: spending on a sidechain from here comes with the trusted dialog of phase 2.
+  // A sidechain this app runs, chosen in the chain switcher (doc/unified-app.md): its own pages in a frame
+  // (§13: Home, Send, Receive, Transactions and its own, through its node; what they spend asked in the app's
+  // trusted dialog) once its node runs and speaks this app's version; before (or without its pages built in, or
+  // with a node too old or too new) how it is doing, read-only: its height, how it keeps up with Chains, its wallet.
   import Icon from '../components/Icon.svelte';
+  import PackFrame from '../components/PackFrame.svelte';
+  import { loadPacks, packHost, packs, type PackInfo } from '../lib/packs.svelte';
   import SafeText from '../components/SafeText.svelte';
   import { formatCount, formatTime } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
@@ -40,6 +43,27 @@
     return () => clearInterval(timer);
   });
 
+  // Its pages: built in, and its node of this app's version (asked again when it starts or stops).
+  let info = $state<PackInfo | null>(null);
+  let showOverview = $state(false);
+  $effect(() => {
+    const stem = hub.selected;
+    const state = entry?.state;
+    const ready = entry?.ready;
+    if (stem === 'chains') return;
+    void loadPacks();
+    void state;
+    void ready;
+    packHost.info(stem).then(
+      (i) => {
+        if (stem === hub.selected) info = i;
+      },
+      () => undefined,
+    );
+  });
+  const usePages = $derived(!!entry && !!info?.pack && info.compatible && !showOverview && packs.list.some((p) => p.stem === entry.stem));
+  const running = $derived(!!entry && entry.state === 'running' && entry.ready);
+
   const chainState = $derived(entry ? describeState(entry) : null);
   const sync = $derived(describeSync(overview));
   const coins = (n: number | undefined) => (typeof n === 'number' ? n.toFixed(8) : '—');
@@ -55,8 +79,17 @@
   }
 </script>
 
-<div class="page sidechain-view" data-stem={entry?.stem ?? ''}>
-  {#if !entry}
+<div class="page sidechain-view" class:pages={usePages} data-stem={entry?.stem ?? ''}>
+  {#if entry && usePages}
+    <div class="bar">
+      <span class="mark small" aria-hidden="true"><SafeText text={entry.name.slice(0, 1)} /></span>
+      <strong><SafeText text={entry.name} /></strong>
+      {#if chainState}<span class="badge state {chainState.tone}" data-state={entry.state}>{t(chainState.key, ...chainState.args)}</span>{/if}
+      <span class="grow"></span>
+      <button type="button" class="btn ghost small" onclick={() => (showOverview = true)}><Icon name="eye" size={15} /> Its node</button>
+    </div>
+    {#key entry.stem}<PackFrame stem={entry.stem} name={entry.name} {running} />{/key}
+  {:else if !entry}
     <header class="page-head"><h1>Sidechain</h1></header>
     <p class="muted">This sidechain is not running from this app. Turn it on in Settings → Sidechains.</p>
   {:else}
@@ -71,7 +104,15 @@
       {#if chainState}<span class="badge state {chainState.tone}" data-state={entry.state}>{t(chainState.key, ...chainState.args)}</span>{/if}
     </header>
 
-    <p class="readonly" role="note"><Icon name="eye" size={15} /> Read-only for now: you can watch this sidechain here. Sending on it from the Chains app comes in a later version.</p>
+    {#if showOverview && info?.compatible}
+      <p class="readonly" role="note"><Icon name="eye" size={15} /> Its node. <button type="button" class="btn small" onclick={() => (showOverview = false)}>Back to its pages</button></p>
+    {:else if info && !info.pack}
+      <p class="readonly" role="note" data-reason="nopack"><Icon name="eye" size={15} /> Read-only: the pages of this sidechain are not in this version of the app.</p>
+    {:else if info && info.reason === 'daemon'}
+      <p class="readonly" role="note" data-reason="daemon"><Icon name="eye" size={15} /> Read-only, update needed: the program of this sidechain is not of this version of the app.</p>
+    {:else}
+      <p class="readonly" role="note"><Icon name="eye" size={15} /> Its pages open once its node runs.</p>
+    {/if}
 
     {#if entry.error}<p class="error" role="alert"><SafeText text={entry.error} /></p>{/if}
     {#if error}<p class="error" role="alert"><SafeText text={error} /></p>{/if}
@@ -140,6 +181,30 @@
 </div>
 
 <style>
+  .sidechain-view.pages {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 0;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex: none;
+    padding: 0.4rem 0.9rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+  .bar .grow {
+    flex: 1;
+  }
+  .mark.small {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 0.5rem;
+    font-size: 0.85rem;
+  }
   .head {
     display: flex;
     align-items: center;

@@ -14,13 +14,19 @@ import { applyTheme, clampFontAdjust, DEFAULT_THEME, isTheme, resolveTheme, type
 export type Level = 'info' | 'warning' | 'danger';
 
 /** A fact the host decoded (dialog.h Row): a destination, whole, before its amount; the fee; the total; what a vote changes. */
-export type RowKind = 'text' | 'address' | 'amount' | 'total' | 'heading' | 'note';
+export type RowKind = 'text' | 'address' | 'amount' | 'total' | 'heading' | 'note' | 'image';
 export interface Row {
   label: string;
   value: string;
   kind: RowKind;
 }
-const ROW_KINDS: readonly RowKind[] = ['text', 'address', 'amount', 'total', 'heading', 'note'];
+const ROW_KINDS: readonly RowKind[] = ['text', 'address', 'amount', 'total', 'heading', 'note', 'image'];
+/** The longest picture (dialog.h MAX_IMAGE_URL), and the only pictures shown: PNG or JPEG bytes in base64, as the host checked them. */
+const MAX_IMAGE_URL = 44 * 1024;
+const IMAGE_URL = /^data:image\/(png|jpeg);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+export function isImageDataUrl(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 'data:image/png;base64,'.length && value.length <= MAX_IMAGE_URL && IMAGE_URL.test(value);
+}
 /** At most so many facts, and so long (the host cuts them so already). */
 const MAX_ROWS = 81;
 
@@ -47,6 +53,8 @@ export interface DialogData {
   error: string;
   rows: Row[];
   look: DialogLook;
+  /** The chain the question is about when it is not Chains (a sidechain the app runs): shown above the title. */
+  chain: { name: string; network: string; logo: string } | null;
 }
 
 export type DialogBridge = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -67,6 +75,14 @@ const FONTS: readonly FontChoice[] = ['', 'inter', 'nunito', 'mono', 'system'];
 
 function str(value: unknown, max: number, fallback = ''): string {
   return typeof value === 'string' ? [...value].slice(0, max).join('') : fallback;
+}
+
+function chainOf(raw: unknown): DialogData['chain'] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const c = raw as Record<string, unknown>;
+  const name = str(c.name, 60);
+  if (!name) return null;
+  return { name, network: str(c.network, 60), logo: isImageDataUrl(c.logo) ? c.logo : '' };
 }
 
 /** What the host sent, checked: every field of its type, text cut to its length; anything else its default. */
@@ -91,9 +107,12 @@ export function readData(raw: unknown): DialogData {
           if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
           const r = raw as Record<string, unknown>;
           const kind = ROW_KINDS.includes(r.kind as RowKind) ? (r.kind as RowKind) : 'text';
+          // A picture whole and of the one form, or a line that says it is not shown: never another URL, never cut.
+          if (kind === 'image') return [isImageDataUrl(r.value) ? { label: str(r.label, 60), value: r.value, kind } : { label: str(r.label, 60), value: '(a picture that cannot be shown)', kind: 'text' }];
           return [{ label: str(r.label, 60), value: str(r.value, 2000), kind }];
         })
       : [],
+    chain: chainOf(o.chain),
     look: {
       theme: str(l.theme, 40, DEFAULT_THEME),
       custom: l.custom ?? null,
@@ -264,6 +283,26 @@ export function render(doc: Document, data: DialogData): Rendered {
   root.setAttribute('aria-describedby', 'dialog-message');
   root.dataset.level = data.level;
 
+  // The chain it is about (a sidechain the app runs), above everything: its mark, "On <name>", its network.
+  let chain: HTMLElement | null = null;
+  if (data.chain) {
+    chain = el(doc, 'div', { id: 'dialog-chain', className: 'chain' });
+    if (data.chain.logo) {
+      const img = doc.createElement('img');
+      img.alt = '';
+      img.width = 28;
+      img.height = 28;
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.draggable = false;
+      img.src = data.chain.logo;
+      chain.append(img);
+    }
+    const words = el(doc, 'span', { className: 'chain-words' });
+    words.append(el(doc, 'span', { className: 'chain-on', text: 'On' }), el(doc, 'strong', { className: 'chain-name', text: revealBidi(data.chain.name) }));
+    if (data.chain.network) words.append(el(doc, 'span', { className: 'chain-network', text: revealBidi(data.chain.network) }));
+    chain.append(words);
+  }
   const header = el(doc, 'header');
   header.append(icon(doc, data.level));
   const title = el(doc, 'h1', { id: 'dialog-title', text: revealBidi(data.title) });
@@ -317,6 +356,7 @@ export function render(doc: Document, data: DialogData): Rendered {
   accept.append(el(doc, 'span', { text: revealBidi(data.accept) }));
   footer.append(cancel, accept);
 
+  if (chain) root.append(chain);
   root.append(header, body, footer);
   doc.title = data.title || doc.title;
   return { root, accept, cancel, field };
@@ -339,6 +379,27 @@ function renderRows(doc: Document, rows: Row[]): HTMLElement {
       const n = el(doc, 'div', { className: 'row note', text: revealBidi(row.value) });
       n.dir = 'auto';
       box.append(n);
+      continue;
+    }
+    if (row.kind === 'image') {
+      // Only as an image (never markup), only of the form checked again here; its label as its text alternative.
+      const line = el(doc, 'div', { className: 'row image' });
+      line.dataset.kind = 'image';
+      const dt = el(doc, 'dt', { text: revealBidi(row.label) });
+      const dd = el(doc, 'dd');
+      if (isImageDataUrl(row.value)) {
+        const img = doc.createElement('img');
+        img.alt = row.label;
+        img.width = 128;
+        img.height = 128;
+        img.decoding = 'async';
+        img.referrerPolicy = 'no-referrer';
+        img.draggable = false;
+        img.src = row.value;
+        dd.append(img);
+      }
+      line.append(dt, dd);
+      box.append(line);
       continue;
     }
     const line = el(doc, 'div', { className: `row ${row.kind}` });

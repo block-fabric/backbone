@@ -1,0 +1,8 @@
+{
+  "comment": "The pages of the sidechains built into the Chains app (doc/unified-app.md §13): each pack from its repository at a pinned commit (never a branch), in the folder <repos>/<repo> (WEBUI_SIDECHAIN_REPOS, default: next to this repository). Bump a commit to take a newer version of a sidechain's pages; the build checks each speaks this app's hostApi and was made with this app's interface kit (the same packages).",
+  "hostApi": 1,
+  "packs": [
+    { "stem": "layers", "repo": "layers", "commit": "49b61e9fa3760d7bf4f7b02dd386d405a6bb7dfe" },
+    { "stem": "thunder", "repo": "thunder", "commit": "a1b8a90eab2835a77e0233fd883d3b583fa9f6aa" }
+  ]
+}

@@ -96,7 +96,7 @@
     await check('100 000 rows, a few drawn', rows > 2 && rows < 120, String(rows));
 
     // Pictures of every page, light and dark.
-    const pages = ['overview', 'send', 'receive', 'transactions', 'sidechains', 'sidechain-nodes', 'mine', 'explorer', 'node', 'settings', 'addresses', 'messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto', 'wallets', 'kit', 'home', 'tools', 'advanced'];
+    const pages = ['overview', 'send', 'receive', 'transactions', 'sidechains', 'mine', 'explorer', 'node', 'settings', 'addresses', 'messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto', 'wallets', 'kit', 'home', 'tools', 'advanced'];
     for (const theme of ['light', 'dark']) {
       T().savePrefs({ theme });
       for (const page of pages) {

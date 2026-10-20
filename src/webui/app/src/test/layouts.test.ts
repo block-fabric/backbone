@@ -31,7 +31,7 @@ const OLD_MENUS: Record<string, string[]> = {
   ],
   Banking: ['Send', 'Receive', 'Transactions', 'Open URI…', 'Proof of funds', 'Multisig lounge', 'Load PSBT from file…', 'Load PSBT from clipboard…'],
   'Use Chains': ['Timestamp file', 'Sign message…', 'Verify message…', 'Sidechains'],
-  Chains: ['Sidechain nodes', 'Solo mine', 'Sidechain proposals', 'Withdrawal votes'],
+  Chains: ['Run sidechains', 'Solo mine', 'Sidechain proposals', 'Withdrawal votes'],
   'Crypto tools': ['Block explorer', 'Hash calculator', 'Merkle tree', 'Address decoder'],
   Window: ['Minimize', 'Information', 'Console', 'Network traffic', 'Peers'],
   'This node': [
@@ -143,7 +143,7 @@ describe('the commands', () => {
     const groups = [...MENU_GROUPS] as string[];
     expect(groups.indexOf('Chains')).toBeLessThan(groups.indexOf('Tools'));
     const chains = all.filter((c) => c.group === 'Chains').map((c) => c.label);
-    for (const label of ['Sidechains', 'Sidechain nodes', 'Solo mine', 'Block explorer']) expect(chains).toContain(label);
+    for (const label of ['Sidechains', 'Run sidechains', 'Solo mine', 'Block explorer']) expect(chains).toContain(label);
   });
 
   it('reach every page, and every page is in each layout', () => {
@@ -167,18 +167,12 @@ describe('the commands', () => {
     expect(buildCommands().some((c) => c.id.startsWith('layout.sidebar') || /compact/i.test(c.label))).toBe(false);
   });
 
-  it('sidechain nodes: a tab of the Sidechains page, not a page of its own', () => {
-    expect(PAGES['sidechain-nodes'].tabOf).toEqual({ page: 'sidechains', tab: 'nodes' });
-    expect(NAV_SECTIONS.some((s) => s.pages.includes('sidechain-nodes'))).toBe(false);
-    expect(AREAS.some((a) => a.tabs.some((t) => t.page === 'sidechain-nodes'))).toBe(false);
-    // Its command, the old way to it and the dashboard's link all lead to the tab.
+  it('the old Nodes tab is gone: the sidechains are run from Settings → Sidechains (doc/unified-app.md)', () => {
+    expect(Object.keys(PAGES)).not.toContain('sidechain-nodes');
     const all = buildCommands();
-    expect(all.some((c) => c.id === 'page.sidechain-nodes')).toBe(false);
-    all.find((c) => c.label === 'Sidechain nodes')!.run();
-    expect([nav.page, nav.tab]).toEqual(['sidechains', 'nodes']);
-    go('overview');
-    go('sidechain-nodes');
-    expect([nav.page, nav.tab]).toEqual(['sidechains', 'nodes']);
+    expect(all.some((c) => /sidechain nodes/i.test(c.label))).toBe(false);
+    all.find((c) => c.id === 'chains.run')!.run();
+    expect([nav.page, nav.tab]).toEqual(['settings', 'sidechains']);
   });
 
   it('receiving addresses: a tab of the Receive page; no sending addresses (user decision)', () => {

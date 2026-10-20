@@ -27,7 +27,7 @@
     // The dashboard on a narrow window: the sidebar is a drawer, out of the way until asked for.
     const side = document.querySelector('.sidebar');
     await check(`M4 ${W} px: the sidebar steps aside (a drawer)`, !!side && side.getBoundingClientRect().right <= 1, side ? `${Math.round(side.getBoundingClientRect().right)}` : 'no sidebar');
-    for (const page of ['overview', 'send', 'receive', 'transactions', 'sidechains', 'sidechain-nodes', 'mine', 'explorer', 'node', 'settings', 'addresses', 'messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto', 'wallets']) {
+    for (const page of ['overview', 'send', 'receive', 'transactions', 'sidechains', 'mine', 'explorer', 'node', 'settings', 'addresses', 'messages', 'psbt', 'proof', 'multisig', 'timestamp', 'crypto', 'wallets']) {
       T().go(page);
       await sleep(450);
       const problems = overflow();

@@ -68,6 +68,26 @@ BOOST_AUTO_TEST_CASE(mime_types)
     BOOST_CHECK_EQUAL(webui::MimeType("/a.unknown"), "application/octet-stream");
 }
 
+BOOST_AUTO_TEST_CASE(pack_origins)
+{
+    using namespace webui;
+    // The pages of a sidechain: under chains-pack://<stem>/, its own files and the shim, nothing else.
+    BOOST_CHECK_EQUAL(PackAssetPath("chains-pack://layers/packs/layers/index.html").value_or("-"), "/packs/layers/index.html");
+    BOOST_CHECK_EQUAL(PackAssetPath("chains-pack://layers/packs/layers/assets/x.js?v=1").value_or("-"), "/packs/layers/assets/x.js");
+    BOOST_CHECK_EQUAL(PackAssetPath("chains-pack://thunder/packs/shim.js").value_or("-"), "/packs/shim.js");
+    for (const char* bad : {"chains-pack://layers/packs/thunder/index.html", "chains-pack://layers/index.html", "chains-pack://layers/packs/layers/../thunder/x",
+                            "chains-pack://Layers/packs/Layers/x", "chains-pack:///packs/x/y", "chains-app://app/packs/layers/index.html",
+                            "chains-pack://layers/packs/layers//x", "chains-pack://la.yers/packs/la.yers/x"}) {
+        BOOST_CHECK_MESSAGE(!PackAssetPath(bad), bad);
+    }
+    // The app's origin does not serve them; their policy: no network, framed by the app only.
+    BOOST_CHECK(!AppServes("/packs/layers/index.html"));
+    BOOST_CHECK(AppServes("/index.html"));
+    const std::string pack{PackContentSecurityPolicy()};
+    for (const char* part : {"default-src 'none'", "connect-src 'none'", "frame-src 'none'", "frame-ancestors chains-app://app"}) BOOST_CHECK(pack.find(part) != std::string::npos);
+    BOOST_CHECK(ContentSecurityPolicy().find("frame-src chains-pack:;") != std::string::npos);
+}
+
 BOOST_AUTO_TEST_CASE(policy)
 {
     const std::string csp{webui::ContentSecurityPolicy()};

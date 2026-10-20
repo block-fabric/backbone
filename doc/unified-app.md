@@ -1,7 +1,8 @@
 # The unified Chains app
 
-One app for Chains and its sidechains. Status: **design + phase 1 prototype** (branch `unified-app`,
-not merged). Written 2026-10-20.
+One app for Chains and its sidechains. Status: **phase 1 (supervisor, switcher, wizards) and phase 2
+(the sidechains' own pages in the app, spends through the app's trusted dialog)** on branch
+`unified-app`, not merged. Written 2026-10-20; phase 2 in §13.
 
 ## 0. What the user decided (2026-10-20)
 
@@ -81,11 +82,14 @@ per-chain override from the settings (`rpcPort`, `port`). Tests use `-sidechainp
   is written to `<datadir of the sidechain>/mainchain.rpcpass` (owner-only, atomic, via
   `WriteSecretFile`) and passed as `-mainchainrpcpasswordfile` — never on a command line (any local
   user can read those). The user's own `-rpcauth`/cookie keep working.
-- **Phase 2 hardening:** `-rpcwhitelist=chains-app-sidechains:<the methods sidechains use>` (BMM
+- **Phase 2 hardening (done, §13.5):** `-rpcwhitelist=chains-app-sidechains:<the methods sidechains use>` (BMM
   requests, `getsidechainevents`, block/header reads, deposit lookups) so a compromised sidechain
   daemon cannot call `dumpwallet`/`sendtoaddress` on the Chains wallet. Needs the exact list from the
   template's `MainchainClient` (+ `-mainchainrpcwallet` for BMM).
-- **App → daemon:** the daemon's own cookie (`<datadir>/<net>/.cookie`), read per call.
+- **App → daemon:** phase 1 read the daemon's cookie. Phase 2: the app is a user of its own at each
+  daemon, `chains-app` (an `-rpcauth` of this run, the password in memory only), limited by
+  `-rpcwhitelist` to reads, the wallet setup and the host of the pages over RPC; `-rpcwhitelistdefault=0`
+  keeps the cookie the user's, unrestricted (§13.5).
 
 ### 1.4 The RPC server of Chains starts late, and only when needed
 
@@ -131,6 +135,9 @@ log errors and possibly start a withdrawal/BMM step against a disappearing node.
 
 ## 2. Per-chain RPC routing for the pages
 
+(Phase 2 did this differently from the sketch below: the pages of a sidechain run in a frame and their
+host is the sidechain's own daemon, over RPC, §13.1.)
+
 - **Phase 1 (done):** host methods `sidechains.list / enable / disable / chooseDataDir / setDataDir /
   deleteData / overview / log / rpc`. `sidechains.rpc {stem, method, params, wallet?}` forwards only
   an **allowlist of read methods** (`getblockchaininfo`, `getmainchaininfo`, `getbalances`,
@@ -145,6 +152,8 @@ log errors and possibly start a withdrawal/BMM step against a disappearing node.
   Chains pages do.
 
 ## 3. Bundling the sidechains' pages at build time
+
+(Done in phase 2, §13.2, with a frame per pack instead of chunks of the app's own bundle.)
 
 Each sidechain app has its pages in `src/webui/app/src/chain/` (+ `chain.json`). The unified app
 builds them in **as lazy chunks**:
@@ -178,8 +187,10 @@ builds them in **as lazy chunks**:
 - **Seed:** BIP39, 12 words (24 allowed on restore), optional passphrase (advanced). Master key via
   BIP32.
 - **One account per chain, hardened:** `m/86'/C'/A'` (taproot, the default) and `m/84'/C'/A'`
-  (segwit v0, for chains or tools that need it). `C` = the Chains coin type (one number for the whole
-  family, §12). `A` = **0 for Chains**; for a sidechain, `A = u32(SHA256("chains/account" ‖ genesis
+  (segwit v0, for chains or tools that need it). `C` = **Bitcoin Core's own coin type**: `0'` on the main
+  network, `1'` on the test chains (testnet, signet, regtest), as Chains' `src/wallet/walletutil.cpp`
+  already derives and as eCash's betanet does (§12.1): `m/86'/0'/A'` and `m/86'/1'/A'`. One number for the
+  whole family. `A` = **0 for Chains**; for a sidechain, `A = u32(SHA256("chains/account" ‖ genesis
   hash of the sidechain)) & 0x7fffffff`. Deterministic, needs no registry, distinct per chain *and*
   per network (genesis differs), and a slot later reused by another sidechain gets other keys.
 - **How a daemon gets its keys:** the hub derives the **account-level xprv** and imports
@@ -187,14 +198,19 @@ builds them in **as lazy chunks**:
   wallet** `main` of the daemon (`createwallet main … blank=true`, `importdescriptors`). The daemon
   only ever holds its own account key: hardened derivation means a compromised Layers daemon cannot
   derive Chains' or FastBlocks' keys, nor the seed.
-- **xpub-only alternative:** daemon wallets watch-only, the hub signs PSBTs. Stronger isolation but
+- **The same paths as Bitcoin:** a seed used in a Bitcoin wallet too derives the **same keys** for Chains'
+  account 0 (`m/86'/0'/0'`, `m/84'/0'/0'`): the same addresses on both chains, linkable, and a key that
+  leaks on one leaks on the other. The first-run wizard therefore offers a **new** backup phrase by
+  default, and on restore says in plain words: "Use a phrase made for Chains, not one of a Bitcoin
+  wallet: the same phrase gives the same keys on both" (sidechains' accounts `A ≠ 0` do not collide).- **xpub-only alternative:** daemon wallets watch-only, the hub signs PSBTs. Stronger isolation but
   every spend, every BMM bid and every staking signature must round-trip through the hub; staking
   (FastBlocks/Layers) signs continuously. Keep xprv-in-daemon as default; offer xpub-only later with
   hardware wallets (phase 5).
 - **Chain-specific key material:** zSide's Orchard keys via ZIP-32 from the same BIP39 seed (its own
-  coin type path); FastBlocks/Layers **validator keys** on a separate hardened branch
-  `m/86'/C'/A'/2'/i'` so a validator key can be rotated without touching coins; Hivemind's Votecoin
-  keys are ordinary wallet keys of its account.
+  coin type path); Hivemind's Votecoin keys are ordinary wallet keys of its account. FastBlocks/Layers
+  **validator keys are not derived from the seed** (§12.4): each machine makes its own, kept apart from
+  the wallet (`-validatorkeyfile`), never copied; a seed leak does not expose them, and one is rotated
+  without touching coins.
 - **Encryption:** the seed lives in the hub, in `<datadir>/seed.dat`, encrypted (scrypt → AES-256-GCM)
   with the wallet passphrase. Every daemon wallet is encrypted with the **same passphrase**
   (`encryptwallet` right after import). "Unlock" in the app unlocks the seed and, on demand, the one
@@ -247,6 +263,8 @@ way finds the same chain and wallet.
   choice (phase 2 UI) that says coins whose keys are only there are lost.
 
 ## 6. Security of spends from the unified app
+
+(Option B done in phase 2, §13.3; the security review in §13.5.)
 
 **Phase 1 is read-only for sidechains**, enforced in the host (allowlist; tested). The pages can
 watch, never spend.
@@ -334,10 +352,10 @@ the Sidechains page) → "available on Layers". Withdrawals back to Chains are e
 | Phase | Content | Effort |
 |---|---|---|
 | **1** (this branch) | Supervisor (Linux), late RPC server, Settings → Sidechains, chain switcher, read-only overview, wizard skeletons, tests | done (≈ 3 days) |
-| **2** | Per-chain RPC routing + sidechain pages bundled as lazy packs (read-only first), Windows supervisor (Job objects), rpcwhitelist, liveness/stall detection, move-data wizard with progress, packages with daemons bundled | 2–3 weeks |
-| **3** | Single seed: BIP39 + derivation + `seed.dat`, blank-wallet import per chain, unified encryption/unlock, backup/restore with rescans, first-run wizard as the real first start, separate-wallet path, existing-user migration | 2–3 weeks |
-| **4** | Spends from the hub: `describeconfirmation` in the template → all sidechains, hub binding + native dialog, deposit wizard, staking for FastBlocks/Layers; download-on-enable with signed manifests (#9), upgrade/fork banners | 3–4 weeks |
-| **5** | macOS (`-exitwithparentfd`), hardware wallets / xpub-only mode, resource caps (cgroups/Job memory), battery pause, remove the old *Nodes* tab | 2 weeks |
+| **2** (this branch, done 2026-10-20) | The sidechains' own pages as packs pinned by commit, in isolated frames; their host is their daemon over RPC; every spend described by the daemon (`describeconfirmation`) and asked in the app's trusted dialog, bound by a one-time token; rpcwhitelists both ways; deposits from the pages by Chains' wallet; the old Nodes tab removed (§13). Moved on: Windows supervisor and packs (phase 5), liveness/stall detection and the move-data wizard (phase 4) | done |
+| **3** | Single seed: BIP39 + derivation (`m/86'/0'/A'`, `1'` on test chains) + `seed.dat`, blank-wallet import per chain, unified encryption/unlock, backup/restore with rescans, first-run wizard as the real first start, separate-wallet path, existing-user migration (offered once at first start, and in Settings), the deposit wizard | 2–3 weeks |
+| **4** | Download-on-enable with signed manifests (#9), upgrade/fork banners, a BMM spending cap per sidechain, liveness/stall detection, move-data wizard with progress, end-to-end runs of every pack | 3 weeks |
+| **5** | Windows (Job objects, WebView2 origins for the packs), macOS (`-exitwithparentfd`), hardware wallets / xpub-only mode, resource caps (cgroups/Job memory), battery pause | 2 weeks |
 
 ## 10. What the prototype does (phase 1)
 
@@ -371,18 +389,165 @@ Run: `run_unified.py --app build_app/bin/chains-app --sidechain-bindir ~/skydoge
 [--sidechain-bindir ~/skydoge/fastblocks/build_rel/bin] --tmp … --shots …` (or ctest `webui_e2e_unified`
 with `-DWEBUI_E2E_SIDECHAIN_BINDIR=…`). Pictures of the prototype (Midnight): `~/skydoge/media/unified-app/`.
 
-## 12. Open questions for the user
+## 12. Decisions of the user (2026-10-20)
 
-1. **Coin type `C`** for the single-seed paths: register a SLIP-44 number for Chains, or pick one
-   unregistered? (One number for the whole family; sidechains are separated by the account index.)
-2. **Bundle size:** ship one package with all daemons (≈ +250 MB unpacked), or "Chains" and
-   "Chains + sidechains" packages until download-on-enable (phase 4)?
-3. **Spend confirmations:** OK with option **B** (daemon `describeconfirmation` RPC + hub binding)?
-4. **Staking keys:** derive validator keys from the seed (one backup) or keep them separate
-   (rotatable, not exposed by a seed leak)? Proposed: derived, on their own branch.
-5. **The old *Sidechains → Nodes* tab** (start/stop/download by hand): remove once the supervisor
-   covers Windows (phase 2), or keep for advanced users and custom sidechains?
-6. **Existing wallets:** offer the move to a seed wallet on first start of the new version, or only
-   from Settings?
-7. **Testnet hub machines** run sidechains as separate apps today; should the unified app become the
-   hub's way of running them (after phase 2), or keep separate daemons there?
+The seven questions of phase 1, all decided as recommended:
+
+1. **Coin type `C`:** **no SLIP-44 registration** (changed by the user the same day: the first choice was
+   to register one). Chains uses the coin type eCash's betanet uses (`ecash-com/bitcoin`, branch
+   `betanet`, `src/wallet/walletutil.cpp`), Bitcoin Core's default, which Chains' own `walletutil.cpp`
+   already has: `0'` on the main network, `1'` on testnet, signet and regtest. Seed paths
+   `m/86'/0'/A'` (main) and `m/86'/1'/A'` (test chains), `A = 0` for Chains and per sidechain as in §4.1.
+   Implication: a seed also used in a Bitcoin wallet derives the same account-0 keys on Chains (linkable
+   addresses, a key leaked on one chain leaked on both): the first-run wizard advises a fresh phrase.
+2. **Packages:** two, **"Chains"** (the app alone) and **"Chains + sidechains"** (with the daemons and
+   the sidechains' page packs), until download-on-enable (phase 4) makes one package enough.
+3. **Spend confirmations: option B.** Each daemon describes a call itself (`describeconfirmation`,
+   built from its own `confirm.cpp` describers); the app shows that description in its own trusted
+   dialog and then runs exactly the call it showed, bound by a one-time token the daemon checks.
+   Done in phase 2: §13.
+4. **Validator keys stay separate from the seed:** made on each machine, never derived from the seed nor
+   copied; a seed leak does not expose them, and they are rotated without touching coins. There is no
+   validator branch in the seed's paths (§4.1).
+5. **The old *Sidechains → Nodes* tab goes** once the new page replaces it: removed in phase 2 (§13.4).
+6. **Existing wallets:** the move to a seed wallet is offered **once, at the first start of the new
+   version**, and stays available in Settings (phase 3).
+7. **Testnet hub:** after phase 2 the hub machines run their sidechains through the unified app
+   (separate daemons only where the app cannot, e.g. a machine without a desktop).
+
+## 13. Phase 2: the sidechains' pages and their spends in the app (2026-10-20)
+
+### 13.1 How it works
+
+```
+ chains-app page (chains-app://app)                         the daemon of Layers (layersd, remotehost.cpp)
+  ├─ Chains' own pages ── bridge ── App (host) ──────────────►  webuihost {request} (token passphrase files)
+  └─ <iframe chains-pack://layers/…>  (sandboxed)              │   kind rpc: the pages' own policy (rpcpolicy.cpp)
+       Layers' own pages (its pack)                            │   kind host: wallet.*, rpc.confirmed, local.cpp …
+       shim.js: __chains = postMessage(parent) ──► packs.svelte.ts (frame known by its window)
+                                                    └─ pack.call {stem, request} ─► SidechainPages (sidechainpages.cpp)
+                                                         LOCAL  app.hello/info/locale, prefs, window.*, file.choose, peg.deposit
+                                                         HUB    clipboard, links, notices, files chosen in the app
+                                                         REFUSE app.quit, options.*, intro.*, test.*, sidechains.*, pack.*
+                                                         DAEMON everything else ──► webuihost; {confirm} → App::AskHost
+                                                                (trusted dialog "On Layers" + its mark) → same request + token
+  events: webuievents (long poll) ─► "pack.events" ─► postMessage to that frame only
+```
+
+- **The host of a sidechain's pages is its daemon** (`src/webui/remotehost.{h,cpp}` of the template, in
+  `<stem>d` only): it runs the very host methods its own app runs (`WalletApi`, `ConfirmedRpc`, `NodeApi`,
+  `SidechainApi`, the chain's `local::RegisterHost`), so every chain's pages, and their own describers,
+  work unchanged. A daemon has no desktop: every question of those host methods (their `AskFn`/`ConfirmFn`)
+  is carried out to the app instead of being asked.
+- **`describeconfirmation "method" [params] (wallet)`**: the question of a confirmed RPC method, made by the
+  chain's own describers, never run (`confirm::DescribeOnly`: a call that would run without a question is
+  refused, no second step runs on an authorization). **`webuihost`**: one request of the pages; a question
+  comes back as `{confirm: {title, message, accept, level, kind, rows, passphrase, token, digest, expiresIn}}`.
+  **`webuievents`**: the node's events in order. **`webuichosenfile`**: a token for a file the user chose in
+  the app's chooser.
+- **The binding**: a token (32 random bytes) is bound to the request as text (kind, method, parameters,
+  wallet), to the question (SHA-256 of the request and the question's JSON), to the wallet's identity (the
+  SHA-256 of its public descriptors) and to 5 minutes; taken once whatever happens. The app sends exactly the
+  request it described with the token and the passphrase typed in its dialog; the daemon makes the question
+  again and runs only when all of it fits (`Bindings::Take`), else `-32802` with the reason.
+
+### 13.2 The packs
+
+- Each sidechain repo builds its pages as a pack: `npm run pack -- --outDir <dir>` (`app/scripts/pack.mjs`,
+  from the template): the interface for `/packs/<stem>/`, and `pack.json {stem, name, hostApi, commit, brand}`.
+- Chains pins each pack to a commit in `src/webui/sidechains.json`; `app/scripts/packs.mjs` (a step of
+  CMake, `WEBUI_SIDECHAIN_PACKS`, default ON; OFF for the package "Chains") takes `src/webui/app` and
+  `src/webui/locale` of that commit with `git archive` (never the work tree, never a branch) from
+  `WEBUI_SIDECHAIN_REPOS` (default: next to Chains), builds it with Chains' own `node_modules`, and puts it
+  in the interface with `/packs/shim.js` loaded before the pack's script and `/packs/index.json`.
+- **Compatibility, at build:** the commit must exist; the pack's packages must be Chains' (the kit flows
+  down: a kit change makes the packs be bumped together); its `hostApi` must be the app's (1).
+  **At run time:** `pack.info` asks the daemon (`webuihost app.info` → `hostApi`); another version, or a
+  daemon without the host over RPC: the chain shows read-only with "update needed".
+- Size: about 5 MB a pack (its fonts and 90 languages); seven packs ≈ 35 MB in "Chains + sidechains".
+- In the page: the chain chosen in the switcher shows a bar (its name, its state, "Its node": the phase-1
+  overview) over the frame of its pages; until its node runs, or without a pack, the overview.
+
+### 13.3 A spend, step by step (Layers, wallet.send)
+
+1. The pages (in the frame) prepare it: `wallet.send.prepare` → the daemon makes the transaction, unsigned,
+   kept under a token of the wallet functions.
+2. `wallet.send.commit {token}` → the app sends it to `webuihost`; the daemon decodes the kept transaction
+   (destinations, amounts, fee, change: `PaymentRows`), and answers `{confirm}` instead of asking.
+3. The app shows it in its own trusted dialog (the themed dialog window, or the system's), with **"On
+   Layers · Regtest"** and the chain's mark above the title, and a first row *Chain: Layers*; the
+   passphrase of a locked wallet is typed there.
+4. On a yes, the app sends the same request, the token and the passphrase; the daemon asks itself the same
+   question again, checks the token, unlocks the wallet for this call alone, signs, sends. On a no, nothing
+   more is sent. A wrong passphrase: the app asks again (3 times at most).
+The same path serves every question of every chain: `rpc.confirmed` (assets, DEX, names, markets, votes,
+shielded sends, withdrawals), the two-step reveals (`then`, authorizations kept in the daemon), bonds
+(`fastblocks.bond`), BMM (`bmm.set`). A **deposit** from a sidechain's pages (`peg.deposit`) is made by the
+app itself: Chains' own confirmed `createsidechaindeposit` from the wallet shown, Chains' own question, and
+only to a deposit address of that sidechain's slot.
+
+### 13.4 The old *Sidechains → Nodes* tab
+
+Removed (decision 5): the page `SidechainNodes.svelte`, its tab, its command (now "Run sidechains" →
+Settings → Sidechains, and a button "Run sidechains in this app" on the Sidechains page), its host
+methods. Kept for later: `sidechainnodes.cpp` (its download of a release and its checks, for
+download-on-enable, phase 4) and its unit tests. Not migrated (no longer offered): starting a custom
+sidechain by hand, downloads from the app (phase 4).
+
+### 13.5 Security review (phase 2)
+
+| # | Threat | What holds | Test |
+|---|---|---|---|
+| 1 | **Replay** of an accepted call | The token is taken once (erased whatever the result); a used one is "not known" | remotehost_tests, rpc_describeconfirmation*.py, run_packs (tamper) |
+| 2 | **Parameters changed** after the question (param smuggling, a page or a client) | The request as text is bound; the app rebuilds the request from its four fields and sends exactly the described one; the daemon refuses keys given twice and unknown fields; a type change (a number sent as a string) is a change | the same; per-chain tests change each first parameter |
+| 3 | **TOCTOU**: what the call does changes between question and run | The daemon makes the question again at run time and compares its digest; a prepared send is kept (not made again), so its question is the same; anything else differs → refused "ask again". Residual: what changes between the yes and the run inside one call (as in the standalone apps) | remotehost_tests (question changed) |
+| 4 | **Wallet switching** (another wallet loaded under the name) | The wallet's identity (its public descriptors) is bound | rpc_describeconfirmation.py ("another wallet…") |
+| 5 | **Version drift** (pack vs daemon vs app) | `hostApi` checked at build (pack) and at run (daemon): else read-only, "update needed"; tokens live in the daemon's memory only (a restarted or upgraded daemon knows none) | vitest ("update needed") |
+| 6 | **Expiry** | 5 minutes, from the question | remotehost_tests |
+| 7 | **A second question in one request** (a console line of two spends: running it again would repeat the first) | Refused after a yes; a wrong passphrase is said, and the app asks anew | sidechainpages_tests |
+| 8 | **Found:** a prepared send/bump was used up before its question, so a question carried out was a lost send | Fixed in the kit (`WalletApi`, `once`): used up when answered or failed, kept while carried out, one question per token | rpc_describeconfirmation.py |
+| 9 | **Found by review (MEDIUM): files named by path** (`webuihost files` took paths: any caller could declare a path chosen) | Fixed: the app gets a one-time token per file right after its own chooser (`webuichosenfile`: absolute, canonical, no link, no `..`, 10 min, read or write); a request names tokens only; the app attaches tokens only for files its chooser gave that chain's pages | remotehost_tests, rpc_describeconfirmation.py, sidechainpages_tests |
+| 10 | **Found by review (HIGH): packs on the app's origin** (an iframe of `chains-app://app/packs/…` could reach `window.parent.__chains` and every chain's calls) | Fixed: each pack is served under its own origin `chains-pack://<stem>/` (its files and the shim only, `frame-ancestors chains-app://app`, no network, no frames), in a sandboxed frame (`allow-scripts allow-same-origin` of its own origin: no pop-ups, no top navigation, no forms); it talks only by `postMessage`; the app takes a message only from a frame it registered, for that frame's chain (never a chain the message names), answers that frame alone; the app's origin no longer serves `/packs/`; the page offers frames no global | vitest (a frame naming another chain, a stranger window, testrpc), assets_tests (origins), run_packs (cross-origin: no reach in either way) |
+| 11 | **The app's user at the daemon spends directly** (a bug of the app) | `-rpcwhitelist`: no spend method (`sendtoaddress`, `dumpwallet`… answer 403); spends only through `webuihost`, which asks | supervisor_tests with a real layersd |
+| 12 | **A daemon spends Chains' wallet** | Chains' `-rpcwhitelist` for the daemons' user: the follower, bundles, BMM, the pages' reads; no deposit, send or dump; `-rpcwhitelistdefault=0` unless the user set whitelists (theirs stay as they were). **Residual:** `createbmmrequest` pays BMM bids from Chains' wallet in amounts the daemon chooses (after the user turned BMM on in that chain's pages); a cap per sidechain comes with phase 4 | supervisor_tests |
+| 13 | **A deposit into another chain** from one chain's pages | The app takes only a deposit address of that chain's slot; Chains' own describer shows the slot's title | run_packs ("Thunder cannot pay into Layers") |
+| 14 | **A token used by someone else** | Tokens bind, they do not authenticate: whoever has the daemon's cookie can spend anyway; the app's own password exists in its memory only | — |
+| 15 | **The passphrase** | Typed in the app's dialog, sent to the daemon on 127.0.0.1 with the token, wiped from the app's memory after (as `walletpassphrase` would); the wallet is locked again after the call | rpc_describeconfirmation.py (locked wallet) |
+| 16 | **Deception** in the question | The chain's name and mark come from the app (its catalog, its pack), not the daemon; the daemon's rows go through the dialog's own checks (bidi marks written out, images only PNG/JPEG checked) | dialog tests (IMAGE rows ported to Chains) |
+| 17 | **Found:** a crash of `<stem>d` at shutdown (a flush of events scheduled on a freed host) | Stopped at Interrupt, freed in Shutdown once the scheduler stopped | every functional test stops its nodes |
+
+### 13.6 Coverage per chain
+
+| Chain | Pages in the app | Its own questions (describers) | Tested |
+|---|---|---|---|
+| Layers | pack pinned; Home, Send, Receive, Transactions, My assets, Trade (DEX), Staking, Auctions … | assets (reserve+register in one question, send, mint, burn, logo, display name, control), DEX (swap, liquidity), auctions, bonds (`fastblocks.bond/unbond`), staking, withdrawals | rpc_describeconfirmation_layers.py; run_packs: deposit, send, asset transfer, swap through the dialog, confirmed |
+| Thunder | pack pinned | the kit's (sends, batch pay through `wallet.send.*`, withdrawals) | rpc_describeconfirmation.py; run_packs: deposit, send through the dialog, confirmed |
+| BitAssets | pack pinned (built in) | assets, DEX, auctions | rpc_describeconfirmation_bitassets.py |
+| BitNames | pack pinned (built in) | names (reserve/register, update, records, subnames, transfer, release), paymail, sign as a name | rpc_describeconfirmation_bitnames.py |
+| Hivemind | pack pinned (built in) | decisions, markets, shares, Votecoin, sealed votes/ballots | rpc_describeconfirmation_hivemind.py |
+| zSide | pack pinned (built in) | shielded sends, shield/unshield, melt/cast, fee bump; the viewing key export asks too | rpc_describeconfirmation_zside.py |
+| FastBlocks | pack pinned (built in) | bonds, unbonds, staking off, proofs of possession | rpc_describeconfirmation_fastblocks.py |
+
+The five last are built in and routed exactly as Layers and Thunder; their own end-to-end runs through the
+app (deposit, a spend of each kind, pictures) are not done yet.
+
+### 13.7 Windows and macOS
+
+Linux only in phase 2. Windows: no supervisor (Spawn says so: Job objects, `CreateProcess`, the `stop` RPC),
+and no packs: the Windows window serves one inline document (`InlineDocument`), so `chains-pack://`
+origins need a WebView2 resource handler per origin (`AddWebResourceRequestedFilter` on
+`https://<stem>.pack.chains-app.invalid/*`, as the dialog's `WIN_ORIGIN`), with the same policy. The daemon
+side (`remotehost.cpp`) is portable. macOS: no supervisor (`-exitwithparentfd`), no custom-scheme packs yet.
+
+### 13.8 What remains (phases 3–5)
+
+- **Phase 3:** the single seed (BIP39, `m/86'/0'|1'/A'`, blank wallets of the daemons with imported
+  descriptors, one passphrase), restore with rescans, the offer to move to it at the first start (decision
+  6), the first-run guide as the real first start (with the fresh-phrase advice of §4.1); the wizard to move
+  coins into a sidechain (the deposit exists, its screens do not); a calmer layout around a pack (the app's
+  sidebar and the pack's in one, one status bar).
+- **Phase 4:** download-on-enable with signed manifests (#9, `sidechainnodes.cpp` reused), upgrade/fork
+  banners, a cap of BMM spending per sidechain (§13.5 #12), liveness and stall detection, the move-data wizard
+  with progress, `supervisor.log` rotation, the end-to-end runs of the five other chains' pages.
+- **Phase 5:** Windows (Job objects, WebView2 origins for packs), macOS, hardware wallets / xpub-only mode,
+  resource caps (cgroups / Job memory), pause on battery.

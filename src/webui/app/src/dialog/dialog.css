@@ -311,3 +311,46 @@ body.loading {
   color: var(--negative);
   font-size: 0.92rem;
 }
+
+/* A picture the host checked (a logo): shown at half its size. */
+.rows .image dd img {
+  display: block;
+  width: 128px;
+  height: 128px;
+  object-fit: contain;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--text-muted);
+  background: var(--surface-2);
+}
+
+/* The chain a question is about when it is not Chains (a sidechain the app runs): above the title, unmissable. */
+.dialog .chain {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.9rem 1.25rem 0;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.dialog .chain img {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex: none;
+}
+.dialog .chain-words {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.dialog .chain-on,
+.dialog .chain-network {
+  color: var(--text-muted);
+}
+.dialog .chain-name {
+  font-size: 1.05em;
+}

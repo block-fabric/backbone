@@ -82,7 +82,7 @@
         <legend class="sr-only">Your wallet</legend>
         <label class="choice" class:chosen={choices.wallet === 'create'}>
           <input type="radio" name="w" checked={choices.wallet === 'create'} onchange={() => (choices.wallet = 'create')} />
-          <span><strong>Create a new wallet</strong><span class="muted">You get a backup phrase of 12 words. It is the key to everything: Chains and every sidechain.</span></span>
+          <span><strong>Create a new wallet</strong><span class="muted">You get a backup phrase of 12 words. It is the key to everything: Chains and every sidechain. Recommended, even if you have a Bitcoin wallet: a phrase of its own.</span></span>
         </label>
         <label class="choice" class:chosen={choices.wallet === 'restore'}>
           <input type="radio" name="w" checked={choices.wallet === 'restore'} onchange={() => (choices.wallet = 'restore')} />
@@ -102,6 +102,7 @@
       <p>The 12 or 24 words, in order, separated by spaces. Chains and the sidechains you pick are brought back from them; their history is read again from the chains, which can take a while.</p>
       <textarea class="words" rows="3" bind:value={restoreText} spellcheck="false" autocomplete="off" aria-label={t('Backup phrase')}></textarea>
       <p class="muted small">{t('%1 words', restored.words.length)}{restored.ok ? '' : ' · 12 or 24 are needed'}</p>
+      <p class="note" data-advice="fresh-seed"><Icon name="info" size={14} /> Use a phrase made for Chains, not the one of a Bitcoin wallet: the same phrase gives the same keys on both chains, and your addresses on one could be linked to the other.</p>
       <p class="note"><Icon name="info" size={14} /> Preview: the words are not used yet (the single seed comes in a later version).</p>
     {:else if step === 'network'}
       <h3>Network</h3>

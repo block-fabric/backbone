@@ -104,6 +104,24 @@ BOOST_AUTO_TEST_CASE(auto_wiring_args)
     BOOST_CHECK(Has(args, "-mainchainrpcuser=chains-app-sidechains"));
     BOOST_CHECK(Has(args, "-mainchainrpcpasswordfile=" + data + "/mainchain.rpcpass"));
     BOOST_CHECK(Has(args, "-listen=0"));
+    // This app is a user of its own at the daemon, limited to the reads, the wallet setup and the host of the pages
+    // over RPC; the user's cookie keeps everything (-rpcwhitelistdefault=0).
+    BOOST_CHECK(std::any_of(args.begin(), args.end(), [](const std::string& a) { return a.starts_with("-rpcauth=chains-app:"); }));
+    BOOST_CHECK(Has(args, "-rpcwhitelistdefault=0"));
+    const auto wl{std::find_if(args.begin(), args.end(), [](const std::string& a) { return a.starts_with("-rpcwhitelist=chains-app:"); })};
+    BOOST_REQUIRE(wl != args.end());
+    for (const char* m : {"webuihost", "webuievents", "describeconfirmation", "webuichosenfile", "getblockcount", "getmainchaininfo"}) {
+        BOOST_CHECK_MESSAGE(wl->find(m) != std::string::npos, m);
+    }
+    for (const char* m : {"sendtoaddress", "sendmany", "createwithdrawal", "signmessage", "dumpwallet", "walletpassphrase", "importdescriptors", "setbmm", "sendasset", "swapasset", "createbond"}) {
+        const std::vector<std::string>& allowed{SidechainSupervisor::AppRpcMethods()};
+        BOOST_CHECK_MESSAGE(std::find(allowed.begin(), allowed.end(), m) == allowed.end(), m);
+    }
+    // What the daemons may call on Chains: never a deposit, a send, a dump.
+    for (const char* m : {"createsidechaindeposit", "sendtoaddress", "dumpwallet", "walletpassphrase", "signrawtransactionwithwallet", "setwithdrawalvote"}) {
+        const std::vector<std::string>& allowed{SidechainSupervisor::MainchainRpcMethods()};
+        BOOST_CHECK_MESSAGE(std::find(allowed.begin(), allowed.end(), m) == allowed.end(), m);
+    }
     // Never the password on a command line.
     for (const auto& a : args) BOOST_CHECK(a.find("0123456789abcdef") == std::string::npos);
     BOOST_CHECK_EQUAL(fs::PathToString(s.CookieFile("layers")), data + "/regtest/.cookie");
@@ -311,6 +329,22 @@ BOOST_AUTO_TEST_CASE(real_daemon_start_stop_restart)
         {
             LOCK(notified_mutex);
             BOOST_CHECK(std::count(notified.begin(), notified.end(), "layers") > 0);
+        }
+        // The app's user at the daemon: the host of the pages answers; a spend straight away is refused by the daemon
+        // itself (its whitelist), whatever the app asks.
+        {
+            UniValue request{UniValue::VOBJ};
+            request.pushKV("kind", "host");
+            request.pushKV("method", "app.info");
+            UniValue args{UniValue::VARR};
+            args.push_back(request);
+            BOOST_CHECK_EQUAL(s.Rpc("layers", "webuihost", args).find_value("result").find_value("hostApi").getInt<int>(), 1);
+            UniValue send{UniValue::VARR};
+            send.push_back("rladdr");
+            send.push_back(1);
+            BOOST_CHECK_EXCEPTION(s.Rpc("layers", "sendtoaddress", send, "main"), SidechainSupervisor::RpcError,
+                                  [](const SidechainSupervisor::RpcError& e) { return e.code == -32601 && std::string{e.what()}.find("not one of the methods") != std::string::npos; });
+            BOOST_CHECK_EXCEPTION(s.Rpc("layers", "dumpwallet", UniValue{UniValue::VARR}, "main"), SidechainSupervisor::RpcError, [](const auto& e) { return e.code == -32601; });
         }
 
         // It falls over: restarted (after the first wait), as another process.

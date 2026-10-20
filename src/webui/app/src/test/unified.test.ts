@@ -11,6 +11,7 @@ import { dispatch, setTransport, type BridgeRequest } from '../lib/bridge';
 import { nav } from '../lib/nav.svelte';
 import { hub, refreshSidechains, selectChain } from '../lib/sidechains.svelte';
 import { app } from '../lib/state.svelte';
+import { deliver, installPackRoute, onFrameMessage, packs, packUrl, registerFrame, route, wrap } from '../lib/packs.svelte';
 import {
   canContinue,
   defaultChoices,
@@ -180,6 +181,10 @@ beforeEach(() => {
   nav.page = 'home';
   state = listOf(entry('layers'), entry('fastblocks'), entry('thunder', { program: '' }));
   calls = [];
+  packList = [];
+  packCompatible = true;
+  packs.list = [];
+  packs.loaded = false;
   setTransport(async (r) => {
     calls.push(r);
     const p = (r.params ?? {}) as Record<string, unknown>;
@@ -200,6 +205,12 @@ beforeEach(() => {
         return { stem: p.stem, name: 'Layers', state: 'running', mainchainHeight: 150, height: 12, mainchainConnected: true, mainchainSeen: 150, synced: true, blocks: [{ height: 12, hash: 'ab'.repeat(32), time: 1_700_000_000, txs: 1 }], wallet: { name: 'main', trusted: 1.5, pending: 0, immature: 0 } };
       case 'dialog.ask':
         return true;
+      case 'pack.list':
+        return packList;
+      case 'pack.info':
+        return { stem: p.stem, pack: packList.find((x) => x.stem === p.stem) ?? null, running: true, compatible: packCompatible, reason: packCompatible ? '' : 'daemon', hostApi: packCompatible ? 1 : 0 };
+      case 'pack.call':
+        return { routed: p };
       default:
         throw { code: -32601, message: `No ${r.method}` };
     }
@@ -208,6 +219,68 @@ beforeEach(() => {
 
 afterEach(() => {
   setTransport(null);
+});
+
+let packList: { stem: string; name: string; hostApi: number; commit: string }[] = [];
+let packCompatible = true;
+
+describe('the pages of a sidechain in a frame (§13)', () => {
+  it('wraps a request of the frame as the app\'s own, its id kept apart', () => {
+    expect(wrap('layers', { rid: '7', kind: 'rpc', method: 'getblockcount', params: [] })).toEqual({ kind: 'host', method: 'pack.call', params: { stem: 'layers', request: { kind: 'rpc', method: 'getblockcount', params: [] } }, rid: 'pack:layers:7' });
+    expect(wrap('layers', { rid: '8', kind: 'host', method: 'wallet.info', params: { wallet: 'main' }, exact: true })).toMatchObject({ rid: 'pack:layers:8', exact: true, params: { request: { kind: 'host', method: 'wallet.info' } } });
+    expect(wrap('layers', { rid: '7', kind: 'cancel' })).toEqual({ kind: 'cancel', rid: 'pack:layers:7' });
+    expect(wrap('thunder', { kind: 'rpc', method: 'getbalances', wallet: 'w' })).toEqual({ kind: 'host', method: 'pack.call', params: { stem: 'thunder', request: { kind: 'rpc', method: 'getbalances', params: [], wallet: 'w' } } });
+  });
+
+  it('takes a frame\'s messages only from that frame, for its own sidechain; refuses what is not a request', async () => {
+    installPackRoute();
+    // The page itself offers the frames nothing: no route on the window.
+    expect((window as unknown as Record<string, unknown>).__chainsPackRoute).toBeUndefined();
+    const replies: unknown[] = [];
+    const layers = { postMessage: (m: unknown, origin: string) => replies.push({ m, origin }) } as unknown as Window;
+    const stranger = { postMessage: () => replies.push('stranger') } as unknown as Window;
+    registerFrame('layers', layers);
+    // A frame that names another sidechain, or claims to be another: its own sidechain all the same.
+    expect(onFrameMessage({ source: layers, data: { chainsPack: 1, id: 1, stem: 'thunder', request: { rid: '1', kind: 'host', method: 'wallet.info', params: { wallet: 'main' } } } })).toBe(true);
+    await waitFor(() => expect(replies.length).toBe(1));
+    expect(replies[0]).toEqual({ m: { chainsPackReply: 1, id: 1, ok: true, value: { routed: { stem: 'layers', request: { kind: 'host', method: 'wallet.info', params: { wallet: 'main' } } } } }, origin: 'chains-pack://layers' });
+    expect(calls.at(-1)?.rid).toBe('pack:layers:1');
+    // A window that is no frame of this page: dropped, not answered.
+    expect(onFrameMessage({ source: stranger, data: { chainsPack: 1, id: 2, request: { kind: 'host', method: 'wallet.info' } } })).toBe(false);
+    expect(onFrameMessage({ source: layers, data: 'hello' })).toBe(false);
+    // A request of the tests, or of no kind: refused, said to the frame.
+    onFrameMessage({ source: layers, data: { chainsPack: 1, id: 3, request: { kind: 'testrpc', method: 'stop' } } });
+    await waitFor(() => expect(replies.length).toBe(2));
+    expect(replies[1]).toMatchObject({ m: { chainsPackReply: 1, id: 3, ok: false, error: { code: -32600 } } });
+    await expect(route('../x', { kind: 'host', method: 'a' })).rejects.toMatchObject({ code: -32600 });
+    expect(replies).not.toContain('stranger');
+    registerFrame('layers', null);
+    expect(packUrl('layers')).toBe('chains-pack://layers/packs/layers/index.html');
+  });
+
+  it('shows its pages once its node runs and speaks this version; read-only with "update needed" else', async () => {
+    packList = [{ stem: 'layers', name: 'Layers', hostApi: 1, commit: 'a'.repeat(40) }];
+    state.chains[0] = entry('layers', { enabled: true, state: 'running', ready: true });
+    await refreshSidechains();
+    selectChain('layers');
+    const view = render(SidechainView);
+    await waitFor(() => expect(document.querySelector('iframe.pack')).toBeTruthy());
+    const frame = document.querySelector('iframe.pack') as HTMLIFrameElement;
+    expect(frame.getAttribute('src')).toBe('chains-pack://layers/packs/layers/index.html');
+    expect(frame.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin');
+    expect(frame.title).toBe('Layers');
+    // Its node, a click away; back to its pages.
+    await fireEvent.click(screen.getByRole('button', { name: /Its node/ }));
+    await waitFor(() => expect(document.querySelector('iframe.pack')).toBeNull());
+    expect(document.querySelector('[data-field="height"]')).toBeTruthy();
+    view.unmount();
+    // A node of another version: read-only, update needed, no frame.
+    packCompatible = false;
+    render(SidechainView);
+    await waitFor(() => expect(document.querySelector('[data-reason="daemon"]')).toBeTruthy());
+    expect(document.querySelector('iframe.pack')).toBeNull();
+    selectChain('chains');
+  });
 });
 
 describe('Settings → Sidechains', () => {
@@ -275,7 +348,8 @@ describe('the chain switcher and the overview', () => {
     expect(document.querySelector('[data-field="sync"]')?.textContent).toBe('In step with Chains');
     expect(document.querySelector('[data-field="balance"]')?.textContent).toBe('1.50000000');
     expect(document.querySelector('tr[data-height="12"]')).toBeTruthy();
-    expect(screen.getByText(/Read-only for now/)).toBeTruthy();
+    // Without its pages built in (no pack.info here): its node, read-only.
+    expect(screen.getByText(/Its pages open once its node runs|not in this version/)).toBeTruthy();
     // Back to Chains: Home.
     selectChain('chains');
     expect(nav.page).toBe('home');

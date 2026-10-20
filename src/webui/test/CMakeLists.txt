@@ -17,6 +17,7 @@ add_executable(test_chains-app
   nodeevents_tests.cpp
   singleinstance_tests.cpp
   supervisor_tests.cpp
+  sidechainpages_tests.cpp
   windowframe_tests.cpp
   $<$<BOOL:${ENABLE_WALLET}>:walletapi_tests.cpp>
 )
@@ -97,6 +98,20 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
           --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
       )
       set_tests_properties(webui_e2e_unified PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+      # The pages of the sidechains in the app (doc/unified-app.md §13): Layers and Thunder, their spends through the
+      # trusted dialog. Needs thunderd too: -DWEBUI_E2E_THUNDER_BINDIR=<thunder build>/bin.
+      set(WEBUI_E2E_THUNDER_BINDIR "" CACHE PATH "Folder with thunderd, for the end-to-end test of the pages of the sidechains")
+      if(WEBUI_E2E_THUNDER_BINDIR)
+        add_test(NAME webui_e2e_packs
+          COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_packs.py
+            --app $<TARGET_FILE:chains-app>
+            --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+            --sidechain-bindir ${WEBUI_E2E_THUNDER_BINDIR}
+            --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-packs
+            --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+        )
+        set_tests_properties(webui_e2e_packs PROPERTIES TIMEOUT 3000 RUN_SERIAL TRUE)
+      endif()
       # The supervisor's unit tests with a real layersd wired to a real chainsd.
       set_tests_properties(webui_tests PROPERTIES ENVIRONMENT "CHAINS_TEST_SIDECHAIN_BINDIR=${WEBUI_E2E_SIDECHAIN_BINDIR}")
     endif()

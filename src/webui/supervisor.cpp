@@ -7,6 +7,7 @@
 #include <common/secretfile.h>
 #include <crypto/hmac_sha256.h>
 #include <logging.h>
+#include <random.h>
 #include <support/cleanse.h>
 #include <tinyformat.h>
 #include <util/strencodings.h>
@@ -240,9 +241,48 @@ bool SidechainSupervisor::IsReadOnlyMethod(std::string_view method)
     return std::find(methods.begin(), methods.end(), method) != methods.end();
 }
 
+const std::vector<std::string>& SidechainSupervisor::AppRpcMethods()
+{
+    static const std::vector<std::string> methods{[] {
+        std::vector<std::string> m{
+            // The supervisor: is it up, its wallet; the overview (IsReadOnlyMethod adds the reads of phase 1).
+            "getblockcount", "listwallets", "listwalletdir", "loadwallet", "createwallet", "stop",
+            // The host of the pages over RPC (remotehost.h of the sidechain).
+            "webuihost", "webuievents", "describeconfirmation", "webuichosenfile",
+        };
+        for (const char* r : {"getblockchaininfo", "getbestblockhash", "getblockhash", "getblockheader", "getblock", "getmainchaininfo", "getbmminfo",
+                              "getnetworkinfo", "getconnectioncount", "getmempoolinfo", "getpeerinfo", "getwalletinfo", "getbalances", "getbalance",
+                              "listtransactions", "uptime", "getdepositaddress"}) {
+            m.emplace_back(r);
+        }
+        return m;
+    }()};
+    return methods;
+}
+
+const std::vector<std::string>& SidechainSupervisor::MainchainRpcMethods()
+{
+    // What a sidechain daemon calls on its mainchain (src/sidechain of the template: the follower, BMM, bundles, the
+    // check of a withdrawal address) and what its pages read there (SidechainApi::MainchainMethods). Not
+    // createsidechaindeposit: a deposit from a sidechain's pages is made by this app, confirmed in its own dialog.
+    static const std::vector<std::string> methods{
+        "getblockchaininfo", "getblockcount", "getbestblockhash", "getblockhash", "getblockheader", "getsidechain", "getsidechainevents",
+        "listsidechaindeposits", "listactivesidechains", "listwithdrawalbundles", "getdrivechaininfo", "receivewithdrawalbundle",
+        "sendwithdrawalbundle", "vouchwithdrawalbundle", "createbmmrequest", "validateaddress", "getbalances", "getnewaddress", "getwalletinfo",
+    };
+    return methods;
+}
+
 SidechainSupervisor::SidechainSupervisor(Options options, LoadFn load, StoreFn store, NotifyFn notify)
     : m_options(std::move(options)), m_load(std::move(load)), m_store(std::move(store)), m_notify(std::move(notify))
 {
+    std::array<unsigned char, 32> secret;
+    GetStrongRandBytes(secret);
+    std::array<unsigned char, 16> salt;
+    GetStrongRandBytes(salt);
+    m_app_password = HexStr(secret);
+    memory_cleanse(secret.data(), secret.size());
+    m_app_rpcauth = RpcAuthLine(std::string{APP_RPC_USER}, m_app_password, HexStr(salt));
 }
 
 SidechainSupervisor::~SidechainSupervisor()
@@ -383,8 +423,15 @@ std::vector<std::string> SidechainSupervisor::DaemonArgs(const std::string& stem
         args.push_back(strprintf("-sidechainslot=%d", spec->slot));
         break;
     }
-    // Its own RPC server, on 127.0.0.1 only (the default binding), with a cookie this app reads.
+    // Its own RPC server, on 127.0.0.1 only (the default binding). This app is a user of its own there, which may call
+    // only AppRpcMethods (no spend but through webuihost, which asks); the cookie stays the user's, unrestricted
+    // (-rpcwhitelistdefault=0: a whitelist for one user does not empty the others').
     args.emplace_back("-server=1");
+    args.push_back("-rpcauth=" + m_app_rpcauth);
+    std::string whitelist{strprintf("-rpcwhitelist=%s:", APP_RPC_USER)};
+    for (size_t i{0}; i < AppRpcMethods().size(); ++i) whitelist += (i ? "," : "") + AppRpcMethods()[i];
+    args.push_back(std::move(whitelist));
+    args.emplace_back("-rpcwhitelistdefault=0");
     args.push_back(strprintf("-rpcport=%d", RpcPort(stem)));
     args.push_back(strprintf("-port=%d", P2pPort(stem)));
     // Its log is its debug.log; what it writes to the console (an error before the log opens) goes to LogFile.
@@ -856,33 +903,35 @@ void SidechainSupervisor::DeleteData(const std::string& stem, bool with_wallets)
     Changed(stem);
 }
 
-UniValue SidechainSupervisor::Rpc(const std::string& stem, const std::string& method, const UniValue& params, const std::string& wallet) const
+UniValue SidechainSupervisor::Rpc(const std::string& stem, const std::string& method, const UniValue& params, const std::string& wallet, std::chrono::milliseconds timeout) const
 {
 #ifdef WIN32
-    throw Error("not on Windows yet");
+    throw RpcError(-1, "not on Windows yet");
 #else
-    std::error_code ec;
-    if (!std::filesystem::is_regular_file(CookieFile(stem), ec)) throw Error("The node has no cookie yet (it is starting).");
-    std::ifstream file{CookieFile(stem).std_path()};
-    std::string cookie;
-    if (!file || !std::getline(file, cookie) || cookie.empty()) throw Error("The node has no cookie yet (it is starting).");
+    // As this app's own user of the daemon (APP_RPC_USER), whose methods the daemon limits (AppRpcMethods).
+    std::string cookie{strprintf("%s:%s", APP_RPC_USER, m_app_password)};
     UniValue request{UniValue::VOBJ};
     request.pushKV("jsonrpc", "2.0");
     request.pushKV("id", 1);
     request.pushKV("method", method);
     request.pushKV("params", params.isNull() ? UniValue{UniValue::VARR} : params);
     // A wallet name goes in the path as it is: only the plain ones are taken.
-    if (wallet.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != std::string::npos) throw Error("That wallet name is not taken here.");
+    if (wallet.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != std::string::npos) throw RpcError(-8, "That wallet name is not taken here.");
     const std::string path{wallet.empty() ? std::string{"/"} : "/wallet/" + wallet};
-    auto [status, body] = HttpPost(RpcPort(stem), path, cookie, request.write(), 30s);
+    std::string text{request.write()};
+    auto [status, body] = HttpPost(RpcPort(stem), path, cookie, text, timeout);
     memory_cleanse(cookie.data(), cookie.size());
-    if (status == 0) throw Error(body);
+    // The request may carry a passphrase the user typed (webuihost): not left in freed memory.
+    memory_cleanse(text.data(), text.size());
+    if (status == 0) throw RpcError(-28, body);
+    if (status == 401 || status == 403) throw RpcError(-32601, strprintf("%s is not one of the methods this app may call on the %s node", method, stem));
     UniValue reply;
-    if (!reply.read(body) || !reply.isObject()) throw Error(strprintf("HTTP %d from the node", status));
+    if (!reply.read(body) || !reply.isObject()) throw RpcError(-1, strprintf("HTTP %d from the node", status));
     const UniValue& error{reply.find_value("error")};
     if (!error.isNull()) {
         const UniValue& message{error.find_value("message")};
-        throw Error(message.isStr() ? message.get_str() : error.write());
+        const UniValue& code{error.find_value("code")};
+        throw RpcError(code.isNum() ? code.getInt<int>() : -1, message.isStr() ? message.get_str() : error.write());
     }
     return reply.find_value("result");
 #endif

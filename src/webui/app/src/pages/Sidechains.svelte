@@ -29,8 +29,7 @@
   import { ask, confirm, declined, errorText, inform, walletRpc } from '../lib/dialogs.svelte';
   import { formatCount, formatTime, shortHash } from '../lib/format';
   import { detail, showDetail } from '../lib/detail.svelte';
-  import { nav, takeFocus } from '../lib/nav.svelte';
-  import SidechainNodes from './SidechainNodes.svelte';
+  import { go, nav, takeFocus } from '../lib/nav.svelte';
   import MoveCoins from './MoveCoins.svelte';
   import Term from '../components/Term.svelte';
   import { simpleMode } from '../lib/uimode.svelte';
@@ -45,15 +44,14 @@
     { id: 'sidechains', label: 'Sidechains' },
     { id: 'proposals', label: 'Proposals' },
     { id: 'withdrawals', label: 'Withdrawals' },
-    // The nodes of sidechains last (user decision).
-    { id: 'nodes', label: 'Nodes' },
   ];
   const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'sidechains');
-  // Simple mode (lib/uimode.svelte.ts): the first tab moves coins (MoveCoins), the nodes are the apps of the
-  // sidechains; proposals and withdrawals are Advanced's, shown only when asked for (the palette, a link).
+  // Simple mode (lib/uimode.svelte.ts): the first tab moves coins (MoveCoins); proposals and withdrawals are
+  // Advanced's, shown only when asked for (the palette, a link). The sidechains this app runs are turned on in
+  // Settings → Sidechains (doc/unified-app.md; the old Nodes tab is gone).
   const simple = $derived(simpleMode());
-  const SIMPLE_LABELS: Record<string, string> = { sidechains: 'Move coins', nodes: 'Sidechain apps' };
-  const tabs = $derived(simple ? TABS.filter((tb) => tb.id === 'sidechains' || tb.id === 'nodes' || tb.id === tab).map((tb) => ({ ...tb, label: SIMPLE_LABELS[tb.id] ?? tb.label })) : TABS);
+  const SIMPLE_LABELS: Record<string, string> = { sidechains: 'Move coins' };
+  const tabs = $derived(simple ? TABS.filter((tb) => tb.id === 'sidechains' || tb.id === tab).map((tb) => ({ ...tb, label: SIMPLE_LABELS[tb.id] ?? tb.label })) : TABS);
 
   let dc = $state<DrivechainState | null>(null);
   let loadError = $state('');
@@ -349,7 +347,10 @@
 </script>
 
 <div class="page sidechains">
-  <header class="page-head"><h1>Sidechains</h1></header>
+  <header class="page-head">
+    <h1>Sidechains</h1>
+    <button type="button" class="btn small" data-action="run-sidechains" onclick={() => go('settings', 'sidechains')}>Run sidechains in this app</button>
+  </header>
   {#if simple}
     <p class="summary muted">Move CHN to a <Term id="sidechain">sidechain</Term> to use what it adds (markets, names, private payments…), and bring it back when you are done.</p>
   {:else if dc}
@@ -367,10 +368,7 @@
     {/each}
   </div>
 
-  {#if tab === 'nodes'}
-    <!-- The nodes of sidechains run from here (chains-qt's Sidechain Nodes window), as a tab of this page. -->
-    <SidechainNodes embedded />
-  {:else if simple && tab === 'sidechains'}
+  {#if simple && tab === 'sidechains'}
     <MoveCoins {dc} {refresh} />
   {:else if dc && tab === 'sidechains'}
     <section class="stats">

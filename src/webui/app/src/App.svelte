@@ -8,6 +8,7 @@
   import TitleStrip from './components/TitleStrip.svelte';
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
+  import { installPackRoute } from './lib/packs.svelte';
   import { t, followLocale, loadLocale } from './lib/i18n.svelte';
   import { handleShortcut } from './lib/keyboard';
   import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
@@ -44,6 +45,8 @@
     media.addEventListener('change', onScheme);
 
     installEventSink();
+    // The pages of the sidechains in frames: their requests and events go through this page's bridge.
+    installPackRoute();
     let offWindow: (() => void) | undefined;
     subscribe();
     const offPhase = on<{ phase: string }>('phase', ({ phase }) => {
@@ -85,7 +88,7 @@
           const walletdata = await import('./lib/walletdata.svelte');
           const i18n = await import('./lib/i18n.svelte');
           const commands = await import('./lib/commands.svelte');
-          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current, i18n: i18n.i18n, t: i18n.t, buildCommands: commands.buildCommands };
+          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current, i18n: i18n.i18n, t: i18n.t, buildCommands: commands.buildCommands, packs: await import('./lib/packs.svelte') };
         }
         offWindow = watchWindow();
         await loadPrefs();

@@ -151,8 +151,24 @@ public:
 
     /** Methods of a sidechain node the pages may call in phase 1: they read, never spend or change. */
     static bool IsReadOnlyMethod(std::string_view method);
-    /** Call a method of its daemon over JSON-RPC (127.0.0.1, its cookie). Throws std::runtime_error with its error. */
-    UniValue Rpc(const std::string& stem, const std::string& method, const UniValue& params = UniValue{UniValue::VARR}, const std::string& wallet = {}) const;
+    /**
+     * The RPC user this app is at each daemon (an -rpcauth of this run, its password in memory only), and the only
+     * methods it may call there (-rpcwhitelist): reads of the supervisor and the overview, wallet setup, and the host of
+     * the pages over RPC (webuihost, which keeps the pages' own policy and asks for every spend, describeconfirmation,
+     * webuievents, webuichosenfile). Never a spend directly (doc/unified-app.md §13).
+     */
+    static constexpr std::string_view APP_RPC_USER{"chains-app"};
+    static const std::vector<std::string>& AppRpcMethods();
+    /** The methods the daemons may call on the node of this app (its -rpcwhitelist for the sidechains' user). */
+    static const std::vector<std::string>& MainchainRpcMethods();
+
+    /** An error of a daemon's RPC: its code too (the confirmations tell a refused token, a wrong passphrase). */
+    struct RpcError : std::runtime_error {
+        int code;
+        RpcError(int code_in, const std::string& message) : std::runtime_error(message), code(code_in) {}
+    };
+    /** Call a method of its daemon over JSON-RPC (127.0.0.1, as APP_RPC_USER). Throws RpcError with its error. */
+    UniValue Rpc(const std::string& stem, const std::string& method, const UniValue& params = UniValue{UniValue::VARR}, const std::string& wallet = {}, std::chrono::milliseconds timeout = std::chrono::seconds{30}) const;
     /** What the overview of a sidechain shows: height, sync, the balance of its wallet, recent blocks. */
     UniValue Overview(const std::string& stem, int mainchain_height) const;
 
@@ -195,6 +211,9 @@ private:
     bool m_quit GUARDED_BY(m_mutex){false};
     std::thread m_thread;
     mutable Mutex m_settings_mutex;
+    //! The password and the -rpcauth line of APP_RPC_USER at the daemons, made for this run.
+    std::string m_app_password;
+    std::string m_app_rpcauth;
 };
 
 } // namespace webui
