@@ -10,6 +10,7 @@
 #include <util/chaintype.h>
 #include <util/fs.h>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -132,6 +133,8 @@ public:
     void StartEnabled();
     /** Stop every daemon, all at once, and wait for them (at most stop_timeout); then the thread ends. */
     void StopAll();
+    /** StopAll was called: the app is stopping, nothing starts again (a waiter gives up). Thread-safe. */
+    bool Stopping() const { return m_stopping.load(); }
 
     /**
      * Another data directory (nullopt: the default). Only while its daemon does not run. move: the data
@@ -159,7 +162,7 @@ public:
     Status GetStatus(const std::string& stem) const;
     /** Every sidechain of the catalog, its settings and state (sidechains.list of the page). */
     UniValue List() const;
-    /** Wait until a sidechain is in a state (the tests). */
+    /** Wait until a sidechain is in a state; gives up when the app stops (StopAll). */
     bool WaitFor(const std::string& stem, const std::function<bool(const Status&)>& pred, std::chrono::milliseconds timeout) const;
 
     /** Methods of a sidechain node the pages may call in phase 1: they read, never spend or change. */
@@ -222,6 +225,8 @@ private:
     mutable std::condition_variable m_cv;
     std::map<std::string, Proc> m_procs GUARDED_BY(m_mutex);
     bool m_quit GUARDED_BY(m_mutex){false};
+    //! Set first thing by StopAll, before the daemons are asked to stop (m_quit is set once they are gone).
+    std::atomic<bool> m_stopping{false};
     std::thread m_thread;
     mutable Mutex m_settings_mutex;
     //! The password and the -rpcauth line of APP_RPC_USER at the daemons, made for this run.

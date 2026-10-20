@@ -879,9 +879,17 @@ The repository has no screenshots of their UI, only logos, so none are included 
   public Layers release, 20261020.1, has no host over RPC.
 - **Windows:** the download's progress and Cancel (curl.exe currently runs to the end), the supervisor and the packs
   (§13.7).
-- **An intermittent crash at exit (`SIGSEGV`), seen in 2 of 6 runs of `run_modules.py`.** It happens after
-  "Shutdown done" and "node stopped", while the window is being torn down. It did not reproduce under gdb or with a
-  backtrace handler, and is not yet explained.
+- **The crash at exit (`SIGSEGV`, 2 of 6 runs of `run_modules.py`) is fixed.** Two WSL core dumps showed it: the
+  download thread of an update, still in the end of the update (§15.3: waiting up to 3 minutes for the restarted
+  node), emitted an event after `App::Run` had destroyed the window (`m_window->Post` on a null window). The app
+  never waited for that thread before the window went (only `~ModuleInstaller`, later). Quitting during that wait
+  also took the update back (the node "did not start", so the version before was made current again) and kept the
+  process alive for 3 minutes after "Shutdown done". Now: `SidechainSupervisor::StopAll` marks the supervisor as
+  stopping and `WaitFor` gives up at once; the end of an update or rollback that sees the app stopping (or its
+  sidechain turned off meanwhile) changes nothing; `ModuleInstaller::Stop` cancels and waits for every job, after the
+  supervisor and before the window goes; and the events of the hub are no longer delivered once the window goes.
+  Tests: `stop_waits_for_the_jobs`, `wait_gives_up_when_stopping`; `run_modules.py` with a quit right after the
+  update's restart (4 of 4 rolled back and hung before, none after).
 - **The five other chains run through the app end to end, as modules.** Their packs have module mode (pinned), but
   only Layers (`run_modules.py`) and Thunder (`run_packs.py`) have been driven end to end.
 - **Small gaps:**

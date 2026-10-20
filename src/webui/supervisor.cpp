@@ -596,6 +596,7 @@ void SidechainSupervisor::StartEnabled()
 
 void SidechainSupervisor::StopAll()
 {
+    m_stopping = true;
     WAIT_LOCK(m_mutex, lock);
     if (!m_thread.joinable()) {
         m_quit = true;
@@ -872,7 +873,7 @@ SidechainSupervisor::Status SidechainSupervisor::GetStatus(const std::string& st
 bool SidechainSupervisor::WaitFor(const std::string& stem, const std::function<bool(const Status&)>& pred, std::chrono::milliseconds timeout) const
 {
     const auto until{std::chrono::steady_clock::now() + timeout};
-    while (std::chrono::steady_clock::now() < until) {
+    while (std::chrono::steady_clock::now() < until && !m_stopping) {
         if (pred(GetStatus(stem))) return true;
         WAIT_LOCK(m_mutex, lock);
         m_cv.wait_for(lock, 100ms);
