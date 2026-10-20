@@ -7,14 +7,14 @@
   import Icon from '../components/Icon.svelte';
   import SafeText from '../components/SafeText.svelte';
   import ChainBadge from '../components/ChainBadge.svelte';
-  import ChainChips from '../components/ChainChips.svelte';
+  import NotOnThisChain from '../components/NotOnThisChain.svelte';
   import ModuleAmount from '../components/ModuleAmount.svelte';
   import ModuleEmbed from '../components/ModuleEmbed.svelte';
   import { errorText } from '../lib/dialogs.svelte';
-  import { canEmbed, chainHost, chainsWith, chainWallet, filtered, loadCapabilities, viewFilter, type ChainStaking } from '../lib/chains.svelte';
+  import { canEmbed, chainHost, fromBaseUnits, chainsWith, chainWallet, loadCapabilities, selectedWith, type ChainStaking } from '../lib/chains.svelte';
 
   const chains = $derived(chainsWith('staking'));
-  const shown = $derived(filtered(chains, viewFilter('staking', chains)));
+  const shown = $derived(selectedWith('staking'));
   let data = $state<Record<string, ChainStaking>>({});
   let errors = $state<Record<string, string>>({});
   let manage = $state<string | null>(null);
@@ -49,11 +49,10 @@
 <div class="page staking">
   <header class="page-head">
     <h1>{t('Staking')}</h1>
-    <ChainChips page="staking" entries={chains} />
   </header>
 
-  {#if chains.length === 0}
-    <p class="muted">{t('No chain that stakes is turned on. Turn on FastBlocks or Layers in Settings → Sidechains.')}</p>
+  {#if shown.length === 0}
+    <NotOnThisChain what="staking" have={chains} none="No chain that stakes is turned on. Turn on FastBlocks or Layers in Settings → Sidechains." />
   {/if}
 
   {#each shown as e (e.id)}
@@ -79,7 +78,7 @@
       {:else}
         <div class="panel-body facts">
           <div class="fact"><span class="muted small">{t('This node')}</span><strong>{d.node?.validator ? (d.node.enabled ? t('Validator, staking') : t('Validator, not staking')) : t('Not a validator')}</strong></div>
-          <div class="fact"><span class="muted small">{t('Its stake / the set')}</span><strong>{d.node?.stake ?? 0} / {d.node?.totalstake ?? d.set?.totalstake ?? 0}</strong></div>
+          <div class="fact"><span class="muted small">{t('Its stake / the set')}</span><strong data-stake-total><ModuleAmount text={fromBaseUnits(d.node?.stake ?? 0)} coins /> / <ModuleAmount text={fromBaseUnits(d.node?.totalstake ?? d.set?.totalstake ?? 0)} unit={e.unit} coins /></strong></div>
           <div class="fact"><span class="muted small">{t('Its share of the pool')}</span><strong><ModuleAmount text={d.node?.poolshare ?? null} coins /></strong></div>
           <div class="fact"><span class="muted small">{t('Blocks made')}</span><strong>{d.node?.blocksmade ?? 0}</strong></div>
           <div class="fact"><span class="muted small">{t('Bonded on the chain')}</span><strong><ModuleAmount text={d.chain?.staking?.bonded ?? null} coins /></strong></div>
@@ -95,7 +94,7 @@
                 <thead><tr><th>{t('Key')}</th><th class="num">{t('Stake')}</th><th class="num">{t('Its share of the pool')}</th><th></th></tr></thead>
                 <tbody>
                   {#each d.node.keys as k (k.pubkey)}
-                    <tr data-node-key={k.pubkey}><td class="mono" translate="no"><SafeText text={short(k.pubkey)} /></td><td class="num">{k.stake ?? 0}</td><td class="num"><ModuleAmount text={k.poolshare ?? null} coins /></td><td>{#if k.inset}<span class="badge accent">{t('in the set')}</span>{:else}<span class="badge">{t('not in the set yet')}</span>{/if}</td></tr>
+                    <tr data-node-key={k.pubkey}><td class="mono" translate="no"><SafeText text={short(k.pubkey)} /></td><td class="num"><ModuleAmount text={fromBaseUnits(k.stake ?? 0)} unit={e.unit} coins /></td><td class="num"><ModuleAmount text={k.poolshare ?? null} coins /></td><td>{#if k.inset}<span class="badge accent">{t('in the set')}</span>{:else}<span class="badge">{t('not in the set yet')}</span>{/if}</td></tr>
                   {/each}
                 </tbody>
               </table>
@@ -107,7 +106,7 @@
               <thead><tr><th>{t('Key')}</th><th class="num">{t('Stake')}</th><th class="num">{t('Slots')}</th><th></th></tr></thead>
               <tbody>
                 {#each (d.set?.validators ?? []).slice(0, 25) as v (v.pubkey)}
-                  <tr data-validator={v.pubkey}><td class="mono" translate="no"><SafeText text={short(v.pubkey)} /></td><td class="num">{v.stake}</td><td class="num">{v.slots ?? '–'}</td><td>{#if v.local}<span class="badge accent">{t('this node')}</span>{/if}{#if v.banned}<span class="badge warning">{t('banned')}</span>{/if}</td></tr>
+                  <tr data-validator={v.pubkey}><td class="mono" translate="no"><SafeText text={short(v.pubkey)} /></td><td class="num"><ModuleAmount text={fromBaseUnits(v.stake)} unit={e.unit} coins /></td><td class="num">{v.slots ?? '–'}</td><td>{#if v.local}<span class="badge accent">{t('this node')}</span>{/if}{#if v.banned}<span class="badge warning">{t('banned')}</span>{/if}</td></tr>
                 {:else}
                   <tr><td colspan="4" class="muted">{t('No validators yet')}</td></tr>
                 {/each}
@@ -120,7 +119,7 @@
               <thead><tr><th>{t('Validator')}</th><th class="num">{t('Bonded')}</th><th class="num">{t('Unbonding')}</th><th></th></tr></thead>
               <tbody>
                 {#each d.bonds ?? [] as b (b.validator)}
-                  <tr><td class="mono" translate="no"><SafeText text={short(b.validator)} /></td><td class="num"><ModuleAmount text={b.bonded ?? null} coins /></td><td class="num"><ModuleAmount text={b.unbonding ?? null} coins /></td><td>{#if b.inset}<span class="badge accent">{t('in the set')}</span>{/if}</td></tr>
+                  <tr><td class="mono" translate="no"><SafeText text={short(b.validator)} /></td><td class="num"><ModuleAmount text={b.bonded ?? null} unit={e.unit} coins /></td><td class="num"><ModuleAmount text={b.unbonding ?? null} unit={e.unit} coins /></td><td>{#if b.inset}<span class="badge accent">{t('in the set')}</span>{/if}</td></tr>
                 {:else}
                   <tr><td colspan="4" class="muted">{t('No bonds')}</td></tr>
                 {/each}

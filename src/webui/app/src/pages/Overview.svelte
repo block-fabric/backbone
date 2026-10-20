@@ -1,5 +1,8 @@
 <script lang="ts">
   import ChainsOverview from '../components/ChainsOverview.svelte';
+  import ManyChainRecent from '../components/ManyChainRecent.svelte';
+  import ManyChainBlocks from '../components/ManyChainBlocks.svelte';
+  import { ALL, chainEntries, HOST, selectedChain } from '../lib/chains.svelte';
   import { t } from '../lib/i18n.svelte';
   import { untrack } from 'svelte';
   // Overview: the balances of the wallet, and the chain as it grows (overviewpage.cpp, chainactivity.cpp).
@@ -69,6 +72,14 @@
     );
     return () => clearTimeout(t);
   });
+
+  // The chains shown (the top bar's selection, doc/unified-app.md §19): this app's own sections only while it is shown;
+  // the lists of transactions, blocks and the mempool of every chain shown (a sidechain's only while it runs).
+  const entries = $derived(chainEntries());
+  const sel = $derived(selectedChain(entries));
+  const shownIds = $derived(entries.filter((e) => (sel === ALL || sel === e.id) && (e.host || e.running)).map((e) => e.id));
+  const withHost = $derived(sel === ALL || sel === HOST);
+  const many = $derived(shownIds.some((id) => id !== HOST));
 
   function openTx(txid: string) {
     nav.highlightTx = txid;
@@ -179,6 +190,7 @@
     </button>
   {/if}
 
+  {#if withHost}
   <section class="balances panel" aria-labelledby="balances-title">
     <div class="panel-head">
       <h2 id="balances-title">Balances</h2>
@@ -217,8 +229,17 @@
       </div>
     {/if}
   </section>
+  {/if}
 
-  {#if wallets.current !== null}
+  {#if many}
+    <section class="recent panel" aria-labelledby="recent-title">
+      <div class="panel-head">
+        <h2 id="recent-title">{t('Recent transactions')}</h2>
+        <button type="button" class="btn ghost small" disabled={prefs.mask} onclick={() => go('transactions')}>{t('All transactions')}</button>
+      </div>
+      <div class="panel-body"><ManyChainRecent chains={shownIds} count={NUM_ITEMS + 3} /></div>
+    </section>
+  {:else if wallets.current !== null}
     <section class="recent panel" aria-labelledby="recent-title">
       <div class="panel-head">
         <h2 id="recent-title">Recent transactions</h2>
@@ -247,6 +268,22 @@
     </section>
   {/if}
 
+  {#if many}
+    <section class="chain panel wide" aria-labelledby="chain-title">
+      <div class="panel-head">
+        <h2 id="chain-title">{t('Latest blocks')}</h2>
+        {#if withHost}<button type="button" class="btn ghost small" onclick={() => go('explorer')}>{t('Block explorer')}</button>{/if}
+      </div>
+      <div class="panel-body"><ManyChainBlocks chains={shownIds} hostBlocks={blocks} {now} /></div>
+    </section>
+    <section class="chain panel wide" aria-labelledby="mempool-title">
+      <div class="panel-head">
+        <h2 id="mempool-title">{t('Latest transactions')}</h2>
+        <span class="muted">{t('Waiting to be mined, on each chain')}</span>
+      </div>
+      <div class="panel-body"><ManyChainBlocks chains={shownIds} mode="mempool" hostMempool={mempoolRows.map((m) => ({ ...m, fee: m.fee.toFixed(8) }))} hostWaiting={node.mempool.size} {now} /></div>
+    </section>
+  {:else}
   <section class="chain panel" aria-labelledby="chain-title">
     <div class="panel-head">
       <h2 id="chain-title">Latest blocks</h2>
@@ -296,6 +333,7 @@
       {/if}
     </div>
   </section>
+  {/if}
 </div>
 
 <style>
@@ -306,8 +344,13 @@
     align-content: start;
     align-items: start;
   }
+  .overview :global(.chains-overview) {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
   .page-head,
-  .out-of-sync {
+  .out-of-sync,
+  .wide {
     grid-column: 1 / -1;
   }
   .out-of-sync {

@@ -9,7 +9,7 @@ import { isUnit, type Unit } from './units';
 import { clampFontAdjust, DEFAULT_THEME } from './themes';
 import { checkStoredThemes, isThemeChoice, type CustomTheme, type ThemeChoice } from './customthemes';
 import { DEFAULT_LAYOUT, isLayout, type LayoutId } from './layout';
-import { cleanChainViews, WALLET_NAME } from './chainprefs';
+import { cleanChainGroups, cleanChainId, cleanChainViews, WALLET_NAME } from './chainprefs';
 
 export interface Tip {
   height: number;
@@ -123,10 +123,12 @@ export const prefs = $state({
   tipsDone: false,
   /** The navigation folded into icons: the dashboard's sidebar a rail, the workspace's areas without their names (Ctrl+B). */
   sidebarCollapsed: false,
-  /** The chains of each page of the app (doc/unified-app.md §18): the filter of a read view ('all' or a chain), the chain of an action page. */
-  chainViews: {} as Record<string, string>,
   /** The wallet the app's pages use on each sidechain (Manage wallets). */
   chainWallets: {} as Record<string, string>,
+  /** The chain selected in the top bar for every page ('all' or a chain's id; lib/chains.svelte.ts). */
+  chain: 'all',
+  /** The sidechains whose group of the sidebar is folded (Sidebar.svelte). */
+  chainGroupsFolded: [] as string[],
   loaded: false,
 });
 
@@ -353,8 +355,9 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (raw.moneyFont === 'embedded' || raw.moneyFont === 'system') prefs.moneyFont = raw.moneyFont;
   if (raw.fontFamily === '' || raw.fontFamily === 'inter' || raw.fontFamily === 'nunito' || raw.fontFamily === 'mono' || raw.fontFamily === 'system') prefs.fontFamily = raw.fontFamily;
   if (typeof raw.trafficRange === 'number' && raw.trafficRange >= 5 && raw.trafficRange <= 1440) prefs.trafficRange = Math.round(raw.trafficRange / 5) * 5;
-  if (raw.chainViews !== undefined) prefs.chainViews = cleanChainViews(raw.chainViews);
   if (raw.chainWallets !== undefined) prefs.chainWallets = cleanChainViews(raw.chainWallets, WALLET_NAME);
+  if (raw.chain !== undefined) prefs.chain = cleanChainId(raw.chain);
+  if (raw.chainGroupsFolded !== undefined) prefs.chainGroupsFolded = cleanChainGroups(raw.chainGroupsFolded);
   prefs.loaded = true;
 }
 

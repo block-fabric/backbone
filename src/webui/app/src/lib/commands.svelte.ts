@@ -13,7 +13,8 @@ import { app, node, prefs, savePrefs, toast, wallets, walletsEnabled } from './s
 import { clampFontAdjust, THEMES } from './themes';
 import { UNITS } from './units';
 import { pageTitleSource, simpleMode, switchModeLabel, toggleUiMode } from './uimode.svelte';
-import { chainsWith } from './chains.svelte';
+import { ALL, chainEntries, cycleChain, selectedChain, selectedWith, setSelectedChain } from './chains.svelte';
+import { chainGroupItems, openChainItem } from './chaingroups';
 
 /** The menus of chains-qt, in their order, then the groups of the app. */
 // The menus: what concerns the chain (sidechains, mining, the explorer) before the tools.
@@ -70,8 +71,9 @@ export function pageAvailable(id: PageId): boolean {
   // A sidechain is shown from the chain switcher, which says which one.
   if (id === 'sidechain') return false;
   // What sidechains add: only while one that has it is turned on (its table, lib/chains.svelte.ts).
+  // Within the chain selected in the top bar: Staking goes when Thunder alone is shown.
   const needs = CHAIN_PAGES[id];
-  if (needs) return chainsWith(needs).length > 0;
+  if (needs) return selectedWith(needs).length > 0;
   return true;
 }
 
@@ -235,8 +237,24 @@ export function moduleCommands(): Command[] {
   const on = (hub.list?.chains ?? []).filter((c) => c.enabled);
   if (on.length === 0) return out;
   out.push({ id: 'module.chains', group: 'Modules', label: 'Switch to %1', arg: productName(), icon: 'modules', run: () => openChains('home'), keywords: 'module switch' });
+  // The chain every page shows (the top bar's selector): All, each chain, the next and the one before.
+  const sel = selectedChain();
+  out.push({ id: 'chain.select.all', group: 'Modules', label: 'Show all chains', icon: 'modules', checked: sel === ALL, run: () => setSelectedChain(ALL), keywords: 'chain selector every all filter' });
+  for (const e of chainEntries()) {
+    out.push({ id: `chain.select.${e.id}`, group: 'Modules', label: 'Show only %1', arg: e.name, icon: 'modules', checked: sel === e.id, run: () => setSelectedChain(e.id), keywords: `chain selector filter ${e.id}` });
+  }
+  out.push({ id: 'chain.next', group: 'Modules', label: 'Next chain', icon: 'chevron-right', shortcut: 'Ctrl+]', run: () => void cycleChain(1), keywords: 'chain selector cycle' });
+  out.push({ id: 'chain.previous', group: 'Modules', label: 'Previous chain', icon: 'chevron-left', shortcut: 'Ctrl+[', run: () => void cycleChain(-1), keywords: 'chain selector cycle' });
   for (const c of on) {
     out.push({ id: `module.${c.stem}`, group: 'Modules', label: 'Switch to %1', arg: c.name, icon: 'modules', run: () => openModule(c.stem), keywords: `module switch ${c.stem}` });
+    // What it adds, as its group of the sidebar has it ("Layers: Trade").
+    const entry = chainEntries().find((e) => e.id === c.stem);
+    if (entry) {
+      for (const item of chainGroupItems(entry)) {
+        if (item.id === 'own') continue;
+        out.push({ id: `chain.${c.stem}.${item.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${t(item.label)}`, icon: item.icon, run: () => openChainItem(c.stem, item), keywords: `${c.stem} ${item.summary}` });
+      }
+    }
     const m = modules.manifests[c.stem];
     if (!m) continue;
     for (const p of m.pages) {

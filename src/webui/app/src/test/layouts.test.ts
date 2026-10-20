@@ -4,7 +4,7 @@ import { setTransport, type BridgeRequest } from '../lib/bridge';
 import { buildCommands, MENU_GROUPS, menuSections, pageAvailable, palette, searchCommands, setLayout } from '../lib/commands.svelte';
 import { closeDetail, detail } from '../lib/detail.svelte';
 import { handleShortcut } from '../lib/keyboard';
-import { AREAS, chainBeforeTools, DEFAULT_LAYOUT, HOME_QUICK_ACTIONS, LAYOUTS, NAV_SECTIONS, pageKind } from '../lib/layout';
+import { AREAS, CHAIN_GROUP_PAGES, chainBeforeTools, DEFAULT_LAYOUT, HOME_QUICK_ACTIONS, LAYOUTS, NAV_SECTIONS, pageKind } from '../lib/layout';
 import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
 import { app, applyPrefs, node, prefs, wallets } from '../lib/state.svelte';
 import { resetWalletData } from '../lib/walletdata.svelte';
@@ -155,7 +155,8 @@ describe('the commands', () => {
     for (const p of pages) {
       if (!chainPages.has(p)) expect(all.some((c) => c.id === `page.${p}`), p).toBe(true);
       expect(AREAS.some((a) => a.tabs.some((t) => t.page === p)), `workspace: ${p}`).toBe(true);
-      expect(NAV_SECTIONS.some((s) => s.pages.includes(p)), `sidebars: ${p}`).toBe(true);
+      // In the dashboard's sidebar, what sidechains add is under each chain's group of the Chain section (§19).
+      expect(NAV_SECTIONS.some((s) => s.pages.includes(p)) || CHAIN_GROUP_PAGES.includes(p), `sidebars: ${p}`).toBe(true);
     }
     // The compact sidebar is gone (user decision): two layouts.
     expect(LAYOUTS.map((l) => l.id)).toEqual(['workspace', 'dashboard']);

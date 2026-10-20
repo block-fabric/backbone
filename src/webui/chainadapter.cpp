@@ -11,6 +11,7 @@
 #include <webui/bridge.h>
 
 #include <algorithm>
+#include <map>
 #include <set>
 
 namespace webui {
@@ -171,6 +172,22 @@ std::string ChainAdapter::AmountText(const UniValue& value)
 {
     if (value.isNum() || value.isStr()) return value.getValStr();
     return {};
+}
+
+UniValue ChainAdapter::WalletBalances(const UniValue& mine)
+{
+    const auto units{[&](const char* key) -> int64_t {
+        const std::string text{AmountText(mine.find_value(key))};
+        const bool negative{text.starts_with('-')};
+        const auto u{ParseUnits(negative ? std::string_view{text}.substr(1) : std::string_view{text}, COIN_DECIMALS)};
+        return u ? (negative ? -*u : *u) : 0;
+    }};
+    const int64_t available{std::max<int64_t>(0, units("trusted") + std::min<int64_t>(0, units("nonmempool")))};
+    UniValue bal{UniValue::VOBJ};
+    bal.pushKV("trusted", FormatUnits(available, COIN_DECIMALS));
+    bal.pushKV("pending", FormatUnits(std::max<int64_t>(0, units("untrusted_pending")), COIN_DECIMALS));
+    bal.pushKV("immature", FormatUnits(std::max<int64_t>(0, units("immature")), COIN_DECIMALS));
+    return bal;
 }
 
 ChainAdapter::AddressKind ChainAdapter::KindOf(std::string_view address, std::string* hrp)
@@ -498,12 +515,7 @@ UniValue ChainAdapter::Summary(const UniValue& params) const
     if (!wallet.empty()) {
         section("balances", [&] {
             const UniValue b{m_hooks.rpc(stem, "getbalances", UniValue{UniValue::VARR}, wallet)};
-            const UniValue& mine{b.find_value("mine")};
-            UniValue bal{UniValue::VOBJ};
-            bal.pushKV("trusted", AmountText(mine.find_value("trusted")));
-            bal.pushKV("pending", AmountText(mine.find_value("untrusted_pending")));
-            bal.pushKV("immature", AmountText(mine.find_value("immature")));
-            out.pushKV("balances", std::move(bal));
+            out.pushKV("balances", WalletBalances(b.find_value("mine")));
         });
         if (caps.assets) section("assets", [&] { out.pushKV("assets", AssetRows(PageRead(stem, "listmyassets", UniValue{UniValue::VARR}, wallet))); });
         if (caps.shielded) {
@@ -604,7 +616,7 @@ UniValue ChainAdapter::Wallets(const UniValue& params) const
                 w.pushKV("encrypted", info.exists("unlocked_until"));
                 w.pushKV("keys", info.find_value("private_keys_enabled").isTrue());
                 const UniValue b{m_hooks.rpc(stem, "getbalances", UniValue{UniValue::VARR}, name)};
-                w.pushKV("trusted", AmountText(b.find_value("mine").find_value("trusted")));
+                w.pushKV("trusted", WalletBalances(b.find_value("mine")).find_value("trusted"));
             } catch (const std::exception& e) {
                 w.pushKV("error", Line(e.what(), 200));
             }
@@ -936,6 +948,155 @@ UniValue ChainAdapter::Markets(const UniValue& params) const
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
     out.pushKV("markets", std::move(rows));
+    return out;
+}
+
+UniValue ChainAdapter::Positions(const UniValue& params) const
+{
+    std::string stem;
+    const Capabilities& caps{Caps(params, stem)};
+    if (!caps.markets) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("%s has no markets", m_hooks.name(stem)));
+    const std::string wallet{Wallet(stem, params)};
+    const UniValue held{PageRead(stem, "getwalletpositions", UniValue{UniValue::VARR}, wallet)};
+    const UniValue markets{PageRead(stem, "listmarkets", UniValue{UniValue::VARR}, "")};
+    std::map<std::string, const UniValue*> by_id;
+    for (size_t i{0}; markets.isArray() && i < markets.size() && i < 1000; ++i) {
+        if (IsHex64(Str(markets[i], "id"))) by_id.emplace(Str(markets[i], "id"), &markets[i]);
+    }
+    UniValue rows{UniValue::VARR};
+    for (size_t i{0}; held.isArray() && i < held.size() && rows.size() < 200; ++i) {
+        const UniValue& p{held[i]};
+        const std::string market{Str(p, "market")};
+        if (!IsHex64(market) || !Param(p, "state").isNum() || !Param(p, "shares").isNum()) continue;
+        const int state{Param(p, "state").getInt<int>()};
+        UniValue row{UniValue::VOBJ};
+        row.pushKV("market", market);
+        row.pushKV("account", Line(Str(p, "account"), 120));
+        row.pushKV("state", state);
+        row.pushKV("shares", AmountText(Param(p, "shares")));
+        if (const auto it{by_id.find(market)}; it != by_id.end()) {
+            const UniValue& m{*it->second};
+            row.pushKV("text", Line(Str(m, "text"), 300));
+            row.pushKV("status", Line(Str(m, "status"), 16));
+            const UniValue& states{m.find_value("states")};
+            for (size_t j{0}; states.isArray() && j < states.size() && j < 64; ++j) {
+                if (!Param(states[j], "state").isNum() || Param(states[j], "state").getInt<int>() != state) continue;
+                row.pushKV("answers", Line(Str(states[j], "answers"), 16));
+                if (Param(states[j], "price").isNum()) row.pushKV("price", AmountText(Param(states[j], "price")));
+                break;
+            }
+        }
+        rows.push_back(std::move(row));
+    }
+    UniValue out{UniValue::VOBJ};
+    out.pushKV("stem", stem);
+    out.pushKV("wallet", wallet);
+    out.pushKV("positions", std::move(rows));
+    return out;
+}
+
+UniValue ChainAdapter::Activity(const UniValue& params) const
+{
+    std::string stem;
+    Caps(params, stem);
+    if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
+    UniValue out{UniValue::VOBJ};
+    out.pushKV("stem", stem);
+    const UniValue count{m_hooks.rpc(stem, "getblockcount", UniValue{UniValue::VARR}, "")};
+    const int64_t height{count.isNum() ? count.getInt<int64_t>() : -1};
+    out.pushKV("height", height);
+    UniValue blocks{UniValue::VARR};
+    for (int64_t h{height}; h >= 0 && h > height - 6; --h) {
+        const UniValue hash{m_hooks.rpc(stem, "getblockhash", Array({UniValue{h}}), "")};
+        if (!hash.isStr() || !IsHex64(hash.get_str())) break;
+        const UniValue header{m_hooks.rpc(stem, "getblockheader", Array({hash}), "")};
+        UniValue b{UniValue::VOBJ};
+        b.pushKV("height", h);
+        b.pushKV("hash", hash.get_str());
+        b.pushKV("time", Param(header, "time").isNum() ? Param(header, "time").getInt<int64_t>() : 0);
+        b.pushKV("txs", Param(header, "nTx").isNum() ? Param(header, "nTx").getInt<int64_t>() : 0);
+        blocks.push_back(std::move(b));
+    }
+    out.pushKV("blocks", std::move(blocks));
+    // Its mempool, a read of its own pages' policy (getrawmempool with the entries): the newest few.
+    UniValue mempool{UniValue::VOBJ};
+    try {
+        const UniValue pool{PageRead(stem, "getrawmempool", Array({UniValue{true}}), "")};
+        struct Row {
+            std::string txid;
+            int64_t time;
+            std::string fee;
+            int64_t vsize;
+        };
+        std::vector<Row> rows;
+        const std::vector<std::string>& keys{pool.isObject() ? pool.getKeys() : std::vector<std::string>{}};
+        for (size_t i{0}; i < keys.size() && i < 5000; ++i) {
+            if (!IsHex64(keys[i])) continue;
+            const UniValue& e{pool[keys[i]]};
+            rows.push_back({keys[i], Param(e, "time").isNum() ? Param(e, "time").getInt<int64_t>() : 0, AmountText(Param(Param(e, "fees"), "base")), Param(e, "vsize").isNum() ? Param(e, "vsize").getInt<int64_t>() : 0});
+        }
+        std::ranges::sort(rows, [](const Row& a, const Row& b) { return a.time != b.time ? a.time > b.time : a.txid < b.txid; });
+        UniValue list{UniValue::VARR};
+        for (size_t i{0}; i < rows.size() && i < 8; ++i) {
+            UniValue r{UniValue::VOBJ};
+            r.pushKV("txid", rows[i].txid);
+            r.pushKV("time", rows[i].time);
+            r.pushKV("fee", rows[i].fee);
+            r.pushKV("vsize", rows[i].vsize);
+            list.push_back(std::move(r));
+        }
+        mempool.pushKV("size", static_cast<int64_t>(keys.size()));
+        mempool.pushKV("rows", std::move(list));
+    } catch (const std::exception& e) {
+        mempool.pushKV("error", Line(e.what(), 200));
+    }
+    out.pushKV("mempool", std::move(mempool));
+    return out;
+}
+
+bool ChainAdapter::IsLogoUrl(const std::string& url)
+{
+    static constexpr size_t MAX{44 * 1024};
+    if (url.size() > MAX) return false;
+    std::string_view rest{url};
+    if (rest.starts_with("data:image/png;base64,")) {
+        rest.remove_prefix(22);
+    } else if (rest.starts_with("data:image/jpeg;base64,")) {
+        rest.remove_prefix(23);
+    } else {
+        return false;
+    }
+    for (int pad{0}; pad < 2 && rest.ends_with('='); ++pad) rest.remove_suffix(1);
+    if (rest.empty()) return false;
+    return std::all_of(rest.begin(), rest.end(), [](char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/'; });
+}
+
+UniValue ChainAdapter::AssetLogo(const UniValue& params) const
+{
+    std::string stem;
+    const Capabilities& caps{Caps(params, stem)};
+    if (!caps.assets) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("%s has no assets", m_hooks.name(stem)));
+    if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
+    const std::string asset{Str(params, "asset")};
+    if (!IsHex64(asset)) throw HostError(BRIDGE_INVALID_REQUEST, "asset: the id of an asset (64 hex digits)");
+    UniValue p{UniValue::VOBJ};
+    p.pushKV("asset", asset);
+    UniValue request{UniValue::VOBJ};
+    request.pushKV("kind", "host");
+    request.pushKV("method", "bitassets.logo");
+    request.pushKV("params", std::move(p));
+    // The logo the chain's own pages show (its host checked the bytes as the rules do): a read, never asked; checked
+    // again here, so that the page gets a data: URL of PNG or JPEG for an <img>, or nothing.
+    const UniValue answer{m_hooks.rpc(stem, "webuihost", Array({request}), "")};
+    if (answer.find_value("confirm").isObject()) throw HostError(BRIDGE_INVALID_REQUEST, "A question for a read: not asked");
+    const UniValue& got{answer.find_value("result")};
+    const std::string url{Str(got, "url")};
+    if (!got.isObject() || Str(got, "asset") != asset || !IsLogoUrl(url)) return UniValue{};
+    UniValue out{UniValue::VOBJ};
+    out.pushKV("asset", asset);
+    out.pushKV("hash", IsHex64(Str(got, "hash")) ? Str(got, "hash") : std::string{});
+    out.pushKV("mime", url.starts_with("data:image/png") ? "image/png" : "image/jpeg");
+    out.pushKV("url", url);
     return out;
 }
 

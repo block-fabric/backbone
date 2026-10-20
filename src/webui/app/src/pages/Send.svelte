@@ -1,24 +1,17 @@
 <script lang="ts">
-  import ChainPicker from '../components/ChainPicker.svelte';
+  import ChainTiles from '../components/ChainTiles.svelte';
   import SidechainSend from '../components/SidechainSend.svelte';
-  import { actionChain, chainEntries, chainLink, HOST, loadCapabilities } from '../lib/chains.svelte';
-  // Send on which chain (doc/unified-app.md §18): a chain picker, the one used last (or the one a link asked for); the
-  // form is that chain's. This app's own below; a sidechain's in SidechainSend, its spend asked in the trusted dialog.
+  import { actionChain, chainEntries, HOST, loadCapabilities } from '../lib/chains.svelte';
+  // Send on which chain (doc/unified-app.md §19): the first field of the form, its tiles above "Pay to", in step with
+  // the top bar's selector (a chain's card or an asset's Send selects it). With All selected the form waits for one;
+  // with only this app's own chain there is nothing to pick. A sidechain's form is SidechainSend, its spend asked in
+  // the trusted dialog.
   const sendEntries = $derived(chainEntries());
-  let sendChain = $state(actionChain('send', chainEntries(), chainLink.send?.chain));
+  const sendChain = $derived(sendEntries.length > 1 ? actionChain('send', sendEntries) : HOST);
   $effect(() => {
     void loadCapabilities();
   });
-  // A link to Send on a chain (a chain's card, an asset): that chain.
-  $effect(() => {
-    const link = chainLink.send;
-    if (link && sendEntries.some((e) => e.id === link.chain)) sendChain = link.chain;
-  });
-  // The chain turned off: the app's own.
-  $effect(() => {
-    if (!sendEntries.some((e) => e.id === sendChain)) sendChain = HOST;
-  });
-  const sendOn = $derived(sendEntries.find((e) => e.id === sendChain) ?? sendEntries[0]);
+  const sendOn = $derived(sendEntries.find((e) => e.id === sendChain));
   import { t } from '../lib/i18n.svelte';
   import SafeText from '../components/SafeText.svelte';
   // Send coins (SendCoinsDialog, SendCoinsEntry): several recipients, the fee, coin control ("Choose
@@ -423,12 +416,19 @@
   <header class="page-head">
     <h1>Send</h1>
     <div class="row">
-      <span data-send-chain><ChainPicker page="send" bind:value={sendChain} entries={sendEntries} /></span>
       {#if sendChain === HOST}<button type="button" class="btn ghost small" onclick={() => (nav.tab = 'uri')}><Icon name="paste" size={16} /> Open URI…</button>{/if}
     </div>
   </header>
 
-  {#if sendChain !== HOST && sendOn}
+  {#if sendEntries.length > 1}
+    <section class="panel chain-choice" data-send-chain={sendChain ?? ''}>
+      <ChainTiles value={sendChain} label="Send on" kind="send" />
+    </section>
+  {/if}
+
+  {#if sendChain === null}
+    <p class="muted wait" data-send-wait>{t('The form for the chain you pick: its addresses, its assets, its checks.')}</p>
+  {:else if sendChain !== HOST && sendOn}
     {#key sendChain}<SidechainSend stem={sendOn.id} name={sendOn.name} />{/key}
   {:else}
 
@@ -588,6 +588,12 @@
     flex-direction: column;
     gap: 0.9rem;
     max-width: 68rem;
+  }
+  .chain-choice {
+    padding: 0.95rem 1.1rem;
+  }
+  .wait {
+    margin: 0.2rem 0.2rem 0;
   }
   .out-of-sync {
     display: flex;

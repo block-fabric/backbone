@@ -2,13 +2,14 @@
   // Every chain this app runs at once (doc/unified-app.md §18), on Home and on Overview: a card per chain with what its
   // wallet holds (in its own coin, never added up across chains), what is on its way (pending, deposits made here not yet
   // credited, withdrawals not paid yet), its assets and shielded coins, and how its node is doing; a filter of chains
-  // (All, or one), remembered for the page. A card's buttons open the app's own Send and Receive on that chain.
+  // follows the top bar's selection (doc/unified-app.md §19): All, every chain; one sidechain, its card alone; this
+  // app's own, nothing here (the page's own sections are that chain's). A card's buttons open the app's own Send and
+  // Receive on that chain (selecting it).
   import { t } from '../lib/i18n.svelte';
   import Amount from './Amount.svelte';
   import ModuleAmount from './ModuleAmount.svelte';
   import SafeText from './SafeText.svelte';
   import ChainBadge from './ChainBadge.svelte';
-  import ChainChips from './ChainChips.svelte';
   import Icon from './Icon.svelte';
   import { go } from '../lib/nav.svelte';
   import { prefs, wallets } from '../lib/state.svelte';
@@ -23,12 +24,13 @@
     chainWallet,
     creditDeposits,
     filtered,
+    ALL,
     HOST,
     loadCapabilities,
     pendingDeposits,
     refreshSummary,
-    setActionChain,
-    viewFilter,
+    selectedChain,
+    setSelectedChain,
     type ChainEntry,
     type ReadView,
   } from '../lib/chains.svelte';
@@ -37,7 +39,8 @@
 
   const entries = $derived(chainEntries());
   const sidechains = $derived(entries.filter((e) => !e.host));
-  const shown = $derived(filtered(entries, viewFilter(page, entries)));
+  const sel = $derived(selectedChain(entries));
+  const shown = $derived(filtered(entries, sel));
   const own = $derived(wallets.current !== null ? wallets.balances[wallets.current] : undefined);
 
   $effect(() => {
@@ -61,23 +64,22 @@
 
   function send(e: ChainEntry, asset?: string) {
     chainLink.send = { chain: e.id, ...(asset ? { asset } : {}) };
-    setActionChain('send', e.id);
+    setSelectedChain(e.id);
     go('send');
   }
   function receive(e: ChainEntry) {
     chainLink.receive = { chain: e.id };
-    setActionChain('receive', e.id);
+    setSelectedChain(e.id);
     go('receive');
   }
 </script>
 
-{#if sidechains.length > 0}
+{#if sidechains.length > 0 && sel !== HOST}
   <section class="panel chains-overview" aria-labelledby="chains-overview-title" data-chains-overview={page}>
     <header>
       <span class="icon"><Icon name="modules" size={17} /></span>
-      <h2 id="chains-overview-title">{t('Every chain')}</h2>
+      <h2 id="chains-overview-title">{sel === ALL ? t('Every chain') : t('On %1', shown[0]?.name ?? '')}</h2>
       <span class="muted small grow">{t('Each chain\'s coins are its own: never added up')}</span>
-      <ChainChips {page} {entries} />
     </header>
     <div class="cards">
       {#each shown as e (e.id)}

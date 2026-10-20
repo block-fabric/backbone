@@ -6,32 +6,30 @@
   import Icon from '../components/Icon.svelte';
   import SafeText from '../components/SafeText.svelte';
   import ChainBadge from '../components/ChainBadge.svelte';
-  import ChainChips from '../components/ChainChips.svelte';
-  import ChainPicker from '../components/ChainPicker.svelte';
+  import NotOnThisChain from '../components/NotOnThisChain.svelte';
   import ModuleAmount from '../components/ModuleAmount.svelte';
   import ModuleEmbed from '../components/ModuleEmbed.svelte';
+  import AssetLogo from '../components/AssetLogo.svelte';
   import { go, nav } from '../lib/nav.svelte';
-  import { actionChain, canEmbed, chainLink, chainsWith, chainState, filtered, loadCapabilities, mergeAssets, refreshSummary, rowsOf, setActionChain, viewFilter, type ManyChainAsset } from '../lib/chains.svelte';
+  import { canEmbed, chainLink, chainsWith, chainState, loadCapabilities, mergeAssets, refreshSummary, selectedWith, setSelectedChain, type ManyChainAsset } from '../lib/chains.svelte';
 
   const TABS = [
     { id: '', label: 'Holdings' },
     { id: 'trade', label: 'Trade' },
   ];
   const tab = $derived(nav.tab === 'trade' ? 'trade' : '');
+  // The chains of the top bar's selection (doc/unified-app.md §19): with All, every chain's holdings in one list; Trade
+  // is one chain's market, so with All it asks which.
   const chains = $derived(chainsWith('assets'));
-  const dexChains = $derived(chainsWith('dex'));
-  const filter = $derived(viewFilter('assets', chains));
-  let tradeChain = $state(actionChain('trade', chainsWith('dex')));
-  $effect(() => {
-    if (dexChains.length && !dexChains.some((e) => e.id === tradeChain)) tradeChain = dexChains[0].id;
-  });
-  const tradeOn = $derived(dexChains.find((e) => e.id === tradeChain));
+  const shownChains = $derived(selectedWith('assets'));
+  const dexChains = $derived(selectedWith('dex'));
+  const tradeOn = $derived(dexChains.length === 1 ? dexChains[0] : undefined);
 
   $effect(() => {
     void loadCapabilities();
   });
   $effect(() => {
-    const stems = filtered(chains, filter).filter((e) => e.running).map((e) => e.id);
+    const stems = shownChains.filter((e) => e.running).map((e) => e.id);
     const load = () => stems.forEach((s) => void refreshSummary(s, 3000));
     load();
     const timer = setInterval(() => {
@@ -40,11 +38,11 @@
     return () => clearInterval(timer);
   });
 
-  const rows = $derived<ManyChainAsset[]>(rowsOf(mergeAssets(chains.map((e) => chainState.summaries[e.id]).filter((s) => !!s)), filter));
+  const rows = $derived<ManyChainAsset[]>(mergeAssets(shownChains.map((e) => chainState.summaries[e.id]).filter((s) => !!s)));
 
   function send(a: ManyChainAsset) {
     chainLink.send = { chain: a.chain, asset: a.id };
-    setActionChain('send', a.chain);
+    setSelectedChain(a.chain);
     go('send');
   }
 </script>
@@ -52,7 +50,6 @@
 <div class="page assets">
   <header class="page-head">
     <h1>{t('Assets')}</h1>
-    {#if tab === ''}<ChainChips page="assets" entries={chains} />{:else}<span data-trade-chain><ChainPicker page="trade" bind:value={tradeChain} entries={dexChains} /></span>{/if}
   </header>
   <div class="tabs" role="tablist" aria-label={t('Assets')}>
     {#each TABS as tb (tb.id)}
@@ -60,8 +57,8 @@
     {/each}
   </div>
 
-  {#if chains.length === 0}
-    <p class="muted">{t('No chain with assets is turned on. Turn on Layers or BitAssets in Settings → Sidechains.')}</p>
+  {#if shownChains.length === 0}
+    <NotOnThisChain what="assets" have={chains} none="No chain with assets is turned on. Turn on Layers or BitAssets in Settings → Sidechains." />
   {:else if tab === ''}
     <section class="panel">
       <table class="table" data-assets-table>
@@ -70,7 +67,7 @@
           {#each rows as a (a.chain + a.id)}
             <tr data-asset-row={a.chain} data-asset={a.id}>
               <td><ChainBadge id={a.chain} name={a.name} small /></td>
-              <td><strong><SafeText text={a.label} /></strong> <span class="mono faint small" translate="no"><SafeText text={a.id.slice(0, 10)} />…</span></td>
+              <td><span class="asset-name"><AssetLogo stem={a.chain} id={a.id} label={a.label} /><strong><SafeText text={a.label} /></strong></span> <span class="mono faint small" translate="no"><SafeText text={a.id.slice(0, 10)} />…</span></td>
               <td class="num"><ModuleAmount text={a.balance} /></td>
               <td class="num"><ModuleAmount text={a.pending} /></td>
               <td>{#if a.control}<span class="badge accent">{t('you control it')}</span>{/if}</td>
@@ -87,12 +84,33 @@
     {#if canEmbed(tradeOn.id, 'trade')}
       {#key tradeOn.id}<ModuleEmbed stem={tradeOn.id} page="trade" name={tradeOn.name} height="40rem" />{/key}
     {/if}
+  {:else if dexChains.length > 1}
+    <!-- Trade is one chain's market: All shown, the chain is asked (and selected for every page). -->
+    <section class="panel pick-trade" data-trade-pick>
+      <p><strong>{t('Trade on which chain?')}</strong></p>
+      <div class="choices">
+        {#each dexChains as e (e.id)}<button type="button" class="btn" onclick={() => setSelectedChain(e.id)} data-trade-chain={e.id}><ChainBadge id={e.id} name={e.name} small /></button>{/each}
+      </div>
+    </section>
   {:else}
-    <p class="muted">{t('No chain with a market of assets is turned on.')}</p>
+    <NotOnThisChain what="a market of assets" have={chainsWith('dex')} none="No chain with a market of assets is turned on." />
   {/if}
 </div>
 
 <style>
+  .pick-trade {
+    padding: 1.1rem 1.3rem;
+  }
+  .choices {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .asset-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
   .assets {
     display: flex;
     flex-direction: column;

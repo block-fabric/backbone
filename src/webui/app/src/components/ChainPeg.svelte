@@ -20,6 +20,7 @@
   let { stem, name, running, focus = false }: { stem: string; name: string; running: boolean; focus?: boolean } = $props();
 
   let peg = $state<ChainPeg | null>(null);
+  const stakes = $derived(!!chainState.caps[stem]?.staking);
   let error = $state('');
   let depositAmount = $state('');
   let withdrawAddress = $state('');
@@ -105,7 +106,8 @@
     <h2><ChainBadge id={stem} {name} /></h2>
     {#if peg}
       <span class="badge" class:accent={peg.mainchain.state === 'ok'} data-peg-link>{peg.mainchain.state === 'ok' ? t('In step with %1', productName()) : t('Link to %1: %2', productName(), peg.mainchain.state ?? '?')}</span>
-      <span class="badge" data-peg-bmm>{peg.bmm.mining ? t('Merged mining on: %1 blocks', String(peg.bmm.blocks ?? 0)) : t('Merged mining off')}</span>
+      <!-- A chain that stakes makes its blocks by stake: merged mining only anchors them in the mainchain (0 is not broken). -->
+      <span class="badge" data-peg-bmm title={stakes ? t('Its blocks are made by its validators; merged mining anchors them in %1', productName()) : undefined}>{stakes ? (peg.bmm.mining ? t('Blocks by stake; anchors by merged mining: %1', String(peg.bmm.blocks ?? 0)) : t('Blocks by stake; merged mining off')) : peg.bmm.mining ? t('Merged mining on: %1 blocks', String(peg.bmm.blocks ?? 0)) : t('Merged mining off')}</span>
       {#if peg.mainchain.slot !== undefined}<span class="muted small">{t('Slot %1', String(peg.mainchain.slot))}</span>{/if}
     {/if}
     <span class="grow"></span>

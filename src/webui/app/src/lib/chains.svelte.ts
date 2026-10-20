@@ -7,8 +7,8 @@
 // a sidechain from the host's chain.* methods (webui/chainadapter.h), which read its node and build its spends from
 // checked parameters; every spend on a sidechain is that chain's own question, asked in the app's trusted dialog.
 //
-// Read views show many chains by default, with a filter (All, or one chain); actions act on one chain, chosen in a
-// picker. The filter or the chain of each page is remembered (prefs.chainViews).
+// One chain selector for every page, in the top bar (§19, prefs.chain): All, or one chain. Read views show every chain
+// with All, one chain else; actions act on one chain, picked in their form (in step with the selector).
 import { request } from './bridge';
 import { prefs, savePrefs, wallets } from './state.svelte';
 import { hub } from './sidechains.svelte';
@@ -245,48 +245,76 @@ export function chainEntries(on: SidechainEntry[] = (hub.list?.chains ?? []).fil
   ];
 }
 
-type Capability = 'assets' | 'dex' | 'staking' | 'names' | 'markets' | 'shielded';
+export type Capability = 'assets' | 'dex' | 'staking' | 'names' | 'markets' | 'shielded';
 
 /** The sidechains turned on that can do something (their table, never what their node answered). */
 export function chainsWith(cap: Capability, entries: ChainEntry[] = chainEntries()): ChainEntry[] {
   return entries.filter((e) => !e.host && !!e.caps?.[cap]);
 }
 
-// ---- What each page remembers: a filter of read views, the chain of actions ----
+// ---- The chain selected: one for the whole app (the top bar), remembered ----
+//
+// User feedback (2026-10-20): "the chain selector should be above, next to navigation, and work on every page, rather
+// than putting selector inside sections; and sections be dynamic depending on the selection". One selection for every
+// page (prefs.chain): All, or one chain. With All a read view shows every chain and an action page (Send, Receive) asks
+// which chain in its form; with one chain every page shows only that chain, and what does not apply to it goes.
+// Global rather than per page: what the user looks at is a chain, not a page of it (going from Home to Send to
+// Transactions keeps it); a per-page choice was what the user found hard to follow (the chips of each section).
 
-/** The pages that show many chains (a filter: All or one chain) and those that act on one. */
+/** The pages that show many chains and those that act on one (they all follow the selection). */
 export const READ_VIEWS = ['home', 'overview', 'transactions', 'wallets', 'sidechains', 'staking', 'assets', 'names', 'markets'] as const;
 export const ACTION_VIEWS = ['send', 'receive', 'trade'] as const;
 export type ReadView = (typeof READ_VIEWS)[number];
 export type ActionView = (typeof ACTION_VIEWS)[number];
 
-export { cleanChainViews, WALLET_NAME } from './chainprefs';
+export { cleanChainViews, cleanChainId, cleanChainGroups, WALLET_NAME } from './chainprefs';
 
-/** The filter of a read view: what the user chose last, if that chain is still on; else every chain. */
-export function viewFilter(page: ReadView, entries: ChainEntry[] = chainEntries()): string {
-  const v = prefs.chainViews[page];
-  if (v && (v === ALL || entries.some((e) => e.id === v))) return v;
+/** The chain selected: All, or a chain still on (one turned off is forgotten: All). */
+export function selectedChain(entries: ChainEntry[] = chainEntries()): string {
+  const v = prefs.chain;
+  if (v && v !== ALL && entries.some((e) => e.id === v)) return v;
   return ALL;
 }
 
-export function setViewFilter(page: ReadView, value: string): void {
-  savePrefs({ chainViews: { ...prefs.chainViews, [page]: value } });
+export function setSelectedChain(id: string): void {
+  if (id !== ALL && !/^[a-z0-9]{1,32}$/.test(id)) return;
+  if (prefs.chain === id) return;
+  savePrefs({ chain: id });
+}
+
+/** The next chain (or the one before): All, then each chain, round (Ctrl+] and Ctrl+[). */
+export function cycleChain(step = 1, entries: ChainEntry[] = chainEntries()): string {
+  if (entries.length < 2) return ALL;
+  const ids = [ALL, ...entries.map((e) => e.id)];
+  const at = ids.indexOf(selectedChain(entries));
+  const next = ids[(at + step + ids.length * 2) % ids.length];
+  setSelectedChain(next);
+  return next;
+}
+
+/** The filter of a read view: the selection (a chain that has nothing for that view shows nothing there). */
+export function viewFilter(_page?: ReadView, entries: ChainEntry[] = chainEntries()): string {
+  return selectedChain(entries);
+}
+
+/** The chains a page of a feature shows: those that have it, within the selection. */
+export function selectedWith(cap: Capability, entries: ChainEntry[] = chainEntries()): ChainEntry[] {
+  return filtered(chainsWith(cap, entries), selectedChain(entries));
 }
 
 /**
- * The chain an action page acts on: the one asked for (a link: Send from a chain's card), else the one used last on
- * that page if it is still on, else this app's own.
+ * The chain an action page acts on: the one asked for (a link: Send from a chain's card, which selects it), else the
+ * one selected; null with All (the form asks which chain).
  */
-export function actionChain(page: ActionView, entries: ChainEntry[] = chainEntries(), asked?: string | null): string {
+export function actionChain(_page: ActionView, entries: ChainEntry[] = chainEntries(), asked?: string | null): string | null {
   if (asked && entries.some((e) => e.id === asked)) return asked;
-  const v = prefs.chainViews[page];
-  if (v && entries.some((e) => e.id === v)) return v;
-  return entries[0]?.id ?? HOST;
+  const v = selectedChain(entries);
+  return v === ALL ? null : entries.some((e) => e.id === v) ? v : null;
 }
 
-export function setActionChain(page: ActionView, id: string): void {
-  if (prefs.chainViews[page] === id) return;
-  savePrefs({ chainViews: { ...prefs.chainViews, [page]: id } });
+/** A chain chosen in an action's form: it becomes the selection of the whole app. */
+export function setActionChain(_page: ActionView, id: string): void {
+  setSelectedChain(id);
 }
 
 /** The chains a filter shows. */
@@ -329,6 +357,16 @@ export function formatUnits(units: bigint, decimals: number): string {
   const scale = 10n ** BigInt(decimals);
   const frac = decimals > 0 ? `.${(abs % scale).toString().padStart(decimals, '0')}` : '';
   return `${neg ? '-' : ''}${abs / scale}${frac}`;
+}
+
+/**
+ * A stake a node gives in base units (getposinfo, getvalidators: an integer of 10^-decimals), as text in the chain's
+ * coin with its exact decimals; null if it is not one (a float, a number too large to be exact).
+ */
+export function fromBaseUnits(n: number | string | null | undefined, decimals = 8): string | null {
+  if (typeof n === 'number') return Number.isSafeInteger(n) ? formatUnits(BigInt(n), decimals) : null;
+  if (typeof n === 'string' && /^-?\d{1,30}$/.test(n)) return formatUnits(BigInt(n), decimals);
+  return null;
 }
 
 /** What is wrong with an amount to send, in the app's words (the host checks it again): null when fine. */

@@ -1,11 +1,15 @@
 <script lang="ts">
-  import ChainChips from '../components/ChainChips.svelte';
   import ChainPeg from '../components/ChainPeg.svelte';
-  import { chainEntries, chainLink, filtered, loadCapabilities, viewFilter } from '../lib/chains.svelte';
+  import { ALL, chainEntries, chainLink, HOST, loadCapabilities, selectedChain } from '../lib/chains.svelte';
   // The sidechains this app runs, in one place (doc/unified-app.md §18): coins into and out of each, its link and its
   // merged mining; the drivechain's own state (escrows, proposals, bundles and votes) in the tabs below.
   const pegChains = $derived(chainEntries().filter((e) => !e.host));
-  const pegShown = $derived(filtered(pegChains, viewFilter('sidechains', pegChains)));
+  // The top bar's selection (§19): one sidechain shows its panel only; All or this app's own chain, every sidechain
+  // (what moves coins into them is this app's chain).
+  const pegShown = $derived.by(() => {
+    const v = selectedChain();
+    return v === ALL || v === HOST ? pegChains : pegChains.filter((e) => e.id === v);
+  });
   let pegFocus = $state<string | null>(null);
   $effect(() => {
     void loadCapabilities();
@@ -375,7 +379,7 @@
   {/if}
   {#if pegChains.length}
     <section class="your-chains" aria-labelledby="your-chains-title" data-your-chains>
-      <header class="your-head"><h2 id="your-chains-title">{t('The sidechains this app runs')}</h2><ChainChips page="sidechains" entries={pegChains} /></header>
+      <header class="your-head"><h2 id="your-chains-title">{t('The sidechains this app runs')}</h2></header>
       {#each pegShown as e (e.id)}<ChainPeg stem={e.id} name={e.name} running={e.running} focus={pegFocus === e.id} />{/each}
     </section>
   {/if}

@@ -60,6 +60,10 @@ public:
     static std::string FormatUnits(int64_t units, int decimals);
     //! A number of a node's answer, as the exact text it wrote (amounts never go through a double here).
     static std::string AmountText(const UniValue& value);
+    //! The coins of a wallet as the chain's own getbalance counts them, from getbalances' "mine": available is
+    //! trusted + nonmempool (coins spent by a transaction not in the mempool are not available: nonmempool is their
+    //! negative sum), never below zero; pending and immature as the node gives them. {trusted, pending, immature}.
+    static UniValue WalletBalances(const UniValue& mine);
 
     enum class AddressKind { EMPTY, DEPOSIT, BECH32, BASE58, OTHER };
     //! What an address looks like (not whether it is valid): its bech32 prefix in hrp when it is one.
@@ -130,6 +134,14 @@ public:
     UniValue Assets(const UniValue& params) const;
     UniValue Names(const UniValue& params) const;
     UniValue Markets(const UniValue& params) const;
+    /** {stem (a chain of markets), wallet?} → the wallet's open positions, each with its market's words, outcome and price. */
+    UniValue Positions(const UniValue& params) const;
+    /** {stem} → {height, blocks (its latest 6: height, hash, time, txs), mempool: {size, rows (its newest 8: txid, time, fee, vsize)}}. */
+    UniValue Activity(const UniValue& params) const;
+    /** {stem (a chain of assets), asset (64 hex)} → {asset, hash, mime, url} (a data: URL of PNG or JPEG bytes) or null. */
+    UniValue AssetLogo(const UniValue& params) const;
+    //! A logo as a page may show it: a data: URL of PNG or JPEG in base64, bounded; anything else is not one.
+    static bool IsLogoUrl(const std::string& url);
 
     //! The error a wrong address is refused with (RPC_INVALID_ADDRESS_OR_KEY).
     static constexpr int WRONG_ADDRESS{-5};

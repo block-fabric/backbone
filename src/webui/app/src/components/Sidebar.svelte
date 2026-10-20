@@ -14,7 +14,10 @@
   import Icon from './Icon.svelte';
   import MenuButton from './MenuButton.svelte';
   import WalletPicker from './WalletPicker.svelte';
-  import ChainSwitcher from './ChainSwitcher.svelte';
+  import SidebarChainGroups from './SidebarChainGroups.svelte';
+  import { activeModule, moduleName, modules } from '../lib/modules.svelte';
+  import { aggregateItems } from '../lib/chaingroups';
+  import { ALL, chainEntries, selectedChain } from '../lib/chains.svelte';
   import { buildCommands, pageAvailable, pageDisabled } from '../lib/commands.svelte';
   import { navSections, pageIcon } from '../lib/layout';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
@@ -26,8 +29,6 @@
   import { pageShown, pageSummary, pageTitle, simpleMode } from '../lib/uimode.svelte';
   import { isThemeChoice } from '../lib/customthemes';
   import { frame } from '../lib/windowframe.svelte';
-  import { hub } from '../lib/sidechains.svelte';
-  import { modules, moduleName, moduleRoute, NODE_PAGE, openModule, pageIconOf } from '../lib/modules.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -55,21 +56,11 @@
     open = false;
   }
 
-  // A module shown (the switcher): its pages in place of the app's, the app's own page of its node last.
-  const moduleStem = $derived(hub.selected !== 'chains' ? hub.selected : '');
-  const manifest = $derived(moduleStem ? modules.manifests[moduleStem] : undefined);
-  const moduleSections = $derived.by(() => {
-    if (!moduleStem) return [];
-    const pages = manifest?.pages ?? [];
-    const out = (manifest?.sections ?? []).map((sec) => ({ title: sec.title, pages: sec.pages.map((id) => pages.find((p) => p.id === id)).filter((p) => !!p) }));
-    return out;
-  });
-  const moduleAt = $derived(moduleStem ? moduleRoute(moduleStem) : null);
+  // A chain's own pages shown: its wallet in the card.
+  const moduleStem = $derived(activeModule());
   const moduleSummary = $derived(moduleStem ? modules.summaries[moduleStem] : undefined);
-  function visitModule(page: string) {
-    openModule(moduleStem, page);
-    open = false;
-  }
+  // The views over many chains while All is selected (lib/chaingroups.ts).
+  const aggregates = $derived(aggregateItems(chainEntries()));
 </script>
 
 {#if open}
@@ -90,7 +81,7 @@
   {/if}
 
   {#if moduleStem}
-    <!-- The module shown: its wallet, as its pages say (the app's own card comes back with the app's pages). -->
+    <!-- A chain's own pages shown: its wallet, as its pages say (the app's own card comes back with the app's pages). -->
     <section class="wallet-card module-card" aria-label={t('Module shown')} data-module={moduleStem}>
       <div class="wc-top">
         <span class="avatar" aria-hidden="true"><SafeText text={moduleName(moduleStem).slice(0, 1)} /></span>
@@ -100,7 +91,7 @@
         </div>
       </div>
       {#if moduleSummary?.trusted != null}
-        <div class="wc-foot"><span class="balance" data-field="module-balance"><ModuleAmount text={moduleSummary.trusted} unit={manifest?.unit ?? ''} coins /></span></div>
+        <div class="wc-foot"><span class="balance" data-field="module-balance"><ModuleAmount text={moduleSummary.trusted} unit={modules.manifests[moduleStem]?.unit ?? ''} coins /></span></div>
       {/if}
     </section>
   {:else if wallets.list.length > 0}
@@ -125,41 +116,6 @@
   {/if}
 
   <div class="scroll">
-    {#if moduleStem}
-      {#each moduleSections as section, i (i)}
-        <div class="section" role="group" aria-label={section.title || (i === 0 ? t('Home') : t('More'))} data-module-section={moduleStem}>
-          {#if section.title}<div class="caption caps"><SafeText text={section.title} /></div>{:else if i > 0}<div class="caption gap" aria-hidden="true"></div>{/if}
-          {#each section.pages as p (p.id)}
-            {@const icon = pageIconOf(p)}
-            {@const current = moduleAt?.page === p.id}
-            <button
-              type="button"
-              class="entry"
-              class:current
-              aria-current={current ? 'page' : undefined}
-              data-module-page={p.id}
-              title={collapsed ? `${p.title}: ${p.summary}` : p.summary}
-              aria-label={collapsed ? p.title : undefined}
-              onclick={() => visitModule(p.id)}
-            >
-              <Icon name={icon.name} path={icon.path} size={19} />
-              <span class="text"><span class="grow"><SafeText text={p.title} /></span></span>
-            </button>
-          {/each}
-        </div>
-      {/each}
-      <div class="section" role="group" aria-label={t('Its node')}>
-        <div class="caption caps">{t('Module')}</div>
-        <button type="button" class="entry" class:current={moduleAt?.page === NODE_PAGE} aria-current={moduleAt?.page === NODE_PAGE ? 'page' : undefined} data-module-page={NODE_PAGE} title={t('How its node is doing: its blocks, how it keeps up, its program and its log')} aria-label={collapsed ? t('Its node') : undefined} onclick={() => visitModule(NODE_PAGE)}>
-          <Icon name="nodes" size={19} />
-          <span class="text"><span class="grow">{t('Its node')}</span></span>
-        </button>
-        <button type="button" class="entry" title={t('Turn modules on or off, their folders, their updates')} aria-label={collapsed ? t('Settings of the modules') : undefined} onclick={() => { go('settings', 'sidechains'); open = false; }}>
-          <Icon name="settings" size={19} />
-          <span class="text"><span class="grow">{t('Settings of the modules')}</span></span>
-        </button>
-      </div>
-    {:else}
     {#each sections as section, i (i)}
       <div class="section" role="group" aria-label={t(section.title || (i === 0 ? 'Home' : 'More'))}>
         {#if section.title}<div class="caption caps">{t(section.title)}</div>{:else if i > 0}<div class="caption gap" aria-hidden="true"></div>{/if}
@@ -186,20 +142,20 @@
             {#if !page.ready}<span class="soon" title="Being rebuilt">•</span>{/if}
             {#if id === 'settings' && pendingNow() > 0}<span class="pending" title="Changes of the settings wait for Apply" aria-label="Changes wait for Apply"></span>{/if}
           </button>
+        {#if id === 'sidechains'}
+          <!-- What the sidechains add: one group per chain, under the drivechain's own page (deposits, bundles, votes). -->
+          {#each aggregates as ag (ag.page)}
+            <button type="button" class="entry" class:current={nav.page === ag.page && selectedChain() === ALL} aria-current={nav.page === ag.page ? 'page' : undefined} title={t(ag.label)} aria-label={collapsed ? t(ag.label) : undefined} data-aggregate={ag.page} onclick={() => visit(ag.page)}>
+              <Icon name={ag.icon} size={19} />
+              <span class="text"><span class="grow">{t(ag.label)}</span></span>
+            </button>
+          {/each}
+          <SidebarChainGroups {collapsed} {simple} onvisit={() => (open = false)} />
+        {/if}
         {/each}
       </div>
     {/each}
-    {/if}
   </div>
-
-  <!-- The sidechains' own pages: a second way in (doc/unified-app.md §18). The app's own pages show every chain first;
-       here a module is opened as it is, with its own sections in the sidebar. -->
-  {#if (hub.list?.chains ?? []).some((c) => c.enabled)}
-    <div class="modules-way" data-modules-way>
-      {#if !collapsed}<div class="caption caps">{t('Their own pages')}</div>{/if}
-      <ChainSwitcher {collapsed} />
-    </div>
-  {/if}
 
   <div class="foot">
     <!-- Fold the sidebar into a rail of icons, or unfold it (Ctrl+B). -->
@@ -251,10 +207,6 @@
 </nav>
 
 <style>
-  .modules-way {
-    padding-top: 0.4rem;
-    border-top: 1px solid var(--line);
-  }
   .sidebar {
     display: flex;
     flex-direction: column;

@@ -1,10 +1,9 @@
 <script lang="ts">
   import ChainActivity from '../components/ChainActivity.svelte';
   import { hub } from '../lib/sidechains.svelte';
-  import ChainChips from '../components/ChainChips.svelte';
   import { HOST, viewFilter } from '../lib/chains.svelte';
-  // The filter of chains (doc/unified-app.md §18): every chain by default (one list, a Chain column), this app's own
-  // (the page as it was: its filters, export, actions), or one sidechain. Remembered for the page.
+  // The chain shown is the top bar's (doc/unified-app.md §19): every chain (one list, a Chain column), this app's own
+  // (the page as it was: its filters, export, actions), or one sidechain.
   const modulesOn = $derived((hub.list?.chains ?? []).filter((c) => c.enabled));
   const chainFilter = $derived(modulesOn.length ? viewFilter('transactions') : HOST);
   import { t } from '../lib/i18n.svelte';
@@ -244,9 +243,10 @@
   <header class="page-head">
     <h1>Transactions</h1>
     <div class="row">
-      <span data-chain-filter><ChainChips page="transactions" /></span>
-      <span class="muted count">{totals.count.toLocaleString('en')} of {current.records.length.toLocaleString('en')}</span>
-      <button type="button" class="btn small" onclick={exportCsv} disabled={prefs.mask} title="Export the data in the current tab to a file"><Icon name="download" size={16} /> Export</button>
+      {#if chainFilter === HOST}
+        <span class="muted count">{totals.count.toLocaleString('en')} of {current.records.length.toLocaleString('en')}</span>
+        <button type="button" class="btn small" onclick={exportCsv} disabled={prefs.mask} title="Export the data in the current tab to a file"><Icon name="download" size={16} /> Export</button>
+      {/if}
     </div>
   </header>
 

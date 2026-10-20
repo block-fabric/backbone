@@ -14,3 +14,14 @@ export function cleanChainViews(raw: unknown, values: RegExp = /^(all|[a-z0-9]{1
 
 /** A wallet name a chain's calls can carry (webui/chainadapter.cpp). */
 export const WALLET_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/;
+
+/** The chain selected (prefs.chain): 'all' or a chain's id; anything else is All. */
+export function cleanChainId(raw: unknown): string {
+  return typeof raw === 'string' && /^(all|[a-z0-9]{1,32})$/.test(raw) ? raw : 'all';
+}
+
+/** The chains' groups of the sidebar folded (prefs.chainGroupsFolded): chain ids only, at most 40. */
+export function cleanChainGroups(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((v): v is string => typeof v === 'string' && CHAIN_ID.test(v)))].slice(0, 40);
+}

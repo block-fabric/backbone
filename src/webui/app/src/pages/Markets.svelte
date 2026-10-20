@@ -5,13 +5,21 @@
   import { t } from '../lib/i18n.svelte';
   import SafeText from '../components/SafeText.svelte';
   import ChainBadge from '../components/ChainBadge.svelte';
-  import ChainChips from '../components/ChainChips.svelte';
   import ModuleEmbed from '../components/ModuleEmbed.svelte';
+  import MarketPositions from '../components/MarketPositions.svelte';
+  import NotOnThisChain from '../components/NotOnThisChain.svelte';
   import { errorText } from '../lib/dialogs.svelte';
-  import { canEmbed, chainHost, chainsWith, filtered, loadCapabilities, viewFilter, type ChainMarket } from '../lib/chains.svelte';
+  import { nav } from '../lib/nav.svelte';
+  import { canEmbed, chainHost, chainsWith, loadCapabilities, selectedWith, type ChainMarket } from '../lib/chains.svelte';
 
+  // The chains of the top bar's selection that have markets (doc/unified-app.md §19).
   const chains = $derived(chainsWith('markets'));
-  const shown = $derived(filtered(chains, viewFilter('markets', chains)));
+  const shown = $derived(selectedWith('markets'));
+  const TABS = [
+    { id: '', label: 'Markets' },
+    { id: 'positions', label: 'Positions' },
+  ];
+  const tab = $derived(nav.tab === 'positions' ? 'positions' : '');
   let markets = $state<Record<string, ChainMarket[]>>({});
   let errors = $state<Record<string, string>>({});
   let manage = $state<string | null>(null);
@@ -34,9 +42,18 @@
 <div class="page markets">
   <header class="page-head">
     <h1>{t('Markets')}</h1>
-    <ChainChips page="markets" entries={chains} />
   </header>
-  {#if chains.length === 0}<p class="muted">{t('No chain with markets is turned on.')}</p>{/if}
+  {#if shown.length === 0}
+    <NotOnThisChain what="markets" have={chains} none="No chain with markets is turned on." />
+  {:else}
+  <div class="tabs" role="tablist" aria-label={t('Markets')}>
+    {#each TABS as tb (tb.id)}
+      <button type="button" role="tab" aria-selected={tab === tb.id} data-markets-tab={tb.id || 'markets'} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
+    {/each}
+  </div>
+  {#if tab === 'positions'}
+    <MarketPositions />
+  {:else}
   {#each shown as e (e.id)}
     <section class="panel" data-markets-chain={e.id}>
       <div class="panel-head">
@@ -62,6 +79,8 @@
       {#if manage === e.id}<div class="panel-body"><ModuleEmbed stem={e.id} page="markets" name={e.name} /></div>{/if}
     </section>
   {/each}
+  {/if}
+  {/if}
 </div>
 
 <style>

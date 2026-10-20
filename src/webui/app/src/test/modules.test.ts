@@ -104,6 +104,8 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
+  prefs.chain = 'all';
+  prefs.chainGroupsFolded = [];
   app.phase = 'ready';
   hub.list = null;
   hub.selected = 'chains';
@@ -245,19 +247,21 @@ describe('what a module\'s frame says is checked', () => {
 });
 
 describe('one shell: the module switcher and the sidebar', () => {
-  it('switching to a module swaps the sidebar\'s pages for its own, and back', async () => {
+  it('a chain\'s own pages open from its group of the sidebar, listed under it; and back', async () => {
     say('manifest', MANIFEST);
     render(Sidebar);
-    await waitFor(() => expect(document.querySelector('.switcher .chain[data-chain="layers"]')).toBeTruthy());
-    // The app's own pages first.
+    await waitFor(() => expect(document.querySelector('[data-chain-group="layers"]')).toBeTruthy());
+    // No separate switcher: the chain's group is the way in (doc/unified-app.md §19).
+    expect(document.querySelector('.switcher')).toBeNull();
     expect(document.querySelector('[data-module-page]')).toBeNull();
-    await fireEvent.click(document.querySelector('.chain[data-chain="layers"]') as HTMLElement);
+    await fireEvent.click(document.querySelector('[data-chain-item="layers:own"]') as HTMLElement);
     expect(hub.selected).toBe('layers');
     expect(nav.page).toBe('sidechain');
+    expect(prefs.chain).toBe('layers');
     await waitFor(() => expect(document.querySelectorAll('[data-module-page]').length).toBe(7));
-    // One navigation: one sidebar, the module's pages in it, its wallet card.
+    // One navigation: one sidebar, the module's pages under its group, its wallet card.
     expect(document.querySelectorAll('nav.sidebar').length).toBe(1);
-    expect(document.querySelector('[data-module-page="staking"]')).toBeTruthy();
+    expect(document.querySelector('[data-chain-group="layers"] [data-module-page="staking"]')).toBeTruthy();
     expect(document.querySelector('.module-card')).toBeTruthy();
     // A page of the module: the frame is told, the sidebar marks it.
     posted = [];
@@ -267,7 +271,7 @@ describe('one shell: the module switcher and the sidebar', () => {
     expect(posted.every((p) => p.origin === 'chains-pack://layers')).toBe(true);
     await waitFor(() => expect(document.querySelector('[data-module-page="trade"]')?.getAttribute('aria-current')).toBe('page'));
     // Back to the app: its own pages again.
-    await fireEvent.click(document.querySelector('.chain[data-chain="chains"]') as HTMLElement);
+    openChains('home');
     expect(hub.selected).toBe('chains');
     expect(nav.page).toBe('home');
     await waitFor(() => expect(document.querySelector('[data-module-page]')).toBeNull());

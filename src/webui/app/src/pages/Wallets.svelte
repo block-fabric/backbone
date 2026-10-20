@@ -1,5 +1,4 @@
 <script lang="ts">
-  import ChainChips from '../components/ChainChips.svelte';
   import ChainWallets from '../components/ChainWallets.svelte';
   import { ALL, chainEntries, HOST, viewFilter } from '../lib/chains.svelte';
   // Every chain's wallets (doc/unified-app.md §18): this app's own, then each sidechain's, with a filter of chains.
@@ -428,7 +427,6 @@
     <div class="busy panel" role="status"><span class="spinner" aria-hidden="true"></span> {busy}</div>
   {/if}
 
-  <span data-wallet-chains><ChainChips page="wallets" entries={walletChains} /></span>
 
   {#if walletFilter === ALL || walletFilter === HOST}
   <div class="grid">

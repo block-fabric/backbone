@@ -5,6 +5,7 @@ import { host } from './rpc';
 import { prefs, savePrefs, wallets } from './state.svelte';
 import { clampFontAdjust } from './themes';
 import { goBack, goForward } from './history.svelte';
+import { cycleChain } from './chains.svelte';
 import { activeModule, frameShown, modules, openModule, setModuleKeys } from './modules.svelte';
 
 /** Ctrl+letter: the tabs of the node window (the Window menu of chains-qt). */
@@ -72,6 +73,11 @@ export function handleShortcut(e: KeyboardEvent): boolean {
   // Ctrl+B folds the navigation into icons, or unfolds it (the sidebar's button, the palette).
   if (key === 'b') {
     savePrefs({ sidebarCollapsed: !prefs.sidebarCollapsed });
+    return true;
+  }
+  // Ctrl+] and Ctrl+[: the next chain every page shows, and the one before (the top bar's selector).
+  if (key === ']' || key === '[') {
+    cycleChain(key === ']' ? 1 : -1);
     return true;
   }
   // Ctrl+W closes the dialog on top (GUIUtil::handleCloseWindowShortcut), or the node window.

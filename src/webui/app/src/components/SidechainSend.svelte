@@ -9,6 +9,7 @@
   import SafeText from './SafeText.svelte';
   import ChainBadge from './ChainBadge.svelte';
   import ModuleAmount from './ModuleAmount.svelte';
+  import AssetLogo from './AssetLogo.svelte';
   import { errorText } from '../lib/dialogs.svelte';
   import { toast } from '../lib/state.svelte';
   import { ErrorCode } from '../lib/bridge';
@@ -90,6 +91,11 @@
     void refreshSummary(stem, 0);
   }
 
+  function useAll() {
+    amount = available ?? '';
+    if (!chosenAsset) subtractFee = true;
+  }
+
   async function send() {
     if (!canSend) return;
     busy = true;
@@ -114,15 +120,15 @@
 
 <section class="panel sidechain-send" aria-label={t('Send on %1', name)} data-sidechain-send={stem}>
   <header class="head">
-    <h2 class="title"><Icon name="send" size={18} /> {t('Send on')} <ChainBadge id={stem} {name} /></h2>
+    <h2 class="title"><ChainBadge id={stem} {name} /> <span class="muted">{t('Send')}</span></h2>
     {#if summary?.wallets && summary.wallets.length > 1}
-      <label class="wallet-pick"><span class="muted small">{t('Wallet')}</span>
+      <label class="wallet-pick"><span class="muted small">{t('From the wallet')}</span>
         <select value={wallet} onchange={pickWallet} data-send-wallet>
           {#each summary.wallets as w (w)}<option value={w} translate="no">{w}</option>{/each}
         </select>
       </label>
     {:else if wallet}
-      <span class="muted small">{t('Wallet')} <SafeText text={wallet} /></span>
+      <span class="muted small">{t('From the wallet')} <strong translate="no"><SafeText text={wallet} /></strong></span>
     {/if}
   </header>
 
@@ -130,55 +136,83 @@
     <p class="warn-box">{t('Its node is not running: turn it on in Settings → Sidechains.')}</p>
   {/if}
 
-  <div class="grid">
-    {#if caps?.assets}
-      <div class="field">
-        <label for="send-asset-{stem}">{t('What')}</label>
-        <select id="send-asset-{stem}" bind:value={asset} data-send-asset>
-          <option value="" translate="no">{chainUnit(stem)}</option>
-          {#each summary?.assets ?? [] as a (a.id)}<option value={a.id} translate="no">{a.label} ({a.balance})</option>{/each}
-        </select>
+  {#if caps?.assets}
+    <div class="field">
+      <span class="label" id="send-what-{stem}">{t('What to send')}</span>
+      <div class="what" role="radiogroup" aria-labelledby="send-what-{stem}" data-send-asset-list>
+        <button type="button" role="radio" class="what-item" class:on={asset === ''} aria-checked={asset === ''} onclick={() => (asset = '')} data-send-asset-pick="">
+          <ChainBadge id={stem} {name} small markOnly />
+          <span class="what-name"><SafeText text={chainUnit(stem)} /></span>
+          <span class="muted small"><ModuleAmount text={summary?.balances?.trusted ?? null} coins /></span>
+        </button>
+        {#each summary?.assets ?? [] as a (a.id)}
+          <button type="button" role="radio" class="what-item" class:on={asset === a.id} aria-checked={asset === a.id} onclick={() => (asset = a.id)} data-send-asset-pick={a.id}>
+            <AssetLogo {stem} id={a.id} label={a.label} size={1.3} />
+            <span class="what-name"><SafeText text={a.label} /></span>
+            <span class="muted small"><ModuleAmount text={a.balance} /></span>
+          </button>
+        {/each}
       </div>
-    {/if}
-    {#if caps?.shielded && !asset}
-      <label class="check shielded">
-        <input type="checkbox" bind:checked={shielded} data-send-shielded />
-        <span>{t('From the shielded account (private)')}</span>
-      </label>
-    {/if}
-    <div class="field wide">
-      <label for="send-to-{stem}">{t('Pay to')}</label>
-      <input id="send-to-{stem}" class="mono" type="text" spellcheck="false" autocomplete="off" placeholder={t('An address of %1', name)} bind:value={address} aria-invalid={check.state === 'bad' ? 'true' : undefined} data-send-address />
+      <!-- The same choice for the keyboard and the tests: one list. -->
+      <select class="sr-only" tabindex="-1" aria-hidden="true" bind:value={asset} data-send-asset>
+        <option value="" translate="no">{chainUnit(stem)}</option>
+        {#each summary?.assets ?? [] as a (a.id)}<option value={a.id} translate="no">{a.label} ({a.balance})</option>{/each}
+      </select>
+    </div>
+  {/if}
+  {#if caps?.shielded && !asset}
+    <label class="check shielded">
+      <input type="checkbox" bind:checked={shielded} data-send-shielded />
+      <span>{t('From the shielded account (private)')}</span>
+    </label>
+  {/if}
+
+  <div class="field">
+    <label for="send-to-{stem}">{t('Pay to')}</label>
+    <input id="send-to-{stem}" class="mono" type="text" spellcheck="false" autocomplete="off" placeholder={shielded ? t('A shielded address of %1', name) : t('An address of %1', name)} bind:value={address} aria-invalid={check.state === 'bad' ? 'true' : undefined} aria-describedby="send-to-help-{stem}" data-send-address />
+    <span id="send-to-help-{stem}" class="help">
       {#if check.state === 'bad'}
-        <span class="error" role="alert" data-address-error><SafeText text={check.text} /></span>
+        <span class="refused" role="alert" data-address-error>
+          <Icon name="alert" size={16} />
+          <span><strong>{t('Not an address to pay on %1', name)}</strong><br /><SafeText text={check.text} /></span>
+        </span>
       {:else if check.state === 'checking'}
-        <span class="muted small">{t('Checking the address…')}</span>
+        <span class="muted small">{t('Checking the address against %1 and the other chains…', name)}</span>
       {:else if check.state === 'ok'}
         <span class="ok small" data-address-ok><Icon name="check" size={14} /> {t('An address of %1', name)}{#if check.own} · {t('An address of this wallet')}{/if}</span>
+      {:else}
+        <span class="muted small">{t('Only an address of %1: one of another chain is refused before anything is sent.', name)}</span>
+      {/if}
+    </span>
+  </div>
+
+  <div class="field">
+    <label for="send-amount-{stem}">{t('Amount')}</label>
+    <div class="amount-row">
+      <input id="send-amount-{stem}" class="num" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" bind:value={amount} aria-invalid={amountError ? 'true' : undefined} data-send-amount />
+      <span class="unit"><SafeText text={unit} /></span>
+      {#if available && !shielded}
+        <!-- All of it: a coin's fee then comes out of the amount. -->
+        <button type="button" class="btn ghost small" onclick={useAll} data-send-max>{t('All of it')}</button>
       {/if}
     </div>
-    <div class="field">
-      <label for="send-amount-{stem}">{t('Amount')}</label>
-      <div class="amount-row">
-        <input id="send-amount-{stem}" class="num" type="text" inputmode="decimal" autocomplete="off" bind:value={amount} aria-invalid={amountError ? 'true' : undefined} data-send-amount />
-        <span class="unit"><SafeText text={unit} /></span>
-      </div>
-      {#if amountError}<span class="error">{t(amountError, String(decimals))}</span>{/if}
-      <span class="muted small">{t('Available')} <ModuleAmount text={available} coins={!chosenAsset} /></span>
-    </div>
-    {#if shielded}
-      <div class="field wide">
-        <label for="send-memo-{stem}">{t('Memo (for a shielded address)')}</label>
-        <input id="send-memo-{stem}" type="text" maxlength="512" bind:value={memo} autocomplete="off" />
-      </div>
-    {/if}
-    {#if !asset && !shielded}
-      <label class="check">
-        <input type="checkbox" bind:checked={subtractFee} />
-        <span>{t('Subtract fee from amount')}</span>
-      </label>
-    {/if}
+    <span class="help">
+      {#if amountError}<span class="error">{t(amountError, String(decimals))}</span>{:else}<span class="muted small">{t('Available')} <ModuleAmount text={available} unit={unit} coins={!chosenAsset} />{#if chosenAsset} · {t('%1 decimals', String(decimals))}{/if}</span>{/if}
+    </span>
   </div>
+
+  {#if shielded}
+    <div class="field">
+      <label for="send-memo-{stem}">{t('Memo (for a shielded address)')}</label>
+      <input id="send-memo-{stem}" type="text" maxlength="512" bind:value={memo} autocomplete="off" />
+    </div>
+  {/if}
+  {#if !asset && !shielded}
+    <label class="check">
+      <input type="checkbox" bind:checked={subtractFee} />
+      <span>{t('Subtract fee from amount')}</span>
+    </label>
+  {/if}
 
   {#if error}<p class="error" role="alert" data-send-error><SafeText text={error} /></p>{/if}
   {#if sent}
@@ -195,8 +229,8 @@
   .sidechain-send {
     display: flex;
     flex-direction: column;
-    gap: 0.9rem;
-    padding: 1.1rem 1.2rem;
+    gap: 1rem;
+    padding: 1.1rem 1.3rem 1.2rem;
   }
   .head {
     display: flex;
@@ -209,7 +243,7 @@
     align-items: center;
     gap: 0.5rem;
     margin: 0;
-    font-size: 1.05rem;
+    font-size: 1rem;
     flex: 1;
   }
   .wallet-pick {
@@ -217,19 +251,63 @@
     gap: 0.4rem;
     align-items: center;
   }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-    gap: 0.9rem 1.2rem;
-    align-items: start;
+  .label {
+    font-weight: 600;
+  }
+  .what {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .what-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.35rem 0.7rem 0.35rem 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .what-item:hover {
+    border-color: var(--line-strong);
+  }
+  .what-item.on {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent) inset;
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+  }
+  .what-name {
+    font-weight: 650;
+  }
+  .help {
+    min-height: 1.2rem;
+  }
+  .refused {
+    display: flex;
+    gap: 0.55rem;
+    align-items: flex-start;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--negative);
+    border-radius: var(--radius-m);
+    background: color-mix(in srgb, var(--negative) 10%, transparent);
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+  .refused :global(svg) {
+    flex: none;
+    margin-top: 0.1rem;
+    color: var(--negative);
   }
   .field {
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
   }
-  .field.wide {
-    grid-column: 1 / -1;
+  .field {
+    max-width: 44rem;
   }
   .amount-row {
     display: flex;
@@ -248,7 +326,7 @@
     display: inline-flex;
     gap: 0.5rem;
     align-items: center;
-    align-self: end;
+    align-self: flex-start;
   }
   .ok {
     color: var(--positive, var(--accent-strong));

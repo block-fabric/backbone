@@ -33,12 +33,12 @@ import {
   parseUnits,
   pendingDeposits,
   rowsOf,
+  selectedChain,
   setActionChain,
-  setViewFilter,
+  setSelectedChain,
   sidechainTxs,
   viewFilter,
 } from '../lib/chains.svelte';
-import ChainChips from '../components/ChainChips.svelte';
 import SidechainSend from '../components/SidechainSend.svelte';
 import SidechainReceive from '../components/SidechainReceive.svelte';
 import ChainWallets from '../components/ChainWallets.svelte';
@@ -121,7 +121,8 @@ beforeEach(async () => {
   app.phase = 'ready';
   nav.page = 'home';
   nav.tab = '';
-  prefs.chainViews = {};
+  prefs.chain = 'all';
+  prefs.chainGroupsFolded = [];
   prefs.chainWallets = {};
   prefs.mask = false;
   toasts.list = [];
@@ -204,35 +205,40 @@ describe('the chains of the app\'s pages', () => {
     expect(pageAvailable('assets')).toBe(false);
   });
 
-  it('read views: every chain by default, a chain chosen remembered per page, a chain turned off forgotten', async () => {
+  it('one selection for every page: All by default, remembered, a chain turned off forgotten', () => {
+    expect(selectedChain()).toBe(ALL);
     expect(viewFilter('transactions')).toBe(ALL);
-    setViewFilter('transactions', 'thunder');
+    setSelectedChain('thunder');
     expect(viewFilter('transactions')).toBe('thunder');
-    expect(viewFilter('home')).toBe(ALL);
-    expect(calls.some((c) => c.method === 'prefs.set' && (c.params as Record<string, unknown>).chainViews)).toBe(true);
+    expect(viewFilter('home')).toBe('thunder');
+    expect(calls.some((c) => c.method === 'prefs.set' && (c.params as Record<string, unknown>).chain === 'thunder')).toBe(true);
+    setSelectedChain('Not a chain!');
+    expect(selectedChain()).toBe('thunder');
     hub.list!.chains = [entry('layers')];
-    expect(viewFilter('transactions')).toBe(ALL);
-    render(ChainChips, { page: 'home' });
-    await fireEvent.click(document.querySelector('[data-chain-chip="layers"]') as HTMLElement);
-    expect(prefs.chainViews.home).toBe('layers');
-    expect(document.querySelector('[data-chain-chip="layers"]')?.getAttribute('aria-checked')).toBe('true');
+    expect(selectedChain()).toBe(ALL);
   });
 
-  it('action views: the chain a link asks for, else the one used last on that page, else the app\'s own', () => {
-    expect(actionChain('send')).toBe(HOST);
+  it('action views: the chain a link asks for, else the one selected; none with All (the form asks)', () => {
+    expect(actionChain('send')).toBeNull();
     setActionChain('send', 'layers');
+    expect(prefs.chain).toBe('layers');
     expect(actionChain('send')).toBe('layers');
+    expect(actionChain('receive')).toBe('layers');
     expect(actionChain('send', chainEntries(), 'thunder')).toBe('thunder');
     expect(actionChain('send', chainEntries(), 'nowhere')).toBe('layers');
+    setSelectedChain(HOST);
     expect(actionChain('receive')).toBe(HOST);
   });
 
   it('the stored preferences checked when read back', () => {
     expect(cleanChainViews({ home: 'all', send: 'layers', bad: 'x y', 'Not A Key': 'all', n: 5 })).toEqual({ home: 'all', send: 'layers' });
     expect(cleanChainViews(['all'])).toEqual({});
-    applyPrefs({ chainViews: { transactions: 'thunder', evil: '<script>' }, chainWallets: { layers: 'savings', thunder: '../x' } });
-    expect(prefs.chainViews).toEqual({ transactions: 'thunder' });
+    applyPrefs({ chain: 'thunder', chainGroupsFolded: ['layers', '<b>', 5, 'layers'], chainWallets: { layers: 'savings', thunder: '../x' } });
+    expect(prefs.chain).toBe('thunder');
+    expect(prefs.chainGroupsFolded).toEqual(['layers']);
     expect(prefs.chainWallets).toEqual({ layers: 'savings' });
+    applyPrefs({ chain: '<script>' });
+    expect(prefs.chain).toBe('all');
   });
 
   it('amounts exact, as text', () => {
@@ -296,14 +302,13 @@ describe('the adapter\'s calls', () => {
 });
 
 describe('Send on a sidechain', () => {
-  it('the page\'s chain picker: the app\'s own form, or the chain\'s', async () => {
+  it('the form\'s chain tiles: the app\'s own form, or the chain\'s', async () => {
     render(Send);
-    const picker = (await waitFor(() => document.querySelector('[data-chain-picker="send"]'))) as HTMLSelectElement;
-    expect([...picker.options].map((o) => o.value)).toEqual([HOST, 'layers', 'thunder']);
-    picker.value = 'layers';
-    await fireEvent.change(picker);
+    await waitFor(() => expect(document.querySelectorAll('[data-chain-tile]').length).toBe(3));
+    expect([...document.querySelectorAll('[data-chain-tile]')].map((e) => e.getAttribute('data-chain-tile'))).toEqual([HOST, 'layers', 'thunder']);
+    await fireEvent.click(document.querySelector('[data-chain-tile="layers"]') as HTMLElement);
     await waitFor(() => expect(document.querySelector('[data-sidechain-send="layers"]')).toBeTruthy());
-    expect(prefs.chainViews.send).toBe('layers');
+    expect(prefs.chain).toBe('layers');
   });
 
   it('a wrong-chain address said before anything is sent; then an asset sent on the chain', async () => {
@@ -393,14 +398,14 @@ describe('Receive, wallets, coins in and out, staking, assets', () => {
     await fireEvent.click(document.querySelector(`[data-asset-send="${GOLD}"]`) as HTMLElement);
     expect(nav.page).toBe('send');
     expect(chainLink.send).toEqual({ chain: 'layers', asset: GOLD });
-    expect(prefs.chainViews.send).toBe('layers');
+    expect(prefs.chain).toBe('layers');
   });
 
-  it('Transactions: every chain by default with a Chain column; the app\'s own page by its chip', async () => {
+  it('Transactions: every chain by default with a Chain column; the app\'s own page by the top bar\'s selection', async () => {
     render(Transactions);
     await waitFor(() => expect(document.querySelectorAll('tr[data-chain-tx]').length).toBeGreaterThanOrEqual(2));
-    expect(document.querySelector('[data-chain-chips="transactions"]')).toBeTruthy();
-    await fireEvent.click(document.querySelector('[data-chain-chip="chains"]') as HTMLElement);
+    expect(document.querySelector('[data-chain-chips]')).toBeNull();
+    setSelectedChain(HOST);
     await waitFor(() => expect(document.querySelector('[data-chain-activity]')).toBeNull());
   });
 });

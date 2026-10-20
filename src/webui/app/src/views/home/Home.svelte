@@ -30,6 +30,11 @@
   import ChainsOverview from '../../components/ChainsOverview.svelte';
   import Term from '../../components/Term.svelte';
   import { pageShown, simpleMode } from '../../lib/uimode.svelte';
+  import ChainBalanceChart from '../../components/ChainBalanceChart.svelte';
+  import MarketPositions from '../../components/MarketPositions.svelte';
+  import { ALL, chainEntries, chainState, HOST, selectedChain } from '../../lib/chains.svelte';
+  import { chainColor } from '../../lib/chaincolors';
+  import { chainBalanceHistory, many, poll, refreshTxs, type ChartSeries } from '../../lib/manychains.svelte';
 
   interface Peer {
     id: number;
@@ -95,6 +100,36 @@
   $effect(() => {
     return every(5000, () => (now = Math.floor(Date.now() / 1000)));
   });
+
+  // --- The chains shown: the top bar's selection (doc/unified-app.md §19) ---
+  // All: this app's own sections and every chain's; one sidechain: its sections only (the app's own cards, the merged
+  // mining and the peers are this app's chain's, and go).
+  const entries = $derived(chainEntries());
+  const sel = $derived(selectedChain(entries));
+  const withHost = $derived(sel === ALL || sel === HOST);
+  const shownIds = $derived(entries.filter((e) => (sel === ALL || sel === e.id) && (e.host || e.running)).map((e) => e.id));
+  const manyChains = $derived(shownIds.some((id) => id !== HOST));
+  $effect(() => {
+    const sides = shownIds.filter((id) => id !== HOST);
+    return poll(() => sides.forEach((s) => void refreshTxs(s)), 10000);
+  });
+  /** One line per chain shown, each in its own coin (never added up). */
+  const series = $derived<ChartSeries[]>(
+    entries
+      .filter((e) => shownIds.includes(e.id))
+      .map((e) => ({
+        id: e.id,
+        name: e.name,
+        unit: e.unit,
+        color: chainColor(e.id),
+        points: e.host ? (wallets.current !== null ? history : []) : chainBalanceHistory(many.txs[e.id] ?? [], chainState.summaries[e.id], now),
+      })),
+  );
+  /** Send and Receive: the side panel for this app's own chain; the page (its chain picked in the form) else. */
+  function quickOr(panel: 'send' | 'receive') {
+    if (manyChains) go(panel);
+    else openQuick(panel);
+  }
 
   // --- The wallet ---
   const balances = $derived(wallets.current !== null ? wallets.balances[wallets.current] : undefined);
@@ -266,7 +301,7 @@
     </div>
     <nav class="quick" aria-label="Quick actions">
       {#each quickLinks as q (q.label)}
-        <button type="button" class="pill action" disabled={pageDisabled(q.page)} onclick={() => (q.panel ? openQuick(q.panel) : go(q.page, q.tab ?? ''))}><Icon name={q.icon} size={15} /> {t(simple && q.page === 'sidechains' ? 'Move coins' : q.label)}</button>
+        <button type="button" class="pill action" disabled={pageDisabled(q.page)} onclick={() => (q.panel ? quickOr(q.panel) : go(q.page, q.tab ?? ''))}><Icon name={q.icon} size={15} /> {t(simple && q.page === 'sidechains' ? 'Move coins' : q.label)}</button>
       {/each}
       <button type="button" class="pill action ghost" onclick={openPalette}><Icon name="search" size={15} /> All actions <kbd>Ctrl K</kbd></button>
     </nav>
@@ -280,6 +315,7 @@
     </button>
   {/if}
 
+  {#if withHost}
   <div class="stats">
     <Card title="Balance" icon="wallet" open={() => go('overview')} openLabel="Open the overview" stat>
       {#if !walletsEnabled()}
@@ -300,8 +336,8 @@
         {:else if wallets.current === null}
           <button type="button" class="btn primary" onclick={() => go('wallets', 'create')}>Create or open a wallet</button>
         {:else}
-          <button type="button" class="btn primary grow" disabled={pageDisabled('send')} onclick={() => openQuick('send')}><Icon name="send" size={16} /> Send</button>
-          <button type="button" class="btn grow" disabled={pageDisabled('receive')} onclick={() => openQuick('receive')}><Icon name="receive" size={16} /> Receive</button>
+          <button type="button" class="btn primary grow" disabled={pageDisabled('send')} onclick={() => quickOr('send')}><Icon name="send" size={16} /> Send</button>
+          <button type="button" class="btn grow" disabled={pageDisabled('receive')} onclick={() => quickOr('receive')}><Icon name="receive" size={16} /> Receive</button>
         {/if}
       {/snippet}
     </Card>
@@ -360,15 +396,19 @@
     </Card>
     {/if}
   </div>
+  {/if}
 
   <ChainsOverview page="home" />
 
-  <div class="middle">
+  <!-- Hivemind: the wallet's open positions, when it has any (each in its coin, hidden in privacy mode). -->
+  <MarketPositions card />
+
+  <div class="middle" class:alone={!withHost}>
     <section class="panel chart-card" aria-labelledby="chart-title">
       <header class="chart-head">
         <div>
-          <h2 id="chart-title">Wallet balance</h2>
-          {#if wallets.current !== null}
+          <h2 id="chart-title">{manyChains ? t('Balance of each chain') : t('Wallet balance')}</h2>
+          {#if !manyChains && wallets.current !== null}
             <div class="figure">
               <span class="now big-amount"><Amount sats={latest} /></span>
               {#if !prefs.mask && history.length}
@@ -388,7 +428,9 @@
         </div>
       </header>
       <div class="chart-body">
-        {#if wallets.current === null}
+        {#if manyChains}
+          <ChainBalanceChart {series} height={210} {from} />
+        {:else if wallets.current === null}
           <p class="muted">No wallet is loaded.</p>
         {:else if prefs.mask}
           <p class="muted">Hidden: privacy mode.</p>
@@ -400,6 +442,7 @@
       </div>
     </section>
 
+    {#if withHost}
     <Card title="Blind merged mining" icon="nodes" open={() => go('sidechains', 'nodes')} openLabel="Open the sidechain nodes">
       {#if simple && !bmmDetails}
         <!-- Simple mode: one line, the meters on demand (user decision). -->
@@ -434,9 +477,10 @@
         <button type="button" class="btn" onclick={() => go('sidechains', 'nodes')}>Sidechain nodes</button>
       {/snippet}
     </Card>
+    {/if}
   </div>
 
-  <HomeTables {recent} {history} {sidechains} {bundles} {bmm} {bmmSeries} {bmmWindow} {blocks} {peers} {now} />
+  <HomeTables {recent} {history} {sidechains} {bundles} {bmm} {bmmSeries} {bmmWindow} {blocks} {peers} {now} chains={shownIds} {withHost} />
 </div>
 
 <style>
@@ -749,6 +793,9 @@
   }
   .small {
     font-size: 0.86rem;
+  }
+  .middle.alone {
+    grid-template-columns: minmax(0, 1fr);
   }
   @container (max-width: 760px) {
     .middle {

@@ -4,6 +4,8 @@
 
 #include <webui/supervisor.h>
 
+#include <webui/chainadapter.h>
+
 #include <common/secretfile.h>
 #include <crypto/hmac_sha256.h>
 #include <logging.h>
@@ -1053,9 +1055,11 @@ UniValue SidechainSupervisor::Overview(const std::string& stem, int mainchain_he
             const UniValue& mine{balances.find_value("mine")};
             UniValue wallet{UniValue::VOBJ};
             wallet.pushKV("name", name);
-            wallet.pushKV("trusted", mine.find_value("trusted"));
-            wallet.pushKV("pending", mine.find_value("untrusted_pending"));
-            wallet.pushKV("immature", mine.find_value("immature"));
+            // As the chain's own getbalance counts them (coins spent by a transaction not in the mempool are not there).
+            const UniValue counted{ChainAdapter::WalletBalances(mine)};
+            wallet.pushKV("trusted", UniValue{UniValue::VNUM, counted.find_value("trusted").get_str()});
+            wallet.pushKV("pending", UniValue{UniValue::VNUM, counted.find_value("pending").get_str()});
+            wallet.pushKV("immature", UniValue{UniValue::VNUM, counted.find_value("immature").get_str()});
             out.pushKV("wallet", std::move(wallet));
         }
     } catch (const std::exception& e) {

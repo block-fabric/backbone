@@ -691,3 +691,24 @@ textarea.mono {
     transition: none;
   }
 }
+
+/* The colour of each sidechain (lib/chaincolors.ts): the eight-slot categorical palette, each chain the slot of its place
+   in the catalog; stepped for the dark looks (validated against their surfaces: CVD-separated adjacent slots). */
+:root {
+  --chain-layers: #2a78d6;
+  --chain-fastblocks: #eb6834;
+  --chain-thunder: #1baf7a;
+  --chain-bitnames: #eda100;
+  --chain-bitassets: #e87ba4;
+  --chain-zside: #008300;
+  --chain-hivemind: #6250d6;
+}
+:root:is([data-theme='midnight'], [data-theme='dark'], [data-theme='ocean'], [data-theme='matrix'], [data-theme='qdarkstyle'], [data-theme='mocha'], [data-theme='dracula']) {
+  --chain-layers: #3987e5;
+  --chain-fastblocks: #d95926;
+  --chain-thunder: #199e70;
+  --chain-bitnames: #c98500;
+  --chain-bitassets: #d55181;
+  --chain-zside: #008300;
+  --chain-hivemind: #9085e9;
+}

@@ -19,6 +19,7 @@
   import PageView from '../PageView.svelte';
   import ModuleFrames from '../../components/ModuleFrames.svelte';
   import HistoryButtons from '../../components/HistoryButtons.svelte';
+  import GlobalChainSelector from '../../components/GlobalChainSelector.svelte';
   import SafeText from '../../components/SafeText.svelte';
   import { activeModule, frameShown, moduleName, moduleRoute, moduleSectionOf, moduleTitle, openModule } from '../../lib/modules.svelte';
 
@@ -64,6 +65,9 @@
           <span class="here" aria-current="page">{pageTitle(nav.page)}</span>
         {/if}
       </nav>
+      <!-- The chain every page shows, next to where you are (doc/unified-app.md §19). -->
+      <GlobalChainSelector />
+      <span class="grow" aria-hidden="true"></span>
       <PaletteButton />
       <!-- The wallet is switched in the sidebar's card (in the drawer on a narrow window). -->
       <TopActions />
@@ -103,8 +107,11 @@
   .drawer {
     display: none;
   }
-  .crumbs {
+  .grow {
     flex: 1;
+  }
+  .crumbs {
+    flex: 0 1 auto;
     min-width: 0;
     display: flex;
     align-items: center;

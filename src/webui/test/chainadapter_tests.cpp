@@ -12,6 +12,7 @@
 #include <webui/supervisor.h>
 
 #include <test/util/setup_common.h>
+#include <tinyformat.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -33,6 +34,7 @@ UniValue Json(const std::string& text)
 
 const std::string TXID(64, 'b');
 const std::string ASSET(64, 'c');
+const std::string MARKET(64, 'e');
 
 /** Nodes of a few chains: what each answers, and every call seen. */
 struct Nodes {
@@ -53,6 +55,10 @@ struct Nodes {
     bool read_asks{false};
     //! The commit of a send is declined in the dialog.
     bool decline{false};
+    //! getbalances as the hub's Layers answered it (coins spent by transactions not in the mempool).
+    bool nonmempool{false};
+    //! What the chain's host gives for a logo.
+    std::string logo{R"({"asset":")" + ASSET + R"(","hash":")" + std::string(64, 'f') + R"(","mime":"image/png","size":4,"url":"data:image/png;base64,iVBORw0KGgo="})"};
 
     UniValue Read(const std::string& stem, const UniValue& request)
     {
@@ -74,6 +80,14 @@ struct Nodes {
             result = Json(R"({"assets":[{"asset":")" + ASSET + R"(","label":"GOLD","decimals":2,"balance":250.5,"pending":0,"control":true,"supply":100000}]})");
         } else if (method == "listwithdrawals") {
             result = Json(R"([{"txid":")" + TXID + R"(","vout":0,"amount":1.25000000,"refundaddress":"rsc1qlayersown00","status":"waiting"},{"txid":")" + TXID + R"(","vout":1,"amount":3,"refundaddress":"rsc1qsomeoneelse","status":"bundled"}])");
+        } else if (method == "getwalletpositions") {
+            result = Json(R"([{"market":")" + MARKET + R"(","account":"rsc1qhmown0","state":1,"shares":12.5},{"market":"zz","state":0,"shares":1}])");
+        } else if (method == "listmarkets") {
+            result = Json(R"([{"id":")" + MARKET + R"(","text":"Rain tomorrow?","status":"trading","states":[{"state":0,"answers":"N","price":0.25},{"state":1,"answers":"Y","price":0.75000000}]}])");
+        } else if (method == "getrawmempool") {
+            result = Json(R"({")" + std::string(64, '1') + R"(":{"time":5,"vsize":141,"fees":{"base":0.00000141}},")" + std::string(64, '2') + R"(":{"time":9,"vsize":200,"fees":{"base":0.0000025}},"bad":{"time":99}})");
+        } else if (method == "bitassets.logo") {
+            result = Json(logo);
         } else if (method == "getstakinginfo") {
             result = Json(R"({"validator":true,"enabled":true,"keys":[{"pubkey":"ab","inset":true,"stake":5}]})");
         } else {
@@ -90,8 +104,10 @@ struct Nodes {
             rpcs.push_back({stem, method, params, wallet});
             if (method == "webuihost") return Read(stem, params[0]);
             if (method == "listwallets") return Json(stem == "layers" ? R"(["other","main"])" : R"(["main"])");
-            if (method == "getbalances") return Json(R"({"mine":{"trusted":12.34567891,"untrusted_pending":0.1,"immature":0}})");
+            if (method == "getbalances") return Json(nonmempool ? R"({"mine":{"trusted":6161.54,"untrusted_pending":0,"immature":0,"nonmempool":-5171.23}})" : R"({"mine":{"trusted":12.34567891,"untrusted_pending":0.1,"immature":0}})");
             if (method == "getblockcount") return UniValue{42};
+            if (method == "getblockhash") return UniValue{params[0].getInt<int>() == 39 ? std::string{"nothex"} : strprintf("%064x", params[0].getInt<int>())};
+            if (method == "getblockheader") return Json(R"({"time":1000,"nTx":3})");
             if (method == "getmainchaininfo") return Json(R"({"slot":7,"connected":true,"state":"ok","height":300})");
             if (method == "getdepositaddress") return Json(R"({"depositaddress":"s7_rsc1qlayersown00_abcdef","address":"rsc1qlayersown00","slot":7})");
             if (method == "listtransactions") {
@@ -257,6 +273,93 @@ BOOST_AUTO_TEST_CASE(reads_mapped_to_each_node)
     BOOST_CHECK(staking.find_value("node").find_value("validator").isTrue());
     BOOST_CHECK_EQUAL(Code([&] { adapter.Staking(P(R"({"stem":"thunder"})")); }), BRIDGE_INVALID_REQUEST);
     BOOST_CHECK_EQUAL(Code([&] { adapter.Assets(P(R"({"stem":"thunder"})")); }), BRIDGE_INVALID_REQUEST);
+}
+
+BOOST_AUTO_TEST_CASE(available_as_the_chains_own_getbalance_counts_it)
+{
+    // The hub's Layers: coins spent by transactions not in the mempool are still in "trusted", their sum negative in
+    // "nonmempool"; getbalance says 990.31, never 6161.54.
+    const UniValue b{ChainAdapter::WalletBalances(Json(R"({"trusted":6161.54000000,"untrusted_pending":0.5,"immature":2,"nonmempool":-5171.23000000})"))};
+    BOOST_CHECK_EQUAL(b.find_value("trusted").get_str(), "990.31000000");
+    BOOST_CHECK_EQUAL(b.find_value("pending").get_str(), "0.50000000");
+    BOOST_CHECK_EQUAL(b.find_value("immature").get_str(), "2.00000000");
+    // No such field (an older node): trusted as it is; never below zero.
+    BOOST_CHECK_EQUAL(ChainAdapter::WalletBalances(Json(R"({"trusted":1.5,"untrusted_pending":0,"immature":0})")).find_value("trusted").get_str(), "1.50000000");
+    BOOST_CHECK_EQUAL(ChainAdapter::WalletBalances(Json(R"({"trusted":1,"nonmempool":-3})")).find_value("trusted").get_str(), "0.00000000");
+    // The summary and the wallets list use it.
+    Nodes nodes;
+    ChainAdapter adapter{nodes.Hooks()};
+    nodes.nonmempool = true;
+    BOOST_CHECK_EQUAL(adapter.Summary(P(R"({"stem":"layers"})")).find_value("balances").find_value("trusted").get_str(), "990.31000000");
+    const UniValue w{adapter.Wallets(P(R"({"stem":"layers"})"))};
+    BOOST_CHECK_EQUAL(w.find_value("wallets")[0].find_value("trusted").get_str(), "990.31000000");
+}
+
+BOOST_AUTO_TEST_CASE(positions_of_the_wallet_with_their_market)
+{
+    Nodes nodes;
+    nodes.up = {"layers", "thunder", "hivemind"};
+    ChainAdapter adapter{nodes.Hooks()};
+    const UniValue out{adapter.Positions(P(R"({"stem":"hivemind"})"))};
+    const UniValue& rows{out.find_value("positions")};
+    // The row with a market that is not one is dropped.
+    BOOST_REQUIRE_EQUAL(rows.size(), 1U);
+    BOOST_CHECK_EQUAL(rows[0].find_value("text").get_str(), "Rain tomorrow?");
+    BOOST_CHECK_EQUAL(rows[0].find_value("answers").get_str(), "Y");
+    BOOST_CHECK_EQUAL(rows[0].find_value("price").get_str(), "0.75000000");
+    BOOST_CHECK_EQUAL(rows[0].find_value("shares").get_str(), "12.5");
+    BOOST_CHECK_EQUAL(rows[0].find_value("status").get_str(), "trading");
+    // Reads of the chain's own pages' policy, with the wallet; never on a chain without markets.
+    BOOST_CHECK(std::ranges::any_of(nodes.rpcs, [](const auto& r) { return r.method == "webuihost" && r.params[0].find_value("method").get_str() == "getwalletpositions" && r.params[0].find_value("wallet").get_str() == "main"; }));
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Positions(P(R"({"stem":"layers"})")); }), BRIDGE_INVALID_REQUEST);
+    nodes.read_asks = true;
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Positions(P(R"({"stem":"hivemind"})")); }), BRIDGE_INVALID_REQUEST);
+}
+
+BOOST_AUTO_TEST_CASE(activity_of_a_chain_its_blocks_and_mempool)
+{
+    Nodes nodes;
+    ChainAdapter adapter{nodes.Hooks()};
+    const UniValue a{adapter.Activity(P(R"({"stem":"thunder"})"))};
+    BOOST_CHECK_EQUAL(a.find_value("height").getInt<int>(), 42);
+    // 42, 41, 40; 39's hash is not one: the list stops there.
+    BOOST_REQUIRE_EQUAL(a.find_value("blocks").size(), 3U);
+    BOOST_CHECK_EQUAL(a.find_value("blocks")[0].find_value("txs").getInt<int>(), 3);
+    const UniValue& rows{a.find_value("mempool").find_value("rows")};
+    BOOST_REQUIRE_EQUAL(rows.size(), 2U);
+    BOOST_CHECK_EQUAL(rows[0].find_value("txid").get_str(), std::string(64, '2'));
+    BOOST_CHECK_EQUAL(rows[0].find_value("fee").get_str(), "0.0000025");
+    nodes.up = {"layers"};
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Activity(P(R"({"stem":"thunder"})")); }), BRIDGE_NOT_READY);
+}
+
+BOOST_AUTO_TEST_CASE(asset_logos_only_as_png_or_jpeg_data_urls)
+{
+    BOOST_CHECK(ChainAdapter::IsLogoUrl("data:image/png;base64,iVBORw0KGgo="));
+    BOOST_CHECK(ChainAdapter::IsLogoUrl("data:image/jpeg;base64,/9j/4AAQ"));
+    BOOST_CHECK(!ChainAdapter::IsLogoUrl("data:image/svg+xml;base64,PHN2Zz4="));
+    BOOST_CHECK(!ChainAdapter::IsLogoUrl("data:text/html;base64,PGI+"));
+    BOOST_CHECK(!ChainAdapter::IsLogoUrl("data:image/png;base64,\"><script>"));
+    BOOST_CHECK(!ChainAdapter::IsLogoUrl("data:image/png;base64,AAA==="));
+    BOOST_CHECK(!ChainAdapter::IsLogoUrl("https://example.com/a.png"));
+    BOOST_CHECK(!ChainAdapter::IsLogoUrl("data:image/png;base64," + std::string(45 * 1024, 'A')));
+    Nodes nodes;
+    ChainAdapter adapter{nodes.Hooks()};
+    const UniValue got{adapter.AssetLogo(P(R"({"stem":"layers","asset":")" + ASSET + R"("})"))};
+    BOOST_CHECK_EQUAL(got.find_value("url").get_str(), "data:image/png;base64,iVBORw0KGgo=");
+    BOOST_CHECK_EQUAL(got.find_value("mime").get_str(), "image/png");
+    // Asked of the chain's own host (the logo its pages show), by the asset's hash only.
+    BOOST_CHECK_EQUAL(nodes.rpcs.back().params[0].find_value("method").get_str(), "bitassets.logo");
+    BOOST_CHECK_EQUAL(nodes.rpcs.back().params[0].find_value("kind").get_str(), "host");
+    // Something else than a picture, or of another asset: nothing.
+    nodes.logo = R"({"asset":")" + ASSET + R"(","url":"data:image/svg+xml;base64,PHN2Zz4="})";
+    BOOST_CHECK(adapter.AssetLogo(P(R"({"stem":"layers","asset":")" + ASSET + R"("})")).isNull());
+    nodes.logo = R"({"asset":")" + std::string(64, 'a') + R"(","url":"data:image/png;base64,iVBORw0KGgo="})";
+    BOOST_CHECK(adapter.AssetLogo(P(R"({"stem":"layers","asset":")" + ASSET + R"("})")).isNull());
+    nodes.logo = "null";
+    BOOST_CHECK(adapter.AssetLogo(P(R"({"stem":"layers","asset":")" + ASSET + R"("})")).isNull());
+    BOOST_CHECK_EQUAL(Code([&] { adapter.AssetLogo(P(R"({"stem":"layers","asset":"GOLD"})")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Code([&] { adapter.AssetLogo(P(R"({"stem":"thunder","asset":")" + ASSET + R"("})")); }), BRIDGE_INVALID_REQUEST);
 }
 
 BOOST_AUTO_TEST_CASE(a_read_that_asks_is_refused_not_asked)

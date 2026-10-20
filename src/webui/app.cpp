@@ -2168,6 +2168,9 @@ void App::RegisterSidechainMethods(Bridge& b)
              {"chain.assets", &ChainAdapter::Assets, Bridge::Thread::WORKER},
              {"chain.names", &ChainAdapter::Names, Bridge::Thread::WORKER},
              {"chain.markets", &ChainAdapter::Markets, Bridge::Thread::WORKER},
+             {"chain.positions", &ChainAdapter::Positions, Bridge::Thread::WORKER},
+             {"chain.activity", &ChainAdapter::Activity, Bridge::Thread::WORKER},
+             {"chain.assetLogo", &ChainAdapter::AssetLogo, Bridge::Thread::WORKER},
          }) {
         b.RegisterHost(name, guarded([this, fn](const UniValue& params) { return ((*Adapter()).*fn)(params); }), thread);
     }

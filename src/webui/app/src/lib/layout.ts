@@ -146,6 +146,8 @@ export function pageKind(page: PageId): PageKind {
   // A tab of another page: of the kind of that page.
   const into = PAGES[page].tabOf;
   if (into) return pageKind(into.page);
+  // What the sidechains add (their groups of the Chain section).
+  if (CHAIN_GROUP_PAGES.includes(page)) return 'chain';
   const section = NAV_SECTIONS.find((s) => s.pages.includes(page));
   return (section?.title.toLowerCase() as PageKind | undefined) ?? 'node';
 }
@@ -185,11 +187,15 @@ export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
   // No Sign message nor Load PSBT here (user decision): "All actions" (the palette) reaches them.
 ];
 
+/** The app's pages of what the sidechains add: in the sidebar, under each chain's group of the Chain section. */
+export const CHAIN_GROUP_PAGES: readonly PageId[] = ['assets', 'staking', 'names', 'markets'];
+
 /** The dashboard's sidebar: every page (after Home), in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
-  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'assets', 'wallets', 'advanced'] },
-  // What concerns the chain before the tools; what the sidechains add after the sidechains.
-  { title: 'Chain', pages: ['sidechains', 'staking', 'names', 'markets', 'mine', 'explorer'] },
+  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets', 'advanced'] },
+  // What concerns the chain before the tools. What the sidechains add is not here: one group per sidechain, after the
+  // Sidechains page (components/SidebarChainGroups.svelte, doc/unified-app.md §19).
+  { title: 'Chain', pages: ['sidechains', 'mine', 'explorer'] },
   { title: 'Tools', pages: ['tools'] },
   { title: 'Node', pages: ['node', 'settings', 'kit'] },
 ];
@@ -213,5 +219,6 @@ export function navSections(): NavSection[] {
 export function navSectionOf(page: PageId): string {
   const into = PAGES[page].tabOf;
   if (into) return navSectionOf(into.page);
+  if (CHAIN_GROUP_PAGES.includes(page)) return simpleMode() ? 'Features' : 'Chain';
   return (navSections().find((s) => s.pages.includes(page)) ?? NAV_SECTIONS.find((s) => s.pages.includes(page)))?.title ?? '';
 }

@@ -2,7 +2,7 @@
 // wizards (lib/unified.ts), and the components against a pretend host.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import ChainSwitcher from '../components/ChainSwitcher.svelte';
+import SidebarChainGroups from '../components/SidebarChainGroups.svelte';
 import EnableWizard from '../components/EnableWizard.svelte';
 import FirstRunWizard from '../components/FirstRunWizard.svelte';
 import SidechainSettings from '../components/SidechainSettings.svelte';
@@ -339,18 +339,20 @@ describe('Settings → Sidechains', () => {
   });
 });
 
-describe('the chain switcher and the overview', () => {
+describe('the chains of the sidebar and the overview', () => {
   it('shows nothing for Chains alone', async () => {
-    render(ChainSwitcher);
+    await refreshSidechains();
+    render(SidebarChainGroups);
     await waitFor(() => expect(calls.some((c) => c.method === 'sidechains.list')).toBe(true));
-    expect(document.querySelector('.switcher')).toBeNull();
+    expect(document.querySelector('[data-chain-group]')).toBeNull();
   });
 
-  it('shows Chains and the sidechains on, and opens a sidechain read-only', async () => {
+  it('shows a group per sidechain on, and opens a sidechain read-only', async () => {
     state.chains[0] = entry('layers', { enabled: true, state: 'running', ready: true });
-    render(ChainSwitcher);
-    await waitFor(() => expect(document.querySelectorAll('.switcher .chain').length).toBe(2));
-    await fireEvent.click(document.querySelector('.chain[data-chain="layers"]') as HTMLElement);
+    await refreshSidechains();
+    render(SidebarChainGroups);
+    await waitFor(() => expect(document.querySelectorAll('[data-chain-group]').length).toBe(1));
+    await fireEvent.click(document.querySelector('[data-chain-item="layers:own"]') as HTMLElement);
     expect(hub.selected).toBe('layers');
     expect(nav.page).toBe('sidechain');
     render(SidechainView);
@@ -374,7 +376,7 @@ describe('the chain switcher and the overview', () => {
     expect(hub.selected).toBe('chains');
     expect(nav.page).toBe('home');
     // An event of the host: a refresh.
-    render(ChainSwitcher);
+    render(ModuleFrames);
     await waitFor(() => expect(calls.filter((c) => c.method === 'sidechains.list').length).toBeGreaterThan(2));
     const before = calls.filter((c) => c.method === 'sidechains.list').length;
     dispatch([{ type: 'sidechains', data: { stem: 'layers' } }]);

@@ -70,15 +70,15 @@
 
 <section class="panel sidechain-receive" aria-label={t('Receive on %1', name)} data-sidechain-receive={stem}>
   <header class="head">
-    <h2 class="title"><Icon name="receive" size={18} /> {t('Receive on')} <ChainBadge id={stem} {name} /></h2>
+    <h2 class="title"><ChainBadge id={stem} {name} /> <span class="muted">{t('Receive')}</span></h2>
     {#if summary?.wallets && summary.wallets.length > 1}
-      <label class="wallet-pick"><span class="muted small">{t('Wallet')}</span>
+      <label class="wallet-pick"><span class="muted small">{t('Into the wallet')}</span>
         <select value={wallet} onchange={pickWallet}>
           {#each summary.wallets as w (w)}<option value={w} translate="no">{w}</option>{/each}
         </select>
       </label>
     {:else if wallet}
-      <span class="muted small">{t('Wallet')} <SafeText text={wallet} /></span>
+      <span class="muted small">{t('Into the wallet')} <strong translate="no"><SafeText text={wallet} /></strong></span>
     {/if}
   </header>
 
@@ -95,6 +95,9 @@
 
   {#if error}<p class="error" role="alert"><SafeText text={error} /></p>{/if}
 
+  {#if !address}
+    <p class="muted small empty" data-receive-empty>{t('A new address of %1 for each payment: made by its own node, never typed. A label helps you tell payments apart.', name)}</p>
+  {/if}
   {#if address}
     <div class="address" data-receive-address={address}>
       <QrCode text={address} size={180} label={t('QR code of the address')} />
@@ -140,6 +143,9 @@
     margin: 0;
     font-size: 1.05rem;
     flex: 1;
+  }
+  .empty {
+    margin: 0;
   }
   .wallet-pick {
     display: inline-flex;

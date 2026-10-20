@@ -24,10 +24,11 @@
   import PageView from '../PageView.svelte';
   import ModuleFrames from '../../components/ModuleFrames.svelte';
   import HistoryButtons from '../../components/HistoryButtons.svelte';
-  import ChainSwitcher from '../../components/ChainSwitcher.svelte';
+  import GlobalChainSelector from '../../components/GlobalChainSelector.svelte';
+  import { ALL, HOST, selectedChain } from '../../lib/chains.svelte';
   import SafeText from '../../components/SafeText.svelte';
   import { hub } from '../../lib/sidechains.svelte';
-  import { frameShown, modules, moduleRoute, NODE_PAGE, openModule } from '../../lib/modules.svelte';
+  import { frameShown, moduleName, modules, moduleRoute, NODE_PAGE, openModule } from '../../lib/modules.svelte';
   import { pageShown, pageTitle, simpleMode } from '../../lib/uimode.svelte';
 
   // The top bar is the integrated title bar too: its empty part moves the window, the buttons of
@@ -43,6 +44,10 @@
   // A module shown (the switcher, at the left of the top bar): its sections are the areas, its pages the tabs.
   const mod = $derived(hub.selected !== 'chains' ? hub.selected : '');
   const framed = $derived(frameShown());
+  const selectedStem = $derived.by(() => {
+    const v = selectedChain();
+    return v === ALL || v === HOST ? '' : v;
+  });
   const modAreas = $derived.by(() => {
     if (!mod) return [];
     const m = modules.manifests[mod];
@@ -93,7 +98,11 @@
   >
     <Brand onclick={() => go('home')} />
     <HistoryButtons />
-    <div class="mod-switch"><ChainSwitcher /></div>
+    <!-- The chain every page shows (doc/unified-app.md §19); a sidechain selected: its own pages a click away. -->
+    <GlobalChainSelector />
+    {#if selectedStem}
+      <button type="button" class="btn ghost icon small" title={t('Its own pages')} aria-label={t('Open the pages of %1', moduleName(selectedStem))} data-open-module={selectedStem} onclick={() => openModule(selectedStem, 'home')}><Icon name="modules" size={16} /></button>
+    {/if}
     <!-- Folded (Ctrl+B, prefs.sidebarCollapsed): the areas but the current one show their icon only, named in their tooltip. -->
     {#if mod}
       <nav class="areas" aria-label={t('Areas')} data-module={mod}>
@@ -179,13 +188,6 @@
   }
   .content[hidden] {
     display: none;
-  }
-  .mod-switch :global(.switcher) {
-    margin: 0;
-  }
-  .mod-switch :global(.list) {
-    flex-wrap: nowrap;
-    border-radius: 999px;
   }
   .areas {
     display: flex;

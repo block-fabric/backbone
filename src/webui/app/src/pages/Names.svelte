@@ -5,13 +5,13 @@
   import { t } from '../lib/i18n.svelte';
   import SafeText from '../components/SafeText.svelte';
   import ChainBadge from '../components/ChainBadge.svelte';
-  import ChainChips from '../components/ChainChips.svelte';
+  import NotOnThisChain from '../components/NotOnThisChain.svelte';
   import ModuleEmbed from '../components/ModuleEmbed.svelte';
   import { errorText } from '../lib/dialogs.svelte';
-  import { canEmbed, chainHost, chainsWith, chainWallet, filtered, loadCapabilities, viewFilter, type ChainName } from '../lib/chains.svelte';
+  import { canEmbed, chainHost, chainsWith, chainWallet, loadCapabilities, selectedWith, type ChainName } from '../lib/chains.svelte';
 
   const chains = $derived(chainsWith('names'));
-  const shown = $derived(filtered(chains, viewFilter('names', chains)));
+  const shown = $derived(selectedWith('names'));
   let names = $state<Record<string, ChainName[]>>({});
   let errors = $state<Record<string, string>>({});
   let manage = $state<string | null>(null);
@@ -34,9 +34,8 @@
 <div class="page names">
   <header class="page-head">
     <h1>{t('Names')}</h1>
-    <ChainChips page="names" entries={chains} />
   </header>
-  {#if chains.length === 0}<p class="muted">{t('No chain with names is turned on.')}</p>{/if}
+  {#if shown.length === 0}<NotOnThisChain what="names" have={chains} none="No chain with names is turned on." />{/if}
   {#each shown as e (e.id)}
     <section class="panel" data-names-chain={e.id}>
       <div class="panel-head">
