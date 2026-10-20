@@ -527,6 +527,9 @@ def write_config(config_path, *, n, chain, extra_config="", disable_autoconnect=
     with open(config_path, 'w') as f:
         if chain_name_conf_arg:
             f.write("{}=1\n".format(chain_name_conf_arg))
+        else:
+            # The main network of these tests is Chains' (the default network is eCash's).
+            f.write("chain=main\n")
         if chain_name_conf_section:
             f.write("[{}]\n".format(chain_name_conf_section))
         f.write("port=" + str(p2p_port(n)) + "\n")
@@ -582,15 +585,16 @@ def get_temp_default_datadir(temp_dir: pathlib.Path) -> tuple[dict, pathlib.Path
     """Return os-specific environment variables that can be set to make the
     GetDefaultDataDir() function return a datadir path under the provided
     temp_dir, as well as the complete path it would return."""
+    # (The default network is eCash's: Backbone's data directory, with backbone.conf.)
     if platform.system() == "Windows":
         env = dict(APPDATA=str(temp_dir))
-        datadir = temp_dir / "Chains"
+        datadir = temp_dir / "Backbone"
     else:
         env = dict(HOME=str(temp_dir))
         if platform.system() == "Darwin":
-            datadir = temp_dir / "Library/Application Support/Chains"
+            datadir = temp_dir / "Library/Application Support/Backbone"
         else:
-            datadir = temp_dir / ".chains"
+            datadir = temp_dir / ".backbone"
     return env, datadir
 
 

@@ -6471,7 +6471,11 @@ util::Result<CBlockIndex*> ChainstateManager::ActivateSnapshot(
         // chainstate made from it would start with an empty sidechain database and judge the blocks
         // after the snapshot by it. Only regtest, whose upstream tests use snapshots at heights
         // before any sidechain, takes them.
-        if (GetConsensus().drivechain.max_sidechains > 0 && GetParams().GetChainType() != ChainType::REGTEST) {
+        // A snapshot below the drivechain activation height (eCash's, before the fork: Bitcoin's history)
+        // has an empty drivechain state, which is right.
+        const auto snapshot_data{GetParams().AssumeutxoForBlockhash(base_blockhash)};
+        const bool before_drivechains{snapshot_data && snapshot_data->height < GetConsensus().drivechain.activation_height};
+        if (GetConsensus().drivechain.max_sidechains > 0 && GetParams().GetChainType() != ChainType::REGTEST && !before_drivechains) {
             return util::Error{Untranslated("UTXO snapshots are not supported with drivechains: the snapshot does not hold the drivechain state")};
         }
         if (!GetParams().AssumeutxoForBlockhash(base_blockhash).has_value()) {

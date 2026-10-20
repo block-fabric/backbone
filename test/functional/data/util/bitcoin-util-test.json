@@ -2,6 +2,7 @@
   {
     "exec": "./bitcoin-util",
     "args": [
+      "-chain=main",
       "foo"
     ],
     "return_code": 1,
@@ -11,6 +12,7 @@
   {
     "exec": "./bitcoin-util",
     "args": [
+      "-chain=main",
       "help"
     ],
     "return_code": 1,
@@ -20,6 +22,7 @@
   {
     "exec": "./bitcoin-util",
     "args": [
+      "-chain=main",
       "grind"
     ],
     "return_code": 1,
@@ -29,6 +32,7 @@
   {
     "exec": "./bitcoin-util",
     "args": [
+      "-chain=main",
       "grind",
       "1",
       "2"
@@ -40,6 +44,7 @@
   {
     "exec": "./bitcoin-util",
     "args": [
+      "-chain=main",
       "grind",
       "aa"
     ],
@@ -50,11 +55,21 @@
   {
     "exec": "./bitcoin-util",
     "args": [
+      "-chain=main",
       "getchainparams"
     ],
     "return_code": 0,
     "output_cmp": "getchainparams-mainnet.json",
     "description": "getchainparams returns mainnet info"
+  },
+  {
+    "exec": "./bitcoin-util",
+    "args": [
+      "getchainparams"
+    ],
+    "return_code": 0,
+    "output_cmp": "getchainparams-ecash.json",
+    "description": "getchainparams returns the info of the default network, eCash's main network"
   },
   {
     "exec": "./bitcoin-util",
@@ -100,6 +115,7 @@
   {
     "exec": "./bitcoin-util",
     "args": [
+      "-chain=main",
       "getchainparams",
       "extra_arg"
     ],
@@ -110,6 +126,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "nversion=1"
     ],
@@ -119,6 +136,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "nversion=1"
@@ -129,6 +147,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-"
     ],
     "input": "blanktxv2.hex",
@@ -138,6 +157,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create"
     ],
@@ -147,6 +167,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-"
     ],
@@ -157,6 +178,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "nversion=+1"
     ],
@@ -167,6 +189,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "nversion=1foo"
     ],
@@ -177,6 +200,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-",
       "delin=1"
     ],
@@ -187,6 +211,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-",
       "delin=1"
@@ -198,6 +223,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-",
       "delin=31"
     ],
@@ -209,6 +235,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-",
       "delin=1foo"
     ],
@@ -220,6 +247,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-",
       "delout=1"
     ],
@@ -230,6 +258,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-",
       "delout=1"
@@ -241,6 +270,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-",
       "delout=2"
     ],
@@ -252,6 +282,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-",
       "delout=1foo"
     ],
@@ -263,6 +294,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-",
       "locktime=317000"
     ],
@@ -273,6 +305,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-",
       "locktime=317000"
@@ -284,6 +317,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "locktime=+317"
     ],
@@ -294,6 +328,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "locktime=317000foo"
     ],
@@ -304,6 +339,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=Z897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0"
     ],
@@ -314,6 +350,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6:0"
     ],
@@ -324,6 +361,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f12:0"
     ],
@@ -334,6 +372,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "replaceable=0foo"
@@ -345,6 +384,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "replaceable=+0"
@@ -356,6 +396,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "replaceable=-1"
@@ -367,6 +408,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "replaceable=1"
@@ -378,6 +420,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "replaceable=0"
@@ -388,6 +431,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "replaceable="
@@ -398,6 +442,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "in=bf829c6bcf84579331337659d31f89dfd138f7f7785802d5501c92333145ca7c:18",
@@ -410,6 +455,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "in=bf829c6bcf84579331337659d31f89dfd138f7f7785802d5501c92333145ca7c:18",
@@ -422,6 +468,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "replaceable="
     ],
@@ -431,6 +478,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0:abcdef00",
       "replaceable="
@@ -442,6 +490,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:+0"
     ],
@@ -452,6 +501,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0x"
     ],
@@ -462,6 +512,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outaddr=1"
     ],
@@ -472,6 +523,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outaddr=1:CKMnsLZUuUehkub6bqdNBxFtGhvQbAKAU8:garbage"
     ],
@@ -482,6 +534,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outpubkey=0"
     ],
@@ -492,6 +545,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outpubkey=0:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:W:non53nse"
     ],
@@ -502,6 +556,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "in=bf829c6bcf84579331337659d31f89dfd138f7f7785802d5501c92333145ca7c:18",
@@ -515,6 +570,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
@@ -529,6 +585,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:"
     ],
@@ -538,6 +595,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outscript=0:"
@@ -548,6 +606,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "02000000000100000000000000000000000000"
     ],
     "output_cmp": "txcreate2.hex",
@@ -556,6 +615,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "02000000000100000000000000000000000000"
     ],
@@ -565,6 +625,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:123badscript"
     ],
@@ -575,6 +636,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:OP_DROP",
       "nversion=1"
@@ -585,6 +647,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outscript=0:OP_DROP",
@@ -596,6 +659,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:OP_DROP:S",
       "nversion=1"
@@ -606,6 +670,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outscript=0:OP_DROP:S",
@@ -617,6 +682,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:OP_DROP:W",
       "nversion=1"
@@ -627,6 +693,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outscript=0:OP_DROP:W",
@@ -638,6 +705,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:OP_DROP:WS",
       "nversion=1"
@@ -648,6 +716,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outscript=0:OP_DROP:WS",
@@ -659,6 +728,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:999999999999999999999999999999"
     ],
@@ -669,6 +739,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:9999999999"
     ],
@@ -679,6 +750,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:4294967296"
     ],
@@ -689,6 +761,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:4294967295"
     ],
@@ -698,6 +771,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:-9999999999"
     ],
@@ -708,6 +782,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:-4294967296"
     ],
@@ -718,6 +793,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outscript=0:-4294967295"
     ],
@@ -727,6 +803,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "nversion=1",
       "in=4d49a71ec9da436f71ec4ee231d04f292a29cd316f598bb7068feccabdc59485:0",
@@ -741,6 +818,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "nversion=1",
@@ -756,6 +834,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=4d49a71ec9da436f71ec4ee231d04f292a29cd316f598bb7068feccabdc59485:0",
       "set=privatekeys:[\"6EF8XB1ywNWL2yf2RRpso2Xoro52QrTbki3o4NJr5E3Vz8jsD4E\"]",
@@ -769,6 +848,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=4d49a71ec9da436f71ec4ee231d04f292a29cd316f598bb7068feccabdc59485:0",
       "set=privatekeys:[\"6EF8XB1ywNWL2yf2RRpso2Xoro52QrTbki3o4NJr5E3Vz8jsD4E\"]",
@@ -783,6 +863,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=4d49a71ec9da436f71ec4ee231d04f292a29cd316f598bb7068feccabdc59485:0",
       "set=privatekeys:[\"6EF8XB1ywNWL2yf2RRpso2Xoro52QrTbki3o4NJr5E3Vz8jsD4E\"]",
@@ -797,6 +878,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=4d49a71ec9da436f71ec4ee231d04f292a29cd316f598bb7068feccabdc59485:0",
       "set=privatekeys:[\"6EF8XB1ywNWL2yf2RRpso2Xoro52QrTbki3o4NJr5E3Vz8jsD4E\"]",
@@ -811,6 +893,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=4d49a71ec9da436f71ec4ee231d04f292a29cd316f598bb7068feccabdc59485:0",
       "set=privatekeys:[\"6EF8XB1ywNWL2yf2RRpso2Xoro52QrTbki3o4NJr5E3Vz8jsD4E\"]",
@@ -825,6 +908,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff:0",
       "set=privatekeys:[\"Q5TNCBDLJyvT1j4qGpaKC9kypnLmEHJQPvBLHs3mbea2w95p4ukR\"]",
@@ -838,6 +922,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff:0",
       "set=privatekeys:[\"Q5TNCBDLJyvT1j4qGpaKC9kypnLmEHJQPvBLHs3mbea2w95p4ukR\"]",
@@ -852,6 +937,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outpubkey=0:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397",
       "nversion=1"
@@ -862,6 +948,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outpubkey=0:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397",
@@ -873,6 +960,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outpubkey=0:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:W",
       "nversion=1"
@@ -883,6 +971,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outpubkey=0:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:W",
@@ -894,6 +983,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outpubkey=0:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:WS",
       "nversion=1"
@@ -904,6 +994,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outpubkey=0:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:WS",
@@ -915,6 +1006,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outpubkey=0:047d1368ba7ae01c94bc32293efd70bd7e3be7aa7912d07d0b1c659c1008d179b8642f5fb90f47580feb29f045e216ff5a4716d3a0fed36da414d332046303c44a:WS",
@@ -927,6 +1019,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "outdata=4:badhexdata"
@@ -938,6 +1031,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "outdata=badhexdata"
@@ -949,6 +1043,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "outaddr=0.18:CKMnsLZUuUehkub6bqdNBxFtGhvQbAKAU8",
@@ -960,6 +1055,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "nversion=1",
@@ -973,6 +1069,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
       "outaddr=0.18:CKMnsLZUuUehkub6bqdNBxFtGhvQbAKAU8",
@@ -984,6 +1081,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0",
@@ -996,6 +1094,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0:11aa"
     ],
@@ -1006,6 +1105,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0:-1"
     ],
@@ -1016,6 +1116,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0:4294967296"
     ],
@@ -1026,6 +1127,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0:4294967293",
       "outaddr=0.18:CKMnsLZUuUehkub6bqdNBxFtGhvQbAKAU8"
@@ -1036,6 +1138,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0: 4294967293 ",
       "outaddr=0.18:CKMnsLZUuUehkub6bqdNBxFtGhvQbAKAU8"
@@ -1046,6 +1149,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0:4294967293",
@@ -1057,6 +1161,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "01000000011f5c38dfcf6f1a5f5a87c416076d392c87e6d41970d5ad5e477a02d66bde97580000000000fdffffff0180a81201000000001976a9141fc11f39be1729bf973a7ab6a615ca4729d6457488ac00000000",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0:1"
     ],
@@ -1066,6 +1171,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "01000000011f5c38dfcf6f1a5f5a87c416076d392c87e6d41970d5ad5e477a02d66bde97580000000000fdffffff0180a81201000000001976a9141fc11f39be1729bf973a7ab6a615ca4729d6457488ac00000000",
       "in=5897de6bd6027a475eadd57019d4e6872c396d0716c4875a5f1a6fcfdf385c1f:0:1"
@@ -1076,6 +1182,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outmultisig=1:-2:3:02a5:021:02df",
       "nversion=1"
@@ -1087,6 +1194,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outmultisig=1:2:3a:02a5:021:02df",
       "nversion=1"
@@ -1098,6 +1206,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:02df2089105c77f266fa11a9d33f05c735234075f2e8780824c6b709415f9fb485",
       "nversion=1"
@@ -1108,6 +1217,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outmultisig=1: 2 : 3 :02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:02df2089105c77f266fa11a9d33f05c735234075f2e8780824c6b709415f9fb485",
@@ -1119,6 +1229,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:02df2089105c77f266fa11a9d33f05c735234075f2e8780824c6b709415f9fb485:S",
       "nversion=1"
@@ -1129,6 +1240,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:02df2089105c77f266fa11a9d33f05c735234075f2e8780824c6b709415f9fb485:S",
@@ -1140,6 +1252,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:02df2089105c77f266fa11a9d33f05c735234075f2e8780824c6b709415f9fb485:W",
       "nversion=1"
@@ -1150,6 +1263,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:02df2089105c77f266fa11a9d33f05c735234075f2e8780824c6b709415f9fb485:W",
@@ -1161,6 +1275,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:02df2089105c77f266fa11a9d33f05c735234075f2e8780824c6b709415f9fb485:WS",
       "nversion=1"
@@ -1171,6 +1286,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:02df2089105c77f266fa11a9d33f05c735234075f2e8780824c6b709415f9fb485:WS",
@@ -1182,6 +1298,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:047d1368ba7ae01c94bc32293efd70bd7e3be7aa7912d07d0b1c659c1008d179b8642f5fb90f47580feb29f045e216ff5a4716d3a0fed36da414d332046303c44a:S"
@@ -1192,6 +1309,7 @@
   {
     "exec": "./bitcoin-tx",
     "args": [
+      "-chain=main",
       "-json",
       "-create",
       "outmultisig=1:2:3:02a5613bd857b7048924264d1e70e08fb2a7e6527d32b7ab1bb993ac59964ff397:021ac43c7ff740014c3b33737ede99c967e4764553d1b2b83db77c83b8715fa72d:047d1368ba7ae01c94bc32293efd70bd7e3be7aa7912d07d0b1c659c1008d179b8642f5fb90f47580feb29f045e216ff5a4716d3a0fed36da414d332046303c44a:WS"

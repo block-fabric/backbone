@@ -197,7 +197,7 @@ class ConfArgsTest(BitcoinTestFramework):
         # datadir= line pointing at the node datadir.
         node = self.nodes[0]
         conf_text = node.bitcoinconf.read_text()
-        conf_path = default_datadir / "chains.conf"
+        conf_path = default_datadir / "backbone.conf"
         conf_path.write_text(f"datadir={node.datadir_path}\n{conf_text}")
 
         # Drop the node -datadir= argument during this test, because if it is
@@ -487,7 +487,7 @@ class ConfArgsTest(BitcoinTestFramework):
         # startup error because the node datadir contains a different
         # chains.conf that would be ignored.
         node = self.nodes[0]
-        (default_datadir / "chains.conf").write_text(f"datadir={node.datadir_path}\n")
+        (default_datadir / "backbone.conf").write_text(f"datadir={node.datadir_path}\n")
 
         # Drop the node -datadir= argument during this test, because if it is
         # specified it would take precedence over the datadir setting in the
@@ -496,7 +496,7 @@ class ConfArgsTest(BitcoinTestFramework):
         node.args = [arg for arg in node.args if not arg.startswith("-datadir=")]
         node.assert_start_raises_init_error([], re.escape(
             f'Error: Data directory "{node.datadir_path}" contains a "chains.conf" file which is ignored, because a '
-            f'different configuration file "{default_datadir}/chains.conf" from data directory "{default_datadir}" '
+            f'different configuration file "{default_datadir}/backbone.conf" from data directory "{default_datadir}" '
             f'is being used instead.') + r"[\s\S]*", env=env, match=ErrorMatch.FULL_REGEX)
         node.args = node_args
 

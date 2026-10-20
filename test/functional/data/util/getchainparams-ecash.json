@@ -1,0 +1,26 @@
+{
+  "chain": "ecash",
+  "test_chain": false,
+  "genesis": "6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000",
+  "subsidy_halving_interval": 210000,
+  "pow": {
+    "limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "target_spacing": 600,
+    "difficulty_retarget_interval": 2016,
+    "mindiff_blocks": "no"
+  },
+  "net": {
+    "default_port": 8533,
+    "magic": "eca5dcb7",
+    "dns_seeds": [
+      "seed.ecash.ninja.",
+      "seed.bip300.xyz.",
+      "seed.ecash.drivecha.in.",
+      "seed.ecash.zuexeuz.net.",
+      "seed.ecash.eu.com."
+    ]
+  },
+  "addresses": {
+    "bech32_hrp": "bc"
+  }
+}

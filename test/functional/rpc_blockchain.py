@@ -145,6 +145,7 @@ class BlockchainTest(BitcoinTestFramework):
             'headers',
             'initialblockdownload',
             'mediantime',
+            'network',
             'pruned',
             'size_on_disk',
             'target',
