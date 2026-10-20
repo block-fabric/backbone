@@ -149,8 +149,13 @@ python3 magicproxy.py 49210:<testnet4 node>:48333 49211:<another>:48333 &
 backboned -datadir=~/.chains-ecash -chain=ecashtest -connect=127.0.0.1:49210 -connect=127.0.0.1:49211 -listen=0 -rpcport=49202
 ```
 
-(`seed.testnet4.wiz.biz` and `seed.testnet4.bitcoin.sprovoost.nl` list testnet4 nodes.) Synced on
-2026-10-20 to height 157,123 in about 20 minutes (14 GB), with the block hashes of mempool.space/testnet4.
+(`seed.testnet4.wiz.biz` and `seed.testnet4.bitcoin.sprovoost.nl` list testnet4 nodes; take several
+operators, the wiz.biz nodes lagged a few blocks.) Synced on 2026-10-20 from scratch to height 157,122 in
+about 20 minutes (14 GB in `~/.chains-ecash`, whose `backbone.conf` has the commands), then followed the tip:
+at 157,131 its tip `0000000003e3ca7f…a214` was the block mempool.space/testnet4 has at that height, and the
+Bitcoin Core 28.99/29.1/30.2 testnet4 peers had the same block; no block was refused. On betanet a handshake
+and a headers sync with eCash's four seeds reached 973,880, tip `00000000000000001f8d…06e4` and fork block
+967,680 `00000000000000030101…4042` (bits `19044b7e`), the hashes of eCash's esplora.
 
 ## Tests
 
