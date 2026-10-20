@@ -81,6 +81,7 @@ export const AREAS: readonly Area[] = [
       { page: 'send' },
       { page: 'receive' },
       { page: 'transactions', label: 'History' },
+      { page: 'assets' },
       { page: 'wallets' },
       // Sign and verify, PSBT, Multisig: the tabs of one page (with the wallet).
       { page: 'advanced', label: 'Advanced' },
@@ -96,8 +97,8 @@ export const AREAS: readonly Area[] = [
     id: 'sidechains',
     label: 'Sidechains',
     icon: 'sidechains',
-    // One page: its own tabs (Sidechains, Nodes, Proposals, Withdrawals) are the rest.
-    tabs: [{ page: 'sidechains' }],
+    // One page: its own tabs (Proposals, Withdrawals) are the rest; then what the sidechains add (when one that has it is on).
+    tabs: [{ page: 'sidechains' }, { page: 'staking' }, { page: 'names' }, { page: 'markets' }],
   },
   {
     id: 'tools',
@@ -186,9 +187,9 @@ export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
 
 /** The dashboard's sidebar: every page (after Home), in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
-  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets', 'advanced'] },
-  // What concerns the chain before the tools.
-  { title: 'Chain', pages: ['sidechains', 'mine', 'explorer'] },
+  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'assets', 'wallets', 'advanced'] },
+  // What concerns the chain before the tools; what the sidechains add after the sidechains.
+  { title: 'Chain', pages: ['sidechains', 'staking', 'names', 'markets', 'mine', 'explorer'] },
   { title: 'Tools', pages: ['tools'] },
   { title: 'Node', pages: ['node', 'settings', 'kit'] },
 ];

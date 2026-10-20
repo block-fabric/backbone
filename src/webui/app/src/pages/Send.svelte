@@ -1,9 +1,24 @@
 <script lang="ts">
-  import { hub } from '../lib/sidechains.svelte';
-  import { openModule, productName } from '../lib/modules.svelte';
-  // Send on which chain (doc/unified-app.md §14): this app's here; a module's on that module's own Send page, in the
-  // same window, where its spend is asked in the app's trusted dialog.
-  const sendChains = $derived((hub.list?.chains ?? []).filter((c) => c.enabled));
+  import ChainPicker from '../components/ChainPicker.svelte';
+  import SidechainSend from '../components/SidechainSend.svelte';
+  import { actionChain, chainEntries, chainLink, HOST, loadCapabilities } from '../lib/chains.svelte';
+  // Send on which chain (doc/unified-app.md §18): a chain picker, the one used last (or the one a link asked for); the
+  // form is that chain's. This app's own below; a sidechain's in SidechainSend, its spend asked in the trusted dialog.
+  const sendEntries = $derived(chainEntries());
+  let sendChain = $state(actionChain('send', chainEntries(), chainLink.send?.chain));
+  $effect(() => {
+    void loadCapabilities();
+  });
+  // A link to Send on a chain (a chain's card, an asset): that chain.
+  $effect(() => {
+    const link = chainLink.send;
+    if (link && sendEntries.some((e) => e.id === link.chain)) sendChain = link.chain;
+  });
+  // The chain turned off: the app's own.
+  $effect(() => {
+    if (!sendEntries.some((e) => e.id === sendChain)) sendChain = HOST;
+  });
+  const sendOn = $derived(sendEntries.find((e) => e.id === sendChain) ?? sendEntries[0]);
   import { t } from '../lib/i18n.svelte';
   import SafeText from '../components/SafeText.svelte';
   // Send coins (SendCoinsDialog, SendCoinsEntry): several recipients, the fee, coin control ("Choose
@@ -408,18 +423,14 @@
   <header class="page-head">
     <h1>Send</h1>
     <div class="row">
-      {#if sendChains.length}
-        <div class="chain-pick" role="radiogroup" aria-label={t('Send on')} data-send-chain>
-          <span class="muted small">{t('On')}</span>
-          <button type="button" role="radio" aria-checked="true" class="pill current"><SafeText text={productName()} /></button>
-          {#each sendChains as c (c.stem)}
-            <button type="button" role="radio" aria-checked="false" class="pill" data-send-chain-option={c.stem} onclick={() => openModule(c.stem, 'send')}><SafeText text={c.name} /></button>
-          {/each}
-        </div>
-      {/if}
-      <button type="button" class="btn ghost small" onclick={() => (nav.tab = 'uri')}><Icon name="paste" size={16} /> Open URI…</button>
+      <span data-send-chain><ChainPicker page="send" bind:value={sendChain} entries={sendEntries} /></span>
+      {#if sendChain === HOST}<button type="button" class="btn ghost small" onclick={() => (nav.tab = 'uri')}><Icon name="paste" size={16} /> Open URI…</button>{/if}
     </div>
   </header>
+
+  {#if sendChain !== HOST && sendOn}
+    {#key sendChain}<SidechainSend stem={sendOn.id} name={sendOn.name} />{/key}
+  {:else}
 
   {#if node.tip?.ibd}
     <button type="button" class="out-of-sync" onclick={() => go('node', 'info')}>
@@ -545,6 +556,7 @@
     <span class="grow"></span>
     <span class="balance">{info?.externalSigner ? 'External balance:' : 'Balance:'} <strong><Amount sats={balance} /></strong></span>
   </footer>
+  {/if}
 </div>
 
 
@@ -571,36 +583,6 @@
 </Dialog>
 
 <style>
-  .chain-pick {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.2rem;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--surface-2);
-  }
-  .chain-pick .small {
-    padding: 0 0.3rem 0 0.4rem;
-    font-size: 0.82rem;
-  }
-  .chain-pick .pill {
-    padding: 0.2rem 0.7rem;
-    border: 0;
-    border-radius: 999px;
-    background: none;
-    color: var(--text-muted);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .chain-pick .pill:hover {
-    background: var(--raised);
-  }
-  .chain-pick .pill.current {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
   .send {
     display: flex;
     flex-direction: column;

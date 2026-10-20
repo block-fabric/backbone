@@ -21,6 +21,21 @@
   import { formatPaymentUri } from '../lib/uri';
   import { ADDRESS_TYPES, walletApi, type ReceiveRequest } from '../lib/wallet';
   import { current, refreshInfo } from '../lib/walletdata.svelte';
+  import ChainPicker from '../components/ChainPicker.svelte';
+  import SidechainReceive from '../components/SidechainReceive.svelte';
+  import { actionChain, chainEntries, chainLink, HOST, loadCapabilities } from '../lib/chains.svelte';
+
+  // Receive on which chain (doc/unified-app.md §18): the one used last, or the one a link asked for.
+  const recvEntries = $derived(chainEntries());
+  let recvChain = $state(actionChain('receive', chainEntries(), chainLink.receive?.chain));
+  $effect(() => {
+    void loadCapabilities();
+    if (chainLink.receive) chainLink.receive = null;
+  });
+  $effect(() => {
+    if (!recvEntries.some((e) => e.id === recvChain)) recvChain = HOST;
+  });
+  const recvOn = $derived(recvEntries.find((e) => e.id === recvChain) ?? recvEntries[0]);
 
   const wallet = $derived(wallets.current);
   const api = $derived(wallet === null ? null : walletApi(wallet));
@@ -139,7 +154,10 @@
 </script>
 
 <div class="page receive">
-  <header class="page-head"><h1>Receive</h1></header>
+  <header class="page-head"><h1>Receive</h1><span data-receive-chain><ChainPicker page="receive" bind:value={recvChain} entries={recvEntries} /></span></header>
+  {#if recvChain !== HOST && recvOn}
+    {#key recvChain}<SidechainReceive stem={recvOn.id} name={recvOn.name} />{/key}
+  {:else}
   <div class="tabs" role="tablist" aria-label="Receive">
     {#each TABS as tb (tb.id)}
       <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
@@ -224,6 +242,7 @@
       </div>
     </section>
   </div>
+  {/if}
   {/if}
 </div>
 

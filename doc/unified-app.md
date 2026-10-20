@@ -3,7 +3,8 @@
 One app for Chains and its sidechains. Status: **phase 1 (supervisor, switcher, wizards) and phase 2
 (the sidechains' own pages in the app, spends through the app's trusted dialog)** on branch
 `unified-app`; **sidechains as modules of one shell (§14) and their programs downloaded from GitHub releases (§15)**
-on branch `unified-modules`, not merged. Written 2026-10-20; phase 2 in §13; ideas taken from BitWindow in §16.
+on branch `unified-modules`; **the app's own pages over every chain (§18)** on branch `unified-integrated`; none merged.
+Written 2026-10-20; phase 2 in §13; ideas taken from BitWindow in §16.
 
 ## 0. What the user decided (2026-10-20)
 
@@ -555,6 +556,14 @@ sidechain by hand, downloads from the app (phase 4).
 | 20 | **Found by review (MEDIUM): a module's dim** (`modal` kept the app behind its scrim for ever) | Only the module shown may dim; the dim is the app's own button: a click on it or Escape lifts it (and refuses another for 3 s); lifted when the module is left, hidden, its frame reloaded, and after 5 minutes at most; the switcher and sidebar are reachable again at once. The app's trusted dialog is a window of its own, above everything | modules.test.ts |
 | 21 | **Found by review (MEDIUM): module amounts in privacy mode** (the portfolio, the module's wallet card, every chain's transactions showed them with the mask on) | Every amount of a module goes through `ModuleAmount` (the placeholder and words of `<Amount>`); Transactions keeps its masked panel for every chain | modules.test.ts |
 | 22 | **Found by review (MEDIUM): signature downgrade** of a downloaded program (in "auto" a release with no `.sig` was taken) | As soon as a release key is configured, a missing or bad signature refuses the release; checksums alone only while no key is built in (shown "unsigned (checksums only)"); the signed manifest is the one whose hash is checked, the sums must agree; an older release only by the user's explicit choice. Plan: `require` the default once the release key ships (§15.4) | moduleinstaller_tests |
+| 23 | **Host-built sidechain spends** (§18: the app's Send, Sidechains, Wallets make the request, not the chain's pages) | Built in C++ from typed fields only (`ChainAdapter`): the stem from the catalog, a wallet name of `[A-Za-z0-9._-]`, the address trimmed, the amount as **text** parsed exactly (no sign, exponent or float; more decimals than the asset has refused, never rounded; in `MoneyRange` for coins), an asset **by its hash** (`"0x"<hash>`, never a name that may look alike) and only one the wallet holds, not more than it holds. The request then takes the §13 path unchanged: the chain's own describer, the trusted dialog, the one-time token bound to that request | chainadapter_tests (amounts, assets, requests), run_integrated |
+| 24 | **Wrong-chain sends** (an address of the app's own chain, of another sidechain, a deposit address) | Refused **before anything is prepared or asked**: the address must be valid on that chain's node; one valid on the app's own node, or only on another sidechain, is refused with the name of that chain; a deposit address and a legacy (base58) address (they read the same on every chain of the family) are refused; one of the user's own wallets on the app's chain or on another sidechain is refused (the likeliest mistake, and the only check that holds where two chains share a bech32 prefix: on regtest the sidechains that keep the template's own, `rsc`). The page checks as the user types and Send stays disabled; the host checks again. The trusted dialog names the chain first (row *Chain*, "On Layers · Regtest" and its mark from the app's catalog, never from the daemon). **Residual:** an address of a stranger's wallet on another sidechain with the same prefix (regtest only, for the chains that keep `rsc`: main, test and signet have a prefix per chain) cannot be told apart; the chain badge of the dialog is then the last line | chainadapter_tests (six kinds), chains.test.ts, run_integrated (a Chains and a Thunder address refused on Layers, no question asked) |
+| 25 | **A read that asks** (a chain's host answering a read with a question) | Refused, never asked: the adapter's reads through `webuihost` drop an answer with `confirm` (no dialog can come from a read view) | chainadapter_tests |
+| 26 | **Least privilege of the adapter** | No rpcwhitelist change: generic reads are the app's user's methods (`AppRpcMethods`), a chain's own reads go through its own pages' policy (`webuihost` kind `rpc`); answers bounded (rows, lengths, depth); packs cannot call `chain.*` (refused prefix in `SidechainPages::RouteOf`) | sidechainpages_tests |
+| 27 | **Deposits and withdrawals from the app's pages** | A deposit pays only the deposit address the chain's node gives for its wallet (never typed), through `PackDeposit` (only that chain's slot, Chains' own question); a withdrawal pays only an address valid on the app's own node, a deposit address refused, its fee explicit, the chain's own question | chainadapter_tests, run_integrated |
+| 28 | **A module's page inside an app's page** (§18 `ModuleEmbed`) | The same frame (its own origin, sandbox, messages only, §13.5 #10): only laid over a place of the page, clipped to the page's area; the page shown is checked (`setEmbed`: stem and page patterns); it may not dim the app (only the module shown may), its keys are not taken (not the module shown); lifted when the page is left | chains.test.ts, run_integrated (its own origin inside Assets → Trade) |
+| 29 | **Stored choices of the pages** (`chainViews`, `chainWallets`) | Checked when read back: chain ids `[a-z0-9]`, wallet names as #23; others dropped | chains.test.ts |
+| 30 | **Amounts of every chain in privacy mode** | Every sidechain amount of the new views through `ModuleAmount` (§13.5 #21) | modules.test.ts |
 
 ### 13.6 Coverage per chain
 
@@ -888,3 +897,155 @@ The repository has no screenshots of their UI, only logos, so none are included 
   - `webui_e2e_modules` is not registered in ctest yet.
   - A user cannot pin a version (only update and rollback).
   - Tags are compared as text in the UI.
+
+## 18. The app's own pages over every chain (2026-10-20, branch `unified-integrated`)
+
+User feedback on §14: "its better, but i would integrate it even further. for every sidechain activated, more options
+(through selector/dropdowns or showing multiple at a time) would appear on respective overview/send/receive/
+transactions/wallets pages, same with sidechains / PoS / etc."
+
+So the app's **own** pages became multi-chain. A sidechain turned on no longer lives only behind the module switcher:
+it adds itself to the matching page of the app.
+
+### 18.1 The rule
+
+- **Read views show many chains by default**, with a filter of chips: *All*, then each chain (the app's own first). The
+  pages: Home, Overview, Transactions, Manage wallets, Sidechains, Staking, Assets, Names, Markets.
+- **Actions act on one chain**, chosen in a picker: Send, Receive, Trade. The picker starts on the chain a link asked
+  for (a chain's card, an asset's row), else the one used last on that page, else the app's own.
+- **What each page chose is remembered** (`prefs.chainViews`, one value per page, checked when read back), and so is the
+  wallet the app's pages use on each sidechain (`prefs.chainWallets`, chosen on Manage wallets). A chain turned off is
+  forgotten by the filters (they fall back to *All*) and the pickers (back to the app's own).
+- The product's and its unit's names come from the build (`productName()`, `productUnit()`); no new string names
+  Chains or CHN, so the rename to Backbone / eCash (ECX) is one place.
+
+### 18.2 Page by page
+
+| Page | What a sidechain adds |
+|---|---|
+| **Home, Overview** | "Every chain": a card per chain (the app's own, then each sidechain): available and pending in its own coin (never added up), its wallet and whether it has its own backup, its assets (a click sends it), its shielded balance (zSide), deposits made here still on their way, withdrawals not paid yet, its height and its link to the app's node; Send / Receive on that chain, and its own pages. Replaces §14's Portfolio. |
+| **Send** | A chain picker. On a sidechain the form is that chain's (`SidechainSend`): its wallet, an asset picker (Layers, BitAssets: the coin or an asset the wallet holds, with its decimals), the shielded account (zSide, with a memo), subtract fee (coins). The address is checked by the host a moment after typing (`chain.validate`), the amount exactly with the decimals of what is sent; Send is enabled only for an address of that chain. The spend is the chain's own question in the trusted dialog. |
+| **Receive** | A chain picker. On a sidechain: a new address of its wallet (made by its node), its QR code, a shielded address on zSide; its deposit address (`s<slot>_…`), and "Deposit from <product>…" (the Sidechains page, that chain's panel). |
+| **Transactions** | Every chain in one list with a Chain column (the app's own included), filter chips; the app's own chip gives the page as it was (its filters, export, fee bumps). A row opens its details **in the app** (the kit's `wallet.transaction` of that chain, shown by the app's own `TxDetailsView`), with "Open in <chain>" as a second step. |
+| **Manage wallets** | Each sidechain's wallets after the app's own (filter chips): open, close, create, back up (to a file chosen in the app's own chooser, given to that node only by a token, §13.5 #9), which one the app's pages use; "From your backup phrase" or "Its own backup" said plainly. |
+| **Sidechains** | "The sidechains this app runs", above the drivechain's own tabs: for each, a deposit (paid by the app's wallet to the deposit address of the chain's wallet, from its node), a withdrawal back (to an address of the app's own chain, "Mine" fills one; the fee for the miners explicit), the deposits on their way, its own withdrawals not paid yet, its link to the app's node and its merged mining. Proposals, bundles and votes stay in the tabs below. |
+| **Staking** (new) | Every chain that stakes (FastBlocks, Layers), filter chips: this node's validator keys (in the set or not, stake, share of the pool), the validator set of the epoch, the bonds of the wallet, the bonded total, the fee pot, the fee split. Bonding, unbonding and turning staking on are the chain's own Staking page, shown inside this one. |
+| **Assets** (new) | *Holdings*: the assets of every chain that has them in one list (Chain, asset, balance, pending, control, supply), each sent on its chain from the app's Send. *Trade*: a chain picker over the chains with a DEX, the chain's own Trade page shown inside this one. |
+| **Names**, **Markets** (new) | BitNames' names and reservations, Hivemind's markets and their prices, with filter chips; registering, records, trading and votes are the chain's own pages, shown inside. |
+
+Staking, Assets, Names and Markets are in the sidebar (and the workspace's areas, and the palette) only while a chain
+that has them is on; Assets is in the Wallet section, the others after Sidechains in the Chain section.
+
+**A chain's own page inside the app's** (`ModuleEmbed`): where a host-native view is not reasonable (a DEX, the bond
+forms, name records), the app's page keeps a place, and the module's frame (§14, unchanged in what it can reach) is laid
+over it (`position: fixed` over the place, clipped to the page's area, followed on scroll and resize). The frame is
+told the page to show; leaving the page lifts it. Without the module's pages (not built in, node not ready), "Open in
+<chain>".
+
+**The module switcher** stays, as the second way in: moved from the top of the sidebar to its foot, under "Their own
+pages" (the workspace layout keeps it at the left of its top bar). Proposed: keep it — every chain's own pages are
+still the complete set of what it does, and the app's pages do not (and should not) copy every one of them. Removing it
+would leave those pages reachable only from the palette and the "Open in …" links.
+
+### 18.3 The chain adapter
+
+`src/webui/chainadapter.{h,cpp}` (`ChainAdapter`, host methods `chain.*` in `app.cpp`), and `lib/chains.svelte.ts` in
+the page (the app's own chain from its own state, a sidechain through `chain.*`).
+
+**Capabilities**, a table in the host (`ChainAdapter::Table()`, one row per chain of the catalog, `chain.capabilities`),
+never guessed from what a node answers:
+
+| Chain | assets | dex | staking | names | markets | shielded | its pages shown inside the app's |
+|---|---|---|---|---|---|---|---|
+| Layers | ✓ | ✓ | ✓ | | | | trade, auctions, staking, assets, my-assets, issue |
+| FastBlocks | | | ✓ | | | | staking |
+| Thunder | | | | | | | |
+| BitNames | | | | ✓ | | | names, register, directory |
+| BitAssets | ✓ | ✓ | | | | | trade, auctions, assets, my-assets, issue |
+| zSide | | | | | | ✓ | private, zhistory |
+| Hivemind | | | | | ✓ | | markets, votecoin, decisions, portfolio |
+
+Every chain: send, receive, deposit, withdraw, 8 decimals for its coin.
+
+**Mapping** (each method takes `{stem, wallet?}`; the wallet is the one asked for if loaded, else `main`, else the first):
+
+| `chain.*` | Reads (supervisor's read path) | Writes (the chain's host over RPC → its question → trusted dialog) |
+|---|---|---|
+| `summary` | `listwallets`, `getblockcount`, `getmainchaininfo`, `getbalances`; `listmyassets` (assets), `getshieldedbalance` (shielded), `listwithdrawals` + `getaddressinfo` of each refund address (its own) | — |
+| `transactions`, `transaction` | `listtransactions`; the kit's `wallet.transaction` | — |
+| `wallets`, `wallet.create/load` | `listwallets`, `listwalletdir`, `getwalletinfo`, `getbalances`; `createwallet`, `loadwallet` | `wallet.unload`: the kit's `wallets.close`; `wallet.backup`: the app's chooser, then `wallet.backup` with the file's token |
+| `receive`, `depositAddress` | `getshieldedaddress` (zSide), `getdepositaddress` | `wallet.newAddress` (asks only if the wallet needs its keys) |
+| `validate` | `validateaddress` on that chain, the app's own node and every other sidechain running; `getaddressinfo` in their wallets | — |
+| `send` | the checks of `validate`; `listmyassets` (an asset) | coins: `wallet.send.prepare` (asks nothing) then `wallet.send.commit` (the question; discarded when declined); an asset: `rpc.confirmed sendasset [address, "0x"<hash>, amount]`; shielded: `rpc.confirmed sendshielded [{address: amount}, memo]` |
+| `withdraw` | `validateaddress` on the app's own node | `rpc.confirmed createwithdrawal [address, amount, fee]` |
+| `deposit` | `getdepositaddress` of the chain's wallet | the app's own `createsidechaindeposit` (`PackDeposit`: only that chain's slot, Chains' own question) |
+| `staking` | `getstakinginfo`, `getposinfo`, `getvalidators`, `listbonds` | the chain's own Staking page, inside |
+| `peg` | `getmainchaininfo`, `getbmminfo`, `listwithdrawals` (+ its own) | — |
+| `assets`, `names`, `markets` | `listmyassets`, `listmynames`, `listmarkets` | the chain's own pages, inside |
+
+Generic reads use the methods the app's user may already call at each daemon (`AppRpcMethods`, §13.5 #11); a chain's
+own reads go through its host over RPC as reads of **its own pages' policy** (`webuihost` kind `rpc`), so the adapter
+can read nothing the chain's own pages could not. **The rpcwhitelist of the app's user did not change.** Answers are
+bounded (rows, lengths, depth) and amounts stay the text the node wrote (no float on the way).
+
+### 18.4 Security (rows #23–#30 of §13.5)
+
+See §13.5. In short: the host builds every sidechain spend from typed, checked fields and sends it down the §13 path
+unchanged (the chain's own describer, the trusted dialog with the chain named first and its mark, the one-time token);
+an address of another chain is refused before anything is prepared or asked; a read never asks; the frames are the
+frames of §14; packs cannot call `chain.*`.
+
+### 18.5 Tests
+
+- `src/webui/test/chainadapter_tests.cpp`: the table against the catalog; amounts exact (no sign, exponent, more
+  decimals, overflow); what an address looks like; the wallet picked; the reads mapped per chain (no asset read on
+  Thunder, nothing asked of a chain not running); a read that asks refused and not asked; a coin send prepared then
+  asked, discarded when declined, bad amounts refused before anything; wrong-chain addresses (the app's own chain's, a
+  deposit address, one of the user's Thunder wallet, one valid only on Thunder, a legacy one, one of the app's own
+  wallet) refused with words that name the chain and **nothing prepared or asked**; an asset send by its hash, of an
+  asset held, with its decimals, not more than held; withdrawals only to the app's chain; deposits from the chain's
+  deposit address; peg rows of the wallet's own; wallet names. `sidechainpages_tests`: packs cannot call `chain.*`.
+- `src/test/chains.test.ts` (vitest): the chains of the pages and their table; the pages of what sidechains add only
+  while a chain has it; filters (default All, remembered per page, a chain turned off forgotten) and pickers (a link,
+  the last used, the app's own); stored preferences checked; exact amounts; every chain's transactions merged; assets
+  merged; deposits on their way until credited; the adapter's calls; Send (the picker, a wrong-chain address said before
+  anything is sent, an asset with its decimals sent, a link with an asset, no asset picker on Thunder); Receive;
+  Wallets; the peg panel; Staking; Assets; Transactions; a module's page inside an app's (checked, lifted).
+  `modules.test.ts` updated (Home's cards replace the Portfolio; every chain's transactions through the adapter, their
+  details in the app).
+- `src/webui/test/e2e/run_integrated.py` + `integrated.js` (the real app on regtest, Layers with a validator key of its
+  own and Thunder, Midnight; ctest `webui_e2e_integrated`): see §18.6.
+
+### 18.6 End-to-end run and pictures
+
+`run_integrated.py --app build_app/bin/chains-app --sidechain-bindir ~/skydoge/layers/build_rel/bin --sidechain-bindir
+~/skydoge/thunder/build/bin --tmp … --shots …`: 30 checks pass. Layers and Thunder on; the table of capabilities; a
+deposit into Layers from the Sidechains page (Chains' own question), credited, no longer "on its way"; a deposit into
+Thunder by the adapter; GOLD registered on Layers; a withdrawal from Layers to an address of Chains ("On Layers"), one
+to an address of a sidechain refused; Home with every chain and Layers' assets, its filter remembered; Overview the
+same; on Send, Layers picked: a Chains address and a Thunder address refused **before any question** (none asked,
+the host refuses them too), then 25 GOLD sent, asked in the trusted dialog "On Layers" with its mark and *Chain:
+Layers* first, its destination and asset named, confirmed in a block; on Thunder, no asset picker, a coin send asked
+"On Thunder", the chain remembered; Receive on Layers (an address of its wallet, its deposit address) and on Thunder
+(refused on Layers); Transactions of every chain, the filter, a Layers transaction's details in the app; each chain's
+wallets ("Its own backup"), a wallet made on Layers; the Sidechains page with the withdrawal on its way; Staking with
+Layers' validator key, Thunder not listed; Assets with GOLD, and Layers' Trade inside the page on its own origin; the
+frame lifted on leaving; the module switcher still there; both turned off, nothing left running. `run_startup.py`
+(Chains alone) passes.
+
+Pictures (Midnight) in `~/skydoge/media/unified-app/integrated/`: `integrated-overview`, `-send-layers-asset`,
+`-send-wrong-chain`, `-dialog-layers-asset-send`, `-dialog-deposit-into-layers`, `-receive`, `-transactions`,
+`-transaction-details`, `-wallets`, `-sidechains`, `-staking`, `-assets`, `-assets-trade`.
+
+### 18.7 Open
+
+- **The module switcher**: kept as the second way in (proposed above); remove it only if the app's pages should be the
+  only way in, with the modules' pages reached by "Open in …".
+- **Legacy (base58) addresses refused on sidechains** from the app's pages (they cannot say their chain). A user who
+  needs one sends from the chain's own pages.
+- **BitAssets, BitNames, Hivemind, zSide, FastBlocks** are mapped (table, reads, sends, embeds) and unit-tested, not
+  driven end to end; the e2e drives Layers and Thunder.
+- **Pending deposits** are tracked for deposits made from the app's pages in this run (until the chain's wallet shows a
+  payment to the credited address); a deposit made elsewhere shows as the chain's pending balance only.
+- Embedded pages are laid over their place (`position: fixed`); a page of the app that moves without scroll or resize
+  events is followed by a 300 ms check.

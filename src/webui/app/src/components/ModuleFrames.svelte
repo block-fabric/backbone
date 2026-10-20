@@ -5,10 +5,12 @@
   // hidden. Their look is the app's, sent again when it changes.
   import { look as themeLook } from '../lib/themestore.svelte';
   import { prefs } from '../lib/state.svelte';
-  import { hub, refreshSidechains, sidechainHost } from '../lib/sidechains.svelte';
+  import { hub, refreshSidechains, sidechainHost, watchSidechains } from '../lib/sidechains.svelte';
+  import { onMount } from 'svelte';
   import { loadPacks, packHost, packs, tellFrame } from '../lib/packs.svelte';
-  import { activeModule, currentLook, frameShown, liveModules, modules } from '../lib/modules.svelte';
+  import { activeModule, currentLook, embeddedIn, frameShown, liveModules, modules } from '../lib/modules.svelte';
   import ModuleFrame from './ModuleFrame.svelte';
+  import { loadCapabilities } from '../lib/chains.svelte';
   import { addAppNotice, moduleName } from '../lib/modules.svelte';
   import { checkModuleUpdates } from '../lib/downloads.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -23,6 +25,18 @@
       addAppNotice(stem, title, text);
       toast('info', title, text);
     });
+  });
+
+  // The sidechains this app runs, followed for the life of the window (every page shows them now, §18; the switcher is
+  // only shown once one is on).
+  onMount(() => {
+    watchSidechains();
+    void refreshSidechains();
+  });
+
+  // What each chain can do (the app's own pages over every chain, lib/chains.svelte.ts): once a sidechain is on.
+  $effect(() => {
+    if ((hub.list?.chains ?? []).some((c) => c.enabled)) void loadCapabilities();
   });
 
   // The packs built in: asked again until known (the host may not answer before its node is ready).
@@ -93,5 +107,6 @@
 </script>
 
 {#each live as c (c.stem)}
-  <ModuleFrame stem={c.stem} name={c.name} running={c.state === 'running' && c.ready} visible={frameShown() && shown === c.stem} above={!!modules.modal[c.stem]} />
+  {@const embedded = !(frameShown() && shown === c.stem) && embeddedIn(c.stem)}
+  <ModuleFrame stem={c.stem} name={c.name} running={c.state === 'running' && c.ready} visible={(frameShown() && shown === c.stem) || embedded} above={!!modules.modal[c.stem]} rect={embedded ? modules.embedRect : null} />
 {/each}

@@ -8,7 +8,8 @@
   import { formatTime } from '../lib/format';
   import { walletApi, type DetailRow, type TxDetails, type TxRecord } from '../lib/wallet';
 
-  let { wallet, record }: { wallet: string; record: Pick<TxRecord, 'txid' | 'idx' | 'address'> } = $props();
+  // load: the details from elsewhere (a sidechain's node, through the host: chain.transaction), else the app's wallet.
+  let { wallet, record, load }: { wallet: string; record: Pick<TxRecord, 'txid' | 'idx' | 'address'>; load?: () => Promise<TxDetails> } = $props();
 
   let details: TxDetails | null = $state(null);
   let error = $state('');
@@ -17,8 +18,7 @@
     const r = record;
     details = null;
     error = '';
-    walletApi(wallet)
-      .transaction(r.txid, r.idx, r.address)
+    (load ? load() : walletApi(wallet).transaction(r.txid, r.idx, r.address))
       .then((d) => (details = d))
       .catch((e) => (error = e instanceof Error ? e.message : String(e)));
   });

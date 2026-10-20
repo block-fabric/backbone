@@ -23,6 +23,10 @@ export type PageId =
   | 'home'
   | 'tools'
   | 'advanced'
+  | 'staking'
+  | 'assets'
+  | 'names'
+  | 'markets'
   | 'sidechain';
 
 export interface PageInfo {
@@ -75,6 +79,11 @@ export const PAGES: Record<PageId, PageInfo> = {
   advanced: { id: 'advanced', title: 'Advanced transactions', icon: 'key', summary: 'Sign and verify messages, partially signed transactions (PSBT), and the multisig lounge', parity: ['K01', 'K02', 'K03', 'L09'], wallet: true, ready: true, advanced: true },
   // A sidechain the app runs, chosen in the chain switcher (doc/unified-app.md): its overview, read-only in phase 1.
   sidechain: { id: 'sidechain', title: 'Sidechain', icon: 'sidechains', summary: 'A sidechain this app runs: its blocks, how it keeps up with Chains, its wallet', parity: [], ready: true },
+  // The pages of what sidechains add (doc/unified-app.md §18): shown only while a chain that has it is turned on.
+  staking: { id: 'staking', title: 'Staking', icon: 'shield', summary: 'Validators, bonds, rewards and the fee split of the chains that stake', simpleSummary: 'Earn by staking', parity: [], ready: true },
+  assets: { id: 'assets', title: 'Assets', icon: 'coins', summary: 'The assets of every chain that has them, and their markets', simpleSummary: 'Your tokens', parity: [], wallet: false, ready: true },
+  names: { id: 'names', title: 'Names', icon: 'book', summary: 'Your names on the chains that keep names', parity: [], ready: true },
+  markets: { id: 'markets', title: 'Markets', icon: 'dashboard', summary: 'Prediction markets on the chains that have them', parity: [], ready: true },
   home: { id: 'home', title: 'Home', icon: 'home', summary: 'Live cards of the wallet, the chain, the sidechains and the node', simpleSummary: 'Your balance at a glance', parity: [], ready: true },
 };
 

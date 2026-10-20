@@ -3,9 +3,17 @@
   // chromeless: no border, the app's look, the size of the main area. The app owns where it is (the sidebar, back and
   // forward): it tells the frame the page to show; the frame tells it where a link of its pages went.
   import { packUrl, registerFrame, tellFrame, tellPhase } from '../lib/packs.svelte';
-  import { clearModal, currentLook, modules, moduleRoute, NODE_PAGE } from '../lib/modules.svelte';
+  import { clearModal, currentLook, modules, moduleRoute, NODE_PAGE, type EmbedRect } from '../lib/modules.svelte';
 
-  let { stem, name, running, visible, above = false }: { stem: string; name: string; running: boolean; visible: boolean; above?: boolean } = $props();
+  // rect: shown inside one of the app's pages (ModuleEmbed), laid over the place it keeps for it.
+  let {
+    stem,
+    name,
+    running,
+    visible,
+    above = false,
+    rect = null,
+  }: { stem: string; name: string; running: boolean; visible: boolean; above?: boolean; rect?: EmbedRect | null } = $props();
   let frame: HTMLIFrameElement | undefined = $state();
   let loaded = $state(false);
 
@@ -33,8 +41,8 @@
   $effect(() => {
     if (!visible) clearModal(stem);
     if (!loaded || !visible) return;
-    const r = moduleRoute(stem);
-    if (r.page !== NODE_PAGE) tellFrame(stem, 'navigate', r);
+    const r = rect && modules.embed?.stem === stem ? modules.embed : moduleRoute(stem);
+    if (r.page !== NODE_PAGE) tellFrame(stem, 'navigate', { page: r.page, tab: r.tab });
   });
 </script>
 
@@ -44,6 +52,12 @@
   bind:this={frame}
   class="module-frame"
   class:above
+  class:embedded={!!rect}
+  style:top={rect ? `${rect.top}px` : undefined}
+  style:left={rect ? `${rect.left}px` : undefined}
+  style:width={rect ? `${rect.width}px` : undefined}
+  style:height={rect ? `${rect.height}px` : undefined}
+  style:clip-path={rect && (rect.clipTop || rect.clipBottom) ? `inset(${rect.clipTop}px 0 ${rect.clipBottom}px 0)` : undefined}
   hidden={!visible}
   src={packUrl(stem)}
   title={name}
@@ -66,6 +80,13 @@
     padding: 0;
     background: var(--bg);
     color-scheme: normal;
+  }
+  /* Inside one of the app's pages: over the place that page keeps for it. */
+  .module-frame.embedded {
+    position: fixed;
+    z-index: 5;
+    flex: none;
+    border-radius: var(--radius-m, 0.7rem);
   }
   .module-frame[hidden] {
     display: none;

@@ -1,4 +1,10 @@
 <script lang="ts">
+  import ChainChips from '../components/ChainChips.svelte';
+  import ChainWallets from '../components/ChainWallets.svelte';
+  import { ALL, chainEntries, HOST, viewFilter } from '../lib/chains.svelte';
+  // Every chain's wallets (doc/unified-app.md §18): this app's own, then each sidechain's, with a filter of chains.
+  const walletChains = $derived(chainEntries());
+  const walletFilter = $derived(walletChains.length > 1 ? viewFilter('wallets', walletChains) : HOST);
   import { every } from '../lib/poll';
   import { t } from '../lib/i18n.svelte';
   // Wallets (WalletController and its activities, the wallet menu of chains-qt): create, open, close,
@@ -422,6 +428,9 @@
     <div class="busy panel" role="status"><span class="spinner" aria-hidden="true"></span> {busy}</div>
   {/if}
 
+  <span data-wallet-chains><ChainChips page="wallets" entries={walletChains} /></span>
+
+  {#if walletFilter === ALL || walletFilter === HOST}
   <div class="grid">
     <section class="panel current" aria-labelledby="current-title">
       <div class="panel-head">
@@ -515,6 +524,10 @@
       </ul>
     </section>
   </div>
+  {/if}
+  {#each walletChains.filter((e) => !e.host && (walletFilter === ALL || walletFilter === e.id)) as e (e.id)}
+    <ChainWallets stem={e.id} name={e.name} running={e.running} />
+  {/each}
 </div>
 
 <Dialog bind:open={create.open} title="Create Wallet">

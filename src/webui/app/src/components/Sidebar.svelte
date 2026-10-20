@@ -89,8 +89,6 @@
     <Brand name={!collapsed} onclick={() => visit('home')} />
   {/if}
 
-  <ChainSwitcher {collapsed} />
-
   {#if moduleStem}
     <!-- The module shown: its wallet, as its pages say (the app's own card comes back with the app's pages). -->
     <section class="wallet-card module-card" aria-label={t('Module shown')} data-module={moduleStem}>
@@ -194,6 +192,15 @@
     {/if}
   </div>
 
+  <!-- The sidechains' own pages: a second way in (doc/unified-app.md §18). The app's own pages show every chain first;
+       here a module is opened as it is, with its own sections in the sidebar. -->
+  {#if (hub.list?.chains ?? []).some((c) => c.enabled)}
+    <div class="modules-way" data-modules-way>
+      {#if !collapsed}<div class="caption caps">{t('Their own pages')}</div>{/if}
+      <ChainSwitcher {collapsed} />
+    </div>
+  {/if}
+
   <div class="foot">
     <!-- Fold the sidebar into a rail of icons, or unfold it (Ctrl+B). -->
     <button
@@ -244,6 +251,10 @@
 </nav>
 
 <style>
+  .modules-way {
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--line);
+  }
   .sidebar {
     display: flex;
     flex-direction: column;

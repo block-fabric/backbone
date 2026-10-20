@@ -13,6 +13,7 @@ import { app, node, prefs, savePrefs, toast, wallets, walletsEnabled } from './s
 import { clampFontAdjust, THEMES } from './themes';
 import { UNITS } from './units';
 import { pageTitleSource, simpleMode, switchModeLabel, toggleUiMode } from './uimode.svelte';
+import { chainsWith } from './chains.svelte';
 
 /** The menus of chains-qt, in their order, then the groups of the app. */
 // The menus: what concerns the chain (sidechains, mining, the explorer) before the tools.
@@ -57,6 +58,9 @@ export function setLayout(id: LayoutId): void {
 }
 
 /** The pages that can be shown now (the kit only for tests and developers). */
+/** The pages of what the sidechains add, and what a chain needs for each. */
+const CHAIN_PAGES: Partial<Record<PageId, 'staking' | 'assets' | 'names' | 'markets'>> = { staking: 'staking', assets: 'assets', names: 'names', markets: 'markets' };
+
 export function pageAvailable(id: PageId): boolean {
   // With -disablewallet there are no wallet pages (chains-qt builds no wallet UI then).
   if ((PAGES[id].wallet || id === 'wallets') && !walletsEnabled()) return false;
@@ -65,6 +69,9 @@ export function pageAvailable(id: PageId): boolean {
   if (PAGES[id].tabOf) return false;
   // A sidechain is shown from the chain switcher, which says which one.
   if (id === 'sidechain') return false;
+  // What sidechains add: only while one that has it is turned on (its table, lib/chains.svelte.ts).
+  const needs = CHAIN_PAGES[id];
+  if (needs) return chainsWith(needs).length > 0;
   return true;
 }
 

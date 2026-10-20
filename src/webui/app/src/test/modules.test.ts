@@ -5,7 +5,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import Sidebar from '../components/Sidebar.svelte';
 import StatusBar from '../components/StatusBar.svelte';
-import Portfolio from '../components/Portfolio.svelte';
+import ChainsOverview from '../components/ChainsOverview.svelte';
+import { chainState } from '../lib/chains.svelte';
 import ChainActivity from '../components/ChainActivity.svelte';
 import ModuleProgram from '../components/ModuleProgram.svelte';
 import ModuleFrames from '../components/ModuleFrames.svelte';
@@ -22,9 +23,7 @@ import {
   activeModule,
   addModuleNotice,
   allowRaise,
-  chainTxs,
   currentLook,
-  mergeChainTxs,
   modules,
   moduleRoute,
   NODE_PAGE,
@@ -34,7 +33,6 @@ import {
   MODAL_MAX_MS,
   parseManifest,
   parseSummary,
-  portfolioRows,
 } from '../lib/modules.svelte';
 import { downloads, proposedRelease, type ReleaseList } from '../lib/downloads.svelte';
 import type { SidechainEntry, SidechainList } from '../lib/unified';
@@ -118,6 +116,8 @@ beforeEach(async () => {
   modules.modal = {};
   modules.info = {};
   modules.overview = {};
+  chainState.summaries = {};
+  chainState.asked = {};
   toasts.list = [];
   palette.open = false;
   packs.list = [{ stem: 'layers', name: 'Layers', hostApi: 1, commit: 'a'.repeat(40) }];
@@ -152,6 +152,14 @@ beforeEach(async () => {
         return structuredClone(state);
       case 'sidechains.overview':
         return { stem: p.stem, name: 'Layers', state: 'running', mainchainHeight: 150, height: 42, mainchainConnected: true, mainchainSeen: 150, synced: true, blocks: [], wallet: { name: 'main', trusted: 2.5, pending: 0.25, immature: 0 } };
+      case 'chain.capabilities':
+        return [{ stem: 'layers', decimals: 8, assets: true, dex: true, staking: true, names: false, markets: false, shielded: false, send: true, receive: true, deposit: true, withdraw: true, embed: ['trade', 'staking'] }];
+      case 'chain.summary':
+        return { stem: p.stem, name: 'Layers', running: true, capabilities: { stem: 'layers', decimals: 8, assets: true }, wallet: 'main', wallets: ['main'], walletMode: 'shared', height: 42, balances: { trusted: '3.00000000', pending: '0.10000000', immature: '0' }, assets: [{ id: 'cc'.repeat(32), label: 'GOLD', decimals: 2, balance: '250.5', pending: '0', control: true, supply: '1000' }], errors: {} };
+      case 'chain.transactions':
+        return { stem: p.stem, wallet: 'main', rows: [{ txid: 'aa'.repeat(32), vout: 0, time: 1_700_000_100, category: 'receive', amount: '1.25000000', address: 'lyr1qxyz', label: '', confirmations: 3, abandoned: false }] };
+      case 'chain.transaction':
+        return { txid: p.txid, rows: [{ k: 'Status', text: '3 confirmations' }], notes: [], messages: [] };
       case 'sidechains.rpc':
         if (p.method === 'listtransactions')
           return [
@@ -387,28 +395,25 @@ describe('back and forward are the app\'s', () => {
 });
 
 describe('the views across modules', () => {
-  it('the combined portfolio: the app\'s row and each module\'s, with its assets', async () => {
-    say('summary', { wallet: 'main', trusted: '3.00000000', pending: '0.00000000', assets: [{ name: 'GOLD', amount: '12' }] });
-    expect(portfolioRows(state.chains.filter((c) => c.enabled))[0]).toMatchObject({ stem: 'layers', trusted: '3.00000000', assets: [{ name: 'GOLD', amount: '12' }] });
-    render(Portfolio);
-    await waitFor(() => expect(document.querySelector('[data-portfolio-row="layers"]')).toBeTruthy());
-    expect(document.querySelector('[data-portfolio-row="chains"]')).toBeTruthy();
-    expect(document.querySelector('[data-portfolio-row="layers"]')?.textContent).toContain('GOLD');
-    await fireEvent.click(document.querySelector('[data-portfolio-row="layers"] .link') as HTMLElement);
-    expect(activeModule()).toBe('layers');
-    expect(moduleRoute('layers').page).toBe('home');
+  it('every chain at once on Home: the app\'s card and each module\'s, with its assets', async () => {
+    render(ChainsOverview, { page: 'home' });
+    await waitFor(() => expect(document.querySelector('[data-chain-card="layers"] [data-field="available"]')?.textContent).toContain('3.00000000'));
+    expect(document.querySelector('[data-chain-card="chains"]')).toBeTruthy();
+    expect(document.querySelector('[data-chain-card="layers"] [data-card-assets]')?.textContent).toContain('GOLD');
+    const s = calls.find((c) => c.method === 'chain.summary')!;
+    expect(s.params).toMatchObject({ stem: 'layers' });
   });
 
   it('hides a module\'s amounts in privacy mode, as the app\'s own', async () => {
     say('summary', { wallet: 'main', trusted: '3.00000000', pending: '0.10000000', assets: [{ name: 'GOLD', amount: '12' }] });
     prefs.mask = true;
     try {
-      render(Portfolio);
-      await waitFor(() => expect(document.querySelector('[data-portfolio-row="layers"]')).toBeTruthy());
-      const row = document.querySelector('[data-portfolio-row="layers"]')!;
-      expect(row.textContent).not.toContain('3.00000000');
-      expect(row.textContent).not.toContain('12');
-      expect(row.textContent).toContain('••••••');
+      render(ChainsOverview, { page: 'home' });
+      await waitFor(() => expect(document.querySelector('[data-chain-card="layers"] [data-card-assets]')).toBeTruthy());
+      const card = document.querySelector('[data-chain-card="layers"]')!;
+      expect(card.textContent).not.toContain('3.00000000');
+      expect(card.textContent).not.toContain('250');
+      expect(card.textContent).toContain('••••••');
       openModule('layers', 'home');
       render(Sidebar);
       await waitFor(() => expect(document.querySelector('[data-field="module-balance"]')).toBeTruthy());
@@ -421,15 +426,18 @@ describe('the views across modules', () => {
     }
   });
 
-  it('every chain\'s transactions, newest first, a module\'s read from its node', async () => {
-    expect(chainTxs('layers', 'Layers', [{ txid: 'zz', amount: 1 }, { txid: 'ab'.repeat(32), amount: 'x' }])).toEqual([]);
-    const merged = mergeChainTxs([chainTxs('a', 'A', [{ txid: 'aa'.repeat(32), time: 5, amount: 1 }]), chainTxs('b', 'B', [{ txid: 'bb'.repeat(32), time: 9, amount: -1 }])]);
-    expect(merged.map((x) => x.chain)).toEqual(['b', 'a']);
+  it('every chain\'s transactions, a module\'s read from its node by the host, its details in the app', async () => {
     render(ChainActivity, { chain: 'layers' });
     await waitFor(() => expect(document.querySelectorAll('tr[data-chain-tx="layers"]').length).toBe(1));
-    const call = calls.find((c) => c.method === 'sidechains.rpc')!;
-    expect(call.params).toMatchObject({ stem: 'layers', method: 'listtransactions', wallet: 'main' });
-    await fireEvent.click(document.querySelector('tr[data-chain-tx="layers"] .chip') as HTMLElement);
+    const call = calls.find((c) => c.method === 'chain.transactions')!;
+    expect(call.params).toMatchObject({ stem: 'layers' });
+    expect(calls.some((c) => c.method === 'sidechains.rpc')).toBe(false);
+    await fireEvent.click(document.querySelector('tr[data-chain-tx="layers"]') as HTMLElement);
+    await waitFor(() => expect(calls.some((c) => c.method === 'chain.transaction')).toBe(true));
+    expect(calls.find((c) => c.method === 'chain.transaction')!.params).toMatchObject({ stem: 'layers', txid: 'aa'.repeat(32) });
+    await waitFor(() => expect(document.querySelector('[data-tx-chain="layers"]')).toBeTruthy());
+    expect(activeModule()).toBe('');
+    await fireEvent.click(screen.getByText('Open in Layers'));
     expect(moduleRoute('layers').page).toBe('transactions');
   });
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ChainsOverview from '../components/ChainsOverview.svelte';
   import { t } from '../lib/i18n.svelte';
   import { untrack } from 'svelte';
   // Overview: the balances of the wallet, and the chain as it grows (overviewpage.cpp, chainactivity.cpp).
@@ -170,6 +171,7 @@
       {prefs.mask ? 'Values masked' : 'Mask values'}
     </button>
   </header>
+  <ChainsOverview page="overview" />
 
   {#if node.tip?.ibd}
     <button type="button" class="out-of-sync" title="The displayed information may be out of date. Your wallet automatically synchronizes with the network after a connection is established, but this process has not completed yet." onclick={() => (nav.dialog = 'sync')}>

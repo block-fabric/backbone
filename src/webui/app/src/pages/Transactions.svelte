@@ -1,10 +1,12 @@
 <script lang="ts">
   import ChainActivity from '../components/ChainActivity.svelte';
   import { hub } from '../lib/sidechains.svelte';
-  import { productName } from '../lib/modules.svelte';
-  // The filter of chains (doc/unified-app.md §14): this app's own (the page as it was), a module's, or every chain.
-  let chainFilter = $state('chains');
+  import ChainChips from '../components/ChainChips.svelte';
+  import { HOST, viewFilter } from '../lib/chains.svelte';
+  // The filter of chains (doc/unified-app.md §18): every chain by default (one list, a Chain column), this app's own
+  // (the page as it was: its filters, export, actions), or one sidechain. Remembered for the page.
   const modulesOn = $derived((hub.list?.chains ?? []).filter((c) => c.enabled));
+  const chainFilter = $derived(modulesOn.length ? viewFilter('transactions') : HOST);
   import { t } from '../lib/i18n.svelte';
   import { simpleMode } from '../lib/uimode.svelte';
   import { thirdPartyLinks } from '../lib/tools';
@@ -242,21 +244,13 @@
   <header class="page-head">
     <h1>Transactions</h1>
     <div class="row">
-      {#if modulesOn.length}
-        <label class="chain-filter"><span class="sr-only">{t('Chain')}</span>
-          <select aria-label={t('Chain')} bind:value={chainFilter} data-chain-filter>
-            <option value="chains" translate="no">{productName()}</option>
-            {#each modulesOn as c (c.stem)}<option value={c.stem} translate="no">{c.name}</option>{/each}
-            <option value="all">{t('Every chain')}</option>
-          </select>
-        </label>
-      {/if}
+      <span data-chain-filter><ChainChips page="transactions" /></span>
       <span class="muted count">{totals.count.toLocaleString('en')} of {current.records.length.toLocaleString('en')}</span>
       <button type="button" class="btn small" onclick={exportCsv} disabled={prefs.mask} title="Export the data in the current tab to a file"><Icon name="download" size={16} /> Export</button>
     </div>
   </header>
 
-  {#if chainFilter !== 'chains' && !prefs.mask}
+  {#if chainFilter !== HOST && !prefs.mask}
     <ChainActivity chain={chainFilter} />
   {:else if prefs.mask}
     <div class="panel masked">

@@ -27,7 +27,7 @@
   import { balanceHistory, newest } from '../../lib/wallet';
   import { current, refreshRecords } from '../../lib/walletdata.svelte';
   import FirstRunTips from '../../components/FirstRunTips.svelte';
-  import Portfolio from '../../components/Portfolio.svelte';
+  import ChainsOverview from '../../components/ChainsOverview.svelte';
   import Term from '../../components/Term.svelte';
   import { pageShown, simpleMode } from '../../lib/uimode.svelte';
 
@@ -361,7 +361,7 @@
     {/if}
   </div>
 
-  <Portfolio />
+  <ChainsOverview page="home" />
 
   <div class="middle">
     <section class="panel chart-card" aria-labelledby="chart-title">

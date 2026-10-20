@@ -86,7 +86,43 @@ export const modules = $state({
   info: {} as Record<string, PackInfo>,
   /** How each module shown lately is doing (the status bar, the portfolio). */
   overview: {} as Record<string, SidechainOverview>,
+  /**
+   * A page of a module shown inside one of the app's own pages (doc/unified-app.md §18: Trade on Assets, the bonds on
+   * Staking), where the app has no view of its own for it: its frame, unchanged in what it can reach, laid over the
+   * place the app's page keeps for it (rect, in the window's coordinates).
+   */
+  embed: null as null | { stem: string; page: string; tab: string },
+  embedRect: null as null | EmbedRect,
 });
+
+/** Where a module's frame is laid inside an app's page: its box, and how much of it the page's area cuts at its top and bottom. */
+export interface EmbedRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  clipTop: number;
+  clipBottom: number;
+}
+
+/** Show a page of a module inside the app's page that asks (ModuleEmbed); null to stop. */
+export function setEmbed(embed: { stem: string; page: string; tab?: string } | null): void {
+  if (!embed) {
+    modules.embed = null;
+    modules.embedRect = null;
+    return;
+  }
+  if (!STEM.test(embed.stem) || !PAGE_ID.test(embed.page)) return;
+  const tab = embed.tab && TAB.test(embed.tab) ? embed.tab : '';
+  const before = modules.embed;
+  modules.embed = { stem: embed.stem, page: embed.page, tab };
+  if (before?.stem !== embed.stem || before?.page !== embed.page || before?.tab !== tab) tellModule(embed.stem, 'navigate', { page: embed.page, tab });
+}
+
+/** Whether a module's frame is shown inside an app's page now. */
+export function embeddedIn(stem: string): boolean {
+  return modules.embed?.stem === stem && !!modules.embedRect && !activeModule();
+}
 
 /** The modules whose frames are kept: turned on, pages built in and of this app's version. */
 export function liveModules(): SidechainEntry[] {
@@ -388,87 +424,6 @@ export function moduleTitle(stem: string): string {
 
 export function moduleSectionOf(stem: string, page: string): string {
   return modules.manifests[stem]?.sections.find((s) => s.pages.includes(page))?.title ?? '';
-}
-
-export interface PortfolioRow {
-  stem: string;
-  name: string;
-  entry: SidechainEntry;
-  wallet: string;
-  trusted: string | null;
-  pending: string | null;
-  unit: string;
-  assets: ModuleAsset[];
-}
-
-/** The rows of the combined portfolio: each module turned on, from what its pages said, else from its node. */
-export function portfolioRows(on: SidechainEntry[]): PortfolioRow[] {
-  return on.map((c) => {
-    const s = modules.summaries[c.stem];
-    const o = modules.overview[c.stem];
-    const fixed = (n: number | undefined) => (typeof n === 'number' && Number.isFinite(n) ? n.toFixed(8) : null);
-    return {
-      stem: c.stem,
-      name: c.name,
-      entry: c,
-      wallet: s?.wallet || o?.wallet?.name || '',
-      trusted: s?.trusted ?? fixed(o?.wallet?.trusted),
-      pending: s?.pending ?? fixed(o?.wallet ? o.wallet.pending + o.wallet.immature : undefined),
-      unit: modules.manifests[c.stem]?.unit ?? '',
-      assets: s?.assets ?? [],
-    };
-  });
-}
-
-/** A transaction of any chain this app runs, for the list of every chain (Transactions, the filter of chains). */
-export interface ChainTx {
-  chain: string;
-  name: string;
-  txid: string;
-  time: number;
-  category: string;
-  /** Coins of that chain, as its node gives them (never added to another chain's). */
-  amount: number;
-  address: string;
-  label: string;
-  confirmations: number;
-}
-
-interface ListedTx {
-  txid?: unknown;
-  time?: unknown;
-  category?: unknown;
-  amount?: unknown;
-  address?: unknown;
-  label?: unknown;
-  confirmations?: unknown;
-}
-
-/** The transactions a node listed (listtransactions), as rows of the list of every chain: bounded, checked. */
-export function chainTxs(stem: string, name: string, listed: unknown): ChainTx[] {
-  if (!Array.isArray(listed)) return [];
-  const out: ChainTx[] = [];
-  for (const raw of listed.slice(-500) as ListedTx[]) {
-    if (!raw || typeof raw !== 'object' || typeof raw.txid !== 'string' || !/^[0-9a-f]{64}$/.test(raw.txid)) continue;
-    if (typeof raw.amount !== 'number' || !Number.isFinite(raw.amount)) continue;
-    out.push({
-      chain: stem,
-      name,
-      txid: raw.txid,
-      time: typeof raw.time === 'number' ? raw.time : 0,
-      category: typeof raw.category === 'string' ? raw.category.slice(0, 16) : '',
-      amount: raw.amount,
-      address: typeof raw.address === 'string' ? raw.address.slice(0, 120) : '',
-      label: typeof raw.label === 'string' ? raw.label.slice(0, 120) : '',
-      confirmations: typeof raw.confirmations === 'number' ? raw.confirmations : 0,
-    });
-  }
-  return out;
-}
-
-/** Newest first, every chain together. */
-export function mergeChainTxs(lists: ChainTx[][]): ChainTx[] {
-  return lists.flat().sort((a, b) => b.time - a.time || a.chain.localeCompare(b.chain) || a.txid.localeCompare(b.txid));
 }
 
 /** How long a module's pages may dim the app at most; a click on the dim or Escape lifts it at once. */

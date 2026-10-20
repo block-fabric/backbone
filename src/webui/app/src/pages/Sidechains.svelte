@@ -1,4 +1,19 @@
 <script lang="ts">
+  import ChainChips from '../components/ChainChips.svelte';
+  import ChainPeg from '../components/ChainPeg.svelte';
+  import { chainEntries, chainLink, filtered, loadCapabilities, viewFilter } from '../lib/chains.svelte';
+  // The sidechains this app runs, in one place (doc/unified-app.md §18): coins into and out of each, its link and its
+  // merged mining; the drivechain's own state (escrows, proposals, bundles and votes) in the tabs below.
+  const pegChains = $derived(chainEntries().filter((e) => !e.host));
+  const pegShown = $derived(filtered(pegChains, viewFilter('sidechains', pegChains)));
+  let pegFocus = $state<string | null>(null);
+  $effect(() => {
+    void loadCapabilities();
+    if (chainLink.peg) {
+      pegFocus = chainLink.peg;
+      chainLink.peg = null;
+    }
+  });
   // The sidechains of Chains (SidechainPage of chains-qt): the active sidechains and their escrows,
   // deposits to them, the proposals of new sidechains with their acks, and the withdrawal bundles
   // with the votes of the miners. Richer than Qt: an overview of the slots, the progress of each
@@ -358,6 +373,12 @@
   {:else}
     <p class="summary muted">{loadError || 'The drivechain state is not available yet.'}</p>
   {/if}
+  {#if pegChains.length}
+    <section class="your-chains" aria-labelledby="your-chains-title" data-your-chains>
+      <header class="your-head"><h2 id="your-chains-title">{t('The sidechains this app runs')}</h2><ChainChips page="sidechains" entries={pegChains} /></header>
+      {#each pegShown as e (e.id)}<ChainPeg stem={e.id} name={e.name} running={e.running} focus={pegFocus === e.id} />{/each}
+    </section>
+  {/if}
   <div class="tabs" role="tablist" aria-label="Sidechains">
     {#each tabs as tb (tb.id)}
       <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>
@@ -676,6 +697,22 @@
 </div>
 
 <style>
+  .your-chains {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+  }
+  .your-head {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .your-head h2 {
+    margin: 0;
+    font-size: 1.05rem;
+  }
   .summary {
     margin-top: 0.4rem;
     max-width: 90ch;
