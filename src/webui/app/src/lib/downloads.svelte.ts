@@ -14,6 +14,8 @@ export interface ReleaseInfo {
   manifest: boolean;
   signed: boolean;
   compatible: boolean;
+  /** No release key is built into this app yet: checked by its checksums alone (§15.4). */
+  unsigned?: boolean;
   /** Why it cannot be used ('' when it can). */
   reason: string;
 }
@@ -50,12 +52,12 @@ export interface UpdateInfo {
 
 export const moduleHost = {
   releases: (stem: string) => request<ReleaseList>('host', 'modules.releases', { stem }),
-  install: (stem: string, tag: string) => request<boolean>('host', 'modules.install', { stem, tag }),
+  install: (stem: string, tag: string, allowOlder = false) => request<boolean>('host', 'modules.install', { stem, tag, ...(allowOlder ? { allowOlder } : {}) }),
   progress: (stem: string) => request<InstallProgress>('host', 'modules.progress', { stem }),
   cancel: (stem: string) => request<boolean>('host', 'modules.cancel', { stem }),
-  update: (stem: string, tag: string) => request<boolean>('host', 'modules.update', { stem, tag }),
+  update: (stem: string, tag: string, allowOlder = false) => request<boolean>('host', 'modules.update', { stem, tag, ...(allowOlder ? { allowOlder } : {}) }),
   rollback: (stem: string) => request<boolean>('host', 'modules.rollback', { stem }),
-  checkUpdates: (force = false) => request<UpdateInfo[] | Record<string, unknown>>('host', 'modules.checkUpdates', { force }),
+  checkUpdates: (force = false) => request<{ updates: { stem: string; name: string; current: string | null; latest: string }[]; errors: { stem: string; error: string }[] }>('host', 'modules.checkUpdates', { force }),
 };
 
 export const downloads = $state({
@@ -139,7 +141,7 @@ export async function checkModuleUpdates(say: (stem: string, tag: string, curren
   checked = true;
   try {
     const found = await moduleHost.checkUpdates(force);
-    const list: UpdateInfo[] = Array.isArray(found) ? found : Object.entries(found).map(([stem, v]) => ({ stem, ...(v as object) }) as UpdateInfo);
+    const list: UpdateInfo[] = (found?.updates ?? []).map((u) => ({ stem: u.stem, current: u.current, tag: u.latest }));
     for (const u of list) {
       if (!u || typeof u.stem !== 'string' || !u.tag) continue;
       if (downloads.updates[u.stem] === u.tag) continue;

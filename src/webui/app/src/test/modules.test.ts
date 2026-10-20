@@ -171,7 +171,7 @@ beforeEach(async () => {
         progress = { state: 'downloading', tag: p.tag, done: 11_500_000, total: 23_000_000, error: '' };
         return true;
       case 'modules.checkUpdates':
-        return [];
+        return { updates: [], errors: [] };
       default:
         throw { code: -32601, message: `No ${r.method}` };
     }

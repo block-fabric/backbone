@@ -2,7 +2,8 @@
 
 One app for Chains and its sidechains. Status: **phase 1 (supervisor, switcher, wizards) and phase 2
 (the sidechains' own pages in the app, spends through the app's trusted dialog)** on branch
-`unified-app`, not merged. Written 2026-10-20; phase 2 in §13.
+`unified-app`; **sidechains as modules of one shell (§14) and their programs downloaded from GitHub releases (§15)**
+on branch `unified-modules`, not merged. Written 2026-10-20; phase 2 in §13; ideas taken from BitWindow in §16.
 
 ## 0. What the user decided (2026-10-20)
 
@@ -550,6 +551,10 @@ sidechain by hand, downloads from the app (phase 4).
 | 16 | **Deception** in the question | The chain's name and mark come from the app (its catalog, its pack), not the daemon; the daemon's rows go through the dialog's own checks (bidi marks written out, images only PNG/JPEG checked) | dialog tests (IMAGE rows ported to Chains) |
 | 18 | **Found by review (MEDIUM): too broad host methods for packs** (`app.open` of any kind, `app.quitGuard`, `tray.state`, help windows) | Least privilege: a pack gets its own chain's reads, the spend path through the trusted dialog, and harmless window things only: `app.open` of a URL only (the app asks first for one not its own; never its log or configuration), notices named after the chain, `file.read`/`file.write` only of a file chosen for that chain's pages; `app.quitGuard`, `tray.state`, `app.help`, `app.about` refused | sidechainpages_tests |
 | 17 | **Found:** a crash of `<stem>d` at shutdown (a flush of events scheduled on a freed host) | Stopped at Interrupt, freed in Shutdown once the scheduler stopped | every functional test stops its nodes |
+| 19 | **Found by review (MEDIUM): a module's keys** (§14: a frame forwarded any key to the app's `handleShortcut`: quit, minimize, the mask, closing a dialog) | An allowlist of navigation only (`moduleKey`, `lib/keyboard.ts`): Alt+Left/Right and the browser keys (the app's history), Alt+digit for that module's own pages, Ctrl+K opening the app's palette (what runs from it is the user's choice there); only from the frame of the module shown, while the window has the focus, 8 a second at most; never handed to `handleShortcut`. The kit sends only those (`forwardKey`) | modules.test.ts (quit, minimize, mask, sidebar, Ctrl+W, Escape refused; not shown, not in focus, a flood) |
+| 20 | **Found by review (MEDIUM): a module's dim** (`modal` kept the app behind its scrim for ever) | Only the module shown may dim; the dim is the app's own button: a click on it or Escape lifts it (and refuses another for 3 s); lifted when the module is left, hidden, its frame reloaded, and after 5 minutes at most; the switcher and sidebar are reachable again at once. The app's trusted dialog is a window of its own, above everything | modules.test.ts |
+| 21 | **Found by review (MEDIUM): module amounts in privacy mode** (the portfolio, the module's wallet card, every chain's transactions showed them with the mask on) | Every amount of a module goes through `ModuleAmount` (the placeholder and words of `<Amount>`); Transactions keeps its masked panel for every chain | modules.test.ts |
+| 22 | **Found by review (MEDIUM): signature downgrade** of a downloaded program (in "auto" a release with no `.sig` was taken) | As soon as a release key is configured, a missing or bad signature refuses the release; checksums alone only while no key is built in (shown "unsigned (checksums only)"); the signed manifest is the one whose hash is checked, the sums must agree; an older release only by the user's explicit choice. Plan: `require` the default once the release key ships (§15.4) | moduleinstaller_tests |
 
 ### 13.6 Coverage per chain
 
@@ -579,10 +584,288 @@ side (`remotehost.cpp`) is portable. macOS: no supervisor (`-exitwithparentfd`),
 - **Phase 3:** the single seed (BIP39, `m/86'/0'|1'/A'`, blank wallets of the daemons with imported
   descriptors, one passphrase), restore with rescans, the offer to move to it at the first start (decision
   6), the first-run guide as the real first start (with the fresh-phrase advice of §4.1); the wizard to move
-  coins into a sidechain (the deposit exists, its screens do not); a calmer layout around a pack (the app's
-  sidebar and the pack's in one, one status bar).
-- **Phase 4:** download-on-enable with signed manifests (#9, `sidechainnodes.cpp` reused), upgrade/fork
+  coins into a sidechain (the deposit exists, its screens do not). (The calmer layout around a pack is done: §14.)
+- **Phase 4:** the release key made and built in, then `require` the default (§15.4); Windows progress/cancel of
+  downloads; upgrade/fork
   banners, a cap of BMM spending per sidechain (§13.5 #12), liveness and stall detection, the move-data wizard
   with progress, `supervisor.log` rotation, the end-to-end runs of the five other chains' pages.
 - **Phase 5:** Windows (Job objects, WebView2 origins for packs), macOS, hardware wallets / xpub-only mode,
   resource caps (cgroups / Job memory), pause on battery.
+
+## 14. Sidechains as modules of one window (2026-10-20, branch `unified-modules`)
+
+User feedback on phase 2: a sidechain's pack brought **its own sidebar, header and status bar inside the app's**, so it
+looked like a wallet inside a wallet. Now a sidechain is a **module** of one window, and its pages look like the app's
+own.
+
+### 14.1 What the user sees
+
+- **One shell.** There is one sidebar (dashboard layout) or one top bar (workspace layout), one header with the breadcrumbs
+  and the palette, one status bar, one bell, one theme, one Simple/Advanced mode and one command palette. A module adds
+  no chrome.
+- **The module switcher** sits at the top of the sidebar, or at the left of the workspace's top bar. It shows the
+  product's own pages first (`productName()`, never a hard-coded name), then each sidechain that is turned on, as
+  round pills with a dot for how each one is doing. You can move through it with the arrow keys.
+- **Choosing a module** replaces the app's own sections in the sidebar:
+  - The sidebar shows that module's sections and pages (Layers: Home · Wallet: Send, Receive, Transactions · Chain:
+    Staking, Browse assets, My assets, Trade, Auctions · Tools).
+  - Below them comes a "Module" section with **Its node** (the app's own page: height, keeping up with the mainchain,
+    the log, the folder; this was the phase-1 overview) and *Settings of the modules*.
+  - The wallet card becomes the module's wallet card, with its wallet and its balance.
+  - In the workspace layout, the module's sections become the areas and its pages become the tabs.
+  - The breadcrumbs read *Layers / Chain / Trade*.
+  - The module keeps its place when you switch away and come back: its frame stays loaded, hidden.
+- **Its pages fill the main area**, with no border, the app's fonts and the app's colours (its theme tokens, below).
+  Opening one of the app's own pages from a module (Settings, a link) switches back to the app.
+- **Back and forward belong to the app** (`lib/history.svelte.ts`). One history covers the app's pages and the
+  modules' pages together. Use the arrows before the breadcrumbs, Alt+Left/Right, or the mouse's back and forward
+  buttons.
+- **The status bar** keeps the mainchain's sync at the left. For the module shown, it adds a pill with its name, "in
+  step with …" or "catching up", and its height. Clicking the pill opens *Its node*.
+- **Views across modules:**
+  - **Home → Portfolio** has one row per chain: the app's wallet, then each module's wallet, available and pending
+    amounts in its own coin (never added up across chains), and the assets the module's wallet holds (Layers and
+    BitAssets list theirs). A row opens that module's Home.
+  - **Transactions** gets a chain filter: the app's own (the page as it was), one module, or **every chain** merged
+    newest first. A module's rows are read from its node through the host's read-only `listtransactions`, and
+    clicking one opens that module's Transactions.
+  - **Send** has an "On …" picker. A module opens its own Send, in the same window, where the spend is asked in the
+    trusted dialog (§13.3).
+  - **The bell** shows the app's own transactions, then the modules' notices (their new transactions, their own
+    notices and update notices), each named after its module.
+  - **The palette** has "Switch to …" for each module, and each module's pages and actions as "Layers: Trade" and
+    "Layers: Swap assets…".
+- **Dialogs:** the trusted dialog stays the app's (§13.3, unchanged). A page's own dialog, such as transaction
+  details, opens inside its frame, and the app dims everything around the frame, so it reads as one modal (§13.5 #20).
+  A module's notices (toasts) are shown by the app, prefixed with the module's name. A toast with buttons stays in the
+  frame.
+
+### 14.2 How (same isolation as §13.5 #10)
+
+The frames are unchanged in what they can reach: the origin `chains-pack://<stem>/`, the same sandbox, `postMessage`
+only, and only from a frame the app registered, for that frame's chain. What changed is what flows across:
+
+| From the module (kit `lib/module.svelte.ts`) | Checked by the app (`lib/modules.svelte.ts`) |
+|---|---|
+| `manifest` {sections, pages: id, title, icon, iconPath, section, summary, shortcut; commands} | ids `[a-z0-9-]`, ≤ 40 pages; titles one line ≤ 48 characters with control and bidi characters removed; icon = one of the app's or an SVG path of commands and numbers only; shortcut only `Alt+digit` |
+| `route` {page, tab} (a link inside its pages) | id and tab patterns; recorded in the app's history |
+| `summary` {wallet, trusted, pending, assets[]} | amounts decimal text only, ≤ 20 assets, shown masked in privacy mode (#21) |
+| `toast`, `notice` | 6 per 10 s; the title prefixed with the module's name by the app; txids hex |
+| `modal` {open} | only for the module shown; can always be lifted (#20) |
+| `key` | an allowlist of navigation (#19) |
+
+| From the app (`tellFrame`) | |
+|---|---|
+| `look` {theme, tokens, fontAdjust, font, moneyFont, mode, colorScheme} | every colour token of the theme **as the app shows it** (`getComputedStyle`), so custom themes look identical; sent again when the theme changes |
+| `navigate` {page, tab} | the sidebar, the palette, back and forward |
+| `focus` | the keyboard moves into the page after a navigation from the sidebar |
+
+On the module's side, the shim (the app's `/packs/shim.js`, which loads before the pack) offers
+`window.__chainsModule`. The kit sees it (`MODULE`) and renders `views/ModuleShell.svelte`, which is only the page
+(PageView, the page's own detail panel, the mainchain alert of a sidechain). It shows no title strip, sidebar, top bar,
+status bar, palette or resize handles. It stays hidden until the app's look arrives, so there is no flash of another
+theme. Every page of the kit still works unchanged. The kit's pages that the app already has itself (Settings, Manage
+wallets, Kit, Mine, Sidechains) are left out of a module's manifest.
+
+**Height:** the frame takes the whole main area, and its page scrolls inside it, as the app's own pages scroll inside
+the same area. An auto-height frame was rejected: the kit's tables and the explorer fill their height (virtualised
+rows, sticky headers), which would make a self-sizing frame grow without end, and the result would look the same.
+
+**Equal isolation, better options considered:** rendering module pages in the app from a declarative description
+(JSON UI) would remove the frame but needs every chain's pages rewritten. Running module code in the app's origin is
+excluded (§13.5 #10). The chromeless frame keeps the phase-2 boundary, and every new message is data the app
+validates.
+
+**Compatibility:** all seven packs are pinned at commits that merge the kit's module mode
+(`sidechain-template` branch `modules`, merged on each sidechain's `modules` branch). A pack without module mode sends
+no manifest: its pages would still show in the frame with their own chrome, and the sidebar would only list *Its
+node*.
+
+Tests: `src/test/modules.test.ts` covers the switcher and sidebar swap, routes, history, keys, palette, portfolio,
+every chain's transactions, bell, status bar, look, the download step and updates, and the three review fixes. The
+kit's own tests are in `src/test/module-mode.test.ts` of the template and of each sidechain. The e2e is
+`run_modules.py` (§15.5).
+
+## 15. Downloads and updates of the sidechains' programs (phase 4 started, 2026-10-20)
+
+Turning a sidechain on no longer needs its daemon next to the app: the app downloads it from the sidechain's own GitHub
+releases. The programs bundled next to the app (phase 1) remain the offline path.
+
+### 15.1 Where it comes from, and what is taken
+
+- **One table of repositories**: `ModuleInstaller::Repos()` in `moduleinstaller.cpp`, one row per chain:
+  stem → owner/repo and the prefix of the release's file names. Today the rows are `block-fabric/<stem>`. Moving to
+  `block-fabric/backbone-<chain>` is one line per chain.
+  - The page never names a repository, an address or a file. It sends only a stem from the catalog and a tag from the
+    list the app made.
+- **The release list**: `https://api.github.com/repos/<owner>/<repo>/releases?per_page=10`.
+  - Pre-releases are included, because the test network's releases are pre-releases. GitHub's `/releases/latest`
+    leaves them out and answers 404.
+  - Drafts are skipped.
+- **The files**: `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>`.
+  - The app builds these URLs itself and does not use the API's.
+  - Downloads are HTTPS only, through curl. Redirects must also be HTTPS (they go to
+    release-assets.githubusercontent.com), at most 5.
+- **Size limits**: the list 2 MB, `SHA256SUMS-<prefix>.txt` and the manifest 64 KB each, the signature 1 KB, the
+  package 200 MB.
+- **The package for this computer**: `<prefix>-<tag>-x86_64-linux-gnu.tar.gz` or `<prefix>-<tag>-win64.zip`.
+
+### 15.2 Compatible, before anything is downloaded
+
+A release is offered only when all of the following hold. Otherwise it is listed, greyed, with its reason.
+
+- There is a package for this computer ("No package for this computer (x86_64-linux-gnu)").
+- It has `manifest-<prefix>.json` = `{format: 1, stem, version: <tag>, hostApi, platforms: {<platform>: {file, sha256,
+  size, binaries}}}`, with **hostApi = the app's (1)**.
+  - A release without a manifest was "made before this app could run it". **The public Layers 20261020.1 is such a
+    release:** its `layersd` has no host over RPC. The app refuses it, which was checked once against the real
+    release.
+- `SHA256SUMS-<prefix>.txt` gives the same SHA-256 as the manifest, and the file name and size agree with the
+  release.
+- `binaries` lists only `<stem>d` and `<stem>-cli`, and the daemon is among them.
+- The signature rules of §15.4 hold.
+
+The user may choose any compatible release, not only the newest. Choosing a release **older** than the one in use
+needs an explicit choice (`allowOlder`); an update found by the app never goes back. At run time, `pack.info` checks
+the daemon's hostApi again (§13.2).
+
+### 15.3 Install, update, rollback
+
+**Install** (progress, Cancel, Try again in the wizard's *Its program* step):
+
+1. Download to `.download-<tag>.part`.
+2. Check the size and the SHA-256.
+3. List the archive. A member that is absolute, or contains `..` or `\`, refuses the whole package.
+4. Extract only the manifest's programs, each as a plain file (no links), mode `0755`.
+5. Write `release.json` (tag, hash, signed).
+6. Rename the folder in one step to `<datadir>/sidechains/bin/<stem>/<tag>/`.
+7. Write `current` atomically, after writing `previous`.
+
+The version before stays for rollback; older ones are pruned. A failed or cancelled job removes its partial file and
+staging folder, and what was installed stays as it was.
+
+**Update** (Settings → Sidechains → *Its program and its updates*; the user approves):
+
+1. The new version is installed beside the running one.
+2. The node is stopped.
+3. The new version is made current.
+4. The node is started.
+
+If it does not run within 3 minutes, the app goes back to the previous version, restarts it, and tells the user. The
+app looks for updates once per run (`modules.checkUpdates`, cached 6 hours) and reports each one it finds in the bell
+and in a notice.
+
+**Rollback**: the same steps with the previous version.
+
+**The program the supervisor runs**, in this order: a folder the user set, then the downloaded current version, then
+the bundled programs, then the old `bin/`.
+
+### 15.4 Security: what holds today, what comes next
+
+- **Checksums from the release** (SHA256SUMS and the manifest) stop corruption and a swap of the package in transit or
+  in GitHub's storage. They do **not** stop a compromised GitHub account or repository: whoever can publish a release
+  can publish matching sums.
+  - HTTPS stops a network attacker.
+  - The fixed repository table stops the page from choosing the source.
+- **The next step, implemented but not yet mandatory: signed manifests.**
+  - `manifest-<prefix>.json.sig` is a BIP340 Schnorr signature, in hex, over
+    `TaggedHash("ChainsReleaseManifest/1", manifest bytes)`.
+  - It is verified against the release keys built into the app (`ModuleInstaller::ReleaseKeys()`).
+  - The signed manifest is the very one whose SHA-256 is compared to the package, and the sums must agree with it.
+    A valid signature therefore binds the binaries to the key, whatever happens to the GitHub account.
+- **Fixed after review (MEDIUM), signature downgrade.** "auto" took a release with no `.sig`, so an attacker who
+  controls the release could simply leave it out. Now:
+  - As soon as any trusted key is configured, a missing or invalid signature makes the release incompatible.
+  - The checksum-only path remains only while **no key is built in**. Such releases are shown as "unsigned (checksums
+    only)".
+  - Tested by `moduleinstaller_tests`.
+- **The key**: the maintainer makes it offline (never on a build machine or in CI) and writes its x-only public key
+  into `ReleaseKeys()`. The release script signs each manifest on that offline machine. **Today the list is empty.**
+- **Policy**: `-sidechainsignatures=auto|require`.
+  - **Plan:** once the key ships and every release carries a signature, `require` becomes the default and then the
+    only mode (the option goes).
+  - Rotation: the app ships the next key beside the current one before the switch.
+- **Test-only options, accepted on regtest only**: `-sidechainreleaseapi` (a mirror), `-sidechaindownloadcacert`,
+  `-sidechainreleasekey`.
+- The pages of a sidechain cannot call any `modules.*` method; the host refuses them (sidechainpages).
+
+### 15.5 Tests
+
+- **`moduleinstaller_tests`** covers:
+  - checksum mismatch, wrong platform, oversize package and list, partial download;
+  - no manifest, host API older or newer, missing sums;
+  - signatures under auto and require, an unknown key, none, and a key configured with a missing or bad signature;
+  - unsafe members and links;
+  - cancel, update and rollback, an older tag without an explicit choice, pruning;
+  - the supervisor's search order;
+  - curl against a local HTTPS server;
+  - with `CHAINS_TEST_SIDECHAIN_BINDIR` set: the whole path against `e2e/release_mirror.py`, with real programs and
+    signatures required.
+- **`e2e/run_modules.py` + `modules.js`** (the real app on regtest, Midnight), using a local HTTPS mirror of Layers'
+  releases: the real 20261020.1 (refused, no manifest) and two signed compatible releases built from a `layersd`
+  that has the host over RPC.
+  1. Layers is not on this computer. The wizard downloads it: the newest compatible release is proposed, the old one
+     is refused with its reason, and the older compatible one is chosen and downloaded with progress.
+  2. Layers becomes a module: it appears in the switcher, its pages are in the app's sidebar, and its frame fills the
+     main area with no border, still on its own origin.
+  3. A deposit, then a send asked in the trusted dialog "On Layers", confirmed in a block.
+  4. Trade and Staking open in the shell; Back works; switching back to the app restores its own pages.
+  5. The portfolio and every chain's transactions.
+  6. An update is found, approved, and applied: stopped, swapped, started.
+
+## 16. Inspiration: BitWindow (LayerTwo Labs)
+
+This section records the ideas taken from BitWindow (`LayerTwo-Labs/drivechain-frontends` at `daaefae`, MIT; folders
+`bitwindow/`, `sail_ui/`, `sidechain-orchestrator/` and `sidechain_core/`). The repository was studied read-only: no
+code, assets or binaries were copied or run.
+
+**Their design.** BitWindow is the mainchain wallet, a Flutter app with **top tabs** (Overview, Wallet, Sidechains,
+Mining, Learn, Console; `bitwindow/lib/pages/root_page.dart:82-92`). A Go daemon embeds an orchestrator that
+downloads, starts and supervises Core, the enforcer and the sidechain daemons. Each sidechain has its **own separate
+app and window** (`thunder/`, `bitnames/`, …, launched as a `<name>-gui` process,
+`sidechain-orchestrator/orchestrator.go:2268-2346`). Inside BitWindow, sidechains appear as:
+
+- a table of the 256 slots, with Download → Start → Open window / Stop / Update on each row, inline download progress
+  and a sync bar (`bitwindow/lib/pages/sidechains_page.dart:257-350, 831-1060`);
+- a deposit form that fills in the address from the running sidechain (`:2070-2440`);
+- withdrawals, which are made in the sidechain's own app (`sail_ui/lib/pages/sidechains/parent_chain_page.dart:307-436`).
+
+Downloads come from one embedded chain manifest (`sidechain-orchestrator/chains_config.json`). It lists each chain's
+type, slot, ports, dependencies, health check, startup-log patterns, directories and per-platform assets. Sidechain
+assets are taken from GitHub `releases/latest`, matched by a regex on the asset name. Extraction is careful: zip-slip
+and symlink checks, regular files only, temporary folder first (`download.go:763-893`). The status bar shows the
+balance, per-chain heights, daemon connection cards and an update indicator (`root_page.dart:1194-1300`, `:695-808`,
+`:942-1024`).
+
+**Adopted here:**
+
+- one declarative table per chain (our catalog and the fixed repository table of §15);
+- per-row install state with MB progress shown inline (the program step and Settings card, §15);
+- a gate before a sidechain can run (here, the wizard's program step: no program, no Next);
+- per-chain heights in the status bar (the module's pill, §14.1);
+- an update indicator (the bell's update notices and the Settings badge);
+- safe extraction rules (only the manifest's binaries, no links or `..`, a staging folder then one rename);
+- an HTTPS→HTTP downgrade refused (`--proto-redir =https`);
+- a release list cached against GitHub's rate limit;
+- the deposit address filled in from the sidechain itself (our §13.3 already did this);
+- restart with backoff and adopting a daemon that is already running (our supervisor, §1.1 and §13.3b, already had
+  these).
+
+**Done differently, on purpose:**
+
+- **One shell, not an app per sidechain.** BitWindow opens each sidechain in its own window and splits deposit (in
+  BitWindow) from withdrawal (in the sidechain's app). The user asked for modules in one window (§14), with deposit
+  and withdrawal in the same module.
+- **Verification that holds.** In their manifest every entry has `"hashes": {}`. Only `liquid-signet` pins an artifact
+  hash (`chains_config.json:769`, `artifact_pins.go`). Nothing is checked against SHA256SUMS or a signature, and the
+  hash-mismatch UI has nothing behind it (`sidechain_core/lib/config/binaries.dart:1523-1545`). Here every archive is
+  checked against the release's sums and its manifest, and signed manifests come next, mandatory later (§15).
+- **No `releases/latest` plus regex**, and no Last-Modified check of mutable "latest" files (`release_check.go`). We
+  pin exact tags, file names and hashes in a manifest per release, and the user picks a compatible release.
+- **No user-editable overlay** of the download manifest. Theirs is deep-merged and hot-reloaded from disk
+  (`config_loader.go:79-215`). Our repositories are a fixed table in the app, with test overrides on regtest only.
+- **No self-update by running a script fetched from a `master` branch** (`sidechain_core/lib/providers/update_provider.dart:160-180`).
+  Updates are versioned, verified releases that the user approves, with the previous version kept for rollback.
+- **No third-party fast-withdrawal servers** built into the wallet.
+
+The repository has no screenshots of their UI, only logos, so none are included here.

@@ -89,7 +89,7 @@
           const walletdata = await import('./lib/walletdata.svelte');
           const i18n = await import('./lib/i18n.svelte');
           const commands = await import('./lib/commands.svelte');
-          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current, i18n: i18n.i18n, t: i18n.t, buildCommands: commands.buildCommands, packs: await import('./lib/packs.svelte') };
+          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current, i18n: i18n.i18n, t: i18n.t, buildCommands: commands.buildCommands, packs: await import('./lib/packs.svelte'), modules: (await import('./lib/modules.svelte')).modules };
         }
         offWindow = watchWindow();
         await loadPrefs();

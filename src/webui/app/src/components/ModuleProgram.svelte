@@ -58,8 +58,10 @@
     if (!chosen) return;
     error = '';
     try {
-      if (mode === 'settings' && list?.current) await moduleHost.update(stem, chosen);
-      else await moduleHost.install(stem, chosen);
+      // An older release than the one in use only by the user's own choice here (never an update found by itself).
+      const older = !!list?.current && chosen < list.current;
+      if (mode === 'settings' && list?.current) await moduleHost.update(stem, chosen, older);
+      else await moduleHost.install(stem, chosen, older);
       downloads.progress[stem] = await moduleHost.progress(stem);
     } catch (e) {
       error = errorText(e);
@@ -109,7 +111,7 @@
               {#if r.tag === list.newestCompatible}<span class="badge accent">{t('newest it can use')}</span>{/if}
               {#if r.tag === list.current}<span class="badge">{t('in use')}</span>{/if}
               {#if r.prerelease}<span class="badge">{t('test release')}</span>{/if}
-              {#if r.signed}<span class="badge ok" title={t('Its manifest is signed with the release key built into this app')}><Icon name="shield" size={12} /> {t('signed')}</span>{/if}
+              {#if r.signed}<span class="badge ok" title={t('Its manifest is signed with the release key built into this app')}><Icon name="shield" size={12} /> {t('signed')}</span>{:else if r.compatible && r.unsigned}<span class="badge warn-badge" title={t('No release key is built into this app yet: checked by the checksums of its release only')}>{t('unsigned (checksums only)')}</span>{/if}
               {#if r.asset}<span class="muted small"><SafeText text={sizeText(r.asset.size)} /></span>{/if}
             </span>
             {#if !r.compatible}<span class="why small"><SafeText text={r.reason} /></span>{/if}
@@ -215,6 +217,9 @@
     gap: 0.4rem;
   }
   .why {
+    color: var(--warning);
+  }
+  .warn-badge {
     color: var(--warning);
   }
   .badge.ok {
