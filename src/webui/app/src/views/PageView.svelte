@@ -13,6 +13,7 @@
   import Settings from '../pages/Settings.svelte';
   import SidechainNodes from '../pages/SidechainNodes.svelte';
   import Sidechains from '../pages/Sidechains.svelte';
+  import SidechainView from '../pages/SidechainView.svelte';
   import Transactions from '../pages/Transactions.svelte';
   import Wallets from '../pages/Wallets.svelte';
   import Home from './home/Home.svelte';
@@ -38,6 +39,8 @@
     <Kit />
   {:else if nav.page === 'sidechains'}
     <Sidechains />
+  {:else if nav.page === 'sidechain'}
+    <SidechainView />
   {:else if nav.page === 'sidechain-nodes'}
     <SidechainNodes />
   {:else if nav.page === 'mine'}

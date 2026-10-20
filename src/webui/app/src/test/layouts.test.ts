@@ -148,7 +148,8 @@ describe('the commands', () => {
 
   it('reach every page, and every page is in each layout', () => {
     const all = buildCommands();
-    const pages = (Object.keys(PAGES) as PageId[]).filter((p) => p !== 'kit' && p !== 'home' && !PAGES[p].tabOf);
+    // A sidechain the app runs is reached from the chain switcher, which says which one (doc/unified-app.md).
+    const pages = (Object.keys(PAGES) as PageId[]).filter((p) => p !== 'kit' && p !== 'home' && p !== 'sidechain' && !PAGES[p].tabOf);
     for (const p of pages) {
       expect(all.some((c) => c.id === `page.${p}`), p).toBe(true);
       expect(AREAS.some((a) => a.tabs.some((t) => t.page === p)), `workspace: ${p}`).toBe(true);

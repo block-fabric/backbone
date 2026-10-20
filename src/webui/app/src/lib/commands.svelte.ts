@@ -61,6 +61,8 @@ export function pageAvailable(id: PageId): boolean {
   if (id === 'kit') return !!(app.info?.test || app.info?.devtools);
   // A tab of another page: reached through it (and through its own command), not as a page.
   if (PAGES[id].tabOf) return false;
+  // A sidechain is shown from the chain switcher, which says which one.
+  if (id === 'sidechain') return false;
   return true;
 }
 

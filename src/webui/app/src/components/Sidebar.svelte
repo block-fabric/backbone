@@ -12,6 +12,7 @@
   import Icon from './Icon.svelte';
   import MenuButton from './MenuButton.svelte';
   import WalletPicker from './WalletPicker.svelte';
+  import ChainSwitcher from './ChainSwitcher.svelte';
   import { buildCommands, pageAvailable, pageDisabled } from '../lib/commands.svelte';
   import { navSections, pageIcon } from '../lib/layout';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
@@ -67,6 +68,8 @@
     <!-- The name of the app is in the integrated title bar, when there is one. -->
     <Brand name={!collapsed} onclick={() => visit('home')} />
   {/if}
+
+  <ChainSwitcher {collapsed} />
 
   {#if wallets.list.length > 0}
     <section class="wallet-card" aria-label="Wallet shown">

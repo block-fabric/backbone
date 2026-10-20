@@ -51,6 +51,21 @@ export function installMock(options: MockOptions = {}): void {
       frameState.frameless = frameState.titleBar === 'integrated';
       return { ...frameState };
     },
+    // The unified app (doc/unified-app.md): Layers on, the others off.
+    'sidechains.list': () => ({
+      network: 'regtest',
+      rpcServer: true,
+      chainsDataDir: '/tmp/preview',
+      chains: [
+        ['layers', 'Layers', 'Make and trade assets on a fast chain: a block every 15 seconds.', 4, 400, true],
+        ['fastblocks', 'FastBlocks', 'Quick, cheap payments: a block every 15 seconds, kept honest by stake.', 3, 400, true],
+        ['thunder', 'Thunder', 'Very large blocks, for many small payments at a low fee.', 10, 600, false],
+      ].map(([stem, name, description, diskGB, ramMB, staking], i) => ({
+        stem, name, description, diskGB, ramMB, staking, slot: 7, enabled: i === 0, state: i === 0 ? 'running' : 'disabled', pid: i === 0 ? 4242 : 0, restarts: 0, ready: i === 0,
+        dataDir: `/tmp/preview/sidechains/${stem}/data`, defaultDataDir: `/tmp/preview/sidechains/${stem}/data`, customDataDir: false, hasData: i === 0, freeGB: 180, program: `/app/${stem}d`, rpcPort: 29254 + i * 100, port: 29255 + i * 100, wallet: 'shared',
+      })),
+    }),
+    'sidechains.overview': (p) => ({ stem: p.stem, name: 'Layers', state: 'running', mainchainHeight: height, height: 812, mainchainConnected: true, mainchainSeen: height, synced: true, blocks: Array.from({ length: 6 }, (_, i) => ({ height: 812 - i, hash: hash(9000 + i), time: start - i * 15, txs: 1 + (i % 3) })), wallet: { name: 'main', trusted: 3.25, pending: 0, immature: 0 } }),
     'clipboard.write': () => true,
     'clipboard.read': () => '',
     'intro.space': () => ({ exists: true, isDirectory: true, free: 512e9 }),
