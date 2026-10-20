@@ -26,7 +26,11 @@ get_directory_property(precious_variables CACHE_VARIABLES)
 #=============================
 # Project / Package metadata
 #=============================
-set(CLIENT_NAME "Chains")
+# The product: eStack (eCash node and drivechains). Its spelling is here only: the executables
+# (estackd, estack-cli, estack-app...), the data directory (~/.estack, %LOCALAPPDATA%\eStack), the
+# configuration file (estack.conf) and the user agent follow it.
+set(CLIENT_NAME "eStack")
+string(TOLOWER "${CLIENT_NAME}" CLIENT_NAME_LOWER)
 set(CLIENT_VERSION_MAJOR 32)
 set(CLIENT_VERSION_MINOR 0)
 set(CLIENT_VERSION_BUILD 0)

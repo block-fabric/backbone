@@ -5,6 +5,8 @@
 
 #include <consensus/amount.h>
 #include <policy/feerate.h>
+
+#include <atomic>
 #include <tinyformat.h>
 
 #include <cstdlib>
@@ -42,4 +44,20 @@ std::string CFeeRate::ToString(FeeRateFormat fee_rate_format) const
     case FeeRateFormat::SAT_VB: return format_feerate(feerate_per_kvb, 1000, /*decimals=*/3, CURRENCY_ATOM, "vB");
     } // no default case, so the compiler can warn about missing cases
     assert(false);
+}
+
+namespace {
+std::atomic<bool> g_currency_ecash{true};
+const std::string CURRENCY_ECASH{"ECX"};
+const std::string CURRENCY_CHAINS{"CHN"};
+} // namespace
+
+const std::string& CurrencyUnit()
+{
+    return g_currency_ecash ? CURRENCY_ECASH : CURRENCY_CHAINS;
+}
+
+void SetCurrencyUnitEcash(bool ecash)
+{
+    g_currency_ecash = ecash;
 }

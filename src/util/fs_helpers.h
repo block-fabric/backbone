@@ -91,7 +91,10 @@ std::streampos GetFileSize(const char* path, std::streamsize max = std::numeric_
 void ReleaseDirectoryLocks();
 
 bool TryCreateDirectories(const fs::path& p);
+//! eStack's default data directory (that of the eCash networks).
 fs::path GetDefaultDataDir();
+//! The default data directory of the eCash networks (eStack's) or of the Chains networks (Chains').
+fs::path GetDefaultDataDir(bool ecash);
 
 /**
  * The default data directory on Windows: the legacy roaming folder (legacy) only if it

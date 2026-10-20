@@ -13,6 +13,7 @@ add_library(bitcoinkernel
   chain.cpp
   checks.cpp
   chainparams.cpp
+  ecash_repurpose.cpp
   coinstats.cpp
   context.cpp
   cs_main.cpp

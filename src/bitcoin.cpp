@@ -29,7 +29,7 @@ Options:
   -h, --help             Show full help message
 
 Commands:
-  gui [ARGS]     Start GUI, equivalent to running 'chains-app [ARGS]'.
+  gui [ARGS]     Start GUI, equivalent to running 'estack-app [ARGS]'.
   node [ARGS]    Start node, equivalent to running 'bitcoind [ARGS]' or 'bitcoin-node [ARGS]'.
   rpc [ARGS]     Call RPC method, equivalent to running 'bitcoin-cli -named [ARGS]'.
   wallet [ARGS]  Call wallet command, equivalent to running 'bitcoin-wallet [ARGS]'.
@@ -42,7 +42,7 @@ Additional less commonly used commands:
   bench [ARGS]      Run bench command, equivalent to running 'bench_bitcoin [ARGS]'.
   chainstate [ARGS] Run bitcoin kernel chainstate util, equivalent to running 'bitcoin-chainstate [ARGS]'.
   test [ARGS]       Run unit tests, equivalent to running 'test_bitcoin [ARGS]'.
-  test-gui [ARGS]   Run GUI unit tests, equivalent to running 'test_chains-app [ARGS]'.
+  test-gui [ARGS]   Run GUI unit tests, equivalent to running 'test_estack-app [ARGS]'.
 )";
 
 static constexpr auto HELP_SHORT = R"(
@@ -84,11 +84,11 @@ int main(int argc, char* argv[])
                 return EXIT_FAILURE;
             }
         } else if (cmd.command == "gui") {
-            args.emplace_back("chains-app");
+            args.emplace_back(CLIENT_NAME_LOWER "-app");
         } else if (cmd.command == "node") {
-            args.emplace_back(UseMultiprocess(cmd) ? "chains-node" : "chainsd");
+            args.emplace_back(UseMultiprocess(cmd) ? CLIENT_NAME_LOWER "-node" : CLIENT_NAME_LOWER "d");
         } else if (cmd.command == "rpc") {
-            args.emplace_back("chains-cli");
+            args.emplace_back(CLIENT_NAME_LOWER "-cli");
             // Since "bitcoin rpc" is a new interface that doesn't need to be
             // backward compatible, enable -named by default so it is convenient
             // for callers to use a mix of named and unnamed parameters. Callers
@@ -96,19 +96,19 @@ int main(int argc, char* argv[])
             // that contain '=' characters, so -nonamed should rarely be needed.
             args.emplace_back("-named");
         } else if (cmd.command == "wallet") {
-            args.emplace_back("chains-wallet");
+            args.emplace_back(CLIENT_NAME_LOWER "-wallet");
         } else if (cmd.command == "tx") {
-            args.emplace_back("chains-tx");
+            args.emplace_back(CLIENT_NAME_LOWER "-tx");
         } else if (cmd.command == "bench") {
             args.emplace_back("bench_bitcoin");
         } else if (cmd.command == "chainstate") {
-            args.emplace_back("chains-chainstate");
+            args.emplace_back(CLIENT_NAME_LOWER "-chainstate");
         } else if (cmd.command == "test") {
             args.emplace_back("test_bitcoin");
         } else if (cmd.command == "test-gui") {
-            args.emplace_back("test_chains-app");
+            args.emplace_back("test_" CLIENT_NAME_LOWER "-app");
         } else if (cmd.command == "util") {
-            args.emplace_back("chains-util");
+            args.emplace_back(CLIENT_NAME_LOWER "-util");
         } else {
             throw std::runtime_error(strprintf("Unrecognized command: '%s'", cmd.command));
         }

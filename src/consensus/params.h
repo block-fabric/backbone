@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <set>
 #include <vector>
 
 namespace Consensus {
@@ -129,6 +130,32 @@ struct DrivechainParams {
      * (Before it, any two byte message with a value above 253, ABSTAIN and DOWNVOTE included, was.)
      */
     int canonical_votes_height{0};
+
+    /**
+     * Which rules: Chains' own (CHAINS), or those of the bip300301_enforcer of LayerTwo Labs (ENFORCER),
+     * which the eCash networks follow. The enforcer counts votes rather than age: the fields below are
+     * its Thresholds, and the Chains-only rules above (single payout, closed bundle memory, idle and
+     * upvote expiry, the queue cap, canonical votes) are no consensus there; the block template keeps
+     * them as policy (see node::BlockAssembler and drivechain::Miner).
+     */
+    int32_t rules{RULES_CHAINS};
+    static constexpr int32_t RULES_CHAINS{0};
+    static constexpr int32_t RULES_ENFORCER{1};
+    bool EnforcerRules() const { return rules == RULES_ENFORCER; }
+    /**
+     * Blocks below this height are not scanned for drivechain messages, deposits or withdrawals (the
+     * enforcer's bip300_activation_height): on eCash, the Bitcoin history before the fork.
+     */
+    int activation_height{0};
+    /** Enforcer rules: an unused slot activates a proposal with more acks than this, within unused_slot_max_age blocks. */
+    int unused_slot_threshold{1815};
+    int unused_slot_max_age{2016};
+    /** Enforcer rules: the same for a slot in use (replacing the sidechain in it). */
+    int used_slot_threshold{13150};
+    int used_slot_max_age{26300};
+    /** Enforcer rules: a bundle is paid out with more votes than this; it fails when older than bundle_max_age blocks. */
+    int bundle_threshold{13150};
+    int bundle_max_age{26300};
 };
 
 /**
@@ -137,6 +164,37 @@ struct DrivechainParams {
 struct Params {
     uint256 hashGenesisBlock;
     int nSubsidyHalvingInterval;
+    /**
+     * eCash: the networks of ecash-com/bitcoin. Their rules beside the fields below (the getblocktemplate
+     * rule bip300301, the replay protection of the wallet, the drivechain policies of the miner) follow it.
+     */
+    bool ecash{false};
+    /**
+     * eCash: height of the fork block, which has to carry ecash_fork_bits (the difficulty is reset there,
+     * which is what splits the chain from Bitcoin's). A multiple of the retarget interval, where the
+     * retarget computes it (see CalculateNextWorkRequired); 0 for none.
+     */
+    int ecash_fork_height{0};
+    uint32_t ecash_fork_bits{0};
+    /**
+     * eCash replay protection: a transaction with this nLockTime is final at any height and time, and
+     * fails every OP_CHECKLOCKTIMEVERIFY; stock Bitcoin reads it as a height out of reach, so it never
+     * confirms there. 499999998 (LOCKTIME_THRESHOLD - 2) on eCash's main and test networks,
+     * 499999999 (LOCKTIME_THRESHOLD - 1) on betanet; 0 for none.
+     */
+    uint32_t replay_locktime{0};
+    /**
+     * eCash: OP_DRIVECHAIN is OP_NOP8 (0xb7), and a script of four bytes that starts with it is
+     * anyone-can-spend, at any height. Otherwise (Chains) it is OP_NOP5, and only the treasury script
+     * OP_DRIVECHAIN 0x01 <slot> OP_TRUE has its meaning.
+     */
+    bool drivechain_nop8{false};
+    /**
+     * eCash: transactions whose input scripts are not checked (eCash's "repurpose transactions", which
+     * reassign coins by consensus). Everything else about them is, as for any transaction.
+     */
+    const std::set<uint256>* repurpose_txids{nullptr};
+    bool IsRepurposeTx(const uint256& txid) const { return repurpose_txids && repurpose_txids->contains(txid); }
     /**
      * Hashes of blocks that
      * - are known to be consensus valid, and

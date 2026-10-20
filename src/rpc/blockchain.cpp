@@ -1404,7 +1404,8 @@ RPCMethod getblockchaininfo()
         RPCResult{
             RPCResult::Type::OBJ, "", "",
             {
-                {RPCResult::Type::STR, "chain", "current network name (" LIST_CHAIN_NAMES ")"},
+                {RPCResult::Type::STR, "chain", "current network name: on the eCash networks what eCash's node reports (main on ecash and ecashbeta, testnet4 on ecashtest); otherwise main, test, signet or regtest (Chains)"},
+                {RPCResult::Type::STR, "network", "the network (" LIST_CHAIN_NAMES ")"},
                 {RPCResult::Type::NUM, "blocks", "the height of the most-work fully-validated chain. The genesis block has height 0"},
                 {RPCResult::Type::NUM, "headers", "the current number of headers we have validated"},
                 {RPCResult::Type::STR, "bestblockhash", "the hash of the currently best block"},
@@ -1453,7 +1454,8 @@ RPCMethod getblockchaininfo()
     const CBlockIndex& tip{*CHECK_NONFATAL(active_chainstate.m_chain.Tip())};
     const int height{tip.nHeight};
     UniValue obj(UniValue::VOBJ);
-    obj.pushKV("chain", chainman.GetParams().GetChainTypeString());
+    obj.pushKV("chain", ChainTypeToCompatName(chainman.GetParams().GetChainType()));
+    obj.pushKV("network", chainman.GetParams().GetChainTypeString());
     obj.pushKV("blocks", height);
     obj.pushKV("headers", chainman.m_best_header ? chainman.m_best_header->nHeight : -1);
     obj.pushKV("bestblockhash", tip.GetBlockHash().GetHex());

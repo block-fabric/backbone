@@ -740,11 +740,12 @@ BOOST_AUTO_TEST_CASE(util_GetChainTypeString)
     const char* testnetconf = "signet=1\nregtest=0\n[signet]\nregtest=1";
     std::string error;
 
+    // eStack: eCash's main network by default.
     BOOST_CHECK(test_args.ParseParameters(0, argv_signet, error));
-    BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "main");
+    BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "ecash");
 
     BOOST_CHECK(test_args.ParseParameters(0, argv_signet, error));
-    BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "main");
+    BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "ecash");
 
     BOOST_CHECK(test_args.ParseParameters(2, argv_signet, error));
     BOOST_CHECK_EQUAL(test_args.GetChainTypeString(), "signet");
@@ -1101,7 +1102,8 @@ BOOST_FIXTURE_TEST_CASE(util_ChainMerge, ChainMergeTestingSetup)
     // Results file is formatted like:
     //
     //   <input> || <output>
-    BOOST_CHECK_EQUAL(out_sha_hex, "57ff35809513d03891fdcd62c5ba37dc5cc38b957ac76e552b869adb7dc2824f");
+    // (eStack: the outcome without any network flag is ecash, eCash's main network.)
+    BOOST_CHECK_EQUAL(out_sha_hex, "9bf228e8330ec548cb76f3f9a375f5ebe081c817469d4c5e13dacd7e92ed78a5");
 }
 
 BOOST_AUTO_TEST_CASE(util_ReadWriteSettings)

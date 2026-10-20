@@ -3,6 +3,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <bitcoin-build-config.h> // IWYU pragma: keep
+
 #include <common/args.h>
 
 #include <chainparamsbase.h>
@@ -32,7 +34,10 @@
 #include <utility>
 #include <variant>
 
-const char * const BITCOIN_CONF_FILENAME = "chains.conf";
+const char * const ESTACK_CONF_FILENAME = CLIENT_NAME_LOWER ".conf";
+const char * const CHAINS_CONF_FILENAME = "chains.conf";
+const char * const ECASH_CONF_FILENAME = "ecash.conf";
+const char * const BITCOIN_CONF_FILENAME = ESTACK_CONF_FILENAME;
 const char * const BITCOIN_SETTINGS_FILENAME = "settings.json";
 
 ArgsManager gArgs;
@@ -139,7 +144,7 @@ std::set<std::string> ArgsManager::GetUnsuitableSectionOnlyArgs() const
     if (m_network.empty()) return std::set<std::string> {};
 
     // if it's okay to use the default section for this network, don't worry
-    if (m_network == ChainTypeToString(ChainType::MAIN)) return std::set<std::string> {};
+    if (m_network == ChainTypeToString(ChainType::MAIN) || m_network == ChainTypeToString(ChainType::ECASH)) return std::set<std::string> {};
 
     for (const auto& arg : m_network_only_args) {
         if (OnlyHasDefaultSectionSetting(m_settings, m_network, SettingName(arg))) {
@@ -157,6 +162,9 @@ std::list<SectionInfo> ArgsManager::GetUnrecognizedSections() const
         ChainTypeToString(ChainType::SIGNET),
         ChainTypeToString(ChainType::TESTNET),
         ChainTypeToString(ChainType::MAIN),
+        ChainTypeToString(ChainType::ECASH),
+        ChainTypeToString(ChainType::ECASH_BETANET),
+        ChainTypeToString(ChainType::ECASH_TESTNET),
     };
 
     LOCK(cs_args);
@@ -345,7 +353,8 @@ fs::path ArgsManager::GetDataDir(bool net_specific) const
             return path;
         }
     } else {
-        path = GetDefaultDataDir();
+        // eStack's data directory for the eCash networks, Chains' for the Chains networks.
+        path = GetDefaultDataDir(EcashFamily_());
     }
 
     if (net_specific && !BaseParams().DataDir().empty()) {
@@ -862,25 +871,27 @@ fs::path ChooseWindowsDataDir(const fs::path& legacy, const fs::path& local, con
     // exists: something else (an app keeping its own settings there, an installer, a
     // half-removed old install) may create it, and switching the node to an empty
     // folder on the next start would look as if the chain and the wallet were gone.
-    for (const char* name : {"blocks", "chainstate", "wallets", "testnet", "signet", "regtest",
-                             BITCOIN_CONF_FILENAME, BITCOIN_SETTINGS_FILENAME, ".lock"}) {
+    for (const char* name : {"blocks", "chainstate", "wallets", "testnet", "signet", "regtest", "betanet", "testnet4",
+                             ESTACK_CONF_FILENAME, CHAINS_CONF_FILENAME, BITCOIN_SETTINGS_FILENAME, ".lock"}) {
         if (exists(legacy / fs::u8path(name))) return legacy;
     }
     return local;
 }
 
-fs::path GetDefaultDataDir()
+fs::path GetDefaultDataDir(bool ecash)
 {
+    // eStack (the eCash networks), and Chains (the Chains networks, CHN):
     // Windows:
-    //   old: C:\Users\Username\AppData\Roaming\Chains
-    //   new: C:\Users\Username\AppData\Local\Chains
-    // macOS: ~/Library/Application Support/Chains
-    // Unix-like: ~/.chains
+    //   old: C:\Users\Username\AppData\Roaming\eStack, ...\Roaming\Chains
+    //   new: C:\Users\Username\AppData\Local\eStack, ...\Local\Chains
+    // macOS: ~/Library/Application Support/eStack, ~/Library/Application Support/Chains
+    // Unix-like: ~/.estack, ~/.chains
+    const std::string name{ecash ? CLIENT_NAME : "Chains"};
 #ifdef WIN32
     // Windows
     // Keep a datadir in the old location there; fresh installs start in the new, "proper" one.
-    return ChooseWindowsDataDir(GetSpecialFolderPath(CSIDL_APPDATA) / "Chains",
-                                GetSpecialFolderPath(CSIDL_LOCAL_APPDATA) / "Chains",
+    return ChooseWindowsDataDir(GetSpecialFolderPath(CSIDL_APPDATA) / fs::u8path(name),
+                                GetSpecialFolderPath(CSIDL_LOCAL_APPDATA) / fs::u8path(name),
                                 [](const fs::path& p) { return fs::exists(p); });
 #else
     fs::path pathRet;
@@ -891,12 +902,17 @@ fs::path GetDefaultDataDir()
         pathRet = fs::path(pszHome);
 #ifdef __APPLE__
     // macOS
-    return pathRet / "Library/Application Support/Chains";
+    return pathRet / "Library/Application Support" / fs::u8path(name);
 #else
-    // Unix-like
-    return pathRet / ".chains";
+    // Unix-like: ~/.estack, ~/.chains
+    return pathRet / fs::u8path("." + ToLower(name));
 #endif
 #endif
+}
+
+fs::path GetDefaultDataDir()
+{
+    return GetDefaultDataDir(/*ecash=*/true);
 }
 
 bool CheckDataDirOption(const ArgsManager& args)
@@ -934,8 +950,14 @@ std::string ArgsManager::GetChainTypeString() const
 
 std::variant<ChainType, std::string> ArgsManager::GetChainArg() const
 {
-    auto get_net = [&](const std::string& arg) {
-        LOCK(cs_args);
+    LOCK(cs_args);
+    return GetChainArg_();
+}
+
+std::variant<ChainType, std::string> ArgsManager::GetChainArg_() const
+{
+    AssertLockHeld(cs_args);
+    auto get_net = [&](const std::string& arg) EXCLUSIVE_LOCKS_REQUIRED(cs_args) {
         common::SettingsValue value = common::GetSetting(m_settings, /* section= */ "", SettingName(arg),
             /* ignore_default_section_config= */ false,
             /*ignore_nonpersistent=*/false,
@@ -946,7 +968,7 @@ std::variant<ChainType, std::string> ArgsManager::GetChainArg() const
     const bool fRegTest = get_net("-regtest");
     const bool fSigNet  = get_net("-signet");
     const bool fTestNet = get_net("-testnet");
-    const auto chain_arg = GetArg("-chain");
+    const auto chain_arg = SettingToString(GetSetting_("-chain"));
 
     if ((int)chain_arg.has_value() + (int)fRegTest + (int)fSigNet + (int)fTestNet > 1) {
         throw std::runtime_error("Invalid combination of -regtest, -signet, -testnet and -chain. Can use at most one.");
@@ -959,13 +981,43 @@ std::variant<ChainType, std::string> ArgsManager::GetChainArg() const
     if (fRegTest) return ChainType::REGTEST;
     if (fSigNet) return ChainType::SIGNET;
     if (fTestNet) return ChainType::TESTNET;
-    return ChainType::MAIN;
+    // eStack: eCash's main network unless a Chains network is asked for.
+    return ChainType::ECASH;
+}
+
+bool ArgsManager::EcashFamily_() const
+{
+    AssertLockHeld(cs_args);
+    // What the arguments ask for so far (before the configuration file is read: the command line). An
+    // unknown chain name is left to GetChainType to refuse.
+    const auto chain{GetChainArg_()};
+    const auto* type{std::get_if<ChainType>(&chain)};
+    return !type || IsEcashChain(*type);
+}
+
+std::string ArgsManager::ConfigFileName_(const fs::path& datadir) const
+{
+    AssertLockHeld(cs_args);
+    // The file the data directory has: estack.conf, else chains.conf (a Chains data directory, or one made
+    // for the tests), else ecash.conf (a data directory of eCash's own client, used as it is). Without
+    // any, the file of the data directory family asked for.
+    for (const char* name : {ESTACK_CONF_FILENAME, CHAINS_CONF_FILENAME, ECASH_CONF_FILENAME}) {
+        if (!datadir.empty() && fs::exists(datadir / fs::u8path(name))) return name;
+    }
+    return EcashFamily_() ? ESTACK_CONF_FILENAME : CHAINS_CONF_FILENAME;
+}
+
+std::string ArgsManager::GetConfigFileName() const
+{
+    LOCK(cs_args);
+    return ConfigFileName_(GetDataDir(/*net_specific=*/false));
 }
 
 bool ArgsManager::UseDefaultSection(const std::string& arg) const
 {
     AssertLockHeld(cs_args);
-    return m_network == ChainTypeToString(ChainType::MAIN) || !m_network_only_args.contains(arg);
+    // The default section is main's: Chains' main network's and eCash's (whose own client's main it is).
+    return m_network == ChainTypeToString(ChainType::MAIN) || m_network == ChainTypeToString(ChainType::ECASH) || !m_network_only_args.contains(arg);
 }
 
 common::SettingsValue ArgsManager::GetSetting_(const std::string& arg) const

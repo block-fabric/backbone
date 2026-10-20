@@ -13,12 +13,12 @@ foreach(var BIN_DIR OUT_DIR SRC_DIR NSI STEM)
 endforeach()
 find_program(MAKENSIS_EXECUTABLE makensis REQUIRED)
 
-# The zip: the folder of the installation (chains-app.exe at the top, the other programs in daemon).
+# The zip: the folder of the installation (estack-app.exe at the top, the other programs in daemon).
 set(stage ${OUT_DIR}/${STEM})
 file(REMOVE_RECURSE ${stage})
 file(MAKE_DIRECTORY ${stage}/daemon)
-file(COPY ${BIN_DIR}/chains-app.exe DESTINATION ${stage})
-foreach(program chainsd chains-cli chains-tx chains-wallet chains-util)
+file(COPY ${BIN_DIR}/estack-app.exe DESTINATION ${stage})
+foreach(program estackd estack-cli estack-tx estack-wallet estack-util)
   file(COPY ${BIN_DIR}/${program}.exe DESTINATION ${stage}/daemon)
 endforeach()
 file(COPY_FILE ${SRC_DIR}/COPYING ${stage}/COPYING.txt)

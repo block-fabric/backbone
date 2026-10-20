@@ -154,6 +154,8 @@ if(WIN32)
 elseif(APPLE)
   target_link_libraries(chains-app "-framework WebKit" "-framework Cocoa")
 endif()
+# The target keeps its name (chains-app); the executable is the product's: estack-app.
+set_target_properties(chains-app PROPERTIES OUTPUT_NAME ${CLIENT_NAME_LOWER}-app)
 install_binary_component(chains-app)
 if(NOT WIN32 AND NOT APPLE)
   # The desktop entry: the app in the menus of the desktop, and the handler of chains: links (BIP 21).
@@ -177,7 +179,7 @@ if(WEBUI_TEST_HOOKS)
                           COMMAND ${CMAKE_COMMAND} -E false)
 endif()
 if(MINGW AND TARGET bitcoind AND TARGET bitcoin-cli AND TARGET bitcoin-tx AND TARGET bitcoin-wallet AND TARGET bitcoin-util)
-  set(webui_stem chains-app-${CLIENT_VERSION_STRING}-win64)
+  set(webui_stem ${CLIENT_NAME_LOWER}-app-${CLIENT_VERSION_STRING}-win64)
   set(CLIENT_URL ${PROJECT_HOMEPAGE_URL})
   set(BIN_DIR ${webui_release}/bin)
   set(abs_top_srcdir ${PROJECT_SOURCE_DIR})
@@ -185,12 +187,12 @@ if(MINGW AND TARGET bitcoind AND TARGET bitcoin-cli AND TARGET bitcoin-tx AND TA
   add_custom_target(deploy-app
     ${webui_no_test_hooks}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${webui_release}/bin
-    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:chains-app> -o ${webui_release}/bin/chains-app.exe
-    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoind> -o ${webui_release}/bin/chainsd.exe
-    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-cli> -o ${webui_release}/bin/chains-cli.exe
-    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-tx> -o ${webui_release}/bin/chains-tx.exe
-    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-wallet> -o ${webui_release}/bin/chains-wallet.exe
-    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-util> -o ${webui_release}/bin/chains-util.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:chains-app> -o ${webui_release}/bin/${CLIENT_NAME_LOWER}-app.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoind> -o ${webui_release}/bin/${CLIENT_NAME_LOWER}d.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-cli> -o ${webui_release}/bin/${CLIENT_NAME_LOWER}-cli.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-tx> -o ${webui_release}/bin/${CLIENT_NAME_LOWER}-tx.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-wallet> -o ${webui_release}/bin/${CLIENT_NAME_LOWER}-wallet.exe
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:bitcoin-util> -o ${webui_release}/bin/${CLIENT_NAME_LOWER}-util.exe
     COMMAND ${CMAKE_COMMAND} -DBIN_DIR=${webui_release}/bin -DOUT_DIR=${webui_release} -DSRC_DIR=${PROJECT_SOURCE_DIR}
       -DNSI=${webui_release}/chains-app-setup.nsi -DSTEM=${webui_stem} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_windows.cmake
     DEPENDS chains-app bitcoind bitcoin-cli bitcoin-tx bitcoin-wallet bitcoin-util
@@ -198,7 +200,7 @@ if(MINGW AND TARGET bitcoind AND TARGET bitcoin-cli AND TARGET bitcoin-tx AND TA
     VERBATIM
   )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TARGET bitcoind AND TARGET bitcoin-cli)
-  set(webui_stem chains-app-${CLIENT_VERSION_STRING}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu)
+  set(webui_stem ${CLIENT_NAME_LOWER}-app-${CLIENT_VERSION_STRING}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu)
   set(webui_components chains-app)
   foreach(program bitcoind bitcoin-cli bitcoin-tx bitcoin-wallet bitcoin-util)
     if(TARGET ${program})

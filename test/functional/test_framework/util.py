@@ -333,14 +333,14 @@ def get_binary_paths(config):
 
     paths = types.SimpleNamespace()
     binaries = {
-        "chains": "BITCOIN_BIN",
-        "chainsd": "BITCOIND",
+        "estack": "BITCOIN_BIN",
+        "estackd": "BITCOIND",
         "bench_bitcoin": "BITCOIN_BENCH",
-        "chains-cli": "BITCOINCLI",
-        "chains-util": "BITCOINUTIL",
-        "chains-tx": "BITCOINTX",
-        "chains-chainstate": "BITCOINCHAINSTATE",
-        "chains-wallet": "BITCOINWALLET",
+        "estack-cli": "BITCOINCLI",
+        "estack-util": "BITCOINUTIL",
+        "estack-tx": "BITCOINTX",
+        "estack-chainstate": "BITCOINCHAINSTATE",
+        "estack-wallet": "BITCOINWALLET",
     }
     # Set paths to bitcoin core binaries allowing overrides with environment
     # variables.
@@ -482,7 +482,7 @@ MAX_NODES = 12
 # Don't assign p2p, rpc or tor ports lower than this
 PORT_MIN = int(os.getenv('TEST_RUNNER_PORT_MIN', default=11000))
 # The number of ports to "reserve" for p2p, rpc and tor, each
-PORT_RANGE = 5000
+PORT_RANGE = int(os.getenv('TEST_RUNNER_PORT_RANGE', default=5000))
 
 
 class PortSeed:

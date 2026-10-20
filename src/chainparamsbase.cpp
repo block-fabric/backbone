@@ -13,11 +13,18 @@
 
 void SetupChainParamsBaseOptions(ArgsManager& argsman)
 {
-    argsman.AddArg("-chain=<chain>", "Use the chain <chain> (default: main). Allowed values: " LIST_CHAIN_NAMES, ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
+    argsman.AddArg("-chain=<chain>", "Use the chain <chain> (default: ecash). Allowed values: " LIST_CHAIN_NAMES ". "
+                   "ecash, ecashbeta and ecashtest are eCash's main network, its betanet and its test network (testnet4), with their data in the eStack data directory; "
+                   "main, test, signet and regtest are the Chains (CHN) networks, in the Chains data directory.", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-regtest", "Enter regression test mode, which uses a special chain in which blocks can be solved instantly. "
                  "This is intended for regression testing tools and app development. Equivalent to -chain=regtest.", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-testactivationheight=name@height.", "Set the activation height of 'name' (segwit, bip34, dersig, cltv, csv). (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-testdrivechainparam=name@value", "Set the drivechain parameter 'name' (a field of DrivechainParams, such as withdrawal_period) on regtest. (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-testecash", "Regtest under the rules of the eCash networks: replay protection, OP_DRIVECHAIN as OP_NOP8, the drivechain rules of the bip300301_enforcer (with its regtest thresholds), the bip300301 rule of getblocktemplate and the replay protection of the wallet. (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-testecashfork=height@bits", "With -testecash: the eCash fork block at <height> (a multiple of 144), which must carry <bits> (hexadecimal); implies -testpowretarget. (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-testreplaylocktime=<n>", "With -testecash: the nLockTime of eCash's replay protection (default: 499999998). (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-testrepurposetx=<txid>", "With -testecash: a repurpose transaction, whose input scripts are not checked (can be given more than once). (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-testpowretarget", "Retarget on regtest as on Bitcoin, every 144 blocks. (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-testnet", "Use the test chain. Equivalent to -chain=test.", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-vbparams=deployment:start:end[:min_activation_height]", "Use given start/end times and min_activation_height for specified version bits deployment (test-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-signet", "Use the signet chain. Equivalent to -chain=signet. Note that the network is defined by the -signetchallenge parameter", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
@@ -48,6 +55,16 @@ std::unique_ptr<CBaseChainParams> CreateBaseChainParams(const ChainType chain)
         return std::make_unique<CBaseChainParams>("signet", 39554);
     case ChainType::REGTEST:
         return std::make_unique<CBaseChainParams>("regtest", 29554);
+    // eCash: the ports of ecash-com/bitcoin, so that a pool, a miner or a wallet made for an eCash node
+    // needs no change. Main is the root of the eStack data directory, as on eCash; betanet (a separate
+    // eCash client of its own, whose main it is) has a folder, and the test network the folder of
+    // testnet4, as on eCash.
+    case ChainType::ECASH:
+        return std::make_unique<CBaseChainParams>("", 8532);
+    case ChainType::ECASH_BETANET:
+        return std::make_unique<CBaseChainParams>("betanet", 8532);
+    case ChainType::ECASH_TESTNET:
+        return std::make_unique<CBaseChainParams>("testnet4", 48532);
     }
     assert(false);
 }

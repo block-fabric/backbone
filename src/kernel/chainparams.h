@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -104,7 +105,8 @@ public:
     /** Default value for -checkmempool and -checkblockindex argument */
     bool DefaultConsistencyChecks() const { return fDefaultConsistencyChecks; }
     /** If this chain is exclusively used for testing */
-    bool IsTestChain() const { return m_chain_type != ChainType::MAIN; }
+    //! eCash's main network and betanet (whose eCash client calls it main) are no test chains.
+    bool IsTestChain() const { return m_chain_type != ChainType::MAIN && m_chain_type != ChainType::ECASH && m_chain_type != ChainType::ECASH_BETANET; }
     /** If this chain allows time to be mocked */
     bool IsMockableChain() const { return m_is_mockable_chain; }
     uint64_t PruneAfterHeight() const { return nPruneAfterHeight; }
@@ -172,8 +174,20 @@ public:
         DeploymentOptions dep_opts{};
         bool fastprune{false};
         bool enforce_bip94{false};
+        //! -testpowretarget: retarget as Bitcoin does (every 144 blocks on regtest).
+        bool pow_retargeting{false};
         //! Drivechain parameters to set, by the name of their field in Consensus::DrivechainParams.
         std::vector<std::pair<std::string, int>> drivechain_params{};
+        //! -testecash: regtest under the rules of the eCash networks (and of their drivechain enforcer).
+        struct EcashOptions {
+            //! A fork block at this height (a multiple of the retarget interval, 144 on regtest), with
+            //! these bits; with it, regtest retargets (as Bitcoin does) so that the reset has a meaning.
+            int fork_height{0};
+            uint32_t fork_bits{0};
+            uint32_t replay_locktime{499'999'998};
+            std::set<uint256> repurpose_txids{};
+        };
+        std::optional<EcashOptions> ecash{};
     };
 
     struct MainNetOptions {
@@ -192,6 +206,13 @@ public:
     static std::unique_ptr<const CChainParams> Main() { const MainNetOptions opts{}; return Main(opts); }
     static std::unique_ptr<const CChainParams> TestNet(const TestNetOptions& options);
     static std::unique_ptr<const CChainParams> TestNet() { const TestNetOptions opts{}; return TestNet(opts); }
+    //! eCash's main network, betanet and test network.
+    static std::unique_ptr<const CChainParams> EcashMain(const MainNetOptions& options);
+    static std::unique_ptr<const CChainParams> EcashMain() { const MainNetOptions opts{}; return EcashMain(opts); }
+    static std::unique_ptr<const CChainParams> EcashBetanet(const MainNetOptions& options);
+    static std::unique_ptr<const CChainParams> EcashBetanet() { const MainNetOptions opts{}; return EcashBetanet(opts); }
+    static std::unique_ptr<const CChainParams> EcashTestNet(const TestNetOptions& options);
+    static std::unique_ptr<const CChainParams> EcashTestNet() { const TestNetOptions opts{}; return EcashTestNet(opts); }
 
 protected:
     CChainParams() = default;

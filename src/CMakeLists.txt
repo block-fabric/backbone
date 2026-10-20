@@ -123,6 +123,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   external_signer.cpp
   init/common.cpp
   kernel/chainparams.cpp
+  kernel/ecash_repurpose.cpp
   key.cpp
   key_io.cpp
   merkleblock.cpp
@@ -452,12 +453,13 @@ if(BUILD_FUZZ_BINARY)
   add_subdirectory(test/fuzz)
 endif()
 
-# Names of the Chains executables. The targets keep their upstream names so
-# that the build files stay easy to compare with upstream.
+# Names of the executables: estackd, estack-cli... (CLIENT_NAME_LOWER). The targets keep their upstream
+# names so that the build files stay easy to compare with upstream.
+set(n ${CLIENT_NAME_LOWER})
 foreach(name_pair
-    "bitcoin:chains" "bitcoind:chainsd" "bitcoin-node:chains-node" "bitcoin-cli:chains-cli"
-    "bitcoin-tx:chains-tx" "bitcoin-util:chains-util" "bitcoin-wallet:chains-wallet"
-    "bitcoin-chainstate:chains-chainstate")
+    "bitcoin:${n}" "bitcoind:${n}d" "bitcoin-node:${n}-node" "bitcoin-cli:${n}-cli"
+    "bitcoin-tx:${n}-tx" "bitcoin-util:${n}-util" "bitcoin-wallet:${n}-wallet"
+    "bitcoin-chainstate:${n}-chainstate")
   string(REPLACE ":" ";" name_pair "${name_pair}")
   list(GET name_pair 0 target)
   list(GET name_pair 1 output_name)

@@ -9,6 +9,10 @@
 #include <common/args.h>
 #include <consensus/params.h>
 #include <deploymentinfo.h>
+#include <drivechain/sidechain.h>
+#include <policy/feerate.h>
+#include <script/script.h>
+#include <uint256.h>
 #include <tinyformat.h>
 #include <util/chaintype.h>
 #include <util/log.h>
@@ -119,11 +123,36 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
 {
     if (auto value = args.GetBoolArg("-fastprune")) options.fastprune = *value;
     if (HasTestOption(args, "bip94")) options.enforce_bip94 = true;
+    options.pow_retargeting = args.GetBoolArg("-testpowretarget", false);
     for (const std::string& arg : args.GetArgs("-testdrivechainparam")) {
         const auto found{arg.find('@')};
         const auto value{found == std::string::npos ? std::nullopt : ToIntegral<int32_t>(arg.substr(found + 1))};
         if (!value || *value < 0) throw std::runtime_error(strprintf("Invalid format (%s) for -testdrivechainparam=name@value.", arg));
         options.drivechain_params.emplace_back(arg.substr(0, found), *value);
+    }
+    // Regtest under eCash's rules, for the tests of the eCash networks.
+    if (args.GetBoolArg("-testecash", false)) {
+        auto& ecash{options.ecash.emplace()};
+        if (const auto fork{args.GetArg("-testecashfork")}) {
+            const auto found{fork->find('@')};
+            const auto height{found == std::string::npos ? std::nullopt : ToIntegral<int32_t>(fork->substr(0, found))};
+            const auto bits{found == std::string::npos ? std::nullopt : ToIntegral<uint32_t>(fork->substr(found + 1), 16)};
+            if (!height || *height <= 0 || !bits) throw std::runtime_error(strprintf("Invalid format (%s) for -testecashfork=height@bits (bits in hexadecimal).", *fork));
+            ecash.fork_height = *height;
+            ecash.fork_bits = *bits;
+        }
+        if (const auto locktime{args.GetArg("-testreplaylocktime")}) {
+            const auto value{ToIntegral<uint32_t>(*locktime)};
+            if (!value) throw std::runtime_error(strprintf("Invalid value (%s) for -testreplaylocktime.", *locktime));
+            ecash.replay_locktime = *value;
+        }
+        for (const std::string& txid : args.GetArgs("-testrepurposetx")) {
+            const auto hash{uint256::FromHex(txid)};
+            if (!hash) throw std::runtime_error(strprintf("Invalid txid (%s) for -testrepurposetx.", txid));
+            ecash.repurpose_txids.insert(*hash);
+        }
+    } else if (args.IsArgSet("-testecashfork") || args.IsArgSet("-testreplaylocktime") || args.IsArgSet("-testrepurposetx")) {
+        throw std::runtime_error("-testecashfork, -testreplaylocktime and -testrepurposetx need -testecash.");
     }
 
     HandleDeploymentArgs(args, options.dep_opts);
@@ -154,6 +183,21 @@ std::unique_ptr<const CChainParams> CreateChainParams(const ArgsManager& args, c
         ReadSigNetArgs(args, opts);
         return CChainParams::SigNet(opts);
     }
+    case ChainType::ECASH: {
+        auto opts = CChainParams::MainNetOptions{};
+        ReadMainNetArgs(args, opts);
+        return CChainParams::EcashMain(opts);
+    }
+    case ChainType::ECASH_BETANET: {
+        auto opts = CChainParams::MainNetOptions{};
+        ReadMainNetArgs(args, opts);
+        return CChainParams::EcashBetanet(opts);
+    }
+    case ChainType::ECASH_TESTNET: {
+        auto opts = CChainParams::TestNetOptions{};
+        ReadTestNetArgs(args, opts);
+        return CChainParams::EcashTestNet(opts);
+    }
     case ChainType::REGTEST: {
         auto opts = CChainParams::RegTestOptions{};
         ReadRegTestArgs(args, opts);
@@ -167,4 +211,8 @@ void SelectParams(const ChainType chain)
 {
     SelectBaseParams(chain);
     globalChainParams = CreateChainParams(gArgs, chain);
+    // The treasury scripts of the network (OP_NOP5 on Chains', OP_NOP8 on eCash's).
+    drivechain::SetEscrowOpcode(globalChainParams->GetConsensus().drivechain_nop8 ? OP_NOP8 : OP_NOP5);
+    // The unit amounts are shown in: eCash's (ECX), or Chains' (CHN).
+    SetCurrencyUnitEcash(globalChainParams->GetConsensus().ecash);
 }

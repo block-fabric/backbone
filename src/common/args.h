@@ -24,6 +24,12 @@
 
 class ArgsManager;
 
+//! The configuration file of an eStack data directory (the eCash networks): BITCOIN_CONF_FILENAME.
+extern const char * const ESTACK_CONF_FILENAME;
+//! That of a Chains data directory (the Chains networks), also read in any data directory that has one and no estack.conf.
+extern const char * const CHAINS_CONF_FILENAME;
+//! That of a data directory of eCash's own client, read where there is neither (a drop-in).
+extern const char * const ECASH_CONF_FILENAME;
 extern const char * const BITCOIN_CONF_FILENAME;
 extern const char * const BITCOIN_SETTINGS_FILENAME;
 
@@ -357,10 +363,13 @@ public:
 
     /**
      * Returns the appropriate chain type from the program arguments.
-     * @return ChainType::MAIN by default; raises runtime error if an invalid
+     * @return ChainType::ECASH by default; raises runtime error if an invalid
      * combination, or unknown chain is given.
      */
     ChainType GetChainType() const EXCLUSIVE_LOCKS_REQUIRED(!cs_args);
+
+    /** The name of the configuration file of the data directory (estack.conf, chains.conf or ecash.conf). */
+    std::string GetConfigFileName() const EXCLUSIVE_LOCKS_REQUIRED(!cs_args);
 
     /**
      * Returns the appropriate chain type string from the program arguments.
@@ -472,6 +481,11 @@ private:
      * provided.
      */
     std::variant<ChainType, std::string> GetChainArg() const EXCLUSIVE_LOCKS_REQUIRED(!cs_args);
+    std::variant<ChainType, std::string> GetChainArg_() const EXCLUSIVE_LOCKS_REQUIRED(cs_args);
+    //! Whether the arguments so far ask for an eCash network (eStack's data directory) rather than a Chains one.
+    bool EcashFamily_() const EXCLUSIVE_LOCKS_REQUIRED(cs_args);
+    //! The name of the configuration file read in `datadir` (see ESTACK_CONF_FILENAME).
+    std::string ConfigFileName_(const fs::path& datadir) const EXCLUSIVE_LOCKS_REQUIRED(cs_args);
 
     // Helper function for LogArgs().
     void logArgsPrefix(

@@ -16,7 +16,13 @@
 #include <string>
 #include <type_traits>
 
-inline const std::string CURRENCY_UNIT = "CHN"; // One formatted unit
+/**
+ * One formatted unit: ECX on the eCash networks (eCash's ticker), CHN on the Chains networks; set with the
+ * chain parameters (SelectParams), ECX before.
+ */
+const std::string& CurrencyUnit();
+void SetCurrencyUnitEcash(bool ecash);
+#define CURRENCY_UNIT CurrencyUnit()
 inline const std::string CURRENCY_ATOM = "sat"; // One indivisible minimum value unit
 
 enum class FeeRateFormat {
