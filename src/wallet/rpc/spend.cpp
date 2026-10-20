@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <chainparams.h>
 #include <common/messages.h>
 #include <util/moneystr.h>
 #include <consensus/validation.h>
@@ -99,6 +100,14 @@ std::set<int> InterpretSubtractFeeFromOutputInstructions(const UniValue& sffo_in
 static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const UniValue& options, CMutableTransaction& rawTx)
 {
     bool can_anti_fee_snipe = !options.exists("locktime");
+
+    // eCash replay protection, in place of anti-fee-sniping, unless a locktime was asked for.
+    if (!options.exists("locktime")) {
+        LOCK(pwallet->cs_wallet);
+        const CCoinControl no_control;
+        if (const auto warning{ApplyReplayProtection(*pwallet, no_control, rawTx)}) pwallet->WalletLogPrintf("Warning: %s\n", warning->original);
+        if (Params().GetConsensus().replay_locktime != 0 && rawTx.nLockTime == Params().GetConsensus().replay_locktime) can_anti_fee_snipe = false;
+    }
 
     for (const CTxIn& tx_in : rawTx.vin) {
         // Checks sequence values consistent with DiscourageFeeSniping

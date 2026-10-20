@@ -54,6 +54,11 @@ struct CreatedTransactionResult
     FeeReason fee_reason;
     std::optional<unsigned int> change_pos;
 
+    //! eCash: whether the transaction has the replay protection (magic nLockTime, an input not final).
+    bool replay_protected{false};
+    //! eCash: why it has not, where it could not (a timelock, an explicit locktime, every input final).
+    std::optional<bilingual_str> replay_warning;
+
     CreatedTransactionResult(CTransactionRef _tx, CAmount _fee, std::optional<unsigned int> _change_pos, FeeReason _fee_reason)
         : tx(_tx), fee(_fee), fee_reason(_fee_reason), change_pos(_change_pos) {}
 };

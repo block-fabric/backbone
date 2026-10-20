@@ -133,6 +133,8 @@ inline constexpr bool DEFAULT_SPEND_ZEROCONF_CHANGE = true;
 inline constexpr bool DEFAULT_WALLET_REJECT_LONG_CHAINS{true};
 //! -txconfirmtarget default
 inline constexpr unsigned int DEFAULT_TX_CONFIRM_TARGET = 6;
+//! -walletreplayprotection default: on the eCash networks, transactions cannot be replayed on Bitcoin
+static constexpr bool DEFAULT_WALLET_REPLAY_PROTECTION{true};
 //! -walletrbf default
 inline constexpr bool DEFAULT_WALLET_RBF = true;
 inline constexpr bool DEFAULT_WALLETBROADCAST = true;
@@ -754,6 +756,8 @@ public:
      * cannot fund the transaction otherwise. */
     bool m_spend_zero_conf_change{DEFAULT_SPEND_ZEROCONF_CHANGE};
     bool m_signal_rbf{DEFAULT_WALLET_RBF};
+    //! eCash: give new transactions the magic nLockTime of replay protection (-walletreplayprotection).
+    bool m_replay_protection{DEFAULT_WALLET_REPLAY_PROTECTION};
     bool m_allow_fallback_fee{true}; //!< will be false if -fallbackfee=0
     CFeeRate m_min_fee{DEFAULT_TRANSACTION_MINFEE};
     /**

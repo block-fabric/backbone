@@ -200,6 +200,16 @@ util::Result<SelectionResult> SelectCoins(const CWallet& wallet, CoinsResult& av
  */
 void DiscourageFeeSniping(CMutableTransaction& tx, FastRandomContext& rng_fast, interfaces::Chain& chain, const uint256& block_hash, int block_height);
 
+/** Whether an input of `tx` spends a script with an absolute timelock (OP_CHECKLOCKTIMEVERIFY, miniscript after()). */
+bool SpendsTimelockedScript(const CWallet& wallet, const CCoinControl& coin_control, const CMutableTransaction& tx);
+/**
+ * eCash replay protection: set the magic nLockTime of the network (Consensus::Params::replay_locktime) on
+ * `tx`, whose inputs are in place, unless the wallet does without (-walletreplayprotection=0), a locktime
+ * is asked for, every input is final, or an input is timelocked (the magic locktime fails every
+ * OP_CHECKLOCKTIMEVERIFY). @return why the transaction has no protection, where it could have had one.
+ */
+std::optional<bilingual_str> ApplyReplayProtection(const CWallet& wallet, const CCoinControl& coin_control, CMutableTransaction& tx);
+
 /**
  * Create a new transaction paying the recipients with a set of coins
  * selected by SelectCoins(); Also create the change output, when needed

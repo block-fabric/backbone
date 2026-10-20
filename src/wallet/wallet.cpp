@@ -3370,6 +3370,7 @@ bool CWallet::LoadWalletArgs(std::shared_ptr<CWallet> wallet, const WalletContex
         wallet->m_signal_rbf = *value;
     }
 
+    wallet->m_replay_protection = args.GetBoolArg("-walletreplayprotection", DEFAULT_WALLET_REPLAY_PROTECTION);
     wallet->m_keypool_size = std::max(args.GetIntArg("-keypool", DEFAULT_KEYPOOL_SIZE), int64_t{1});
     wallet->m_notify_tx_changed_script = args.GetArg("-walletnotify", "");
     wallet->SetBroadcastTransactions(args.GetBoolArg("-walletbroadcast", DEFAULT_WALLETBROADCAST));

@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <algorithm>
+#include <chainparams.h>
 #include <common/args.h>
 #include <common/messages.h>
 #include <common/system.h>
@@ -16,6 +17,7 @@
 #include <policy/truc_policy.h>
 #include <primitives/transaction.h>
 #include <primitives/transaction_identifier.h>
+#include <script/descriptor.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <script/solver.h>
@@ -1093,6 +1095,54 @@ void DiscourageFeeSniping(CMutableTransaction& tx, FastRandomContext& rng_fast,
     }
 }
 
+bool SpendsTimelockedScript(const CWallet& wallet, const CCoinControl& coin_control, const CMutableTransaction& tx)
+{
+    for (const CTxIn& in : tx.vin) {
+        CScript script_pub_key;
+        std::unique_ptr<SigningProvider> provider;
+        if (const CWalletTx* wtx{wallet.GetWalletTx(in.prevout.hash)}; wtx && in.prevout.n < wtx->GetTx()->vout.size()) {
+            script_pub_key = wtx->GetTx()->vout[in.prevout.n].scriptPubKey;
+            provider = wallet.GetSolvingProvider(script_pub_key);
+        } else if (const auto external{coin_control.GetExternalOutput(in.prevout)}) {
+            script_pub_key = external->scriptPubKey;
+        } else {
+            continue;
+        }
+        // An absolute timelock in what spends it (miniscript after(), as descriptor wallets have them): with
+        // what the wallet knows of the script, or the solving data of the caller.
+        const SigningProvider& solving{provider ? static_cast<const SigningProvider&>(*provider) : static_cast<const SigningProvider&>(coin_control.m_external_provider)};
+        const std::string desc{InferDescriptor(script_pub_key, solving)->ToString()};
+        if (desc.find("after(") != std::string::npos) return true;
+        // A raw script the descriptor does not tell about: one with OP_CHECKLOCKTIMEVERIFY.
+        CScript::const_iterator pc{script_pub_key.begin()};
+        opcodetype opcode;
+        while (pc < script_pub_key.end() && script_pub_key.GetOp(pc, opcode)) {
+            if (opcode == OP_CHECKLOCKTIMEVERIFY) return true;
+        }
+    }
+    return false;
+}
+
+std::optional<bilingual_str> ApplyReplayProtection(const CWallet& wallet, const CCoinControl& coin_control, CMutableTransaction& tx)
+{
+    const uint32_t magic{Params().GetConsensus().replay_locktime};
+    if (magic == 0 || !wallet.m_replay_protection) return std::nullopt;
+    if (coin_control.m_locktime) {
+        if (*coin_control.m_locktime == magic) return std::nullopt;
+        return Untranslated(strprintf("This transaction has the locktime that was asked for (%u), not the replay protection of eCash (%u): it can be replayed on Bitcoin.", *coin_control.m_locktime, magic));
+    }
+    // The locktime is only enforced, and the protection is only a protection, with an input that is not final.
+    if (std::all_of(tx.vin.begin(), tx.vin.end(), [](const CTxIn& in) { return in.nSequence == CTxIn::SEQUENCE_FINAL; })) {
+        return Untranslated("Every input of this transaction is final (sequence 0xffffffff), so its locktime is not enforced: it has no replay protection and can be replayed on Bitcoin.");
+    }
+    // The magic locktime fails every OP_CHECKLOCKTIMEVERIFY: a timelocked coin is spent without it.
+    if (SpendsTimelockedScript(wallet, coin_control, tx)) {
+        return Untranslated("This transaction spends a timelocked script (OP_CHECKLOCKTIMEVERIFY), which the replay protection of eCash would fail: it has none and can be replayed on Bitcoin.");
+    }
+    tx.nLockTime = magic;
+    return std::nullopt;
+}
+
 uint64_t GetSerializeSizeForRecipient(const CRecipient& recipient)
 {
     return ::GetSerializeSize(CTxOut(recipient.nAmount, GetScriptForDestination(recipient.dest)));
@@ -1369,6 +1419,15 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         // If we have a locktime set, we can't use anti-fee-sniping
         use_anti_fee_sniping = false;
     }
+    // eCash: the magic locktime of replay protection, by default, in place of anti-fee-sniping (they
+    // are exclusive); without it where it cannot be, with a warning (ApplyReplayProtection).
+    bool replay_protected{false};
+    std::optional<bilingual_str> replay_warning{ApplyReplayProtection(wallet, coin_control, txNew)};
+    if (Params().GetConsensus().replay_locktime != 0 && txNew.nLockTime == Params().GetConsensus().replay_locktime) {
+        replay_protected = std::any_of(txNew.vin.begin(), txNew.vin.end(), [](const CTxIn& in) { return in.nSequence != CTxIn::SEQUENCE_FINAL; });
+        use_anti_fee_sniping = false;
+    }
+    if (replay_warning) wallet.WalletLogPrintf("Warning: %s\n", replay_warning->original);
     if (use_anti_fee_sniping) {
         DiscourageFeeSniping(txNew, rng_fast, wallet.chain(), wallet.GetLastBlockHash(), wallet.GetLastBlockHeight());
     }
@@ -1482,7 +1541,10 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     wallet.WalletLogPrintf("Coin Selection: Algorithm:%s, Waste Metric Score:%d\n", GetAlgorithmName(result.GetAlgo()), result.GetWaste());
     wallet.WalletLogPrintf("Fee Calculation: Fee:%d Bytes:%u, Source: %s\n",
                            current_fee, nBytes, StringForFeeReason(min_fee_rate.fee_reason));
-    return CreatedTransactionResult(tx, current_fee, change_pos, min_fee_rate.fee_reason);
+    CreatedTransactionResult created(tx, current_fee, change_pos, min_fee_rate.fee_reason);
+    created.replay_protected = replay_protected;
+    created.replay_warning = replay_warning;
+    return created;
 }
 
 util::Result<CreatedTransactionResult> CreateTransaction(
@@ -1546,7 +1608,10 @@ util::Result<CreatedTransactionResult> FundTransaction(CWallet& wallet, const CM
     assert(tx.vout.empty());
 
     // Set the user desired locktime
-    coinControl.m_locktime = tx.nLockTime;
+    // eCash: a transaction left at locktime 0 gets the replay protection of the wallet (see ApplyReplayProtection).
+    if (!(tx.nLockTime == 0 && Params().GetConsensus().replay_locktime != 0 && wallet.m_replay_protection)) {
+        coinControl.m_locktime = tx.nLockTime;
+    }
 
     // Set the user desired version
     coinControl.m_version = tx.version;
