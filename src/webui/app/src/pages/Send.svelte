@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { hub } from '../lib/sidechains.svelte';
+  import { openModule, productName } from '../lib/modules.svelte';
+  // Send on which chain (doc/unified-app.md §14): this app's here; a module's on that module's own Send page, in the
+  // same window, where its spend is asked in the app's trusted dialog.
+  const sendChains = $derived((hub.list?.chains ?? []).filter((c) => c.enabled));
   import { t } from '../lib/i18n.svelte';
   import SafeText from '../components/SafeText.svelte';
   // Send coins (SendCoinsDialog, SendCoinsEntry): several recipients, the fee, coin control ("Choose
@@ -403,6 +408,15 @@
   <header class="page-head">
     <h1>Send</h1>
     <div class="row">
+      {#if sendChains.length}
+        <div class="chain-pick" role="radiogroup" aria-label={t('Send on')} data-send-chain>
+          <span class="muted small">{t('On')}</span>
+          <button type="button" role="radio" aria-checked="true" class="pill current"><SafeText text={productName()} /></button>
+          {#each sendChains as c (c.stem)}
+            <button type="button" role="radio" aria-checked="false" class="pill" data-send-chain-option={c.stem} onclick={() => openModule(c.stem, 'send')}><SafeText text={c.name} /></button>
+          {/each}
+        </div>
+      {/if}
       <button type="button" class="btn ghost small" onclick={() => (nav.tab = 'uri')}><Icon name="paste" size={16} /> Open URI…</button>
     </div>
   </header>
@@ -557,6 +571,36 @@
 </Dialog>
 
 <style>
+  .chain-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+  }
+  .chain-pick .small {
+    padding: 0 0.3rem 0 0.4rem;
+    font-size: 0.82rem;
+  }
+  .chain-pick .pill {
+    padding: 0.2rem 0.7rem;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .chain-pick .pill:hover {
+    background: var(--raised);
+  }
+  .chain-pick .pill.current {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
   .send {
     display: flex;
     flex-direction: column;

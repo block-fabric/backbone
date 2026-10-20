@@ -5,6 +5,8 @@
   import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
   import SafeText from './SafeText.svelte';
+  import ModuleProgram from './ModuleProgram.svelte';
+  import { productName } from '../lib/modules.svelte';
   import { errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
   import { refreshSidechains, selectChain, sidechainHost } from '../lib/sidechains.svelte';
@@ -20,7 +22,7 @@
   let error = $state('');
   let open = $state(true);
 
-  const TITLES: Record<EnableStep, string> = { about: 'What it is', storage: 'Where its data goes', wallet: 'Its wallet', staking: 'Staking', review: 'Ready' };
+  const TITLES: Record<EnableStep, string> = { about: 'What it is', program: 'Its program', storage: 'Where its data goes', wallet: 'Its wallet', staking: 'Staking', review: 'Ready' };
   const res = $derived(resources(entry));
   const room = $derived(diskCheck(entry.diskGB, choices.storage === 'custom' ? choices.customFreeGB : entry.freeGB));
 
@@ -73,7 +75,7 @@
       <div class="done">
         <span class="big" aria-hidden="true"><Icon name="check" size={28} /></span>
         <h3><SafeText text={entry.name} /> is on</h3>
-        <p>Its node is starting in the background. It catches up with Chains by itself; that can take a while the first time. You can watch it from the chain switcher at the top of the sidebar.</p>
+        <p>{t('Its node is starting in the background. It catches up with %1 by itself; that can take a while the first time. It is a module of this app now: switch to it at the top of the sidebar.', productName())}</p>
       </div>
     {:else if step === 'about'}
       <h3><SafeText text={entry.name} /></h3>
@@ -84,6 +86,8 @@
         <li><Icon name="power" size={16} /> You can turn it off at any time. Its data and keys stay, until you delete them.</li>
       </ul>
       <p class="room {room.tone}"><Icon name={room.tone === 'ok' ? 'check' : 'alert'} size={15} /> {t(room.key, ...room.args)}</p>
+    {:else if step === 'program'}
+      <ModuleProgram stem={entry.stem} name={entry.name} onready={(r) => (choices.programReady = r || !!entry.program)} />
     {:else if step === 'storage'}
       <fieldset class="choices">
         <legend class="sr-only">Where its data goes</legend>

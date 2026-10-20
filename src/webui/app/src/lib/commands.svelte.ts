@@ -1,6 +1,8 @@
 // Every action of the main window in one list: the pages, and the items of the menu bar of
 // chains-qt (bitcoingui.cpp createMenuBar), which the layouts put in tabs, sidebars, an
 // overflow menu and the command palette (doc/webui-layouts.md maps each one).
+import { hub } from './sidechains.svelte';
+import { modules, openChains, openModule, productName } from './modules.svelte';
 import { t } from './i18n.svelte';
 import type { IconName } from '../components/Icon.svelte';
 import { closeDetail } from './detail.svelte';
@@ -177,7 +179,7 @@ export function buildCommands(): Command[] {
   const walletOnly = new Set(['Your wallet', 'Banking']);
   const shown = walletsEnabled() ? menus : menus.filter((c) => !walletOnly.has(c.group) && c.id !== 'use.sign' && c.id !== 'use.verify');
   // What a command opens, from the function it runs (to(page)).
-  return [...pages, ...shown, ...extra].map((c) => ('page' in c.run ? { ...c, page: (c.run as { page: PageId }).page } : c));
+  return [...pages, ...shown, ...extra, ...moduleCommands()].map((c) => ('page' in c.run ? { ...c, page: (c.run as { page: PageId }).page } : c));
 }
 
 /** The commands of the old menu bar, by menu (the overflow menus of the layouts). */
@@ -215,4 +217,27 @@ export function searchCommands(all: readonly Command[], query: string): Command[
   });
   scored.sort((a, b) => b.score - a.score || a.i - b.i);
   return scored.map((s) => s.c);
+}
+
+/**
+ * The modules in the palette (doc/unified-app.md §14): switching to each, and the pages and actions each one's manifest
+ * names, shown as "<module>: <page>" (its words as it sent them: never translated again, never taken for the app's).
+ */
+export function moduleCommands(): Command[] {
+  const out: Command[] = [];
+  const on = (hub.list?.chains ?? []).filter((c) => c.enabled);
+  if (on.length === 0) return out;
+  out.push({ id: 'module.chains', group: 'Go to', label: 'Switch to %1', arg: productName(), icon: 'modules', run: () => openChains('home'), keywords: 'module switch' });
+  for (const c of on) {
+    out.push({ id: `module.${c.stem}`, group: 'Go to', label: 'Switch to %1', arg: c.name, icon: 'modules', run: () => openModule(c.stem), keywords: `module switch ${c.stem}` });
+    const m = modules.manifests[c.stem];
+    if (!m) continue;
+    for (const p of m.pages) {
+      out.push({ id: `module.${c.stem}.${p.id}`, group: 'Go to', label: '%1', arg: `${c.name}: ${p.title}`, icon: 'modules', run: () => openModule(c.stem, p.id), keywords: `${c.stem} ${p.summary}` });
+    }
+    for (const x of m.commands) {
+      out.push({ id: `module.${c.stem}.cmd.${x.id}`, group: 'Go to', label: '%1', arg: `${c.name}: ${x.label}`, icon: 'modules', run: () => openModule(c.stem, x.page, x.tab ?? ''), keywords: c.stem });
+    }
+  }
+  return out;
 }

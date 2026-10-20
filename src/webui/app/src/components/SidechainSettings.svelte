@@ -5,6 +5,8 @@
   import Icon from './Icon.svelte';
   import SafeText from './SafeText.svelte';
   import EnableWizard from './EnableWizard.svelte';
+  import ModuleProgram from './ModuleProgram.svelte';
+  import { downloads } from '../lib/downloads.svelte';
   import FirstRunWizard from './FirstRunWizard.svelte';
   import { confirm, errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -13,6 +15,7 @@
   import { describeState, resources, type SidechainEntry } from '../lib/unified';
 
   let busy = $state<Record<string, boolean>>({});
+  let programOpen = $state<Record<string, boolean>>({});
 
   $effect(() => {
     watchSidechains();
@@ -130,7 +133,14 @@
           {#if e.enabled && e.state === 'running'}<button type="button" class="link" onclick={() => selectChain(e.stem)}>Show it</button>{/if}
         </div>
         {#if e.error}<p class="error small"><SafeText text={e.error} /></p>{/if}
-        {#if !e.program}<p class="hint small"><Icon name="info" size={14} /> Its program ({e.stem}d) is not on this computer yet: it comes with the app, or from a download in a later version.</p>{/if}
+        {#if !e.program}<p class="hint small"><Icon name="info" size={14} /> Its program ({e.stem}d) is not on this computer yet: turning it on downloads it from its releases.</p>{/if}
+        {#if e.enabled || e.program}
+          <details class="program-box" open={!!downloads.updates[e.stem]} data-program-box={e.stem} ontoggle={(ev) => (programOpen[e.stem] = (ev.currentTarget as HTMLDetailsElement).open)}>
+            <summary>{t('Its program and its updates')}{#if downloads.updates[e.stem]} <span class="badge accent">{t('Update available')}</span>{/if}</summary>
+            <!-- Asked of its releases only once opened (they are on GitHub: no request for every card shown). -->
+            {#if programOpen[e.stem] || downloads.updates[e.stem]}<ModuleProgram stem={e.stem} name={e.name} mode="settings" />{/if}
+          </details>
+        {/if}
         <div class="where">
           <Icon name="folder" size={15} />
           <span class="grow path" title={e.dataDir}><SafeText text={e.dataDir} /></span>
@@ -157,6 +167,19 @@
 {/if}
 
 <style>
+  .program-box {
+    margin: 0.4rem 0;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+  }
+  .program-box summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .program-box[open] summary {
+    margin-bottom: 0.5rem;
+  }
   .intro {
     display: flex;
     align-items: flex-start;

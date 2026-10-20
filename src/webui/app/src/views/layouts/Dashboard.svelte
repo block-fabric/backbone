@@ -17,9 +17,16 @@
   import { pageTitle } from '../../lib/uimode.svelte';
   import SyncOverlay from '../../components/SyncOverlay.svelte';
   import PageView from '../PageView.svelte';
+  import ModuleFrames from '../../components/ModuleFrames.svelte';
+  import HistoryButtons from '../../components/HistoryButtons.svelte';
+  import SafeText from '../../components/SafeText.svelte';
+  import { activeModule, frameShown, moduleName, moduleRoute, moduleSectionOf, moduleTitle, openModule } from '../../lib/modules.svelte';
 
   let drawer = $state(false);
   const section = $derived(navSectionOf(nav.page));
+  // A module shown: where in it (its name, its section, its page), and whether its frame takes the main area.
+  const mod = $derived(activeModule());
+  const framed = $derived(frameShown());
 
   // One panel at the right: a row opened in the detail panel closes Send/Receive; so does a new page.
   $effect(() => {
@@ -35,8 +42,20 @@
   <div class="main">
     <header class="top">
       <button type="button" class="btn ghost icon small drawer" aria-label="Pages" aria-expanded={drawer} onclick={() => (drawer = true)}><Icon name="menu" size={18} /></button>
+      <HistoryButtons />
       <nav class="crumbs" aria-label="Where you are">
-        {#if nav.page === 'home'}
+        {#if mod}
+          {@const r = moduleRoute(mod)}
+          {@const sec = moduleSectionOf(mod, r.page)}
+          {#if r.page === 'home'}
+            <span class="here" aria-current="page" data-crumb-module={mod}><SafeText text={moduleName(mod)} /></span>
+          {:else}
+            <button type="button" class="link" data-crumb-module={mod} onclick={() => openModule(mod, 'home')}><Icon name="home" size={15} /> <SafeText text={moduleName(mod)} /></button>
+            <span class="sep" aria-hidden="true">/</span>
+            {#if sec}<span class="muted"><SafeText text={sec} /></span><span class="sep" aria-hidden="true">/</span>{/if}
+            <span class="here" aria-current="page"><SafeText text={moduleTitle(mod)} /></span>
+          {/if}
+        {:else if nav.page === 'home'}
           <span class="here" aria-current="page">Home</span>
         {:else}
           <button type="button" class="link" onclick={() => go('home')}><Icon name="home" size={15} /> Home</button>
@@ -52,9 +71,10 @@
     <div class="body">
       <!-- Before the page: the dialogs a page opens come after it, above it. -->
       <SyncOverlay />
-      <main class="content" id="content" tabindex="-1" data-page={nav.page}>
+      <main class="content" id="content" tabindex="-1" data-page={nav.page} hidden={framed}>
         <PageView />
       </main>
+      <ModuleFrames />
       <DetailPanel />
       <QuickPanel />
     </div>
@@ -121,6 +141,9 @@
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+  .content[hidden] {
+    display: none;
   }
   .content {
     flex: 1;

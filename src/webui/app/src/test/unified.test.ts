@@ -7,6 +7,8 @@ import EnableWizard from '../components/EnableWizard.svelte';
 import FirstRunWizard from '../components/FirstRunWizard.svelte';
 import SidechainSettings from '../components/SidechainSettings.svelte';
 import SidechainView from '../pages/SidechainView.svelte';
+import ModuleFrames from '../components/ModuleFrames.svelte';
+import { modules, NODE_PAGE, openModule } from '../lib/modules.svelte';
 import { dispatch, setTransport, type BridgeRequest } from '../lib/bridge';
 import { nav } from '../lib/nav.svelte';
 import { hub, refreshSidechains, selectChain } from '../lib/sidechains.svelte';
@@ -104,8 +106,8 @@ describe('words and the switcher', () => {
 
 describe('the enable wizard', () => {
   it('asks about staking only on a chain that stakes', () => {
-    expect(enableSteps(entry('layers'))).toEqual(['about', 'storage', 'wallet', 'staking', 'review']);
-    expect(enableSteps(entry('thunder'))).toEqual(['about', 'storage', 'wallet', 'review']);
+    expect(enableSteps(entry('layers'))).toEqual(['about', 'program', 'storage', 'wallet', 'staking', 'review']);
+    expect(enableSteps(entry('thunder'))).toEqual(['about', 'program', 'storage', 'wallet', 'review']);
     const steps = enableSteps(entry('thunder'));
     expect(nextStep(steps, 'wallet')).toBe('review');
     expect(nextStep(steps, 'review')).toBeNull();
@@ -178,6 +180,9 @@ beforeEach(() => {
   hub.list = null;
   hub.selected = 'chains';
   hub.wizard = null;
+  modules.info = {};
+  modules.routes = {};
+  modules.manifests = {};
   nav.page = 'home';
   state = listOf(entry('layers'), entry('fastblocks'), entry('thunder', { program: '' }));
   calls = [];
@@ -258,27 +263,32 @@ describe('the pages of a sidechain in a frame (§13)', () => {
     expect(packUrl('layers')).toBe('chains-pack://layers/packs/layers/index.html');
   });
 
-  it('shows its pages once its node runs and speaks this version; read-only with "update needed" else', async () => {
+  it('shows its pages once its node runs and speaks this version, chromeless; read-only with "update needed" else', async () => {
     packList = [{ stem: 'layers', name: 'Layers', hostApi: 1, commit: 'a'.repeat(40) }];
     state.chains[0] = entry('layers', { enabled: true, state: 'running', ready: true });
     await refreshSidechains();
     selectChain('layers');
-    const view = render(SidechainView);
-    await waitFor(() => expect(document.querySelector('iframe.pack')).toBeTruthy());
-    const frame = document.querySelector('iframe.pack') as HTMLIFrameElement;
+    const frames = render(ModuleFrames);
+    await waitFor(() => expect(document.querySelector('iframe.module-frame')).toBeTruthy());
+    const frame = document.querySelector('iframe.module-frame') as HTMLIFrameElement;
     expect(frame.getAttribute('src')).toBe('chains-pack://layers/packs/layers/index.html');
     expect(frame.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin');
     expect(frame.title).toBe('Layers');
-    // Its node, a click away; back to its pages.
-    await fireEvent.click(screen.getByRole('button', { name: /Its node/ }));
-    await waitFor(() => expect(document.querySelector('iframe.pack')).toBeNull());
-    expect(document.querySelector('[data-field="height"]')).toBeTruthy();
+    expect(frame.hidden).toBe(false);
+    // Its node: the app's own page, the frame kept but hidden.
+    openModule('layers', NODE_PAGE);
+    await waitFor(() => expect(frame.hidden).toBe(true));
+    const view = render(SidechainView);
+    await waitFor(() => expect(document.querySelector('[data-field="height"]')).toBeTruthy());
     view.unmount();
+    frames.unmount();
     // A node of another version: read-only, update needed, no frame.
     packCompatible = false;
+    modules.info = {};
+    render(ModuleFrames);
     render(SidechainView);
     await waitFor(() => expect(document.querySelector('[data-reason="daemon"]')).toBeTruthy());
-    expect(document.querySelector('iframe.pack')).toBeNull();
+    expect(document.querySelector('iframe.module-frame')).toBeNull();
     selectChain('chains');
   });
 });
@@ -306,7 +316,7 @@ describe('Settings → Sidechains', () => {
     expect(box.checked).toBe(false);
     const wizard = () => document.querySelector('[data-wizard="enable"]') as HTMLElement;
     const next = () => document.querySelector('[data-action="next"]') as HTMLButtonElement;
-    for (const expected of ['about', 'storage', 'wallet', 'staking', 'review']) {
+    for (const expected of ['about', 'program', 'storage', 'wallet', 'staking', 'review']) {
       expect(wizard().dataset.step).toBe(expected);
       if (expected !== 'review') await fireEvent.click(next());
     }
@@ -374,12 +384,23 @@ describe('the chain switcher and the overview', () => {
 
 describe('the wizards render their steps', () => {
   it('the enable wizard of a chain without staking', async () => {
-    render(EnableWizard, { entry: entry('thunder'), onclose: () => {} });
+    render(EnableWizard, { entry: entry('thunder', { program: '' }), onclose: () => {} });
     const wizard = () => document.querySelector('[data-wizard="enable"]') as HTMLElement;
     expect(wizard().dataset.step).toBe('about');
     expect(wizard().textContent).toContain('200 GB free: enough room.');
     await fireEvent.click(document.querySelector('[data-action="next"]') as HTMLButtonElement);
-    // A folder of one's own: Next waits for one.
+    // Its program is not on this computer: Next waits for its download (lib/downloads, tested in modules.test.ts).
+    expect(wizard().dataset.step).toBe('program');
+    expect((document.querySelector('[data-action="next"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('the enable wizard: a folder of one\'s own waits for one', async () => {
+    render(EnableWizard, { entry: entry('layers'), onclose: () => {} });
+    const wizard = () => document.querySelector('[data-wizard="enable"]') as HTMLElement;
+    await fireEvent.click(document.querySelector('[data-action="next"]') as HTMLButtonElement);
+    expect(wizard().dataset.step).toBe('program');
+    await fireEvent.click(document.querySelector('[data-action="next"]') as HTMLButtonElement);
+    expect(wizard().dataset.step).toBe('storage');
     await fireEvent.click(screen.getByText('A folder of my choice'));
     expect((document.querySelector('[data-action="next"]') as HTMLButtonElement).disabled).toBe(true);
   });

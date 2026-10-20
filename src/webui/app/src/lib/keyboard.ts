@@ -4,6 +4,8 @@ import { go, nav, type PageId } from './nav.svelte';
 import { host } from './rpc';
 import { prefs, savePrefs, wallets } from './state.svelte';
 import { clampFontAdjust } from './themes';
+import { goBack, goForward } from './history.svelte';
+import { activeModule, modules, openModule, setModuleKeys } from './modules.svelte';
 
 /** Ctrl+letter: the tabs of the node window (the Window menu of chains-qt). */
 const NODE_TABS: Record<string, string> = { i: 'info', t: 'console', n: 'traffic', p: 'peers' };
@@ -28,6 +30,20 @@ export function closeTop(): boolean {
 /** Handle a key press; true if it was a shortcut. */
 export function handleShortcut(e: KeyboardEvent): boolean {
   const ctrl = e.ctrlKey || e.metaKey;
+  // Back and forward (the app's history: its pages and the modules' alike).
+  if (e.altKey && !ctrl && (e.key === 'ArrowLeft' || e.key === 'BrowserBack')) return goBack() || true;
+  if (e.altKey && !ctrl && (e.key === 'ArrowRight' || e.key === 'BrowserForward')) return goForward() || true;
+  if (e.key === 'BrowserBack') return goBack() || true;
+  if (e.key === 'BrowserForward') return goForward() || true;
+  // A module shown: Alt+digit opens its page of that shortcut, as in its own app.
+  const stem = activeModule();
+  if (stem && e.altKey && !ctrl && /^[0-9]$/.test(e.key)) {
+    const page = modules.manifests[stem]?.pages.find((p) => p.shortcut === `Alt+${e.key}`);
+    if (page) {
+      openModule(stem, page.id);
+      return true;
+    }
+  }
   if (e.altKey && !ctrl && PAGE_KEYS[e.key]) {
     const page = PAGE_KEYS[e.key];
     if (WALLET_PAGES.has(page) && wallets.list.length === 0) return true;
@@ -82,3 +98,10 @@ export function handleShortcut(e: KeyboardEvent): boolean {
   }
   return false;
 }
+
+// Keys pressed in a module's frame that are the app's (its shortcuts): handled as if pressed here.
+setModuleKeys((_stem, k) => {
+  if (typeof KeyboardEvent === 'undefined') return false;
+  const e = new KeyboardEvent('keydown', { key: k.key, ctrlKey: k.ctrl, altKey: k.alt, shiftKey: k.shift });
+  return handleShortcut(e);
+});

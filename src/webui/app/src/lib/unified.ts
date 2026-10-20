@@ -112,10 +112,10 @@ export interface SwitcherItem {
 }
 
 /** The chain switcher: Chains, then each sidechain turned on. Nothing to switch between: no switcher. */
-export function switcherItems(list: SidechainList | null | undefined): SwitcherItem[] {
+export function switcherItems(list: SidechainList | null | undefined, product = 'Chains'): SwitcherItem[] {
   const on = (list?.chains ?? []).filter((c) => c.enabled || c.state === 'stopping');
   if (on.length === 0) return [];
-  return [{ id: 'chains', name: 'Chains', tone: 'ok' }, ...on.map((c) => ({ id: c.stem, name: c.name, tone: describeState(c).tone }))];
+  return [{ id: 'chains', name: product, tone: 'ok' }, ...on.map((c) => ({ id: c.stem, name: c.name, tone: describeState(c).tone }))];
 }
 
 /** "About 4 GB of disk and 400 MB of memory". */
@@ -134,7 +134,7 @@ export function diskCheck(needGB: number, freeGB: number | undefined): Said {
 
 // ---- The wizard that turns one sidechain on ----
 
-export type EnableStep = 'about' | 'storage' | 'wallet' | 'staking' | 'review';
+export type EnableStep = 'about' | 'program' | 'storage' | 'wallet' | 'staking' | 'review';
 
 export interface EnableChoices {
   storage: 'default' | 'custom';
@@ -146,11 +146,13 @@ export interface EnableChoices {
   move: boolean;
   wallet: 'shared' | 'separate';
   stake: boolean;
+  /** Its program is on this computer (next to the app, in a folder chosen, or downloaded in the wizard). */
+  programReady: boolean;
 }
 
-/** The steps for a sidechain: staking only for one that can stake. */
+/** The steps for a sidechain: its program (the download, §15), staking only for one that can stake. */
 export function enableSteps(e: Pick<SidechainEntry, 'staking'>): EnableStep[] {
-  return e.staking ? ['about', 'storage', 'wallet', 'staking', 'review'] : ['about', 'storage', 'wallet', 'review'];
+  return e.staking ? ['about', 'program', 'storage', 'wallet', 'staking', 'review'] : ['about', 'program', 'storage', 'wallet', 'review'];
 }
 
 export function defaultChoices(e: SidechainEntry): EnableChoices {
@@ -161,12 +163,14 @@ export function defaultChoices(e: SidechainEntry): EnableChoices {
     move: e.hasData,
     wallet: e.wallet ?? 'shared',
     stake: false,
+    programReady: !!e.program,
   };
 }
 
 /** Whether the wizard can go on from a step. */
 export function canContinue(step: EnableStep, c: EnableChoices): boolean {
   if (step === 'storage' && c.storage === 'custom') return c.customPath !== '' && c.customProblem === '';
+  if (step === 'program') return c.programReady;
   return true;
 }
 

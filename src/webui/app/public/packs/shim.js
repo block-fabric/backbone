@@ -15,6 +15,22 @@
       window.parent.postMessage({ chainsPack: 1, id: id, request: request }, APP);
     });
   };
+  // Module mode (doc/unified-app.md §14): these pages bring no chrome of their own; they tell the app what they have
+  // and where they are, the app tells them its look and the page to show. What the app said before they listened waits.
+  var listeners = [];
+  var early = [];
+  window.__chainsModule = {
+    version: 1,
+    post: function (type, data) {
+      window.parent.postMessage({ chainsModule: 1, type: type, data: data }, APP);
+    },
+    on: function (fn) {
+      listeners.push(fn);
+      var waiting = early;
+      early = [];
+      waiting.forEach(function (m) { fn(m.type, m.data); });
+    },
+  };
   window.addEventListener('message', function (event) {
     // Only the app that shows these pages speaks to them.
     if (event.source !== window.parent) return;
@@ -28,6 +44,9 @@
       else waiting.reject(data.error);
     } else if (data.chainsPackEvents === 1 && typeof data.batch === 'string' && typeof window.__chainsEvents === 'function') {
       window.__chainsEvents(data.batch);
+    } else if (data.chainsModuleHost === 1 && typeof data.type === 'string') {
+      if (listeners.length === 0) early.push(data);
+      else listeners.forEach(function (fn) { fn(data.type, data.data); });
     }
   });
 })();

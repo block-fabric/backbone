@@ -2,6 +2,7 @@
 // "sidechains" events, the chain chosen in the switcher, and the calls of Settings → Sidechains.
 import { on, request } from './bridge';
 import { go, nav } from './nav.svelte';
+import { openModule } from './modules.svelte';
 import type { SidechainList, SidechainOverview } from './unified';
 
 export const hub = $state({
@@ -21,6 +22,8 @@ export const sidechainHost = {
   setDataDir: (stem: string, dir: string | null, move: boolean) => request<boolean>('host', 'sidechains.setDataDir', { stem, dir, move }),
   deleteData: (stem: string, wallets: boolean) => request<boolean>('host', 'sidechains.deleteData', { stem, wallets }),
   overview: (stem: string) => request<SidechainOverview>('host', 'sidechains.overview', { stem }),
+  /** A read of its node (the host's read-only allowlist: listtransactions, getbalances, …). */
+  rpc: <T>(stem: string, method: string, params: unknown[] = [], wallet?: string) => request<T>('host', 'sidechains.rpc', { stem, method, params, ...(wallet ? { wallet } : {}) }),
   log: (stem: string) => request<{ node: string; supervisor: string }>('host', 'sidechains.log', { stem }),
 };
 
@@ -62,11 +65,12 @@ export function watchSidechains(): void {
 
 /** Show a chain: Chains (its pages, from Home), or a sidechain (its overview). */
 export function selectChain(id: string): void {
-  hub.selected = id;
   if (id === 'chains') {
+    hub.selected = id;
     if (nav.page === 'sidechain') go('home');
   } else {
-    go('sidechain');
+    // A module: its pages where it was (lib/modules.svelte.ts).
+    openModule(id);
   }
 }
 

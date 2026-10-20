@@ -11,6 +11,7 @@
   import { installPackRoute } from './lib/packs.svelte';
   import { t, followLocale, loadLocale } from './lib/i18n.svelte';
   import { handleShortcut } from './lib/keyboard';
+  import { goBack, goForward } from './lib/history.svelte';
   import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
   import { app, applySnapshot, loadPrefs, phaseEvents, prefs, subscribe, toast } from './lib/state.svelte';
@@ -152,7 +153,17 @@
   }
 </script>
 
-<svelte:window {onkeydown} {ondragover} {ondrop} />
+<svelte:window
+  {onkeydown}
+  {ondragover}
+  {ondrop}
+  onmouseup={(e) => {
+    // The back and forward buttons of a mouse: the app's history.
+    if (app.phase !== 'ready') return;
+    if (e.button === 3 && goBack()) e.preventDefault();
+    if (e.button === 4 && goForward()) e.preventDefault();
+  }}
+/>
 
 {#if connectError || app.phase !== 'ready'}
   <!-- Before the node runs: the integrated title bar alone (the layouts have theirs). -->

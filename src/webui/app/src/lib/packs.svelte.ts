@@ -2,6 +2,7 @@
 // built into the app, /packs/<stem>/), whose requests go through the app's bridge to the host, which sends them to the
 // node of that sidechain or answers them itself (webui/sidechainpages.h), and whose events come back from it.
 import { on, request, sendRaw } from './bridge';
+import { onModuleMessage, setTeller } from './modules.svelte';
 
 export interface PackEntry {
   stem: string;
@@ -106,6 +107,15 @@ export function deliver(stem: string, batch: string): boolean {
   return true;
 }
 
+/** Tell the pages of a module something of the app (its look, the page to show, the keyboard). */
+export function tellFrame(stem: string, type: string, data: unknown): boolean {
+  const frame = frames.get(stem);
+  if (!frame) return false;
+  post(frame, { chainsModuleHost: 1, type, data });
+  return true;
+}
+setTeller(tellFrame);
+
 /** Tell a frame its node is ready (or not): its pages leave their splash, or go back to it. */
 export function tellPhase(stem: string, phase: 'ready' | 'init'): boolean {
   return deliver(stem, JSON.stringify([{ type: 'phase', data: { phase, data: {} } }]));
@@ -128,7 +138,9 @@ export function route(stem: string, req: PackRequest): Promise<unknown> {
 export function onFrameMessage(event: { source: unknown; data: unknown }): boolean {
   const frame = [...frames.values()].find((f) => f.win === event.source);
   if (!frame) return false;
-  const data = event.data as { chainsPack?: unknown; id?: unknown; request?: unknown } | null;
+  const data = event.data as { chainsPack?: unknown; chainsModule?: unknown; type?: unknown; data?: unknown; id?: unknown; request?: unknown } | null;
+  // What the pages of a module tell the app (lib/modules.svelte.ts): for the module of that frame, checked there.
+  if (data && typeof data === 'object' && data.chainsModule === 1) return onModuleMessage(frame.stem, data.type, data.data);
   if (!data || typeof data !== 'object' || data.chainsPack !== 1 || typeof data.id !== 'number') return false;
   const id = data.id;
   route(frame.stem, data.request as PackRequest).then(

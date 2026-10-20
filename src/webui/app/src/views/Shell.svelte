@@ -12,6 +12,18 @@
   import { prefs, wallets } from '../lib/state.svelte';
   import Dashboard from './layouts/Dashboard.svelte';
   import Workspace from './layouts/Workspace.svelte';
+  import { followHistory } from '../lib/history.svelte';
+  import { activeModule, modules } from '../lib/modules.svelte';
+  import { hub } from '../lib/sidechains.svelte';
+
+  // Back and forward: the app's (lib/history.svelte.ts), for its pages and the modules' alike.
+  followHistory();
+  // A page of the app's own (Settings, from a module): the module switcher goes back to the app's pages.
+  $effect(() => {
+    if (nav.page !== 'sidechain' && hub.selected !== 'chains') untrack(() => (hub.selected = 'chains'));
+  });
+  // A dialog of a module's pages is open: the app's window is dimmed around its page, as for a dialog of its own.
+  const dimmed = $derived(!!activeModule() && !!modules.modal[activeModule()]);
 
   $effect(() => {
     detail.follow = prefs.layout === 'workspace';
@@ -50,6 +62,7 @@
     {/if}
   </div>
 </div>
+{#if dimmed}<div class="module-scrim" aria-hidden="true"></div>{/if}
 <CommandPalette />
 <TxNotifier />
 
@@ -62,6 +75,12 @@
   .layout {
     flex: 1 1 0;
     min-height: 0;
+  }
+  .module-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: var(--overlay);
   }
   .skip {
     position: fixed;

@@ -56,6 +56,12 @@
     hash: 'M5 9h14M5 15h14M10 4L8 20M16 4l-2 16',
     tool: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z',
     arrow: 'M5 12h14M13 6l6 6-6 6',
+    // A page of a module whose icon the app does not have (and gave no path of its own).
+    dot: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+    // The module switcher, the downloads of a module's program.
+    modules: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM16.5 13v7M13 16.5h7',
+    back: 'M15 5l-7 7 7 7',
+    forward: 'M9 5l7 7-7 7',
     bell: 'M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0',
     moon: 'M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z',
     logout: 'M14 5V4H5v16h9v-1M10 12h11M17 8l4 4-4 4',
@@ -66,7 +72,8 @@
 </script>
 
 <script lang="ts">
-  let { name, size = 18, label }: { name: IconName; size?: number; label?: string } = $props();
+  // path: the icon of a module's page (an SVG path it gave, checked by lib/modules.svelte.ts): drawn as one path, as ours.
+  let { name, size = 18, label, path }: { name?: IconName; size?: number; label?: string; path?: string } = $props();
 </script>
 
 <svg
@@ -83,7 +90,7 @@
   aria-label={label}
   aria-hidden={label ? undefined : 'true'}
 >
-  <path d={ICONS[name]} />
+  <path d={path || ICONS[name ?? 'dot']} />
 </svg>
 
 <style>

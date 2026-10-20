@@ -9,7 +9,7 @@
   "code": "ar",
   "name": "العربية",
   "rtl": true,
-  "messages": 525
+  "messages": 526
  },
  {
   "code": "ast_ES",
@@ -39,7 +39,7 @@
   "code": "bg",
   "name": "Български",
   "rtl": false,
-  "messages": 441
+  "messages": 442
  },
  {
   "code": "bn",
@@ -63,7 +63,7 @@
   "code": "ca",
   "name": "Català",
   "rtl": false,
-  "messages": 584
+  "messages": 586
  },
  {
   "code": "cmn",
@@ -75,7 +75,7 @@
   "code": "cs",
   "name": "Čeština",
   "rtl": false,
-  "messages": 599
+  "messages": 600
  },
  {
   "code": "cy",
@@ -87,7 +87,7 @@
   "code": "da",
   "name": "Dansk",
   "rtl": false,
-  "messages": 535
+  "messages": 536
  },
  {
   "code": "de",
@@ -99,19 +99,19 @@
   "code": "el",
   "name": "Ελληνικά",
   "rtl": false,
-  "messages": 591
+  "messages": 592
  },
  {
   "code": "en",
   "name": "English",
   "rtl": false,
-  "messages": 95
+  "messages": 96
  },
  {
   "code": "eo",
   "name": "Esperanto",
   "rtl": false,
-  "messages": 313
+  "messages": 314
  },
  {
   "code": "es",
@@ -129,49 +129,49 @@
   "code": "eu",
   "name": "Euskara",
   "rtl": false,
-  "messages": 625
+  "messages": 626
  },
  {
   "code": "fa",
   "name": "فارسی",
   "rtl": true,
-  "messages": 472
+  "messages": 473
  },
  {
   "code": "fi",
   "name": "Suomi",
   "rtl": false,
-  "messages": 622
+  "messages": 623
  },
  {
   "code": "fil",
   "name": "Filipino",
   "rtl": false,
-  "messages": 429
+  "messages": 430
  },
  {
   "code": "fo",
   "name": "Føroyskt",
   "rtl": false,
-  "messages": 631
+  "messages": 633
  },
  {
   "code": "fr",
   "name": "Français",
   "rtl": false,
-  "messages": 622
+  "messages": 623
  },
  {
   "code": "ga",
   "name": "Gaeilge",
   "rtl": false,
-  "messages": 626
+  "messages": 627
  },
  {
   "code": "ga_IE",
   "name": "Gaeilge (Éire)",
   "rtl": false,
-  "messages": 626
+  "messages": 627
  },
  {
   "code": "gl",
@@ -189,7 +189,7 @@
   "code": "gu",
   "name": "ગુજરાતી",
   "rtl": false,
-  "messages": 435
+  "messages": 436
  },
  {
   "code": "hak",
@@ -201,7 +201,7 @@
   "code": "he",
   "name": "עברית",
   "rtl": true,
-  "messages": 585
+  "messages": 586
  },
  {
   "code": "hi",
@@ -213,19 +213,19 @@
   "code": "hr",
   "name": "Hrvatski",
   "rtl": false,
-  "messages": 569
+  "messages": 570
  },
  {
   "code": "hu",
   "name": "Magyar",
   "rtl": false,
-  "messages": 620
+  "messages": 621
  },
  {
   "code": "id",
   "name": "Indonesia",
   "rtl": false,
-  "messages": 520
+  "messages": 522
  },
  {
   "code": "is",
@@ -237,37 +237,37 @@
   "code": "it",
   "name": "Italiano",
   "rtl": false,
-  "messages": 604
+  "messages": 605
  },
  {
   "code": "ja",
   "name": "日本語",
   "rtl": false,
-  "messages": 627
+  "messages": 628
  },
  {
   "code": "ka",
   "name": "Ქართული",
   "rtl": false,
-  "messages": 429
+  "messages": 430
  },
  {
   "code": "kk",
   "name": "Қазақ тілі",
   "rtl": false,
-  "messages": 230
+  "messages": 231
  },
  {
   "code": "kk@latin",
   "name": "Қазақ тілі (латын жазуы)",
   "rtl": false,
-  "messages": 229
+  "messages": 230
  },
  {
   "code": "km",
   "name": "ខ្មែរ",
   "rtl": false,
-  "messages": 430
+  "messages": 431
  },
  {
   "code": "kn",
@@ -279,7 +279,7 @@
   "code": "ko",
   "name": "한국어",
   "rtl": false,
-  "messages": 621
+  "messages": 622
  },
  {
   "code": "ku",
@@ -303,13 +303,13 @@
   "code": "lt",
   "name": "Lietuvių",
   "rtl": false,
-  "messages": 440
+  "messages": 441
  },
  {
   "code": "lv",
   "name": "Latviešu",
   "rtl": false,
-  "messages": 196
+  "messages": 197
  },
  {
   "code": "mi",
@@ -327,13 +327,13 @@
   "code": "ml",
   "name": "മലയാളം",
   "rtl": false,
-  "messages": 198
+  "messages": 199
  },
  {
   "code": "mn",
   "name": "Монгол",
   "rtl": false,
-  "messages": 140
+  "messages": 141
  },
  {
   "code": "ms",
@@ -345,25 +345,25 @@
   "code": "mt",
   "name": "Malti",
   "rtl": false,
-  "messages": 314
+  "messages": 315
  },
  {
   "code": "nb",
   "name": "Norsk bokmål",
   "rtl": false,
-  "messages": 555
+  "messages": 556
  },
  {
   "code": "ne",
   "name": "नेपाली",
   "rtl": false,
-  "messages": 124
+  "messages": 125
  },
  {
   "code": "nl",
   "name": "Nederlands",
   "rtl": false,
-  "messages": 559
+  "messages": 560
  },
  {
   "code": "no",
@@ -381,7 +381,7 @@
   "code": "pl",
   "name": "Polski",
   "rtl": false,
-  "messages": 621
+  "messages": 622
  },
  {
   "code": "ps",
@@ -393,25 +393,25 @@
   "code": "pt",
   "name": "Português",
   "rtl": false,
-  "messages": 614
+  "messages": 615
  },
  {
   "code": "pt_BR",
   "name": "Português (Brasil)",
   "rtl": false,
-  "messages": 572
+  "messages": 573
  },
  {
   "code": "ro",
   "name": "Română",
   "rtl": false,
-  "messages": 530
+  "messages": 531
  },
  {
   "code": "ru",
   "name": "Русский",
   "rtl": false,
-  "messages": 550
+  "messages": 551
  },
  {
   "code": "si",
@@ -423,19 +423,19 @@
   "code": "sk",
   "name": "Slovenčina",
   "rtl": false,
-  "messages": 622
+  "messages": 623
  },
  {
   "code": "sl",
   "name": "Slovenščina",
   "rtl": false,
-  "messages": 603
+  "messages": 604
  },
  {
   "code": "sm",
   "name": "Samoan",
   "rtl": false,
-  "messages": 292
+  "messages": 293
  },
  {
   "code": "sq",
@@ -447,25 +447,25 @@
   "code": "sr",
   "name": "Српски",
   "rtl": false,
-  "messages": 572
+  "messages": 573
  },
  {
   "code": "sr@ijekavianlatin",
   "name": "Српски",
   "rtl": false,
-  "messages": 571
+  "messages": 572
  },
  {
   "code": "sr@latin",
   "name": "Srpski (latinica)",
   "rtl": false,
-  "messages": 570
+  "messages": 571
  },
  {
   "code": "sv",
   "name": "Svenska",
   "rtl": false,
-  "messages": 550
+  "messages": 551
  },
  {
   "code": "sw",
@@ -477,19 +477,19 @@
   "code": "szl",
   "name": "Ślōnski",
   "rtl": false,
-  "messages": 239
+  "messages": 240
  },
  {
   "code": "ta",
   "name": "தமிழ்",
   "rtl": false,
-  "messages": 448
+  "messages": 449
  },
  {
   "code": "te",
   "name": "తెలుగు",
   "rtl": false,
-  "messages": 355
+  "messages": 356
  },
  {
   "code": "th",
@@ -501,7 +501,7 @@
   "code": "tk",
   "name": "Türkmen dili",
   "rtl": false,
-  "messages": 358
+  "messages": 359
  },
  {
   "code": "tl",
@@ -513,37 +513,37 @@
   "code": "tr",
   "name": "Türkçe",
   "rtl": false,
-  "messages": 554
+  "messages": 555
  },
  {
   "code": "uk",
   "name": "Українська",
   "rtl": false,
-  "messages": 635
+  "messages": 636
  },
  {
   "code": "ur",
   "name": "اردو",
   "rtl": true,
-  "messages": 421
+  "messages": 422
  },
  {
   "code": "uz",
   "name": "O‘zbek",
   "rtl": false,
-  "messages": 405
+  "messages": 406
  },
  {
   "code": "uz@Cyrl",
   "name": "O‘zbek",
   "rtl": false,
-  "messages": 404
+  "messages": 405
  },
  {
   "code": "uz@Latn",
   "name": "O‘zbek",
   "rtl": false,
-  "messages": 404
+  "messages": 405
  },
  {
   "code": "ve",
@@ -555,7 +555,7 @@
   "code": "vi",
   "name": "Tiếng Việt",
   "rtl": false,
-  "messages": 349
+  "messages": 350
  },
  {
   "code": "yi",
@@ -591,7 +591,7 @@
   "code": "zh_CN",
   "name": "中文（中国）",
   "rtl": false,
-  "messages": 618
+  "messages": 619
  },
  {
   "code": "zh_HK",
@@ -603,6 +603,6 @@
   "code": "zh_TW",
   "name": "中文（台灣）",
   "rtl": false,
-  "messages": 607
+  "messages": 608
  }
 ]
