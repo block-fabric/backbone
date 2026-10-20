@@ -561,6 +561,12 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     if (nLockTime < 0)
                         return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
 
+                    // eCash replay protection: a transaction with the magic nLockTime of its network fails
+                    // every OP_CHECKLOCKTIMEVERIFY, by height or by time (ecash-com/bitcoin, CheckLockTime).
+                    if (((flags & SCRIPT_VERIFY_REPLAY_LOCKTIME) && checker.HasTxLockTime(LOCKTIME_THRESHOLD - 2)) ||
+                        ((flags & SCRIPT_VERIFY_REPLAY_LOCKTIME_BETANET) && checker.HasTxLockTime(LOCKTIME_THRESHOLD - 1)))
+                        return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+
                     // Actually compare the specified lock time with the transaction.
                     if (!checker.CheckLockTime(nLockTime))
                         return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
@@ -602,10 +608,16 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     break;
                 }
 
-                // Marks the escrow output of a sidechain. What may spend such an
-                // output is decided by the drivechain rules, not by the script.
-                case OP_DRIVECHAIN:
+                // OP_DRIVECHAIN of the Chains networks: marks the escrow output of a sidechain. What
+                // may spend such an output is decided by the drivechain rules, not by the script.
+                case OP_NOP5:
                 {
+                    if (flags & SCRIPT_VERIFY_DRIVECHAIN_NOP8) {
+                        // The eCash networks: a NOP reserved for upgrades, as on Bitcoin.
+                        if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                            return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+                        break;
+                    }
                     // In a treasury script, OP_DRIVECHAIN OP_PUSHBYTES_1 <slot> OP_TRUE (BIP300), the slot
                     // names the sidechain and is no data for the stack: it is a one byte push whatever
                     // its value, and spending leaves OP_TRUE alone on the stack.
@@ -613,8 +625,26 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                // OP_DRIVECHAIN of the eCash networks (ecash-com/bitcoin, src/script/interpreter.cpp): the script
+                // being executed (a scriptPubKey, a redeem script, a witness script or a tapleaf) of four bytes
+                // that starts with it succeeds, with 0xDC on the stack, whatever its other bytes; anywhere else it
+                // is a NOP, and one that is standard.
+                case OP_NOP8:
+                {
+                    if (flags & SCRIPT_VERIFY_DRIVECHAIN_NOP8) {
+                        if (script.size() == 4 && script[0] == OP_NOP8) {
+                            stack.push_back(std::vector<unsigned char>{0xDC});
+                            pc = pend;
+                        }
+                        break;
+                    }
+                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                        return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+                }
+                break;
+
                 case OP_NOP1: case OP_NOP4:
-                case OP_NOP6: case OP_NOP7: case OP_NOP8: case OP_NOP9: case OP_NOP10:
+                case OP_NOP6: case OP_NOP7: case OP_NOP9: case OP_NOP10:
                 {
                     if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
                         return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
@@ -1763,6 +1793,12 @@ bool GenericTransactionSignatureChecker<T>::CheckSchnorrSignature(std::span<cons
 }
 
 template <class T>
+bool GenericTransactionSignatureChecker<T>::HasTxLockTime(uint32_t lock_time) const
+{
+    return txTo->nLockTime == lock_time;
+}
+
+template <class T>
 bool GenericTransactionSignatureChecker<T>::CheckLockTime(const CScriptNum& nLockTime) const
 {
     // There are two kinds of nLockTime: lock-by-blockheight
@@ -2209,6 +2245,9 @@ const std::map<std::string, script_verify_flag_name>& ScriptFlagNamesToEnum()
         FLAG_NAME(CONST_SCRIPTCODE),
         FLAG_NAME(TAPROOT),
         FLAG_NAME(DISCOURAGE_UPGRADABLE_PUBKEYTYPE),
+        FLAG_NAME(DRIVECHAIN_NOP8),
+        FLAG_NAME(REPLAY_LOCKTIME),
+        FLAG_NAME(REPLAY_LOCKTIME_BETANET),
         FLAG_NAME(DISCOURAGE_OP_SUCCESS),
         FLAG_NAME(DISCOURAGE_UPGRADABLE_TAPROOT_VERSION),
     };

@@ -146,6 +146,16 @@ enum class script_verify_flag_name : uint8_t {
     // Making unknown public key versions (in BIP 342 scripts) non-standard
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE,
 
+    // eCash: OP_NOP8 is OP_DRIVECHAIN, and a script of four bytes that starts with it succeeds
+    // (anyone-can-spend); OP_NOP5 is a NOP. Not a soft fork: a consensus rule of the eCash networks,
+    // on every block (see Consensus::Params::drivechain_nop8).
+    SCRIPT_VERIFY_DRIVECHAIN_NOP8,
+
+    // eCash replay protection: a transaction whose nLockTime is 499999998 (LOCKTIME_THRESHOLD - 2, eCash's
+    // main and test networks) or 499999999 (LOCKTIME_THRESHOLD - 1, betanet) fails every CHECKLOCKTIMEVERIFY.
+    SCRIPT_VERIFY_REPLAY_LOCKTIME,
+    SCRIPT_VERIFY_REPLAY_LOCKTIME_BETANET,
+
     // Constants to point to the highest flag in use. Add new flags above this line.
     //
     SCRIPT_VERIFY_END_MARKER
@@ -290,6 +300,12 @@ public:
          return false;
     }
 
+    /** Whether the transaction's nLockTime is `lock_time` (eCash replay protection). */
+    virtual bool HasTxLockTime(uint32_t lock_time) const
+    {
+         return false;
+    }
+
     virtual bool CheckSequence(const CScriptNum& nSequence) const
     {
          return false;
@@ -331,6 +347,7 @@ public:
     bool CheckECDSASignature(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
     bool CheckSchnorrSignature(std::span<const unsigned char> sig, std::span<const unsigned char> pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
+    bool HasTxLockTime(uint32_t lock_time) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
 };
 
@@ -358,6 +375,10 @@ public:
     bool CheckLockTime(const CScriptNum& nLockTime) const override
     {
         return m_checker.CheckLockTime(nLockTime);
+    }
+    bool HasTxLockTime(uint32_t lock_time) const override
+    {
+        return m_checker.HasTxLockTime(lock_time);
     }
     bool CheckSequence(const CScriptNum& nSequence) const override
     {

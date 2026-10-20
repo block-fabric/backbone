@@ -88,8 +88,9 @@ bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType)
     whichType = Solver(scriptPubKey, vSolutions);
 
     if (whichType == TxoutType::NONSTANDARD) {
-        // Sidechain escrow outputs; the mempool checks them against the drivechain rules.
-        return drivechain::ParseEscrowScript(scriptPubKey).has_value();
+        // Sidechain escrow outputs; the mempool checks them against the drivechain rules. On the eCash
+        // networks, any script of four bytes that starts with OP_DRIVECHAIN, as eCash's node has it.
+        return drivechain::ParseEscrowScript(scriptPubKey).has_value() || drivechain::IsEcashDrivechainScript(scriptPubKey);
     } else if (whichType == TxoutType::MULTISIG) {
         unsigned char m = vSolutions.front()[0];
         unsigned char n = vSolutions.back()[0];
@@ -236,7 +237,7 @@ TxValidationState ValidateInputsStandardness(const CTransaction& tx, const CCoin
         TxoutType whichType = Solver(prev.scriptPubKey, vSolutions);
         if (whichType == TxoutType::NONSTANDARD) {
             // Deposits and withdrawals spend the escrow output of their sidechain.
-            if (drivechain::ParseEscrowScript(prev.scriptPubKey)) continue;
+            if (drivechain::ParseEscrowScript(prev.scriptPubKey) || drivechain::IsEcashDrivechainScript(prev.scriptPubKey)) continue;
             state.Invalid(TxValidationResult::TX_INPUTS_NOT_STANDARD, "bad-txns-nonstandard-inputs", strprintf("input %u script unknown", i));
             return state;
         } else if (whichType == TxoutType::WITNESS_UNKNOWN) {

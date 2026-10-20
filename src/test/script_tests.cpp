@@ -136,7 +136,9 @@ void DoTest(const CScript& scriptPubKey, const CScript& scriptSig, const CScript
 
     // Verify that removing flags from a passing test or adding flags to a failing test does not change the result.
     for (int i = 0; i < 256; ++i) {
-        script_verify_flags extra_flags = script_verify_flags::from_int(m_rng.randbits(MAX_SCRIPT_VERIFY_FLAGS_BITS));
+        // (Not the rules of the eCash networks, which are not soft forks of Bitcoin's: see ecash_tests.)
+        script_verify_flags extra_flags = script_verify_flags::from_int(m_rng.randbits(MAX_SCRIPT_VERIFY_FLAGS_BITS)) &
+                                          ~(SCRIPT_VERIFY_DRIVECHAIN_NOP8 | SCRIPT_VERIFY_REPLAY_LOCKTIME | SCRIPT_VERIFY_REPLAY_LOCKTIME_BETANET);
         script_verify_flags combined_flags{expect ? (flags & ~extra_flags) : (flags | extra_flags)};
         // Weed out some invalid flag combinations.
         if (combined_flags & SCRIPT_VERIFY_CLEANSTACK && ~combined_flags & (SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS)) continue;

@@ -60,8 +60,10 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 /**
  * Check if transaction is final and can be included in a block with the
  * specified height and time. Consensus critical.
+ * @param[in] replay_locktime  eCash: the nLockTime that is final at any height and time
+ *                             (Consensus::Params::replay_locktime); 0 for none.
  */
-bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime);
+bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime, uint32_t replay_locktime = 0);
 
 /**
  * Calculates the block height and previous block's median time past at

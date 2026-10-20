@@ -154,7 +154,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
                        std::vector<CScriptCheck>* pvChecks = nullptr)
                        EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
-bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& tx)
+bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& tx, uint32_t replay_locktime)
 {
     AssertLockHeld(cs_main);
 
@@ -173,7 +173,7 @@ bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& 
     // IsFinalTx().
     const int64_t nBlockTime{active_chain_tip.GetMedianTimePast()};
 
-    return IsFinalTx(tx, nBlockHeight, nBlockTime);
+    return IsFinalTx(tx, nBlockHeight, nBlockTime, replay_locktime);
 }
 
 namespace {
@@ -355,7 +355,7 @@ void Chainstate::MaybeUpdateMempoolForReorg(
         const CTransaction& tx = it->GetTx();
 
         // The transaction must be final.
-        if (!CheckFinalTxAtTip(*Assert(m_chain.Tip()), tx)) return true;
+        if (!CheckFinalTxAtTip(*Assert(m_chain.Tip()), tx, m_chainman.GetConsensus().replay_locktime)) return true;
 
         const LockPoints& lp = it->GetLockPoints();
         // CheckSequenceLocksAtTip checks if the transaction will be final in the next block to be
@@ -857,7 +857,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // Only accept nLockTime-using transactions that can be mined in the next
     // block; we don't want our mempool filled up with transactions that can't
     // be mined yet.
-    if (!CheckFinalTxAtTip(*Assert(m_active_chainstate.m_chain.Tip()), tx)) {
+    if (!CheckFinalTxAtTip(*Assert(m_active_chainstate.m_chain.Tip()), tx, m_active_chainstate.m_chainman.GetConsensus().replay_locktime)) {
         return state.Invalid(TxValidationResult::TX_PREMATURE_SPEND, "non-final");
     }
 
@@ -1296,7 +1296,10 @@ bool MemPoolAccept::PolicyScriptChecks(Workspace& ws)
     const CTransaction& tx = *ws.m_ptx;
     TxValidationState& state = ws.m_state;
 
-    constexpr script_verify_flags scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
+    const Consensus::Params& consensus{m_active_chainstate.m_chainman.GetConsensus()};
+    // eCash: a repurpose transaction is accepted, relayed and mined without its input scripts.
+    if (consensus.IsRepurposeTx(tx.GetHash().ToUint256())) return true;
+    const script_verify_flags scriptVerifyFlags{STANDARD_SCRIPT_VERIFY_FLAGS | GetEcashScriptFlags(consensus)};
 
     // Check input scripts and signatures.
     // This is done last to help prevent CPU exhaustion denial-of-service attacks.
@@ -1335,6 +1338,7 @@ bool MemPoolAccept::ConsensusScriptChecks(Workspace& ws)
     // There is a similar check in CreateNewBlock() to prevent creating
     // invalid blocks (using TestBlockValidity), however allowing such
     // transactions into the mempool can be exploited as a DoS attack.
+    if (m_active_chainstate.m_chainman.GetConsensus().IsRepurposeTx(tx.GetHash().ToUint256())) return true;
     script_verify_flags currentBlockScriptVerifyFlags{GetBlockScriptFlags(*m_active_chainstate.m_chain.Tip(), m_active_chainstate.m_chainman)};
     if (!CheckInputsFromMempoolAndCache(tx, state, m_view, m_pool, currentBlockScriptVerifyFlags,
                                         ws.m_precomputed_txdata, m_active_chainstate.CoinsTip(), GetValidationCache())) {
@@ -2490,6 +2494,19 @@ script_verify_flags GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
         flags |= SCRIPT_VERIFY_NULLDUMMY;
     }
 
+    // The rules of the eCash networks, at every height, the exception blocks too (ecash-com/bitcoin has
+    // them in the interpreter, outside of any flag).
+    flags |= GetEcashScriptFlags(consensusparams);
+
+    return flags;
+}
+
+script_verify_flags GetEcashScriptFlags(const Consensus::Params& consensus)
+{
+    script_verify_flags flags{SCRIPT_VERIFY_NONE};
+    if (consensus.drivechain_nop8) flags |= SCRIPT_VERIFY_DRIVECHAIN_NOP8;
+    if (consensus.replay_locktime == LOCKTIME_THRESHOLD - 2) flags |= SCRIPT_VERIFY_REPLAY_LOCKTIME;
+    if (consensus.replay_locktime == LOCKTIME_THRESHOLD - 1) flags |= SCRIPT_VERIFY_REPLAY_LOCKTIME_BETANET;
     return flags;
 }
 
@@ -2775,7 +2792,8 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             break;
         }
 
-        if (!tx.IsCoinBase() && fScriptChecks)
+        // eCash: the input scripts of a repurpose transaction are not checked (ecash-com/bitcoin, CheckInputScripts).
+        if (!tx.IsCoinBase() && fScriptChecks && !params.GetConsensus().IsRepurposeTx(tx.GetHash().ToUint256()))
         {
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
             bool tx_ok;
@@ -4463,6 +4481,15 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
     if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
         return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-diffbits", "incorrect proof of work");
 
+    // Enforce the eCash fork difficulty reset (ecash-com/bitcoin, ContextualCheckBlockHeader).
+    if (consensusParams.ecash_fork_height > 0 && nHeight == consensusParams.ecash_fork_height) {
+        if (block.nBits != consensusParams.ecash_fork_bits) {
+            LogInfo("%s: Invalid diffbits for eCash DA at height: %u.", __func__, nHeight);
+            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-diffbits-ecash-da", "Bits invalid for eCash DA height block!");
+        }
+        LogInfo("%s: eCash fork birthday DA activated! Height: %u", __func__, nHeight);
+    }
+
     // Check timestamp against prev
     if (block.GetBlockTime() <= pindexPrev->GetMedianTimePast())
         return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "time-too-old", "block's timestamp is too early");
@@ -4518,7 +4545,7 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
 
     // Check that all transactions are finalized
     for (const auto& tx : block.vtx) {
-        if (!IsFinalTx(*tx, nHeight, nLockTimeCutoff)) {
+        if (!IsFinalTx(*tx, nHeight, nLockTimeCutoff, chainman.GetConsensus().replay_locktime)) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-nonfinal", "non-final transaction");
         }
     }
@@ -5393,6 +5420,17 @@ bool Chainstate::RollForwardSidechainDB(drivechain::SidechainDB& scdb, const CBl
     const Consensus::DrivechainParams& params{m_chainman.GetConsensus().drivechain};
     for (int height{from->nHeight + 1}; height <= to->nHeight; ++height) {
         const CBlockIndex* next{to->GetAncestor(height)};
+        // Below the activation height (on eCash, Bitcoin's history before the fork) the blocks change
+        // nothing: they are not read (see SidechainDB::ConnectBlock).
+        if (height < params.activation_height) {
+            drivechain::BlockUndo undo;
+            undo.prev_block_hash = scdb.GetBlockHash();
+            scdb.SetBlockHash(next->GetBlockHash());
+            const drivechain::BmmAccepts no_bmm;
+            db.WriteBlock(next->GetBlockHash(), height, undo, {}, scdb, /*keep_undo=*/height > keep_undo_above, &no_bmm);
+            if (m_chainman.m_interrupt) return false;
+            continue;
+        }
         CBlock block;
         if (!m_blockman.ReadBlock(block, *next)) {
             LogError("%s: failed to read block %s", __func__, next->GetBlockHash().ToString());

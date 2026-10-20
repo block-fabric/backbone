@@ -13,6 +13,8 @@
 #include <util/strencodings.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cassert>
 #include <span>
 
 namespace drivechain {
@@ -72,6 +74,7 @@ constexpr size_t BMM_REQUEST_DATA_SIZE{3 + 1 + 32 + 32};
 
 std::vector<unsigned char> Sidechain::Description() const
 {
+    if (version == RAW_DESCRIPTION) return std::vector<unsigned char>(description.begin(), description.end());
     std::vector<unsigned char> data;
     data.push_back(static_cast<unsigned char>(version));
     data.push_back(static_cast<unsigned char>(title.size()));
@@ -95,16 +98,37 @@ bool Sidechain::IsValid(uint32_t max_sidechains) const
            description.size() <= MAX_DESCRIPTION_SIZE;
 }
 
+namespace {
+//! The opcode of the network's treasury scripts: OP_NOP5 (Chains), OP_NOP8 (eCash).
+std::atomic<uint8_t> g_escrow_opcode{OP_DRIVECHAIN};
+} // namespace
+
+void SetEscrowOpcode(opcodetype opcode)
+{
+    assert(opcode == OP_NOP5 || opcode == OP_NOP8);
+    g_escrow_opcode = static_cast<uint8_t>(opcode);
+}
+
+opcodetype EscrowOpcode()
+{
+    return static_cast<opcodetype>(g_escrow_opcode.load());
+}
+
 CScript EscrowScript(SidechainId slot)
 {
-    return CScript() << OP_DRIVECHAIN << std::vector<unsigned char>{static_cast<unsigned char>(slot)} << OP_TRUE;
+    return CScript() << EscrowOpcode() << std::vector<unsigned char>{static_cast<unsigned char>(slot)} << OP_TRUE;
 }
 
 std::optional<SidechainId> ParseEscrowScript(const CScript& script)
 {
     if (script.size() != ESCROW_SCRIPT_SIZE) return std::nullopt;
-    if (script[0] != OP_DRIVECHAIN || script[1] != 1 || script[3] != OP_TRUE) return std::nullopt;
+    if (script[0] != EscrowOpcode() || script[1] != 1 || script[3] != OP_TRUE) return std::nullopt;
     return SidechainId{script[2]};
+}
+
+bool IsEcashDrivechainScript(const CScript& script)
+{
+    return EscrowOpcode() == OP_NOP8 && script.size() == ESCROW_SCRIPT_SIZE && script[0] == OP_NOP8;
 }
 
 CScript ProposalScript(const Sidechain& sidechain)
@@ -134,6 +158,18 @@ std::optional<Sidechain> ParseProposalScript(const CScript& script)
     sidechain.description.assign(description.begin(), description.end());
     sidechain.hash_id1 = uint256{bytes.subspan(bytes.size() - 52, 32)};
     sidechain.hash_id2 = uint160{bytes.subspan(bytes.size() - 20, 20)};
+    return sidechain;
+}
+
+std::optional<Sidechain> ParseProposalScriptAnyDescription(const CScript& script)
+{
+    if (auto sidechain{ParseProposalScript(script)}) return sidechain;
+    const auto payload{ParseMessageScript(script, PROPOSAL_TAG)};
+    if (!payload || payload->empty()) return std::nullopt;
+    Sidechain sidechain;
+    sidechain.slot = (*payload)[0];
+    sidechain.version = Sidechain::RAW_DESCRIPTION;
+    sidechain.description.assign(payload->begin() + 1, payload->end());
     return sidechain;
 }
 

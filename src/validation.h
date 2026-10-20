@@ -306,7 +306,10 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
 /**
  * Check if transaction will be final in the next block to be created.
  */
-bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+/** The script verification flags of the eCash rules of a network (OP_DRIVECHAIN as OP_NOP8, the magic nLockTime of replay protection). */
+script_verify_flags GetEcashScriptFlags(const Consensus::Params& consensus);
+
+bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& tx, uint32_t replay_locktime = 0) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
 /**
  * Calculate LockPoints required to check if transaction will be BIP68 final in the next block

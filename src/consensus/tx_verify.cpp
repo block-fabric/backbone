@@ -20,9 +20,11 @@
 #include <cstddef>
 #include <string>
 
-bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime)
+bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime, uint32_t replay_locktime)
 {
-    if (tx.nLockTime == 0)
+    // eCash replay protection (ecash-com/bitcoin): the magic nLockTime of the network is final, which
+    // stock Bitcoin reads as a height out of reach.
+    if (tx.nLockTime == 0 || (replay_locktime != 0 && tx.nLockTime == replay_locktime))
         return true;
     if ((int64_t)tx.nLockTime < ((int64_t)tx.nLockTime < LOCKTIME_THRESHOLD ? (int64_t)nBlockHeight : nBlockTime))
         return true;

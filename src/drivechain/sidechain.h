@@ -88,6 +88,13 @@ inline constexpr unsigned char BMM_REQUEST_TAG[3]{0x00, 0xBF, 0x00};
 
 /** Description of a sidechain, as proposed by a miner. */
 struct Sidechain {
+    /**
+     * The version of a description that is not one this software reads (not version 0, or not in
+     * its form), kept as it is in `description`: the enforcer's rules (eCash) take any description,
+     * whose sha256d is what miners ack.
+     */
+    static constexpr int32_t RAW_DESCRIPTION{-1};
+
     SidechainId slot{0};
     int32_t version{0};
     std::string title;
@@ -289,11 +296,27 @@ struct Vote {
  * spend it, with an empty scriptSig; the drivechain rules restrict how.
  */
 CScript EscrowScript(SidechainId slot);
+/**
+ * The opcode of the treasury scripts of the network: OP_NOP5 on the Chains networks, OP_NOP8 on the eCash
+ * networks (Consensus::Params::drivechain_nop8). Set with the chain parameters (SelectParams).
+ */
+opcodetype EscrowOpcode();
+void SetEscrowOpcode(opcodetype opcode);
+/**
+ * eCash: a script of four bytes starting with OP_NOP8, which eCash's node holds standard (TxoutType
+ * DRIVECHAIN of ecash-com/bitcoin) and anyone can spend; false on the Chains networks.
+ */
+bool IsEcashDrivechainScript(const CScript& script);
 /** If `script` is an escrow script, return its slot. */
 std::optional<SidechainId> ParseEscrowScript(const CScript& script);
 
 CScript ProposalScript(const Sidechain& sidechain);
 std::optional<Sidechain> ParseProposalScript(const CScript& script);
+/**
+ * A proposal as the bip300301_enforcer reads it (lib/messages.rs M1ProposeSidechain): the slot, then any
+ * description, which is version 0 if it reads as one and RAW_DESCRIPTION otherwise.
+ */
+std::optional<Sidechain> ParseProposalScriptAnyDescription(const CScript& script);
 
 CScript AckScript(SidechainId slot, const uint256& proposal_hash);
 std::optional<std::pair<SidechainId, uint256>> ParseAckScript(const CScript& script);

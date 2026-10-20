@@ -183,8 +183,20 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
         bnNew.SetCompact(pindexLast->nBits);
     }
 
-    bnNew *= nActualTimespan;
-    bnNew /= params.nPowTargetTimespan;
+    // A target this close to 2^256 (regtest's limit, with -testpowretarget) would overflow the product:
+    // divide first there. No other network comes near it (Bitcoin's limit is 2^224, its timespans 2^23).
+    if (bnNew.bits() + arith_uint256(static_cast<uint64_t>(nActualTimespan)).bits() > 256) {
+        bnNew /= params.nPowTargetTimespan;
+        bnNew *= nActualTimespan;
+    } else {
+        bnNew *= nActualTimespan;
+        bnNew /= params.nPowTargetTimespan;
+    }
+
+    // eCash fork activation difficulty reset (ecash-com/bitcoin, src/pow.cpp): the fork block, at a
+    // retarget boundary, carries the fork bits; the limit applies to them as to any target.
+    if (params.ecash_fork_height > 0 && pindexLast->nHeight + 1 == params.ecash_fork_height)
+        bnNew.SetCompact(params.ecash_fork_bits);
 
     if (bnNew > bnPowLimit)
         bnNew = bnPowLimit;
@@ -201,6 +213,12 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
     // aserti3 retargets every block by a factor that depends on block
     // timestamps, which are not available here.
     if (params.asert_half_life > 0 && !params.fPowNoRetargeting) return true;
+
+    // The eCash fork block resets the difficulty whatever it was: its bits are the fork bits (as
+    // ContextualCheckBlockHeader requires), not a retarget within the usual bounds.
+    if (params.ecash_fork_height > 0 && height == params.ecash_fork_height) {
+        return new_nbits == params.ecash_fork_bits;
+    }
 
     if (height % params.DifficultyAdjustmentInterval() == 0) {
         int64_t smallest_timespan = params.nPowTargetTimespan/4;

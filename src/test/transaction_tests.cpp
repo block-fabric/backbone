@@ -120,6 +120,11 @@ bool CheckTxScripts(const CTransaction& tx, const std::map<COutPoint, CScript>& 
  * CLEANSTACK must be used WITNESS and P2SH
  */
 
+// The rules of the eCash networks are network rules, not soft forks of Bitcoin's (OP_NOP8 as
+// OP_DRIVECHAIN loosens, the magic locktime tightens): they are left out of the flag combinations
+// these tests make, which assume that taking a flag away never makes a valid transaction invalid.
+static constexpr script_verify_flags ECASH_FLAGS{SCRIPT_VERIFY_DRIVECHAIN_NOP8 | SCRIPT_VERIFY_REPLAY_LOCKTIME | SCRIPT_VERIFY_REPLAY_LOCKTIME_BETANET};
+
 script_verify_flags TrimFlags(script_verify_flags flags)
 {
     // WITNESS requires P2SH
@@ -133,6 +138,7 @@ script_verify_flags TrimFlags(script_verify_flags flags)
 
 script_verify_flags FillFlags(script_verify_flags flags)
 {
+    flags &= ~ECASH_FLAGS;
     // CLEANSTACK implies WITNESS
     if (flags & SCRIPT_VERIFY_CLEANSTACK) flags |= SCRIPT_VERIFY_WITNESS;
 
@@ -150,6 +156,7 @@ std::set<script_verify_flags> ExcludeIndividualFlags(script_verify_flags flags)
 {
     std::set<script_verify_flags> flags_combos;
     for (const auto& pair : mapFlagNames) {
+        if (pair.second & ECASH_FLAGS) continue;
         script_verify_flags flags_excluding_one = TrimFlags(flags & ~(pair.second));
         if (flags != flags_excluding_one) {
             flags_combos.insert(flags_excluding_one);
@@ -215,7 +222,8 @@ BOOST_AUTO_TEST_CASE(tx_valid)
             BOOST_CHECK(state.IsValid());
 
             PrecomputedTransactionData txdata(tx);
-            script_verify_flags verify_flags = ParseScriptFlags(test[2].get_str());
+            // The eCash rules are never among the flags of these tests (see ECASH_FLAGS).
+            script_verify_flags verify_flags = ParseScriptFlags(test[2].get_str()) | ECASH_FLAGS;
 
             // Check that the test gives a valid combination of flags (otherwise VerifyScript will throw). Don't edit the flags.
             if (~verify_flags != FillFlags(~verify_flags)) {
