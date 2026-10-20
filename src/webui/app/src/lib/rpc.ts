@@ -161,7 +161,21 @@ export interface Hello {
   dialogs: Dialog[];
 }
 
+/** A network the intro offers: its data directory and the room its chain takes. */
+export interface IntroNetwork {
+  id: string;
+  label: string;
+  defaultDir: string;
+  blockchainGB: number;
+  chainstateGB: number;
+}
+
 export interface IntroData {
+  //! The networks to choose from (eCash's; Chains' too with -devnetworks), and the one chosen so far.
+  networks?: IntroNetwork[];
+  network?: string;
+  //! The network was given on the command line: no choice.
+  networkFixed?: boolean;
   defaultDir: string;
   dir: string;
   blockchainGB: number;
@@ -214,7 +228,7 @@ export const host = {
   languages: () => request<{ code: string; name: string; rtl: boolean; messages: number }[]>('host', 'app.languages', {}),
   updateLanguage: () => request<string>('host', 'app.updateLanguage', {}),
   introSpace: (dir: string) => request<Space>('host', 'intro.space', { dir }),
-  introChoose: (dir: string, pruneGB: number) => request<boolean>('host', 'intro.choose', { dir, pruneGB }),
+  introChoose: (dir: string, pruneGB: number, network?: string) => request<boolean>('host', 'intro.choose', { dir, pruneGB, network }),
   introCancel: () => request<boolean>('host', 'intro.cancel', {}),
   answer: (id: number, answer: unknown) => request<boolean>('host', 'dialog.answer', { id, answer }),
   prefs: () => request<Record<string, unknown>>('host', 'prefs.get', {}),

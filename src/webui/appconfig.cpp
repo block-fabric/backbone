@@ -21,6 +21,7 @@
 namespace webui {
 namespace {
 const char* const KEY_DATADIR{"datadir"};
+const char* const KEY_NETWORK{"network"};
 const char* const KEY_RESET{"reset"};
 const char* const KEY_PREFS{"prefs"};
 
@@ -170,6 +171,21 @@ void AppConfig::SetDataDir(const std::string& dir)
 {
     LOCK(m_mutex);
     m_root = ObjectWith(m_root, KEY_DATADIR, UniValue{dir});
+    Save();
+}
+
+std::optional<std::string> AppConfig::Network() const
+{
+    LOCK(m_mutex);
+    const UniValue& network{m_root.find_value(KEY_NETWORK)};
+    if (!network.isStr() || network.get_str().empty()) return std::nullopt;
+    return network.get_str();
+}
+
+void AppConfig::SetNetwork(const std::string& network)
+{
+    LOCK(m_mutex);
+    m_root = ObjectWith(m_root, KEY_NETWORK, UniValue{network});
     Save();
 }
 

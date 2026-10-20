@@ -53,6 +53,10 @@ public:
     std::optional<std::string> DataDir() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void SetDataDir(const std::string& dir) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
+    //! The network chosen in the intro (a -chain name), used when none is given on the command line.
+    std::optional<std::string> Network() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    void SetNetwork(const std::string& network) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
     //! The settings were reset: show the intro again (QSettings "fReset").
     bool ResetPending() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void SetResetPending(bool reset) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);

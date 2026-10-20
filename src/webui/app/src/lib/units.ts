@@ -12,12 +12,34 @@ export interface UnitInfo {
   decimals: number;
 }
 
+// (The ids stay those of the settings; the names are those of the network's coin, see setCurrency.)
 export const UNITS: readonly UnitInfo[] = [
   { id: 'CHN', short: 'CHN', long: 'Chains', decimals: 8 },
   { id: 'mCHN', short: 'mCHN', long: 'Milli-Chains (1 / 1 000)', decimals: 5 },
   { id: 'bits', short: 'bits', long: 'Micro-Chains (bits) (1 / 1 000 000)', decimals: 2 },
   { id: 'sat', short: 'sat', long: 'Satoshi (sat) (1 / 100 000 000)', decimals: 0 },
 ];
+
+/** The eCash networks (ecash, ecashbeta, ecashtest): their coin is eCash, ticker ECX. */
+export function isEcashNetwork(network: string | undefined): boolean {
+  return network === 'ecash' || network === 'ecashbeta' || network === 'ecashtest';
+}
+
+/** Name the units after the coin of the network: eCash (ECX) on the eCash networks, Chains (CHN) on the others. */
+export function setCurrency(network: string | undefined): void {
+  const ecash = isEcashNetwork(network);
+  const [coin, milli, micro] = UNITS as UnitInfo[];
+  coin.short = ecash ? 'ECX' : 'CHN';
+  coin.long = ecash ? 'eCash' : 'Chains';
+  milli.short = ecash ? 'mECX' : 'mCHN';
+  milli.long = ecash ? 'Milli-eCash (1 / 1 000)' : 'Milli-Chains (1 / 1 000)';
+  micro.long = ecash ? 'Micro-eCash (bits) (1 / 1 000 000)' : 'Micro-Chains (bits) (1 / 1 000 000)';
+}
+
+/** The ticker of the coin of the network, for text that names it. */
+export function ticker(): string {
+  return UNITS[0].short;
+}
 
 export const COIN = 100_000_000n;
 export const MAX_MONEY = 21_000_000n * COIN;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import SafeText from '../components/SafeText.svelte';
+  import { t } from '../lib/i18n.svelte';
   // The first start: where the node keeps its data, and whether it keeps every block (intro.cpp).
   import { host, type IntroData, type Space } from '../lib/rpc';
   import { app } from '../lib/state.svelte';
@@ -8,6 +9,8 @@
   const data = $derived(app.phaseData as unknown as IntroData);
   const GB = 1_000_000_000;
 
+  let network = $state('');
+  const choice = $derived(data?.networks?.find((n) => n.id === network));
   let useDefault = $state(true);
   let custom = $state('');
   let prune = $state(false);
@@ -21,14 +24,19 @@
   $effect(() => {
     if (initialised || !data?.defaultDir) return;
     initialised = true;
+    network = data.network ?? '';
     useDefault = data.dir === data.defaultDir;
     custom = data.dir;
     pruneGB = data.pruneGB;
     if (data.pruneForced !== undefined) prune = data.pruneForced;
   });
 
-  const dir = $derived(useDefault ? data?.defaultDir ?? '' : custom.trim());
-  const requiredGB = $derived(data ? (prune && pruneGB <= data.blockchainGB ? pruneGB + data.chainstateGB : data.blockchainGB + data.chainstateGB) : 0);
+  // The network decides the default data directory (eStack's or Chains') and the room the chain takes.
+  const defaultDir = $derived(choice?.defaultDir ?? data?.defaultDir ?? '');
+  const blockchainGB = $derived(choice?.blockchainGB ?? data?.blockchainGB ?? 0);
+  const chainstateGB = $derived(choice?.chainstateGB ?? data?.chainstateGB ?? 0);
+  const dir = $derived(useDefault ? defaultDir : custom.trim());
+  const requiredGB = $derived(data ? (prune && pruneGB <= blockchainGB ? pruneGB + chainstateGB : blockchainGB + chainstateGB) : 0);
   const freeGB = $derived(space?.free !== undefined ? space.free / GB : null);
 
   // FreespaceChecker: what the path chosen is; Intro::UpdatePruneLabels: the backups the blocks kept restore.
@@ -46,7 +54,7 @@
         space = await host.introSpace(d);
         // As the Qt intro: prune by default when the disk is short of room for the whole chain.
         if (!pruneTouched && data && data.pruneForced === undefined && space.free !== undefined) {
-          prune = space.free < (data.blockchainGB + data.chainstateGB + 10) * GB;
+          prune = space.free < (blockchainGB + chainstateGB + 10) * GB;
         }
       } catch {
         space = null;
@@ -63,7 +71,7 @@
     }
     busy = true;
     try {
-      await host.introChoose(dir, prune ? Math.max(data.minPruneGB, pruneGB) : 0);
+      await host.introChoose(dir, prune ? Math.max(data.minPruneGB, pruneGB) : 0, data.networkFixed ? undefined : network || undefined);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       busy = false;
@@ -73,11 +81,20 @@
 
 <main class="intro">
   <div class="card">
-    <h1>Welcome to {app.info?.name ?? 'Chains'}</h1>
+    <h1>Welcome to {app.info?.name ?? 'eStack'}</h1>
     <p class="lead">
       This is the first start of the app{app.info?.networkLabel ? ` on ${app.info.networkLabel}` : ''}. It will download and store a copy of
-      the Chains block chain; the wallet is stored with it. Choose where.
+      the block chain of the network you choose; the wallet is stored with it. Choose where.
     </p>
+
+    {#if data?.networks && data.networks.length > 1 && !data.networkFixed}
+      <label class="network">
+        <span>Network</span>
+        <select bind:value={network} aria-label="Network">
+          {#each data.networks as n (n.id)}<option value={n.id}>{t(n.label)}</option>{/each}
+        </select>
+      </label>
+    {/if}
 
     <fieldset>
       <legend class="sr-only">Data directory</legend>
@@ -85,7 +102,7 @@
         <input type="radio" name="dir" checked={useDefault} onchange={() => (useDefault = true)} />
         <span>Use the default data directory</span>
       </label>
-      <div class="path mono break">{data?.defaultDir}</div>
+      <div class="path mono break">{defaultDir}</div>
       <label class="check">
         <input type="radio" name="dir" checked={!useDefault} onchange={() => (useDefault = false)} />
         <span>Use a custom data directory</span>
@@ -100,7 +117,7 @@
       {:else if freeGB !== null}
         <p class:low={freeGB < requiredGB}>
           {freeGB.toFixed(0)} GB of free space available{space?.exists ? '' : ' (the folder will be made)'}.
-          {#if prune && data && pruneGB <= data.blockchainGB}
+          {#if prune && data && pruneGB <= blockchainGB}
             Approximately {requiredGB} GB of data will be stored in this directory.
           {:else}
             At least {requiredGB} GB of data will be stored in this directory, and it will grow over time.
@@ -158,6 +175,11 @@
     margin: 0;
     padding: 0;
     border: 0;
+  }
+  .network {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
   }
   .path {
     margin-left: 1.5rem;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { setCurrency } from './lib/units';
   // The page of chains-app: what it shows follows the phase of the app.
   import { onMount } from 'svelte';
   import AppDialogs from './components/AppDialogs.svelte';
@@ -71,6 +72,7 @@
         // The language first: the page shows in it from its first frame on.
         followLocale();
         await loadLocale();
+        setCurrency(hello.info.network);
         app.info = hello.info;
         app.dialogs = hello.dialogs;
         if (phaseEvents.count === phasesBefore) {

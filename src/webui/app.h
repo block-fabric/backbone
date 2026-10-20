@@ -182,6 +182,8 @@ private:
     std::vector<std::string> m_pending_uris GUARDED_BY(m_mutex);
     //! The intro's choice: the data directory, and the prune setting in MiB (0: off).
     std::optional<std::pair<std::string, int64_t>> m_intro_choice GUARDED_BY(m_mutex);
+    //! The network chosen in the intro, if it offered one.
+    std::optional<std::string> m_intro_network GUARDED_BY(m_mutex);
     bool m_intro_cancelled GUARDED_BY(m_mutex){false};
     //! Dialogs waiting for an answer of the page, by id, and their answers.
     std::map<int64_t, UniValue> m_dialogs GUARDED_BY(m_mutex);

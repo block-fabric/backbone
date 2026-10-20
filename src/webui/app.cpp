@@ -91,9 +91,37 @@ int64_t SteadySeconds()
 
 std::string NetworkLabel(const std::string& network)
 {
-    if (network == "main") return "";
-    if (network == "test") return "testnet";
+    // eCash's main network is the product's; the others are named, Chains' as such.
+    if (network == "ecash") return "";
+    if (network == "ecashbeta") return "eCash betanet";
+    if (network == "ecashtest") return "eCash testnet";
+    if (network == "main") return "Chains main";
+    if (network == "test") return "Chains testnet";
+    if (network == "signet") return "Chains signet";
     return network;
+}
+
+/** The networks the intro offers: eCash's; Chains' (CHN) too with -devnetworks. */
+std::vector<std::pair<ChainType, std::string>> IntroNetworks(const ArgsManager& args)
+{
+    std::vector<std::pair<ChainType, std::string>> networks{
+        {ChainType::ECASH, "eCash Mainnet"},
+        {ChainType::ECASH_BETANET, "eCash Betanet"},
+        {ChainType::ECASH_TESTNET, "eCash Testnet"},
+    };
+    if (args.GetBoolArg("-devnetworks", false)) {
+        networks.insert(networks.end(), {{ChainType::MAIN, "Chains (CHN) main network"},
+                                         {ChainType::TESTNET, "Chains (CHN) testnet"},
+                                         {ChainType::SIGNET, "Chains (CHN) signet"},
+                                         {ChainType::REGTEST, "Regtest"}});
+    }
+    return networks;
+}
+
+/** Whether the command line names the network (then the intro offers no choice). */
+bool NetworkOnCommandLine(const ArgsManager& args)
+{
+    return args.IsArgSet("-chain") || args.IsArgSet("-testnet") || args.IsArgSet("-signet") || args.IsArgSet("-regtest");
 }
 
 const UniValue& Param(const UniValue& params, const std::string& key)
@@ -133,6 +161,7 @@ UniValue SpaceOf(const std::string& dir)
 
 void SetupUIArgs(ArgsManager& argsman)
 {
+    argsman.AddArg("-devnetworks", "Offer the Chains (CHN) networks too in the choice of the network at the first start (development)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-choosedatadir", strprintf("Choose data directory on startup (default: %u)", DEFAULT_CHOOSE_DATADIR), ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-lang=<lang>", "Set language, for example \"de_DE\" (default: system locale)", ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-min", "Start minimized", ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
@@ -399,8 +428,14 @@ void App::PollShutdown()
 
 bool App::IntroIfNeeded()
 {
+    // The network chosen at the first start, unless the command line names one.
+    const bool network_fixed{NetworkOnCommandLine(m_args)};
+    if (!network_fixed) {
+        if (const auto network{m_config->Network()}; network && ChainTypeFromString(*network)) m_args.SoftSetArg("-chain", *network);
+    }
     if (!m_args.GetArg("-datadir", "").empty()) return true;
-    const std::string default_dir{fs::PathToString(GetDefaultDataDir())};
+    const auto default_dir_of{[](ChainType chain) { return fs::PathToString(GetDefaultDataDir(IsEcashChain(chain))); }};
+    std::string default_dir{default_dir_of(m_args.GetChainType())};
     std::string dir{m_config->DataDir().value_or(default_dir)};
 
     if (!fs::exists(fs::PathFromString(dir)) || m_args.GetBoolArg("-choosedatadir", DEFAULT_CHOOSE_DATADIR) ||
@@ -423,6 +458,21 @@ bool App::IntroIfNeeded()
         data.pushKV("minPruneGB", NodeOptions::MinPruneGB(m_args));
         // -prune on the command line decides, as in the Qt intro (the box is ticked or not, and disabled).
         if (m_args.IsArgSet("-prune")) data.pushKV("pruneForced", prune_arg >= 1);
+        // The network: eCash's main network, betanet or test network (Chains' with -devnetworks).
+        UniValue networks{UniValue::VARR};
+        for (const auto& [chain, label] : IntroNetworks(m_args)) {
+            const auto params{CreateChainParams(m_args, chain)};
+            UniValue network{UniValue::VOBJ};
+            network.pushKV("id", ChainTypeToString(chain));
+            network.pushKV("label", label);
+            network.pushKV("defaultDir", default_dir_of(chain));
+            network.pushKV("blockchainGB", static_cast<int64_t>(params->AssumedBlockchainSize()));
+            network.pushKV("chainstateGB", static_cast<int64_t>(params->AssumedChainStateSize()));
+            networks.push_back(std::move(network));
+        }
+        data.pushKV("networks", std::move(networks));
+        data.pushKV("network", ChainTypeToString(m_args.GetChainType()));
+        if (network_fixed) data.pushKV("networkFixed", true);
         m_window->Post([this] { m_window->Show(false); });
         SetPhase("intro", std::move(data));
 
@@ -439,6 +489,18 @@ bool App::IntroIfNeeded()
         dir = choice.first;
         m_config->SetDataDir(dir);
         m_config->SetResetPending(false);
+        // The network chosen: for this start and the next ones.
+        std::optional<std::string> network;
+        {
+            LOCK(m_mutex);
+            network = m_intro_network;
+        }
+        if (network && !network_fixed) {
+            m_config->SetNetwork(*network);
+            m_args.ForceSetArg("-chain", *network);
+            m_args.ClearPathCache();
+            default_dir = default_dir_of(m_args.GetChainType());
+        }
     }
     // Only override -datadir if different from the default, to make it possible to override
     // -datadir in the chains.conf of the default data directory (as chainsd does).
@@ -1077,9 +1139,19 @@ void App::RegisterHostMethods()
         } catch (const fs::filesystem_error&) {
             throw HostError(strprintf("Error: Specified data directory \"%s\" cannot be created.", dir));
         }
+        // The network, one the intro offers.
+        std::optional<std::string> network;
+        if (const UniValue chosen{Param(params, "network")}; chosen.isStr()) {
+            const auto networks{IntroNetworks(m_args)};
+            if (std::none_of(networks.begin(), networks.end(), [&](const auto& n) { return ChainTypeToString(n.first) == chosen.get_str(); })) {
+                throw HostError(BRIDGE_INVALID_REQUEST, "Unknown network");
+            }
+            network = chosen.get_str();
+        }
         {
             LOCK(m_mutex);
             m_intro_choice = std::make_pair(dir, prune_gb > 0 ? PruneGBtoMiB(prune_gb) : int64_t{0});
+            m_intro_network = network;
         }
         m_cv.notify_all();
         return UniValue{true};

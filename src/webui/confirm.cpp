@@ -31,9 +31,12 @@ std::string Coins(CAmount amount)
 std::string NetworkName()
 {
     switch (Params().GetChainType()) {
-    case ChainType::MAIN: return "Main network";
-    case ChainType::TESTNET: return "Testnet";
-    case ChainType::SIGNET: return "Signet";
+    case ChainType::ECASH: return "eCash main network";
+    case ChainType::ECASH_BETANET: return "eCash betanet";
+    case ChainType::ECASH_TESTNET: return "eCash testnet";
+    case ChainType::MAIN: return "Chains main network";
+    case ChainType::TESTNET: return "Chains testnet";
+    case ChainType::SIGNET: return "Chains signet";
     case ChainType::REGTEST: return "Regtest";
     default: return ChainTypeToString(Params().GetChainType());
     }

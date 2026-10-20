@@ -5,7 +5,7 @@ import { t } from './i18n.svelte';
 import { addSample } from './traffic.svelte';
 import { addProgressSample, type ProgressSample } from './syncoverlay';
 import { host, type AppInfo, type Dialog, type NodeSnapshot, type Phase, type WalletSummary } from './rpc';
-import { isUnit, type Unit } from './units';
+import { isUnit, setCurrency, type Unit } from './units';
 import { clampFontAdjust, DEFAULT_THEME } from './themes';
 import { checkStoredThemes, isThemeChoice, type CustomTheme, type ThemeChoice } from './customthemes';
 import { DEFAULT_LAYOUT, isLayout, type LayoutId } from './layout';
@@ -229,6 +229,13 @@ export function subscribe(): void {
     phaseEvents.count++;
     app.phase = phase;
     app.phaseData = data ?? {};
+    // The network is known once the node starts (after the intro): the units take its coin's name.
+    if (phase !== 'intro') {
+      host.hello().then((hello) => {
+        setCurrency(hello.info.network);
+        app.info = hello.info;
+      }).catch(() => {});
+    }
   });
   on<Dialog>('dialog', (d) => {
     app.dialogs.push(d);
