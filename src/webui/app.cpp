@@ -37,6 +37,7 @@
 #include <webui/guard.h>
 #include <webui/i18n.h>
 #include <webui/assets.h>
+#include <webui/chainadapter.h>
 #include <webui/nodeapi.h>
 #include <webui/nodeevents.h>
 #include <webui/options.h>
@@ -1876,10 +1877,42 @@ void App::StartSidechains()
     };
     hooks.network = [] { return confirm::NetworkName(); };
     auto pages{std::make_shared<SidechainPages>(std::move(hooks))};
+    // The app's own pages over every chain (chain.*): reads by the supervisor, spends through the pages' host above.
+    ChainAdapter::Hooks adapter_hooks;
+    adapter_hooks.rpc = [supervisor](const std::string& stem, const std::string& method, const UniValue& params, const std::string& wallet) {
+        return supervisor->Rpc(stem, method, params, wallet);
+    };
+    adapter_hooks.call = [weak = std::weak_ptr<SidechainPages>{pages}](const std::string& stem, const UniValue& request) {
+        const auto p{weak.lock()};
+        if (!p) throw HostError(BRIDGE_NOT_READY, "The app is stopping");
+        return p->Call(stem, request);
+    };
+    adapter_hooks.running = [supervisor](const std::string& stem) {
+        const auto status{supervisor->GetStatus(stem)};
+        return status.state == SidechainSupervisor::State::RUNNING && status.rpc_ready;
+    };
+    adapter_hooks.name = [](const std::string& stem) {
+        const SidechainSupervisor::Spec* spec{SidechainSupervisor::FindSpec(stem)};
+        return spec ? spec->name : stem;
+    };
+    adapter_hooks.product = [] { return std::string{CLIENT_NAME}; };
+    adapter_hooks.running_chains = [supervisor] {
+        std::vector<std::string> out;
+        for (const SidechainSupervisor::Spec& s : SidechainSupervisor::Catalog()) {
+            const auto status{supervisor->GetStatus(s.stem)};
+            if (status.state == SidechainSupervisor::State::RUNNING && status.rpc_ready) out.push_back(s.stem);
+        }
+        return out;
+    };
+    adapter_hooks.mainchain_address = [this](const std::string& address) { return MainchainAddress(address); };
+    adapter_hooks.deposit = [this](const std::string& stem, const UniValue& params) { return PackDeposit(stem, params); };
+    adapter_hooks.wallet_mode = [supervisor](const std::string& stem) { return supervisor->WalletMode(stem); };
+    auto adapter{std::make_shared<ChainAdapter>(std::move(adapter_hooks))};
     {
         LOCK(m_mutex);
         m_supervisor = supervisor;
         m_pages = pages;
+        m_adapter = adapter;
         m_installer = installer;
     }
     // Chains alone unless a sidechain is enabled: then (only then) the RPC server and the daemons.
@@ -1898,6 +1931,43 @@ std::shared_ptr<SidechainPages> App::Pages()
     LOCK(m_mutex);
     if (!m_pages) throw HostError(BRIDGE_NOT_READY, "The node is not running");
     return m_pages;
+}
+
+std::shared_ptr<ChainAdapter> App::Adapter()
+{
+    LOCK(m_mutex);
+    if (!m_adapter) throw HostError(BRIDGE_NOT_READY, "The node is not running");
+    return m_adapter;
+}
+
+UniValue App::MainchainAddress(const std::string& address)
+{
+    interfaces::Node* node;
+    std::string wallet;
+    {
+        LOCK(m_mutex);
+        if (!m_node_started || !m_node || m_phase != "ready") throw HostError(BRIDGE_NOT_READY, "The node is not running");
+        node = m_node.get();
+        wallet = m_wallet_title;
+    }
+    UniValue args{UniValue::VARR};
+    args.push_back(address);
+    UniValue out{UniValue::VOBJ};
+    const UniValue valid{node->executeRpc("validateaddress", args, "/")};
+    out.pushKV("isvalid", valid.find_value("isvalid").isTrue());
+    bool mine{false};
+    if (valid.find_value("isvalid").isTrue()) {
+        try {
+            if (wallet.empty()) {
+                const UniValue wallets{node->executeRpc("listwallets", UniValue{UniValue::VARR}, "/")};
+                if (wallets.isArray() && !wallets.empty() && wallets[0].isStr()) wallet = wallets[0].get_str();
+            }
+            if (!wallet.empty()) mine = node->executeRpc("getaddressinfo", args, WalletUri(wallet)).find_value("ismine").isTrue();
+        } catch (const std::exception&) {
+        }
+    }
+    out.pushKV("ismine", mine);
+    return out;
 }
 
 UniValue App::RunHost(const std::string& method, const UniValue& params)
@@ -2071,6 +2141,37 @@ void App::RegisterSidechainMethods(Bridge& b)
     b.RegisterHost("pack.call", guarded([this, stem_of](const UniValue& params) {
         return Pages()->Call(stem_of(params), Param(params, "request"));
     }), Bridge::Thread::LONG);
+    // The app's own pages over every chain (doc/unified-app.md §18): what each chain can do, its reads, and its spends
+    // (built here from checked parameters, asked in the trusted dialog by the chain's own describers).
+    b.RegisterHost("chain.capabilities", [](const UniValue&) {
+        UniValue out{UniValue::VARR};
+        for (const ChainAdapter::Capabilities& c : ChainAdapter::Table()) out.push_back(ChainAdapter::CapabilitiesJson(c));
+        return out;
+    });
+    using AdapterFn = UniValue (ChainAdapter::*)(const UniValue&) const;
+    for (const auto& [name, fn, thread] : std::initializer_list<std::tuple<const char*, AdapterFn, Bridge::Thread>>{
+             {"chain.summary", &ChainAdapter::Summary, Bridge::Thread::WORKER},
+             {"chain.transactions", &ChainAdapter::Transactions, Bridge::Thread::WORKER},
+             {"chain.transaction", &ChainAdapter::Transaction, Bridge::Thread::WORKER},
+             {"chain.wallets", &ChainAdapter::Wallets, Bridge::Thread::WORKER},
+             {"chain.wallet.create", &ChainAdapter::WalletCreate, Bridge::Thread::LONG},
+             {"chain.wallet.load", &ChainAdapter::WalletLoad, Bridge::Thread::LONG},
+             {"chain.wallet.unload", &ChainAdapter::WalletUnload, Bridge::Thread::LONG},
+             {"chain.wallet.backup", &ChainAdapter::WalletBackup, Bridge::Thread::LONG},
+             {"chain.receive", &ChainAdapter::Receive, Bridge::Thread::LONG},
+             {"chain.depositAddress", &ChainAdapter::DepositAddress, Bridge::Thread::WORKER},
+             {"chain.validate", &ChainAdapter::Validate, Bridge::Thread::WORKER},
+             {"chain.send", &ChainAdapter::Send, Bridge::Thread::LONG},
+             {"chain.withdraw", &ChainAdapter::Withdraw, Bridge::Thread::LONG},
+             {"chain.deposit", &ChainAdapter::Deposit, Bridge::Thread::LONG},
+             {"chain.staking", &ChainAdapter::Staking, Bridge::Thread::WORKER},
+             {"chain.peg", &ChainAdapter::Peg, Bridge::Thread::WORKER},
+             {"chain.assets", &ChainAdapter::Assets, Bridge::Thread::WORKER},
+             {"chain.names", &ChainAdapter::Names, Bridge::Thread::WORKER},
+             {"chain.markets", &ChainAdapter::Markets, Bridge::Thread::WORKER},
+         }) {
+        b.RegisterHost(name, guarded([this, fn](const UniValue& params) { return ((*Adapter()).*fn)(params); }), thread);
+    }
     b.RegisterHost("pack.info", guarded([this, stem_of](const UniValue& params) { return Pages()->Info(stem_of(params)); }));
     b.RegisterHost("pack.list", [](const UniValue&) { return SidechainPages::Packs(); });
     b.RegisterHost("sidechains.log", guarded([this, stem_of](const UniValue& params) {

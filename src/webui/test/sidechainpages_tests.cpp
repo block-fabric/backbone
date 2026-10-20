@@ -145,7 +145,7 @@ BOOST_AUTO_TEST_CASE(routes)
     BOOST_CHECK(SidechainPages::RouteOf("prefs.set") == Route::LOCAL);
     BOOST_CHECK(SidechainPages::RouteOf("window.minimize") == Route::LOCAL);
     BOOST_CHECK(SidechainPages::RouteOf("peg.deposit") == Route::LOCAL);
-    for (const char* m : {"app.quit", "app.restart", "app.quitGuard", "tray.state", "app.help", "app.about", "options.set", "intro.choose", "test.exit", "sidechains.enable", "pack.call", "sidechainNodes.start", "node.setNetworkActive"}) {
+    for (const char* m : {"app.quit", "app.restart", "app.quitGuard", "tray.state", "app.help", "app.about", "options.set", "intro.choose", "test.exit", "sidechains.enable", "pack.call", "sidechainNodes.start", "node.setNetworkActive", "chain.send", "chain.withdraw", "chain.deposit", "chain.summary"}) {
         BOOST_CHECK_MESSAGE(SidechainPages::RouteOf(m) == Route::REFUSE, m);
     }
 }

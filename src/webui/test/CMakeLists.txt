@@ -9,6 +9,7 @@ add_executable(test_chains-app
   appconfig_tests.cpp
   assets_tests.cpp
   bridge_tests.cpp
+  chainadapter_tests.cpp
   dialog_tests.cpp
   events_tests.cpp
   hardening_tests.cpp
@@ -112,6 +113,17 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
             --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
         )
         set_tests_properties(webui_e2e_packs PROPERTIES TIMEOUT 3000 RUN_SERIAL TRUE)
+        # The app's own pages over every chain (doc/unified-app.md §18): Overview, Send, Receive, Transactions, Wallets,
+        # Sidechains, Staking and Assets with Layers and Thunder on.
+        add_test(NAME webui_e2e_integrated
+          COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_integrated.py
+            --app $<TARGET_FILE:chains-app>
+            --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+            --sidechain-bindir ${WEBUI_E2E_THUNDER_BINDIR}
+            --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-integrated
+            --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+        )
+        set_tests_properties(webui_e2e_integrated PROPERTIES TIMEOUT 3000 RUN_SERIAL TRUE)
       endif()
       # The supervisor's unit tests with a real layersd wired to a real chainsd.
       set_tests_properties(webui_tests PROPERTIES ENVIRONMENT "CHAINS_TEST_SIDECHAIN_BINDIR=${WEBUI_E2E_SIDECHAIN_BINDIR}")

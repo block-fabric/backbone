@@ -35,6 +35,7 @@ class Bridge;
 class NodeApi;
 class SidechainSupervisor;
 class SidechainPages;
+class ChainAdapter;
 class ModuleInstaller;
 class EventHub;
 class NodeEvents;
@@ -82,6 +83,9 @@ private:
     void RegisterSidechainMethods(Bridge& b);
     //! The pages of the sidechains, once the node is ready; throws HostError before.
     std::shared_ptr<SidechainPages> Pages() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    std::shared_ptr<ChainAdapter> Adapter() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! An address of this app's own chain: {isvalid, ismine} (in the wallet shown).
+    UniValue MainchainAddress(const std::string& address) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     //! A host method of the app run for the pages of a sidechain, on the thread it must run on.
     UniValue RunHost(const std::string& method, const UniValue& params);
     //! A deposit into a sidechain from its pages: Chains' own confirmed createsidechaindeposit, from the wallet shown.
@@ -184,6 +188,8 @@ private:
     std::shared_ptr<SidechainSupervisor> m_supervisor GUARDED_BY(m_mutex);
     //! The pages of the sidechains, in frames of the page (doc/unified-app.md §13): made with the supervisor.
     std::shared_ptr<SidechainPages> m_pages GUARDED_BY(m_mutex);
+    //! The app's own pages over every chain it runs (chain.*, doc/unified-app.md §18): made with the supervisor.
+    std::shared_ptr<ChainAdapter> m_adapter GUARDED_BY(m_mutex);
     //! The downloads of the sidechains' programs from their releases (modules.*): made with the supervisor.
     std::shared_ptr<ModuleInstaller> m_installer GUARDED_BY(m_mutex);
     //! The password of the user the sidechain daemons reach this node as (an -rpcauth of this run only).
