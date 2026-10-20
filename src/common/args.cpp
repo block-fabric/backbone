@@ -990,9 +990,15 @@ bool ArgsManager::EcashFamily_() const
     AssertLockHeld(cs_args);
     // What the arguments ask for so far (before the configuration file is read: the command line). An
     // unknown chain name is left to GetChainType to refuse.
-    const auto chain{GetChainArg_()};
-    const auto* type{std::get_if<ChainType>(&chain)};
-    return !type || IsEcashChain(*type);
+    // An invalid combination of network options is refused later (GetChainType); the data directory is
+    // not the place to throw.
+    try {
+        const auto chain{GetChainArg_()};
+        const auto* type{std::get_if<ChainType>(&chain)};
+        return !type || IsEcashChain(*type);
+    } catch (const std::runtime_error&) {
+        return true;
+    }
 }
 
 std::string ArgsManager::ConfigFileName_(const fs::path& datadir) const

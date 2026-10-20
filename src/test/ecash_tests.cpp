@@ -556,14 +556,31 @@ BOOST_AUTO_TEST_CASE(enforcer_bundles)
     BOOST_CHECK(chain.scdb.WasPaid(2, hash_b) == true);
     BOOST_REQUIRE(chain.Connect({BundleScript(2, hash_b)}));
     BOOST_CHECK_EQUAL(chain.Score(2, hash_b), 1U);
+    // Paid again: remembered as paid at the later height (the record of the first payout replaced).
+    const auto index_of_b{[&] {
+        const auto& bundles{chain.scdb.GetSlot(2)->bundles};
+        for (size_t i{0}; i < bundles.size(); ++i) {
+            if (bundles[i].hash == hash_b) return static_cast<uint16_t>(i);
+        }
+        return uint16_t{0};
+    }};
+    for (int i{0}; i < 5; ++i) BOOST_REQUIRE(chain.Connect({Votes({index_of_b()})}));
+    BOOST_REQUIRE(chain.Connect({Votes({index_of_b()})}, {chain.WithdrawalTx(2, blind_b, COIN, 1000)}));
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash_b) == true);
+    BOOST_CHECK_EQUAL(chain.scdb.GetClosed(2, hash_b)->height, chain.height);
 
-    // A bundle older than the maximum age (10) fails.
-    const int a_height{chain.scdb.GetSlot(2)->bundles[0].height};
-    while (chain.height - a_height < 10) BOOST_REQUIRE(chain.Connect());
-    BOOST_CHECK_EQUAL(chain.Score(2, hash_a), 0U);
-    BOOST_REQUIRE(chain.Connect());
+    // The other bundle, older than the maximum age (10) by now, failed.
     BOOST_CHECK_EQUAL(chain.Score(2, hash_a), 0xFFFFFFFFU);
     BOOST_CHECK(chain.scdb.WasPaid(2, hash_a) == false);
+    // A bundle fails the block after it reaches the maximum age, not before.
+    const uint256 hash_c{77};
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, hash_c)}));
+    const int c_height{chain.height};
+    while (chain.height - c_height < 10) BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_c), 1U);
+    BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_c), 0xFFFFFFFFU);
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash_c) == false);
 }
 
 BOOST_AUTO_TEST_CASE(enforcer_votes_repeat_and_alarm)

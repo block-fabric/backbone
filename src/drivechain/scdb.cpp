@@ -152,7 +152,14 @@ void SidechainDB::CloseBundle(SidechainId id, const Bundle& bundle, bool paid, i
 {
     // The block that proposed a bundle cannot upvote it: a later upvote moved last_upvote.
     const ClosedBundle closed{paid, height, /*upvoted=*/bundle.last_upvote != bundle.height};
-    if (!m_closed.emplace(std::pair{id, bundle.hash}, closed).second) return;
+    // A bundle closed before (the enforcer's rules let a closed bundle be proposed again) is remembered
+    // as it was closed last; the record before goes, as a forgotten one, which a disconnect brings back.
+    if (const auto before{m_closed.find({id, bundle.hash})}; before != m_closed.end()) {
+        undo.forgotten.emplace_back(before->first, before->second);
+        if (!before->second.paid) FailedByHeight(before->second).erase({before->second.height, id, bundle.hash});
+        m_closed.erase(before);
+    }
+    m_closed.emplace(std::pair{id, bundle.hash}, closed);
     undo.closed.push_back({id, bundle.hash, paid});
     if (!paid) FailedByHeight(closed).emplace(height, id, bundle.hash);
 }
@@ -977,10 +984,6 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
 
 void SidechainDB::DisconnectBlock(const BlockUndo& undo)
 {
-    for (const auto& [key, closed] : undo.forgotten) {
-        m_closed.emplace(key, closed);
-        if (!closed.paid) FailedByHeight(closed).emplace(closed.height, key.first, key.second);
-    }
     // The bundles, from the last change back; the slots they belong to still exist.
     for (auto it{undo.bundle_changes.rbegin()}; it != undo.bundle_changes.rend(); ++it) {
         const BlockUndo::BundleChange& change{*it};
@@ -1025,6 +1028,11 @@ void SidechainDB::DisconnectBlock(const BlockUndo& undo)
         if (it == m_closed.end()) continue;
         if (!it->second.paid) FailedByHeight(it->second).erase({it->second.height, closed.id, closed.hash});
         m_closed.erase(it);
+    }
+    // After the closures of the block are taken back: a bundle closed again in it had its record before forgotten.
+    for (const auto& [key, closed] : undo.forgotten) {
+        m_closed.emplace(key, closed);
+        if (!closed.paid) FailedByHeight(closed).emplace(closed.height, key.first, key.second);
     }
     for (auto it{undo.removed.rbegin()}; it != undo.removed.rend(); ++it) {
         m_proposals.insert(m_proposals.begin() + it->first, it->second);
