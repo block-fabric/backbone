@@ -1,0 +1,711 @@
+// Copyright (c) 2026 The eStack developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+// The rules of the eCash networks (ecash-com/bitcoin, and the bip300301_enforcer for BIP300/301), and
+// that the Chains networks keep theirs.
+
+#include <arith_uint256.h>
+#include <chain.h>
+#include <chainparams.h>
+#include <consensus/amount.h>
+#include <consensus/merkle.h>
+#include <consensus/params.h>
+#include <consensus/tx_verify.h>
+#include <drivechain/miner.h>
+#include <drivechain/scdb.h>
+#include <drivechain/sidechain.h>
+#include <hash.h>
+#include <kernel/ecash_repurpose.h>
+#include <policy/policy.h>
+#include <pow.h>
+#include <primitives/block.h>
+#include <primitives/transaction.h>
+#include <pubkey.h>
+#include <script/interpreter.h>
+#include <script/script.h>
+#include <script/script_error.h>
+#include <script/signingprovider.h>
+#include <streams.h>
+#include <test/util/setup_common.h>
+#include <uint256.h>
+#include <util/chaintype.h>
+
+#include <boost/test/unit_test.hpp>
+
+#include <string>
+#include <vector>
+
+using namespace drivechain;
+
+namespace {
+
+struct EcashTestingSetup : public BasicTestingSetup {
+    EcashTestingSetup() : BasicTestingSetup{ChainType::ECASH_BETANET} {}
+};
+
+CScript Bytes(const std::vector<unsigned char>& bytes) { return CScript(bytes.begin(), bytes.end()); }
+
+//! A transaction with one input that is not final and the given locktime.
+CMutableTransaction LockedTx(uint32_t lock_time)
+{
+    CMutableTransaction tx;
+    tx.vin.resize(1);
+    tx.vin[0].nSequence = CTxIn::SEQUENCE_FINAL - 1;
+    tx.vout.resize(1);
+    tx.vout[0].nValue = 0;
+    tx.nLockTime = lock_time;
+    return tx;
+}
+
+//! Evaluate `<lock> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_TRUE` as the output script spent by input 0 of `tx`.
+bool CltvPasses(const CMutableTransaction& tx, int64_t lock, script_verify_flags flags, ScriptError& error)
+{
+    const CScript script{CScript() << lock << OP_CHECKLOCKTIMEVERIFY << OP_DROP << OP_TRUE};
+    const CTransaction ctx{tx};
+    PrecomputedTransactionData txdata;
+    txdata.Init(ctx, std::vector<CTxOut>{CTxOut{0, script}});
+    return VerifyScript(CScript(), script, nullptr, flags, TransactionSignatureChecker{&ctx, 0, 0, txdata, MissingDataBehavior::FAIL}, &error);
+}
+
+//! The parameters of the enforcer's rules with its regtest thresholds (Thresholds::SHORT).
+Consensus::DrivechainParams EnforcerParams()
+{
+    Consensus::DrivechainParams params;
+    params.rules = Consensus::DrivechainParams::RULES_ENFORCER;
+    params.unused_slot_threshold = 5;
+    params.unused_slot_max_age = 10;
+    params.used_slot_threshold = 5;
+    params.used_slot_max_age = 10;
+    params.bundle_threshold = 5;
+    params.bundle_max_age = 10;
+    return params;
+}
+
+Sidechain MakeSidechain(SidechainId slot, const std::string& title = "test")
+{
+    Sidechain sidechain;
+    sidechain.slot = slot;
+    sidechain.title = title;
+    sidechain.description = "a sidechain";
+    sidechain.hash_id1 = uint256{1};
+    return sidechain;
+}
+
+CScript Ack(const Sidechain& sidechain) { return AckScript(sidechain.slot, sidechain.GetHash()); }
+CScript Votes(const std::vector<uint16_t>& votes) { return VoteScript(MakeVoteMessage(votes)); }
+
+/** A chain of blocks under the enforcer's rules, with the sidechain database that follows from it. */
+struct EnforcerChain {
+    Consensus::DrivechainParams params{EnforcerParams()};
+    SidechainDB scdb;
+    int height{0};
+    uint256 tip{uint256{0xbb}};
+    uint32_t counter{0};
+    std::string reject_reason;
+    std::vector<Deposit> deposits;
+
+    EnforcerChain() { scdb.SetBlockHash(tip); }
+
+    CBlock MakeBlock(const std::vector<CScript>& coinbase_scripts, const std::vector<CMutableTransaction>& txs, const std::vector<CTxOut>& extra = {})
+    {
+        CBlock block;
+        block.hashPrevBlock = tip;
+        block.nTime = ++counter;
+        CMutableTransaction coinbase;
+        coinbase.vin.resize(1);
+        coinbase.vin[0].prevout.SetNull();
+        coinbase.vin[0].scriptSig = CScript() << (height + 1) << OP_0;
+        coinbase.vout.emplace_back(50 * COIN, CScript() << OP_TRUE);
+        for (const CTxOut& out : extra) coinbase.vout.push_back(out);
+        for (const CScript& script : coinbase_scripts) coinbase.vout.emplace_back(0, script);
+        block.vtx.push_back(MakeTransactionRef(coinbase));
+        for (const CMutableTransaction& tx : txs) block.vtx.push_back(MakeTransactionRef(tx));
+        block.hashMerkleRoot = BlockMerkleRoot(block);
+        return block;
+    }
+
+    /** Connect a block; a valid one is also disconnected again, which has to restore the state exactly. */
+    bool Connect(const std::vector<CScript>& coinbase_scripts = {}, const std::vector<CMutableTransaction>& txs = {}, const std::vector<CTxOut>& extra = {})
+    {
+        const CBlock block{MakeBlock(coinbase_scripts, txs, extra)};
+        const SidechainDB before{scdb};
+        SidechainDB after{scdb};
+        BlockUndo undo;
+        deposits.clear();
+        reject_reason.clear();
+        if (!after.ConnectBlock(block, height + 1, params, undo, &deposits, reject_reason)) {
+            after.DisconnectBlock(undo);
+            BOOST_CHECK(after == before);
+            return false;
+        }
+        DataStream stream{};
+        stream << undo;
+        BlockUndo undo_read;
+        stream >> undo_read;
+        SidechainDB reverted{after};
+        reverted.DisconnectBlock(undo_read);
+        BOOST_CHECK(reverted == before);
+        BOOST_CHECK(reverted.GetHash() == before.GetHash());
+        scdb = after;
+        tip = block.GetHash();
+        ++height;
+        return true;
+    }
+
+    /** Propose a sidechain and ack it until it activates: more acks than the threshold. */
+    void Activate(const Sidechain& sidechain)
+    {
+        BOOST_REQUIRE(Connect({ProposalScript(sidechain)}));
+        for (int i{0}; i <= params.unused_slot_threshold; ++i) {
+            BOOST_REQUIRE(!scdb.IsActive(sidechain.slot) || scdb.GetSlot(sidechain.slot)->sidechain != sidechain);
+            BOOST_REQUIRE(Connect({Ack(sidechain)}));
+        }
+        BOOST_REQUIRE(scdb.IsActive(sidechain.slot));
+        BOOST_REQUIRE(scdb.GetSlot(sidechain.slot)->sidechain == sidechain);
+    }
+
+    CMutableTransaction BaseTx()
+    {
+        CMutableTransaction tx;
+        tx.vin.resize(1);
+        ++counter;
+        tx.vin[0].prevout = COutPoint{Txid::FromUint256(uint256{static_cast<uint8_t>(counter)}), counter};
+        return tx;
+    }
+
+    CMutableTransaction DepositTx(SidechainId slot, CAmount total, const std::string& destination = "dest")
+    {
+        CMutableTransaction tx{BaseTx()};
+        if (const Slot* state{scdb.GetSlot(slot)}; state && state->has_ctip) tx.vin.emplace_back(state->ctip.outpoint);
+        tx.vout.emplace_back(total, EscrowScript(slot));
+        tx.vout.emplace_back(0, DestinationScript(destination));
+        return tx;
+    }
+
+    static CMutableTransaction BlindBundle(CAmount payout, CAmount fee, uint8_t salt = 0)
+    {
+        CMutableTransaction tx;
+        tx.vout.emplace_back(0, WithdrawalFeeScript(fee));
+        tx.vout.emplace_back(payout, CScript() << OP_TRUE << salt);
+        return tx;
+    }
+
+    CMutableTransaction WithdrawalTx(SidechainId slot, const CMutableTransaction& blind, CAmount payout, CAmount fee)
+    {
+        const Slot* state{scdb.GetSlot(slot)};
+        BOOST_REQUIRE(state && state->has_ctip);
+        CMutableTransaction tx{blind};
+        tx.vin.assign(1, CTxIn{state->ctip.outpoint});
+        tx.vout[0] = CTxOut{state->ctip.amount - payout - fee, EscrowScript(slot)};
+        return tx;
+    }
+
+    uint32_t Score(SidechainId slot, const uint256& hash) const
+    {
+        for (const Bundle& bundle : scdb.GetSlot(slot)->bundles) {
+            if (bundle.hash == hash) return bundle.score;
+        }
+        return 0xFFFFFFFF;
+    }
+};
+
+} // namespace
+
+BOOST_FIXTURE_TEST_SUITE(ecash_tests, EcashTestingSetup)
+
+BOOST_AUTO_TEST_CASE(network_parameters)
+{
+    const auto main{CChainParams::EcashMain()};
+    const auto beta{CChainParams::EcashBetanet()};
+    const auto test{CChainParams::EcashTestNet()};
+    // ecash-com/bitcoin: tag ecash-v1.0.0-core31.1 (main), branch betanet, CTestNet4Params.
+    BOOST_CHECK_EQUAL(HexStr(main->MessageStart()), "eca5dcb7");
+    BOOST_CHECK_EQUAL(HexStr(beta->MessageStart()), "eca5b104");
+    BOOST_CHECK_EQUAL(HexStr(test->MessageStart()), "eca5b124");
+    BOOST_CHECK_EQUAL(main->GetDefaultPort(), 8533);
+    BOOST_CHECK_EQUAL(beta->GetDefaultPort(), 8533);
+    BOOST_CHECK_EQUAL(test->GetDefaultPort(), 48533);
+    BOOST_CHECK_EQUAL(main->GetConsensus().ecash_fork_height, 973728);
+    BOOST_CHECK_EQUAL(main->GetConsensus().ecash_fork_bits, 0x1901a6e1U);
+    BOOST_CHECK_EQUAL(beta->GetConsensus().ecash_fork_height, 967680);
+    BOOST_CHECK_EQUAL(beta->GetConsensus().ecash_fork_bits, 0x19044b7eU);
+    BOOST_CHECK_EQUAL(test->GetConsensus().ecash_fork_height, 0);
+    BOOST_CHECK_EQUAL(main->GetConsensus().replay_locktime, 499999998U);
+    BOOST_CHECK_EQUAL(beta->GetConsensus().replay_locktime, 499999999U);
+    BOOST_CHECK_EQUAL(test->GetConsensus().replay_locktime, 499999998U);
+    // Bitcoin's genesis and addresses.
+    BOOST_CHECK(main->GetConsensus().hashGenesisBlock == uint256{"000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"});
+    BOOST_CHECK(beta->GetConsensus().hashGenesisBlock == main->GetConsensus().hashGenesisBlock);
+    BOOST_CHECK(test->GetConsensus().hashGenesisBlock == uint256{"00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043"});
+    BOOST_CHECK_EQUAL(main->Bech32HRP(), "bc");
+    BOOST_CHECK_EQUAL(test->Bech32HRP(), "tb");
+    // The fork heights are retarget boundaries, where the reset is computed.
+    for (const auto* params : {main.get(), beta.get()}) {
+        const auto& consensus{params->GetConsensus()};
+        BOOST_CHECK_EQUAL(consensus.ecash_fork_height % consensus.DifficultyAdjustmentInterval(), 0);
+        BOOST_CHECK(consensus.ecash && consensus.drivechain_nop8);
+        BOOST_CHECK(consensus.drivechain.EnforcerRules());
+        BOOST_CHECK_EQUAL(consensus.drivechain.activation_height, consensus.ecash_fork_height);
+        BOOST_CHECK(!params->IsTestChain());
+    }
+    BOOST_CHECK(test->IsTestChain());
+    // The enforcer's betanet preset (17eb2ce lib/types.rs, Thresholds::BETANET).
+    const auto& dc{beta->GetConsensus().drivechain};
+    BOOST_CHECK_EQUAL(dc.unused_slot_threshold, 1008);
+    BOOST_CHECK_EQUAL(dc.unused_slot_max_age, 2016);
+    BOOST_CHECK_EQUAL(dc.used_slot_threshold, 13150);
+    BOOST_CHECK_EQUAL(dc.used_slot_max_age, 26300);
+    BOOST_CHECK_EQUAL(dc.bundle_threshold, 13150);
+    BOOST_CHECK_EQUAL(dc.bundle_max_age, 26300);
+    // The Chains networks keep their rules.
+    for (const auto& chn : {CChainParams::Main(), CChainParams::TestNet(), CChainParams::RegTest()}) {
+        const auto& consensus{chn->GetConsensus()};
+        BOOST_CHECK(!consensus.ecash && !consensus.drivechain_nop8);
+        BOOST_CHECK_EQUAL(consensus.ecash_fork_height, 0);
+        BOOST_CHECK_EQUAL(consensus.replay_locktime, 0U);
+        BOOST_CHECK(!consensus.drivechain.EnforcerRules());
+        BOOST_CHECK(!consensus.IsRepurposeTx(*kernel::ECASH_BETANET_REPURPOSE_TXIDS.begin()));
+    }
+    // The names of the networks, and what RPC reports as "chain" (eCash's node's).
+    BOOST_CHECK(ChainTypeFromString("ecash") == ChainType::ECASH);
+    BOOST_CHECK(ChainTypeFromString("ecashbeta") == ChainType::ECASH_BETANET);
+    BOOST_CHECK(ChainTypeFromString("ecashtest") == ChainType::ECASH_TESTNET);
+    BOOST_CHECK_EQUAL(ChainTypeToCompatName(ChainType::ECASH), "main");
+    BOOST_CHECK_EQUAL(ChainTypeToCompatName(ChainType::ECASH_BETANET), "main");
+    BOOST_CHECK_EQUAL(ChainTypeToCompatName(ChainType::ECASH_TESTNET), "testnet4");
+    BOOST_CHECK_EQUAL(ChainTypeToCompatName(ChainType::TESTNET), "test");
+    BOOST_CHECK(GetNetworkForMagic(main->MessageStart()) == ChainType::ECASH);
+    BOOST_CHECK(GetNetworkForMagic(beta->MessageStart()) == ChainType::ECASH_BETANET);
+    BOOST_CHECK(GetNetworkForMagic(test->MessageStart()) == ChainType::ECASH_TESTNET);
+}
+
+BOOST_AUTO_TEST_CASE(fork_difficulty_reset)
+{
+    for (const auto& params : {CChainParams::EcashBetanet(), CChainParams::EcashMain()}) {
+        const Consensus::Params& consensus{params->GetConsensus()};
+        const int fork{consensus.ecash_fork_height};
+        const int64_t interval{consensus.DifficultyAdjustmentInterval()};
+        const uint32_t bitcoin_bits{0x17023774}; // a Bitcoin difficulty of 2026
+
+        // The retarget into the fork block gives the fork bits, whatever the time the period took.
+        CBlockIndex before_fork;
+        before_fork.nHeight = fork - 1;
+        before_fork.nBits = bitcoin_bits;
+        before_fork.nTime = 1'790'000'000;
+        for (const int64_t span : {interval * 600 / 8, interval * 600, interval * 600 * 8}) {
+            BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&before_fork, before_fork.nTime - span, consensus), consensus.ecash_fork_bits);
+        }
+        // The retarget before is Bitcoin's.
+        CBlockIndex earlier;
+        earlier.nBits = bitcoin_bits;
+        earlier.nTime = before_fork.nTime;
+        earlier.nHeight = fork - 1 - interval;
+        BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&earlier, earlier.nTime - interval * 600, consensus), bitcoin_bits);
+
+        // The fork bits hold for the period; the first retarget measures it from the fork block, clamped to 4x.
+        CBlockIndex end_of_period;
+        end_of_period.nHeight = fork + interval - 1;
+        end_of_period.nBits = consensus.ecash_fork_bits;
+        end_of_period.nTime = 1'790'000'000;
+        arith_uint256 fork_target;
+        fork_target.SetCompact(consensus.ecash_fork_bits);
+        // Ten times too fast: the difficulty rises by four only.
+        arith_uint256 expected{fork_target};
+        expected /= 4;
+        BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&end_of_period, end_of_period.nTime - interval * 60, consensus), expected.GetCompact());
+        // On time: unchanged.
+        BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&end_of_period, end_of_period.nTime - interval * 600, consensus), consensus.ecash_fork_bits);
+
+        // Headers presync admits the reset at the fork height, and only the fork bits there.
+        BOOST_CHECK(PermittedDifficultyTransition(consensus, fork, bitcoin_bits, consensus.ecash_fork_bits));
+        BOOST_CHECK(!PermittedDifficultyTransition(consensus, fork, bitcoin_bits, bitcoin_bits));
+        BOOST_CHECK(!PermittedDifficultyTransition(consensus, fork + interval, consensus.ecash_fork_bits, bitcoin_bits));
+    }
+
+    // A fork height that is no retarget boundary could never have a valid block: GetNextWorkRequired does
+    // not retarget there, and so asks for the bits of the block before, while the fork block must carry
+    // the fork bits (which is why the parameters assert that it is one).
+    Consensus::Params consensus{CChainParams::EcashBetanet()->GetConsensus()};
+    consensus.ecash_fork_height = 967680 + 1000;
+    CBlockIndex prev;
+    prev.nHeight = consensus.ecash_fork_height - 1;
+    prev.nBits = 0x17023774;
+    prev.nTime = 1'790'000'000;
+    CBlockHeader next;
+    next.nTime = prev.nTime + 600;
+    BOOST_CHECK_EQUAL(GetNextWorkRequired(&prev, &next, consensus), 0x17023774U);
+    BOOST_CHECK(GetNextWorkRequired(&prev, &next, consensus) != consensus.ecash_fork_bits);
+}
+
+BOOST_AUTO_TEST_CASE(replay_locktime)
+{
+    // ecash-com/bitcoin's tx_replay_protection_locktime, for both magic values, and on Chains.
+    for (const uint32_t magic : {LOCKTIME_THRESHOLD - 2, LOCKTIME_THRESHOLD - 1}) {
+        const uint32_t other{magic == LOCKTIME_THRESHOLD - 2 ? LOCKTIME_THRESHOLD - 1 : LOCKTIME_THRESHOLD - 2};
+        // The magic locktime is final at any height and time.
+        BOOST_CHECK(IsFinalTx(CTransaction{LockedTx(magic)}, /*nBlockHeight=*/1, /*nBlockTime=*/0, magic));
+        // Not on Bitcoin's rules (nor Chains'), nor the other network's value.
+        BOOST_CHECK(!IsFinalTx(CTransaction{LockedTx(magic)}, 1, 0));
+        BOOST_CHECK(!IsFinalTx(CTransaction{LockedTx(other)}, 1, 0, magic));
+        // An unlocked transaction is final, as always; a fully final input makes any transaction final.
+        BOOST_CHECK(IsFinalTx(CTransaction{LockedTx(0)}, 1, 0, magic));
+        CMutableTransaction final_input{LockedTx(other)};
+        final_input.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
+        BOOST_CHECK(IsFinalTx(CTransaction{final_input}, 1, 0, magic));
+    }
+
+    // OP_CHECKLOCKTIMEVERIFY fails with the magic locktime, by height and by time.
+    const script_verify_flags base{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY};
+    ScriptError error;
+    for (const auto& [magic, flag] : {std::pair{LOCKTIME_THRESHOLD - 2, script_verify_flags{SCRIPT_VERIFY_REPLAY_LOCKTIME}},
+                                      std::pair{LOCKTIME_THRESHOLD - 1, script_verify_flags{SCRIPT_VERIFY_REPLAY_LOCKTIME_BETANET}}}) {
+        const CMutableTransaction tx{LockedTx(magic)};
+        // Bitcoin reads it as a height lock, which a height lock of 100 is satisfied by...
+        BOOST_CHECK(CltvPasses(tx, 100, base, error));
+        // ...not on eCash.
+        BOOST_CHECK(!CltvPasses(tx, 100, base | flag, error));
+        BOOST_CHECK_EQUAL(error, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+        BOOST_CHECK(!CltvPasses(tx, LOCKTIME_THRESHOLD + 1, base | flag, error));
+        BOOST_CHECK_EQUAL(error, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+        // Any other locktime, as on Bitcoin.
+        const CMutableTransaction plain{LockedTx(magic - 10)};
+        BOOST_CHECK(CltvPasses(plain, 100, base | flag, error));
+    }
+    // The flag of one network leaves the value of the other alone.
+    BOOST_CHECK(CltvPasses(LockedTx(LOCKTIME_THRESHOLD - 1), 100, base | SCRIPT_VERIFY_REPLAY_LOCKTIME, error));
+    BOOST_CHECK(CltvPasses(LockedTx(LOCKTIME_THRESHOLD - 2), 100, base | SCRIPT_VERIFY_REPLAY_LOCKTIME_BETANET, error));
+}
+
+BOOST_AUTO_TEST_CASE(op_drivechain_per_network)
+{
+    const script_verify_flags ecash{STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_DRIVECHAIN_NOP8};
+    const script_verify_flags chains{STANDARD_SCRIPT_VERIFY_FLAGS};
+    ScriptError error;
+
+    // Any script of four bytes that starts with OP_NOP8 is anyone-can-spend on eCash, whatever its other bytes.
+    for (const CScript& script : {CScript() << OP_NOP8 << std::vector<unsigned char>{5} << OP_TRUE,
+                                  Bytes({0xb7, 0x00, 0x00, 0x00}),
+                                  Bytes({0xb7, 0x4c, 0xff, 0xff})}) {
+        BOOST_CHECK_EQUAL(script.size(), 4U);
+        BOOST_CHECK_MESSAGE(VerifyScript(CScript(), script, nullptr, ecash, BaseSignatureChecker{}, &error), ScriptErrorString(error));
+        // On Chains it is a NOP reserved for upgrades.
+        BOOST_CHECK(!VerifyScript(CScript(), script, nullptr, chains, BaseSignatureChecker{}, &error));
+    }
+    // Elsewhere OP_NOP8 is a NOP, and a standard one.
+    const CScript longer{CScript() << OP_NOP8 << OP_TRUE << OP_TRUE << OP_DROP};
+    BOOST_CHECK(VerifyScript(CScript(), longer, nullptr, ecash, BaseSignatureChecker{}, &error));
+    BOOST_CHECK(!VerifyScript(CScript(), CScript() << OP_TRUE << OP_NOP8 << OP_DROP << OP_TRUE << OP_DROP, nullptr, chains, BaseSignatureChecker{}, &error));
+    // A four byte script whose OP_NOP8 is not first does not end: OP_TRUE OP_NOP8 OP_DROP OP_0 leaves 0 (false).
+    BOOST_CHECK(!VerifyScript(CScript(), CScript() << OP_TRUE << OP_NOP8 << OP_DROP << OP_0, nullptr, ecash, BaseSignatureChecker{}, &error));
+
+    // Chains' treasury script (OP_NOP5) is a discouraged NOP on eCash, and Chains' escrow on Chains.
+    const CScript nop5_escrow{CScript() << OP_NOP5 << std::vector<unsigned char>{5} << OP_TRUE};
+    BOOST_CHECK(!VerifyScript(CScript(), nop5_escrow, nullptr, ecash, BaseSignatureChecker{}, &error));
+    BOOST_CHECK_EQUAL(error, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+    BOOST_CHECK(VerifyScript(CScript(), nop5_escrow, nullptr, chains, BaseSignatureChecker{}, &error));
+    // Under the consensus flags (no discouragement) the NOP5 script still passes on eCash, as a NOP.
+    BOOST_CHECK(VerifyScript(CScript(), nop5_escrow, nullptr, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DRIVECHAIN_NOP8, BaseSignatureChecker{}, &error));
+
+    // The script being executed may be a P2SH redeem script, a P2WSH witness script or a tapleaf.
+    const CScript inner{Bytes({0xb7, 0x01, 0x07, 0x51})};
+    {
+        const CScript p2sh{GetScriptForDestination(ScriptHash(inner))};
+        const CScript script_sig{CScript() << std::vector<unsigned char>(inner.begin(), inner.end())};
+        BOOST_CHECK_MESSAGE(VerifyScript(script_sig, p2sh, nullptr, ecash, BaseSignatureChecker{}, &error), ScriptErrorString(error));
+        BOOST_CHECK(!VerifyScript(script_sig, p2sh, nullptr, chains, BaseSignatureChecker{}, &error));
+    }
+    {
+        const CScript p2wsh{GetScriptForDestination(WitnessV0ScriptHash(inner))};
+        CScriptWitness witness;
+        witness.stack.emplace_back(inner.begin(), inner.end());
+        BOOST_CHECK_MESSAGE(VerifyScript(CScript(), p2wsh, &witness, ecash, BaseSignatureChecker{}, &error), ScriptErrorString(error));
+        BOOST_CHECK(!VerifyScript(CScript(), p2wsh, &witness, chains, BaseSignatureChecker{}, &error));
+    }
+    {
+        TaprootBuilder builder;
+        builder.Add(/*depth=*/0, inner, TAPROOT_LEAF_TAPSCRIPT, /*track=*/true);
+        builder.Finalize(XOnlyPubKey::NUMS_H);
+        const CScript p2tr{GetScriptForDestination(builder.GetOutput())};
+        const TaprootSpendData spend{builder.GetSpendData()};
+        const auto& controls{spend.scripts.at({std::vector<unsigned char>(inner.begin(), inner.end()), TAPROOT_LEAF_TAPSCRIPT})};
+        CScriptWitness witness;
+        witness.stack.emplace_back(inner.begin(), inner.end());
+        witness.stack.push_back(*controls.begin());
+        CMutableTransaction spending;
+        spending.vin.resize(1);
+        spending.vout.resize(1);
+        const CTransaction ctx{spending};
+        PrecomputedTransactionData txdata;
+        txdata.Init(ctx, std::vector<CTxOut>{CTxOut{0, p2tr}});
+        const TransactionSignatureChecker checker{&ctx, 0, 0, txdata, MissingDataBehavior::FAIL};
+        BOOST_CHECK_MESSAGE(VerifyScript(CScript(), p2tr, &witness, ecash, checker, &error), ScriptErrorString(error));
+        BOOST_CHECK(!VerifyScript(CScript(), p2tr, &witness, chains, checker, &error));
+    }
+
+    // The treasury scripts of the network: OP_NOP8 here (betanet, set by SelectParams).
+    BOOST_CHECK(EscrowOpcode() == OP_NOP8);
+    BOOST_CHECK(EscrowScript(5) == Bytes({0xb7, 0x01, 0x05, 0x51}));
+    BOOST_CHECK(ParseEscrowScript(Bytes({0xb7, 0x01, 0x05, 0x51})) == 5U);
+    BOOST_CHECK(!ParseEscrowScript(nop5_escrow));
+    BOOST_CHECK(IsEcashDrivechainScript(Bytes({0xb7, 0x00, 0x00, 0x00})));
+    // Standard to create and to spend, as on eCash's node, any of them.
+    TxoutType type;
+    BOOST_CHECK(IsStandard(Bytes({0xb7, 0x00, 0x00, 0x00}), type));
+    BOOST_CHECK(IsStandard(EscrowScript(9), type));
+    BOOST_CHECK(!IsStandard(nop5_escrow, type));
+}
+
+BOOST_AUTO_TEST_CASE(repurpose_transactions)
+{
+    using kernel::ECASH_BETANET_REPURPOSE_TXIDS;
+    using kernel::ECASH_MAIN_REPURPOSE_TXIDS;
+    BOOST_CHECK_EQUAL(ECASH_BETANET_REPURPOSE_TXIDS.size(), 232U);
+    BOOST_CHECK_EQUAL(ECASH_MAIN_REPURPOSE_TXIDS.size(), 232U);
+    // The first of each list of ecash-com/bitcoin (src/repo_txns.h).
+    const uint256 beta_first{"0ad49041c33bd4c3574ca6965b3811a5ccb3e9706dd3cc11133fcd1377c4370b"};
+    BOOST_CHECK(ECASH_BETANET_REPURPOSE_TXIDS.contains(beta_first));
+    const auto main{CChainParams::EcashMain()};
+    const auto beta{CChainParams::EcashBetanet()};
+    const auto test{CChainParams::EcashTestNet()};
+    // Each network its own list, and only its own.
+    for (const uint256& txid : ECASH_BETANET_REPURPOSE_TXIDS) {
+        BOOST_CHECK(beta->GetConsensus().IsRepurposeTx(txid));
+        BOOST_CHECK_EQUAL(main->GetConsensus().IsRepurposeTx(txid), ECASH_MAIN_REPURPOSE_TXIDS.contains(txid));
+        BOOST_CHECK(!test->GetConsensus().IsRepurposeTx(txid));
+        BOOST_CHECK(!CChainParams::Main()->GetConsensus().IsRepurposeTx(txid));
+    }
+    for (const uint256& txid : ECASH_MAIN_REPURPOSE_TXIDS) BOOST_CHECK(main->GetConsensus().IsRepurposeTx(txid));
+    BOOST_CHECK(!beta->GetConsensus().IsRepurposeTx(uint256{1}));
+    BOOST_CHECK(!main->GetConsensus().IsRepurposeTx(uint256{1}));
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_activation)
+{
+    EnforcerChain chain;
+    const Sidechain sidechain{MakeSidechain(2)};
+    BOOST_REQUIRE(chain.Connect({ProposalScript(sidechain)}));
+    // Acks in the proposing block do not count; more than the threshold (5) within the age (10) activate.
+    for (int i{0}; i < 5; ++i) BOOST_REQUIRE(chain.Connect({Ack(sidechain)}));
+    BOOST_CHECK(!chain.scdb.IsActive(2));
+    BOOST_REQUIRE(chain.Connect({Ack(sidechain)}));
+    BOOST_CHECK(chain.scdb.IsActive(2));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->activation_height, chain.height);
+    BOOST_CHECK(chain.scdb.GetProposals().empty());
+
+    // A proposal nobody acks fails once it can no longer reach the threshold: more than
+    // max_age - threshold (5) blocks old with as many failures.
+    const Sidechain other{MakeSidechain(3)};
+    BOOST_REQUIRE(chain.Connect({ProposalScript(other)}));
+    for (int i{0}; i < 5; ++i) BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK(chain.scdb.GetProposal(3, other.GetHash()));
+    BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK(!chain.scdb.GetProposal(3, other.GetHash()));
+
+    // Two proposals of the same sidechain in a block make it invalid; proposing again what is
+    // proposed is ignored; any description is a proposal.
+    BOOST_CHECK(!chain.Connect({ProposalScript(other), ProposalScript(other)}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-duplicate-proposal");
+    const CScript raw{CScript() << OP_RETURN << std::vector<unsigned char>{0xD5, 0xE0, 0xC4, 0xAF, 4, 'x'}};
+    BOOST_REQUIRE(chain.Connect({raw}));
+    BOOST_REQUIRE_EQUAL(chain.scdb.GetProposals().size(), 1U);
+    BOOST_CHECK_EQUAL(chain.scdb.GetProposals()[0].sidechain.version, Sidechain::RAW_DESCRIPTION);
+    BOOST_CHECK(chain.scdb.GetProposals()[0].hash == Hash(std::vector<unsigned char>{'x'}));
+    // Two acks for a slot in a block make it invalid.
+    BOOST_CHECK(!chain.Connect({AckScript(4, Hash(std::vector<unsigned char>{'x'})), AckScript(4, uint256{9})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-acks");
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_bundles)
+{
+    EnforcerChain chain;
+    // A bundle for an inactive slot makes the block invalid (Chains ignores it).
+    BOOST_CHECK(!chain.Connect({BundleScript(2, uint256{7})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-bundle-inactive-sidechain");
+
+    chain.Activate(MakeSidechain(2));
+    BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+    BOOST_REQUIRE(chain.scdb.GetSlot(2)->has_ctip);
+
+    const CMutableTransaction blind_a{EnforcerChain::BlindBundle(COIN, 1000, 1)};
+    const CMutableTransaction blind_b{EnforcerChain::BlindBundle(COIN, 1000, 2)};
+    const uint256 hash_a{blind_a.GetHash().ToUint256()};
+    const uint256 hash_b{blind_b.GetHash().ToUint256()};
+    // Several bundles for a slot in a block; the same one twice is invalid.
+    BOOST_CHECK(!chain.Connect({BundleScript(2, hash_a), BundleScript(2, hash_a)}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-bundle-known");
+    // A vote message after the bundles sees them: index 1 is the second one of this very block.
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, hash_a), BundleScript(2, hash_b), Votes({1})}));
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_a), 0U);
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_b), 2U);
+    // The two byte form with ABSTAIN alone is valid here (an ABSTAIN does not fit in a byte).
+    BOOST_REQUIRE(chain.Connect({VoteScript({VoteForm::TWO_BYTES, {VOTE_ABSTAIN}})}));
+    BOOST_CHECK(!chain.Connect({VoteScript({VoteForm::TWO_BYTES, {0}})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-votes-form");
+
+    // Up to more votes than the threshold (5): a withdrawal before is invalid.
+    for (int i{0}; i < 3; ++i) BOOST_REQUIRE(chain.Connect({Votes({1})}));
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_b), 5U);
+    BOOST_CHECK(!chain.Connect({}, {chain.WithdrawalTx(2, blind_b, COIN, 1000)}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-withdrawal-score");
+    // The votes of the block count before its transactions.
+    BOOST_REQUIRE(chain.Connect({Votes({1})}, {chain.WithdrawalTx(2, blind_b, COIN, 1000)}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->ctip.amount, 9 * COIN - 1000);
+    // No single payout: the other bundle stays pending; and a paid bundle can be proposed again.
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_a), 0U);
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash_b) == true);
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, hash_b)}));
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_b), 1U);
+
+    // A bundle older than the maximum age (10) fails.
+    const int a_height{chain.scdb.GetSlot(2)->bundles[0].height};
+    while (chain.height - a_height < 10) BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_a), 0U);
+    BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK_EQUAL(chain.Score(2, hash_a), 0xFFFFFFFFU);
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash_a) == false);
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_votes_repeat_and_alarm)
+{
+    EnforcerChain chain;
+    chain.Activate(MakeSidechain(1));
+    const uint256 hash{11};
+    BOOST_REQUIRE(chain.Connect({BundleScript(1, hash)}));
+    BOOST_REQUIRE(chain.Connect({Votes({0})}));
+    BOOST_CHECK_EQUAL(chain.Score(1, hash), 2U);
+    // REPEAT_PREVIOUS: what the previous block did.
+    BOOST_REQUIRE(chain.Connect({VoteScript({VoteForm::REPEAT_PREVIOUS, {}})}));
+    BOOST_CHECK_EQUAL(chain.Score(1, hash), 3U);
+    BOOST_REQUIRE(chain.Connect({VoteScript({VoteForm::REPEAT_PREVIOUS, {}})}));
+    BOOST_CHECK_EQUAL(chain.Score(1, hash), 4U);
+    // A block without votes abstains, and is what the next REPEAT_PREVIOUS repeats.
+    BOOST_REQUIRE(chain.Connect());
+    BOOST_REQUIRE(chain.Connect({VoteScript({VoteForm::REPEAT_PREVIOUS, {}})}));
+    BOOST_CHECK_EQUAL(chain.Score(1, hash), 4U);
+    // The alarm (downvote) takes one from every bundle with votes.
+    for (int i{0}; i < 4; ++i) BOOST_REQUIRE(chain.Connect({Votes({VOTE_DOWNVOTE})}));
+    BOOST_CHECK_EQUAL(chain.Score(1, hash), 0U);
+    // An alarm with no bundle above zero does nothing, and so is not repeated: a bundle proposed after it
+    // in the same block keeps its vote in the next one.
+    const uint256 later{12};
+    BOOST_REQUIRE(chain.Connect({Votes({VOTE_DOWNVOTE}), BundleScript(1, later)}));
+    BOOST_CHECK_EQUAL(chain.Score(1, later), 1U);
+    BOOST_REQUIRE(chain.Connect({VoteScript({VoteForm::REPEAT_PREVIOUS, {}})}));
+    BOOST_CHECK_EQUAL(chain.Score(1, later), 1U);
+    // In the other order the alarm sees the new bundle.
+    BOOST_REQUIRE(chain.Connect({VoteScript({VoteForm::TWO_BYTES, {VOTE_DOWNVOTE}})}));
+    BOOST_CHECK_EQUAL(chain.Score(1, later), 0U);
+    // One vote per active sidechain, an index among its bundles.
+    BOOST_CHECK(!chain.Connect({Votes({0, 0})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-votes-size");
+    BOOST_CHECK(!chain.Connect({Votes({7})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-votes-index");
+    BOOST_CHECK(!chain.Connect({Votes({0}), Votes({0})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-votes");
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_deposits_and_bmm)
+{
+    EnforcerChain chain;
+    chain.Activate(MakeSidechain(1));
+    chain.Activate(MakeSidechain(2));
+    // A deposit to two sidechains in one transaction (Chains refuses it).
+    CMutableTransaction both{chain.BaseTx()};
+    both.vout.emplace_back(COIN, EscrowScript(1));
+    both.vout.emplace_back(0, DestinationScript("one"));
+    both.vout.emplace_back(2 * COIN, EscrowScript(2));
+    both.vout.emplace_back(0, DestinationScript(""));
+    BOOST_REQUIRE(chain.Connect({}, {both}));
+    BOOST_CHECK_EQUAL(chain.deposits.size(), 2U);
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(1)->ctip.amount, COIN);
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->ctip.amount, 2 * COIN);
+    // The treasury output of an inactive slot is an ordinary output, of any value; so is one in a coinbase.
+    CMutableTransaction inactive{chain.BaseTx()};
+    inactive.vout.emplace_back(0, EscrowScript(7));
+    BOOST_REQUIRE(chain.Connect({}, {inactive}, {CTxOut{COIN, EscrowScript(1)}}));
+    BOOST_CHECK(!chain.scdb.IsActive(7));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(1)->ctip.amount, COIN);
+    // A treasury output spent without a new one, or not spent by the next deposit, is invalid.
+    CMutableTransaction drain{chain.BaseTx()};
+    drain.vin.emplace_back(chain.scdb.GetSlot(1)->ctip.outpoint);
+    drain.vout.emplace_back(COIN, CScript() << OP_TRUE);
+    BOOST_CHECK(!chain.Connect({}, {drain}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-escrow-spend");
+    CMutableTransaction unspent{chain.BaseTx()};
+    unspent.vout.emplace_back(2 * COIN, EscrowScript(1));
+    unspent.vout.emplace_back(0, DestinationScript("x"));
+    BOOST_CHECK(!chain.Connect({}, {unspent}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-escrow-unspent");
+
+    // An M7 for an inactive slot is fine; an M8 needs the M7 of its slot and the parent block.
+    BOOST_REQUIRE(chain.Connect({BmmAcceptScript(9, uint256{3})}));
+    BmmRequest request;
+    request.slot = 1;
+    request.side_block_hash = uint256{5};
+    request.prev_main_block_hash = chain.tip;
+    CMutableTransaction m8{chain.BaseTx()};
+    m8.vout.emplace_back(0, BmmRequestScript(request));
+    BOOST_CHECK(!chain.Connect({}, {m8}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-bmm-not-accepted");
+    BOOST_REQUIRE(chain.Connect({BmmAcceptScript(1, uint256{5})}, {m8}));
+    BOOST_CHECK(!chain.Connect({BmmAcceptScript(1, uint256{5}), BmmAcceptScript(1, uint256{6})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-bmm-accepts");
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_activation_height)
+{
+    EnforcerChain chain;
+    chain.params.activation_height = 5;
+    // Before it, nothing is read: a block the rules would refuse is fine, and changes nothing.
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, uint256{7}), ProposalScript(MakeSidechain(2))}));
+    BOOST_CHECK(chain.scdb.GetProposals().empty());
+    while (chain.height < 4) BOOST_REQUIRE(chain.Connect());
+    // From it, the rules.
+    BOOST_CHECK(!chain.Connect({BundleScript(2, uint256{7})}));
+    BOOST_REQUIRE(chain.Connect({ProposalScript(MakeSidechain(2))}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetProposals().size(), 1U);
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_miner_policy)
+{
+    EnforcerChain chain;
+    chain.Activate(MakeSidechain(2));
+    BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+    MinerState miner;
+    std::string error;
+    const CMutableTransaction blind{EnforcerChain::BlindBundle(COIN, 1000, 3)};
+    const auto hash{miner.AddBundle(2, blind, error)};
+    BOOST_REQUIRE(hash);
+    miner.Prune(chain.scdb, chain.height + 1);
+    // The bundle is proposed, then upvoted: the vote message first in the coinbase.
+    auto additions{miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1)};
+    std::vector<CScript> scripts;
+    for (const CTxOut& out : additions.coinbase_outputs) scripts.push_back(out.scriptPubKey);
+    BOOST_REQUIRE(chain.Connect(scripts));
+    BOOST_CHECK_EQUAL(chain.Score(2, *hash), 1U);
+    for (int i{0}; i < 6; ++i) {
+        miner.Prune(chain.scdb, chain.height + 1);
+        additions = miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1);
+        scripts.clear();
+        for (const CTxOut& out : additions.coinbase_outputs) scripts.push_back(out.scriptPubKey);
+        BOOST_REQUIRE(!scripts.empty());
+        BOOST_CHECK(ParseVoteScript(scripts.front()));
+        std::vector<CMutableTransaction> withdrawals;
+        for (const CTransactionRef& tx : additions.withdrawals) withdrawals.emplace_back(*tx);
+        // Paid out once it has more votes than the threshold, counting the block's own vote.
+        BOOST_REQUIRE(chain.Connect(scripts, withdrawals));
+        if (!withdrawals.empty()) break;
+    }
+    BOOST_CHECK(chain.scdb.WasPaid(2, *hash) == true);
+    // Proposed again by someone else, the paid bundle is neither upvoted nor paid by this node (policy).
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, *hash)}));
+    miner.Prune(chain.scdb, chain.height + 1);
+    additions = miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1);
+    BOOST_CHECK(additions.withdrawals.empty());
+    for (const CTxOut& out : additions.coinbase_outputs) {
+        if (const auto votes{ParseVoteScript(out.scriptPubKey)}) BOOST_CHECK(votes->votes.empty() || votes->votes[0] != 0);
+    }
+}
+
+BOOST_AUTO_TEST_SUITE_END()

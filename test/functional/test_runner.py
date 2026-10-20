@@ -169,6 +169,8 @@ BASE_SCRIPTS = [
     'wallet_anchor.py',
     'feature_reindex.py',
     'feature_drivechain.py',
+    'feature_ecash_fork.py',
+    'wallet_ecash_replay.py',
     'feature_drivechain_bmm_index.py',
     'feature_drivechain_rules.py',
     'feature_drivechain_forks.py',
