@@ -85,6 +85,21 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
         --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
     )
     set_tests_properties(webui_e2e_simple PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+    # The unified app (doc/unified-app.md): a sidechain run by the app, from Settings → Sidechains to its daemon
+    # stopped. Needs the programs of Layers: -DWEBUI_E2E_SIDECHAIN_BINDIR=<layers build>/bin.
+    set(WEBUI_E2E_SIDECHAIN_BINDIR "" CACHE PATH "Folder with layersd, for the end-to-end test of the unified app")
+    if(WEBUI_E2E_SIDECHAIN_BINDIR)
+      add_test(NAME webui_e2e_unified
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_unified.py
+          --app $<TARGET_FILE:chains-app>
+          --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+          --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-unified
+          --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+      )
+      set_tests_properties(webui_e2e_unified PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+      # The supervisor's unit tests with a real layersd wired to a real chainsd.
+      set_tests_properties(webui_tests PROPERTIES ENVIRONMENT "CHAINS_TEST_SIDECHAIN_BINDIR=${WEBUI_E2E_SIDECHAIN_BINDIR}")
+    endif()
     # The node and Chains pages, with a pretend desktop (tray, notifications) on a private session
     # bus and a second node as a peer (also saves pictures of these pages in e2e-shots).
     find_program(DBUS_DAEMON_EXECUTABLE dbus-daemon)

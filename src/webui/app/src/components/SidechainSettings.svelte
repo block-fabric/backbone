@@ -149,7 +149,7 @@
 {/if}
 
 {#if hub.wizard?.kind === 'enable'}
-  {@const stem = hub.wizard.stem}
+  {@const stem = hub.wizard?.stem}
   {@const target = list.find((c) => c.stem === stem)}
   {#if target}<EnableWizard entry={target} onclose={() => (hub.wizard = null)} />{/if}
 {:else if hub.wizard?.kind === 'firstrun'}

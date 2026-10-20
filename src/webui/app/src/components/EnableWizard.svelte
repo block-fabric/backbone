@@ -165,8 +165,10 @@
         type="button"
         class="btn primary"
         onclick={() => {
+          // The stem first: once closed, the parent no longer gives this wizard its sidechain.
+          const stem = entry.stem;
           close();
-          selectChain(entry.stem);
+          selectChain(stem);
         }}>Show it</button
       >
     {:else}
