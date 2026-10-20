@@ -1,0 +1,24 @@
+// Copyright (c) 2026 The Backbone developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+//
+// See cusf/common/v1/common.proto.
+
+syntax = "proto3";
+package cusf.mainchain.v1;
+
+import "cusf/common/v1/common.proto";
+import "google/protobuf/wrappers.proto";
+
+message GenerateToAddressRequest {
+  // Defaults to 1.
+  google.protobuf.UInt32Value blocks = 1;
+  string address = 2;
+}
+message GenerateToAddressResponse {
+  repeated cusf.common.v1.ReverseHex block_hashes = 1;
+}
+
+service MiningService {
+  rpc GenerateToAddress(GenerateToAddressRequest) returns (GenerateToAddressResponse);
+}

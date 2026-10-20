@@ -172,6 +172,7 @@ BASE_SCRIPTS = [
     'feature_ecash_fork.py',
     'feature_ecash_safety_switch.py',
     'wallet_ecash_replay.py',
+    'interface_ecash_grpc.py',
     'feature_drivechain_bmm_index.py',
     'feature_drivechain_rules.py',
     'feature_drivechain_forks.py',

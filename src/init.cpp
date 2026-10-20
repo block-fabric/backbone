@@ -75,6 +75,9 @@
 #include <protocol.h>
 #include <random.h>
 #include <rpc/register.h>
+#ifdef ENABLE_GRPC
+#include <grpc/init.h>
+#endif
 #include <rpc/server.h>
 #include <rpc/util.h>
 #include <scheduler.h>
@@ -322,6 +325,9 @@ void Shutdown(NodeContext& node)
     util::ThreadRename("shutoff");
     if (node.mempool) node.mempool->AddTransactionsUpdated(1);
 
+#ifdef ENABLE_GRPC
+    StopGrpcServer();
+#endif
     StopHTTPRPC();
     StopREST();
     StopRPC();
@@ -738,6 +744,17 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-blockmintxfee=<amt>", strprintf("Set lowest fee rate (in %s/kvB) for transactions to be included in block creation. (default: %s)", CURRENCY_UNIT, FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE)), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
     argsman.AddArg("-blockversion=<n>", "Override block version to test forking scenarios", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::BLOCK_CREATION);
 
+#ifdef ENABLE_GRPC
+    AddGrpcOptions(argsman);
+#else
+    hidden_args.emplace_back("-grpc");
+    hidden_args.emplace_back("-grpcbind");
+    hidden_args.emplace_back("-grpcport");
+    hidden_args.emplace_back("-grpcallowip");
+    hidden_args.emplace_back("-grpcwallet");
+    hidden_args.emplace_back("-grpcallowstop");
+    hidden_args.emplace_back("-grpcthreads");
+#endif
     argsman.AddArg("-rest", strprintf("Accept public REST requests (default: %u)", DEFAULT_REST_ENABLE), ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
     argsman.AddArg("-rpcallowip=<ip>", "Allow JSON-RPC connections from specified source. Valid values for <ip> are a single IP (e.g. 1.2.3.4), a network/netmask (e.g. 1.2.3.4/255.255.255.0), a network/CIDR (e.g. 1.2.3.4/24), all ipv4 (0.0.0.0/0), or all ipv6 (::/0). RFC4193 is allowed only if -cjdnsreachable=0. This option can be specified multiple times", ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
     argsman.AddArg("-rpcauth=<userpw>", "Username and HMAC-SHA-256 hashed password for JSON-RPC connections. The field <userpw> comes in the format: <USERNAME>:<SALT>$<HASH>. A canonical python script is included in share/rpcauth. The client then connects normally using the rpcuser=<USERNAME>/rpcpassword=<PASSWORD> pair of arguments. This option can be specified multiple times", ArgsManager::ALLOW_ANY | ArgsManager::SENSITIVE, OptionsCategory::RPC);
@@ -2430,6 +2447,11 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     for (const auto& client : node.chain_clients) {
         client->start(scheduler);
     }
+
+#ifdef ENABLE_GRPC
+    // The enforcer's gRPC interface: once the wallets are loaded and the RPC methods callable.
+    if (!StartGrpcServer(node, args)) return false;
+#endif
 
     BanMan* banman = node.banman.get();
     scheduler.scheduleEvery([banman]{

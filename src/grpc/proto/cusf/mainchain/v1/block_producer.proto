@@ -1,0 +1,133 @@
+// Copyright (c) 2026 The Backbone developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+//
+// See cusf/common/v1/common.proto. backboned's block producer is its own block
+// template (drivechain::MinerState); see doc/ecash-grpc.md.
+
+syntax = "proto3";
+package cusf.mainchain.v1;
+
+import "cusf/common/v1/common.proto";
+import "cusf/mainchain/v1/common.proto";
+import "google/protobuf/wrappers.proto";
+
+message CreateSidechainProposalRequest {
+  google.protobuf.UInt32Value sidechain_id = 1;
+  SidechainDeclaration declaration = 2;
+}
+message CreateSidechainProposalResponse {
+  message Confirmed {
+    cusf.common.v1.ReverseHex block_hash = 1;
+    google.protobuf.UInt32Value confirmations = 2;
+    google.protobuf.UInt32Value height = 3;
+    OutPoint outpoint = 4;
+    cusf.common.v1.ReverseHex prev_block_hash = 5;
+  }
+  message NotConfirmed {
+    cusf.common.v1.ReverseHex block_hash = 1;
+    google.protobuf.UInt32Value height = 2;
+    cusf.common.v1.ReverseHex prev_block_hash = 3;
+  }
+  oneof event {
+    Confirmed confirmed = 1;
+    NotConfirmed not_confirmed = 2;
+  }
+}
+
+message SubmitSidechainProposalRequest {
+  google.protobuf.UInt32Value sidechain_id = 1;
+  SidechainDeclaration declaration = 2;
+}
+message SubmitSidechainProposalResponse {}
+
+message SidechainAck {
+  google.protobuf.UInt32Value sidechain_number = 1;
+  cusf.common.v1.ReverseHex description_sha256d_hash = 2;
+}
+
+message SetSidechainAckRequest {
+  google.protobuf.UInt32Value sidechain_number = 1;
+  cusf.common.v1.ReverseHex description_sha256d_hash = 2;
+  bool ack = 3;
+}
+message SetSidechainAckResponse {}
+
+enum AckAllProposalsPolicy {
+  ACK_ALL_PROPOSALS_POLICY_UNSPECIFIED = 0;
+  ACK_ALL_PROPOSALS_POLICY_NONE = 1;
+  ACK_ALL_PROPOSALS_POLICY_NEW_SLOTS = 2;
+  ACK_ALL_PROPOSALS_POLICY_ALL = 3;
+}
+
+message SetAckAllProposalsRequest {
+  reserved 1;
+  reserved "ack_all";
+  AckAllProposalsPolicy policy = 2;
+}
+message SetAckAllProposalsResponse {}
+
+enum WithdrawalBundlePolicy {
+  WITHDRAWAL_BUNDLE_POLICY_UNSPECIFIED = 0;
+  WITHDRAWAL_BUNDLE_POLICY_NONE = 1;
+  WITHDRAWAL_BUNDLE_POLICY_KNOWN = 2;
+  WITHDRAWAL_BUNDLE_POLICY_ALL = 3;
+  WITHDRAWAL_BUNDLE_POLICY_ALARM = 4;
+}
+
+message SetWithdrawalBundlePolicyRequest {
+  WithdrawalBundlePolicy policy = 1;
+}
+message SetWithdrawalBundlePolicyResponse {}
+
+message WithdrawalBundleAck {
+  google.protobuf.UInt32Value sidechain_number = 1;
+  cusf.common.v1.ConsensusHex m6id = 2;
+}
+
+message SetWithdrawalBundleAckRequest {
+  google.protobuf.UInt32Value sidechain_number = 1;
+  cusf.common.v1.ConsensusHex m6id = 2;
+  bool ack = 3;
+}
+message SetWithdrawalBundleAckResponse {}
+
+message GetBlockProducerStateRequest {}
+
+message PendingSidechainProposal {
+  google.protobuf.UInt32Value sidechain_number = 1;
+  cusf.common.v1.ReverseHex description_sha256d_hash = 2;
+  SidechainDeclaration declaration = 3;
+  cusf.common.v1.Hex description = 4;
+}
+
+message GetBlockProducerStateResponse {
+  reserved 2;
+  reserved "ack_all_proposals";
+  repeated PendingSidechainProposal pending_proposals = 1;
+  repeated SidechainAck explicit_acks = 3;
+  AckAllProposalsPolicy ack_policy = 4;
+  WithdrawalBundlePolicy withdrawal_bundle_policy = 5;
+  repeated WithdrawalBundleAck explicit_bundle_acks = 6;
+}
+
+message ProposeWithdrawalBundleRequest {
+  google.protobuf.UInt32Value sidechain_id = 1;
+  google.protobuf.BytesValue transaction = 2;
+}
+message ProposeWithdrawalBundleResponse {}
+
+service BlockProducerService {
+  rpc CreateSidechainProposal(CreateSidechainProposalRequest) returns (stream CreateSidechainProposalResponse);
+  rpc SubmitSidechainProposal(SubmitSidechainProposalRequest) returns (SubmitSidechainProposalResponse);
+  rpc SetSidechainAck(SetSidechainAckRequest) returns (SetSidechainAckResponse);
+  rpc SetAckAllProposals(SetAckAllProposalsRequest) returns (SetAckAllProposalsResponse);
+  rpc SetWithdrawalBundleAck(SetWithdrawalBundleAckRequest) returns (SetWithdrawalBundleAckResponse);
+  rpc SetWithdrawalBundlePolicy(SetWithdrawalBundlePolicyRequest) returns (SetWithdrawalBundlePolicyResponse);
+  rpc ProposeWithdrawalBundle(ProposeWithdrawalBundleRequest) returns (ProposeWithdrawalBundleResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+  rpc GetBlockProducerState(GetBlockProducerStateRequest) returns (GetBlockProducerStateResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}

@@ -15,7 +15,7 @@ namespace drivechain {
 
 namespace {
 //! Version of the file the state is kept in.
-constexpr uint32_t MINER_STATE_VERSION{5};
+constexpr uint32_t MINER_STATE_VERSION{6};
 } // namespace
 
 bool MinerState::Load(const fs::path& path)
@@ -27,7 +27,7 @@ bool MinerState::Load(const fs::path& path)
     try {
         uint32_t version;
         file >> version;
-        if (version != MINER_STATE_VERSION && version != 4 && version != 3) throw std::ios_base::failure("unknown version");
+        if (version != MINER_STATE_VERSION && version != 5 && version != 4 && version != 3) throw std::ios_base::failure("unknown version");
         std::vector<std::pair<std::pair<SidechainId, uint256>, CMutableTransaction>> bundles;
         uint64_t bundle_count;
         uint8_t default_vote;
@@ -54,6 +54,12 @@ bool MinerState::Load(const fs::path& path)
         m_bundle_info.clear();
         // (Before version 5 nothing was kept of them: the next Prune finds it out from the chain.)
         if (version >= 5) file >> m_bundle_info;
+        m_ack_policy = AckPolicy::NONE;
+        if (version >= 6) {
+            uint8_t policy;
+            file >> policy;
+            m_ack_policy = policy <= static_cast<uint8_t>(AckPolicy::ALL) ? static_cast<AckPolicy>(policy) : AckPolicy::NONE;
+        }
     } catch (const std::exception& e) {
         LogError("Failed to read the drivechain miner state from %s: %s", fs::PathToString(path), e.what());
         m_proposals.clear();
@@ -64,6 +70,7 @@ bool MinerState::Load(const fs::path& path)
         m_bundle_info.clear();
         m_default_vote = Vote::Type::ABSTAIN;
         m_follow = false;
+        m_ack_policy = AckPolicy::NONE;
         return false;
     }
     return true;
@@ -84,7 +91,7 @@ void MinerState::Save() const
         for (const auto& [key, tx] : m_bundles) {
             file << key.first << TX_NO_WITNESS(tx);
         }
-        file << m_bundle_info;
+        file << m_bundle_info << static_cast<uint8_t>(m_ack_policy);
         if (!file.Commit()) throw std::runtime_error("commit failed");
         if (file.fclose() != 0) throw std::runtime_error("close failed");
         if (!RenameOver(tmp_path, m_path)) throw std::runtime_error("rename failed");
@@ -92,6 +99,32 @@ void MinerState::Save() const
         LogError("Failed to save the drivechain miner state to %s: %s", fs::PathToString(m_path), e.what());
         (void)file.fclose();
     }
+}
+
+std::vector<std::pair<SidechainId, uint256>> MinerState::GetAcks() const
+{
+    LOCK(m_mutex);
+    return {m_acks.begin(), m_acks.end()};
+}
+
+void MinerState::SetAckPolicy(AckPolicy policy)
+{
+    LOCK(m_mutex);
+    if (m_ack_policy == policy) return;
+    m_ack_policy = policy;
+    Save();
+}
+
+MinerState::AckPolicy MinerState::GetAckPolicy() const
+{
+    LOCK(m_mutex);
+    return m_ack_policy;
+}
+
+std::map<SidechainId, Vote> MinerState::GetVotes() const
+{
+    LOCK(m_mutex);
+    return m_votes;
 }
 
 void MinerState::AddProposal(const Sidechain& sidechain)
@@ -402,9 +435,11 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
 
     // M2: one ack per slot.
     std::set<SidechainId> acked_slots;
+    const AckPolicy ack_policy{GetAckPolicy()};
     for (const Proposal& proposal : scdb.GetProposals()) {
         const uint256& hash{proposal.hash};
-        if (!IsAcked(proposal.sidechain.slot, hash)) continue;
+        const bool by_policy{ack_policy == AckPolicy::ALL || (ack_policy == AckPolicy::NEW_SLOTS && !scdb.IsActive(proposal.sidechain.slot))};
+        if (!by_policy && !IsAcked(proposal.sidechain.slot, hash)) continue;
         // Never ack the sidechain a slot already has: it would replace itself.
         if (const Slot* slot{scdb.GetSlot(proposal.sidechain.slot)}; slot && slot->sidechain.GetHash() == hash) continue;
         if (!acked_slots.insert(proposal.sidechain.slot).second) continue;

@@ -7,6 +7,7 @@
 #include <serialize.h>
 #include <span.h>
 
+#include <algorithm>
 #include <ios>
 #include <memory>
 #include <utility>
@@ -30,6 +31,8 @@ constexpr uint8_t DB_FORMAT_VERSION{'v'};
 constexpr uint8_t DB_CLOSURE{'C'};
 //! The BMM accepts of a block's coinbase (BmmAccepts), by block hash.
 constexpr uint8_t DB_BMM{'B'};
+//! How a block activated the sidechain of a slot (Activation), by slot and block hash.
+constexpr uint8_t DB_ACTIVATION{'A'};
 //! While the BMM index of blocks connected by an older version is filled in: the height to go on from (uint32_t).
 constexpr uint8_t DB_BMM_BACKFILL{'b'};
 
@@ -280,6 +283,16 @@ bool Database::WriteBlock(const uint256& block_hash, int height, const BlockUndo
         record.deposits.push_back(key);
     }
     batch.Write(std::make_pair(DB_EVENTS, block_hash), record);
+    // The sidechains the block activated: the proposal each was, which the block removed.
+    for (const auto& [id, slot] : after.GetSlots()) {
+        if (slot.activation_height != height) continue;
+        const uint256 hash{slot.sidechain.GetHash()};
+        for (const auto& [index, proposal] : undo.removed) {
+            if (proposal.sidechain.slot != id || proposal.hash != hash) continue;
+            batch.Write(std::make_pair(DB_ACTIVATION, std::make_pair(id, block_hash)), Activation{proposal.height, proposal.acks});
+            break;
+        }
+    }
     // A block closes a bundle once at most: its record replaces one left by the same block.
     for (const BlockUndo::Closed& closed : undo.closed) {
         const ClosureKey key{closed.id, closed.hash};
@@ -398,6 +411,25 @@ std::vector<Deposit> Database::ListBlockDeposits(SidechainId slot, int height, c
         deposits.push_back(std::move(deposit));
     }
     return deposits;
+}
+
+uint64_t Database::CountDeposits(SidechainId slot, int height, const std::function<bool(const uint256&)>& in_chain) const
+{
+    uint64_t count{0};
+    const std::unique_ptr<CDBIterator> it{m_db.NewIterator()};
+    for (it->Seek(DepositKey{slot, 0, uint256{}, 0}); it->Valid(); it->Next()) {
+        DepositKey key;
+        if (!it->GetKey(key) || key.slot != slot || key.height >= static_cast<uint32_t>(std::max(height, 0))) break;
+        if (in_chain(key.block_hash)) ++count;
+    }
+    return count;
+}
+
+std::optional<Activation> Database::ReadActivation(SidechainId slot, const uint256& block_hash) const
+{
+    Activation activation;
+    if (!m_db.Read(std::make_pair(DB_ACTIVATION, std::make_pair(slot, block_hash)), activation)) return std::nullopt;
+    return activation;
 }
 
 std::optional<std::vector<Deposit>> Database::ListDeposits(SidechainId slot, const std::optional<uint256>& after, size_t count,

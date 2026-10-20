@@ -292,6 +292,28 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   $<$<TARGET_EXISTS:bitcoin_wallet>:wallet/init.cpp>
   $<$<NOT:$<TARGET_EXISTS:bitcoin_wallet>>:dummywallet.cpp>
 )
+if(WITH_GRPC)
+  target_sources(bitcoin_node
+    PRIVATE
+      grpc/descriptors.cpp
+      grpc/init.cpp
+      grpc/protobuf.cpp
+      grpc/server.cpp
+      grpc/services.cpp
+  )
+  target_link_libraries(bitcoin_node PRIVATE nghttp2 secp256k1)
+  # The functional tests' gRPC client, on gRPC's own library (grpc++), if it is installed.
+  if(BUILD_TESTS)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(GRPCPP QUIET IMPORTED_TARGET grpc++)
+    endif()
+    if(GRPCPP_FOUND)
+      add_executable(backbone-grpc-client grpc/test_client.cpp)
+      target_link_libraries(backbone-grpc-client PRIVATE PkgConfig::GRPCPP)
+    endif()
+  endif()
+endif()
 target_link_libraries(bitcoin_node
   PRIVATE
     core_interface

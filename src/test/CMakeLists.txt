@@ -46,6 +46,7 @@ add_executable(test_bitcoin
   descriptor_tests.cpp
   drivechain_tests.cpp
   ecash_tests.cpp
+  grpc_tests.cpp
   drivechain_validation_tests.cpp
   disconnected_transactions.cpp
   fees_util_tests.cpp
@@ -177,6 +178,9 @@ target_link_libraries(test_bitcoin
   Boost::headers
   $<TARGET_NAME_IF_EXISTS:USDT::headers>
 )
+if(WITH_GRPC)
+  target_link_libraries(test_bitcoin nghttp2)
+endif()
 
 function(add_boost_test source_file)
   if(NOT EXISTS ${source_file})

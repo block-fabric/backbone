@@ -1,0 +1,29 @@
+// Copyright (c) 2026 The Backbone developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+//
+// Backbone's own definition of the interface the bip300301_enforcer serves (as of its
+// commit 17eb2ce): the package, message, field and method names, numbers and types are
+// those it puts on the wire, so that its clients talk to backboned unchanged. Written
+// from its interface (doc/ecash-grpc.md); its own .proto files carry no license and are
+// not copied.
+
+syntax = "proto3";
+package cusf.common.v1;
+
+import "google/protobuf/wrappers.proto";
+
+// Bytes as hex, in their consensus serialization (a length prefix for variable sizes).
+message ConsensusHex {
+  google.protobuf.StringValue hex = 1;
+}
+
+// Bytes as hex, as they are (no length prefix).
+message Hex {
+  google.protobuf.StringValue hex = 1;
+}
+
+// The consensus serialization, byte order reversed (hashes as block explorers show them).
+message ReverseHex {
+  google.protobuf.StringValue hex = 1;
+}

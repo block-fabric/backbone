@@ -1,0 +1,212 @@
+// Copyright (c) 2026 The Backbone developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+//
+// See cusf/common/v1/common.proto. backboned serves it with a wallet of its own
+// (-grpcwallet); see doc/ecash-grpc.md.
+
+syntax = "proto3";
+package cusf.mainchain.v1;
+
+import "cusf/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+message WalletTransaction {
+  message Confirmation {
+    uint32 height = 1;
+    cusf.common.v1.ReverseHex block_hash = 2;
+    google.protobuf.Timestamp timestamp = 3;
+  }
+  cusf.common.v1.ReverseHex txid = 1;
+  cusf.common.v1.ConsensusHex raw_transaction = 6;
+  uint64 fee_sats = 2;
+  uint64 received_sats = 3;
+  uint64 sent_sats = 4;
+  Confirmation confirmation_info = 5;
+}
+
+service WalletService {
+  rpc BroadcastWithdrawalBundle(BroadcastWithdrawalBundleRequest) returns (BroadcastWithdrawalBundleResponse) {
+    option deprecated = true;
+    option idempotency_level = IDEMPOTENT;
+  }
+  rpc CreateBmmCriticalDataTransaction(CreateBmmCriticalDataTransactionRequest) returns (CreateBmmCriticalDataTransactionResponse);
+  rpc CreateDepositTransaction(CreateDepositTransactionRequest) returns (CreateDepositTransactionResponse);
+  rpc CreateNewAddress(CreateNewAddressRequest) returns (CreateNewAddressResponse);
+  rpc CreateWallet(CreateWalletRequest) returns (CreateWalletResponse);
+  rpc FullScan(FullScanRequest) returns (FullScanResponse);
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc ListSidechainDepositTransactions(ListSidechainDepositTransactionsRequest) returns (ListSidechainDepositTransactionsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc ListUnspentOutputs(ListUnspentOutputsRequest) returns (ListUnspentOutputsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc SendTransaction(SendTransactionRequest) returns (SendTransactionResponse);
+  rpc UnlockWallet(UnlockWalletRequest) returns (UnlockWalletResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+  // Not at the enforcer's commit 17eb2ce: of the older cusf_sidechain_proto, which
+  // plain-bitassets and zside still call.
+  rpc GenerateBlocks(GenerateBlocksRequest) returns (stream GenerateBlocksResponse);
+}
+
+message BroadcastWithdrawalBundleRequest {
+  google.protobuf.UInt32Value sidechain_id = 1;
+  google.protobuf.BytesValue transaction = 2;
+}
+message BroadcastWithdrawalBundleResponse {}
+
+message CreateBmmCriticalDataTransactionRequest {
+  google.protobuf.UInt32Value sidechain_id = 1;
+  google.protobuf.UInt64Value value_sats = 2;
+  google.protobuf.UInt32Value height = 3;
+  cusf.common.v1.ConsensusHex critical_hash = 4;
+  cusf.common.v1.ReverseHex prev_bytes = 5;
+}
+message CreateBmmCriticalDataTransactionResponse {
+  cusf.common.v1.ReverseHex txid = 1;
+}
+
+message CreateDepositTransactionRequest {
+  google.protobuf.UInt32Value sidechain_id = 1;
+  // The address on the sidechain (not the s<slot>_<address>_<checksum> form).
+  google.protobuf.StringValue address = 2;
+  google.protobuf.UInt64Value value_sats = 3;
+  google.protobuf.UInt64Value fee_sats = 4;
+}
+message CreateDepositTransactionResponse {
+  cusf.common.v1.ReverseHex txid = 1;
+}
+
+message CreateNewAddressRequest {}
+message CreateNewAddressResponse {
+  string address = 1;
+}
+
+message CreateWalletRequest {
+  repeated string mnemonic_words = 1;
+  string mnemonic_path = 2;
+  string password = 3;
+}
+message CreateWalletResponse {}
+
+message FullScanRequest {}
+message FullScanResponse {
+  cusf.common.v1.ReverseHex tip_hash = 1;
+}
+
+message GetBalanceRequest {}
+message GetBalanceResponse {
+  uint64 confirmed_sats = 1;
+  uint64 pending_sats = 2;
+  bool has_synced = 3;
+}
+
+message ListSidechainDepositTransactionsRequest {}
+message ListSidechainDepositTransactionsResponse {
+  message SidechainDepositTransaction {
+    google.protobuf.UInt32Value sidechain_number = 1;
+    WalletTransaction tx = 2;
+  }
+  repeated SidechainDepositTransaction transactions = 1;
+}
+
+message ListTransactionsRequest {}
+message ListTransactionsResponse {
+  repeated WalletTransaction transactions = 1;
+}
+
+message SendTransactionRequest {
+  message FeeRate {
+    oneof fee {
+      uint64 sat_per_vbyte = 1;
+      uint64 sats = 2;
+    }
+  }
+  message RequiredUtxo {
+    cusf.common.v1.ReverseHex txid = 1;
+    uint32 vout = 2;
+  }
+  map<string, uint64> destinations = 1;
+  optional FeeRate fee_rate = 2;
+  optional cusf.common.v1.Hex op_return_message = 3;
+  repeated RequiredUtxo required_utxos = 4;
+  optional string drain_wallet_to = 5;
+}
+message SendTransactionResponse {
+  cusf.common.v1.ReverseHex txid = 1;
+}
+
+message UnlockWalletRequest {
+  string password = 1;
+}
+message UnlockWalletResponse {}
+
+message GetInfoRequest {}
+message GetInfoResponse {
+  string network = 1;
+  uint32 transaction_count = 2;
+  uint32 unspent_output_count = 3;
+  map<string, string> descriptors = 4;
+  message Tip {
+    uint32 height = 1;
+    cusf.common.v1.ReverseHex hash = 2;
+  }
+  Tip tip = 5;
+  message SyncSource {
+    enum Kind {
+      KIND_UNSPECIFIED = 0;
+      KIND_ELECTRUM = 1;
+      KIND_ESPLORA = 2;
+      KIND_DISABLED = 3;
+    }
+    enum State {
+      STATE_UNSPECIFIED = 0;
+      STATE_DISABLED = 1;
+      STATE_UNAVAILABLE = 2;
+      STATE_AVAILABLE = 3;
+      STATE_FAILING = 4;
+    }
+    Kind kind = 1;
+    optional string endpoint = 2;
+    State state = 3;
+    optional string last_error = 4;
+    optional google.protobuf.Timestamp last_synced_at = 5;
+  }
+  SyncSource sync_source = 6;
+}
+
+message ListUnspentOutputsRequest {}
+message ListUnspentOutputsResponse {
+  message Output {
+    cusf.common.v1.ReverseHex txid = 1;
+    uint32 vout = 2;
+    uint64 value_sats = 3;
+    bool is_internal = 4;
+    bool is_confirmed = 5;
+    uint32 confirmed_at_block = 6;
+    google.protobuf.Timestamp confirmed_at_time = 7;
+    cusf.common.v1.ReverseHex confirmed_transitively = 8;
+    google.protobuf.Timestamp unconfirmed_last_seen = 9;
+    google.protobuf.StringValue address = 10;
+  }
+  repeated Output outputs = 1;
+}
+
+message GenerateBlocksRequest {
+  google.protobuf.UInt32Value blocks = 1;
+  bool ack_all_proposals = 2;
+}
+message GenerateBlocksResponse {
+  cusf.common.v1.ReverseHex block_hash = 1;
+}

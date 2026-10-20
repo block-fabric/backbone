@@ -38,6 +38,19 @@ struct Closure {
 };
 
 /**
+ * How a sidechain came to be active: its proposal, as it was in the block that activated it. For the
+ * enforcer's interface (GetSidechains: proposal_height, vote_count), which reports them.
+ */
+struct Activation {
+    //! Height of the block that proposed it (M1).
+    int32_t proposal_height{0};
+    //! Acks it had, the activating one included.
+    uint32_t acks{0};
+
+    SERIALIZE_METHODS(Activation, obj) { READWRITE(obj.proposal_height, obj.acks); }
+};
+
+/**
  * Storage for drivechain data that is not kept in memory:
  *
  *  - per block, what is needed to revert its changes to the sidechain database, for the
@@ -52,6 +65,9 @@ struct Closure {
  *  - per block, the BMM accepts of its coinbase (BmmAccepts), for good: sidechain software learns
  *    which sidechain block a mainchain block committed to without the block, which a pruned node
  *    may no longer have. Not consensus: nothing validates against it.
+ *  - per block that activated a sidechain, its proposal's height and acks (Activation), for good:
+ *    what the enforcer's interface reports of an active sidechain (blocks connected by a version
+ *    without this record have none). Not consensus either.
  */
 class Database
 {
@@ -148,6 +164,13 @@ public:
                                                      const std::function<bool(const uint256&)>& in_active_chain) const;
     /** Escrow changes of a sidechain made by the block `block_hash` at `height`, in block order. */
     std::vector<Deposit> ListBlockDeposits(SidechainId slot, int height, const uint256& block_hash) const;
+    /**
+     * Number of escrow changes of a sidechain in the blocks below `height` that `in_chain` accepts: the
+     * sequence number the enforcer gives the next one (its treasury UTXO count).
+     */
+    uint64_t CountDeposits(SidechainId slot, int height, const std::function<bool(const uint256&)>& in_chain) const;
+    /** How the sidechain in `slot` was activated by the block `block_hash`; nullopt if not recorded. */
+    std::optional<Activation> ReadActivation(SidechainId slot, const uint256& block_hash) const;
 
 private:
     mutable CDBWrapper m_db;

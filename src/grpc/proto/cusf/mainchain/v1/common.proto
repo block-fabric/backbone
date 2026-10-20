@@ -1,0 +1,29 @@
+// Copyright (c) 2026 The Backbone developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+//
+// See cusf/common/v1/common.proto.
+
+syntax = "proto3";
+package cusf.mainchain.v1;
+
+import "cusf/common/v1/common.proto";
+import "google/protobuf/wrappers.proto";
+
+message OutPoint {
+  cusf.common.v1.ReverseHex txid = 1;
+  google.protobuf.UInt32Value vout = 2;
+}
+
+// A BIP300 M1 description in the version 0 form.
+message SidechainDeclaration {
+  message V0 {
+    google.protobuf.StringValue title = 1;
+    google.protobuf.StringValue description = 2;
+    cusf.common.v1.ConsensusHex hash_id_1 = 3;
+    cusf.common.v1.Hex hash_id_2 = 4;
+  }
+  oneof sidechain_declaration {
+    V0 v0 = 1;
+  }
+}

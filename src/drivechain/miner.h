@@ -65,6 +65,17 @@ public:
     /** Stop acking a proposal, in every slot. */
     void ClearAcks(const uint256& proposal_hash) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     bool IsAcked(SidechainId slot, const uint256& proposal_hash) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** The acks of SetAck. */
+    std::vector<std::pair<SidechainId, uint256>> GetAcks() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /**
+     * Which proposals to ack without an ack of SetAck (the enforcer's AckAllProposalsPolicy): none,
+     * those for a slot without a sidechain, or all of them (also those that would replace one).
+     */
+    enum class AckPolicy : uint8_t { NONE = 0, NEW_SLOTS = 1, ALL = 2 };
+    void SetAckPolicy(AckPolicy policy) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    AckPolicy GetAckPolicy() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** The votes of SetVote. */
+    std::map<SidechainId, Vote> GetVotes() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /**
      * Remember a withdrawal bundle received from a sidechain, in blind form.
@@ -169,6 +180,7 @@ private:
     //! To upvote is to upvote what the sidechain node of the operator vouches for, and nothing else.
     Vote::Type m_default_vote GUARDED_BY(m_mutex){Vote::Type::UPVOTE};
     bool m_follow GUARDED_BY(m_mutex){false};
+    AckPolicy m_ack_policy GUARDED_BY(m_mutex){AckPolicy::NONE};
 };
 
 } // namespace drivechain
