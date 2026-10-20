@@ -107,6 +107,29 @@ pending when another bundle of its slot was paid out (single payout, paid-bundle
 proposed to a full queue (the pending cap); the vote message is in the canonical form. Idle and upvote expiry
 have no policy form beyond never upvoting what the sidechain node does not vouch for.
 
+### Paid-bundle memory (security review, 2026-10-20)
+
+Finding (commit `ec0b39d665`): a bundle closed again replaced its record, so a bundle paid out, proposed
+again and then failing would have been remembered as *failed*: `WasPaid` false. The template's
+single-payout policy and the sidechains (which refund a failed bundle's withdrawals) read that record, so a
+paid bundle could have been voted for, paid or refunded again.
+
+What consensus does, as the enforcer (17eb2ce): an M3 is refused only for a bundle that is *pending*
+(`handle_m3_propose_bundle`, `BundleAlreadyPending`); a paid or failed M6ID can be proposed again, and an M6
+needs only a pending bundle with the votes (`handle_m6`): a paid bundle can be paid again by majority vote.
+Nothing in the enforcer remembers payouts. Our enforcer mode keeps that exactly: `m_closed` is consulted by
+no consensus check there. On the Chains networks a closed bundle cannot be proposed again
+(`bad-dc-bundle-closed`), and a paid one is never forgotten, so a paid record is never closed again there.
+
+Resolution: once paid, always paid. `SidechainDB::CloseBundle` never turns a paid record into a failure
+(a later payout of the same bundle moves its height; a failure after a failure, or a payout after a
+failure, replaces the record), so `WasPaid`, `LastPayoutHeight` and the template's policy (no vote, no M6,
+no M3 for a bundle ever paid, or pending at a payout of its slot) never forget a payout. The record before a
+change is in the block's undo data; a reorg takes the closures back in reverse
+(`ecash_tests/enforcer_paid_bundle_memory`: paid, proposed again, expired, proposed again and voted past
+the threshold by others while the template abstains and pays nothing; a reorg to before the payout gives
+the state before it exactly).
+
 ## The wallet
 
 - **Seed and keys.** Bitcoin Core's: coin type 0' on `ecash` and `ecashbeta`, 1' on `ecashtest`
@@ -183,7 +206,10 @@ and a headers sync with eCash's four seeds reached 973,880, tip `000000000000000
    constants retuned for 10-minute blocks (audit 2026-10-19 §3); the app's sidechain supervisor (no network
    arguments for the eCash networks yet).
 5. Policy constants still Chains' on eCash: `MAX_STANDARD_TX_WEIGHT` (392,000 against Bitcoin's 400,000)
-   and the cluster size; per network if relay parity matters.
+   and `DEFAULT_CLUSTER_SIZE_LIMIT_KVB` (99 against 101). They are compile-time constants (static asserts,
+   the cluster limits, the wallet's and the miner's checks), so per-network values are not a small change;
+   until then a transaction between 392,000 and 400,000 weight, standard on eCash's node, is not relayed by
+   ours (no consensus effect).
 6. The split-coins helper above; the app's remaining "CHN" texts (first steps, tools, multisig) and the
    `chains:` URI scheme (eCash's Electrum uses `ecx:`).
 7. Renames outside this repository: the GitHub repositories (block-fabric/backbone, block-fabric/backbone-<sidechain>),

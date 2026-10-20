@@ -232,7 +232,11 @@ public:
     const Proposal* GetProposal(SidechainId slot, const uint256& hash) const;
     /** Whether a bundle was paid out or failed. */
     bool IsClosed(SidechainId id, const uint256& bundle_hash) const { return m_closed.contains({id, bundle_hash}); }
-    /** Whether a bundle was paid out (true) or failed (false), if it was closed. Sidechains refund the withdrawals of a failed bundle. */
+    /**
+     * Whether a bundle was paid out (true) or failed (false), if it was closed. Sidechains refund the
+     * withdrawals of a failed bundle. Once paid, always paid: a copy proposed again that fails later
+     * (the enforcer's rules allow it) does not turn it into a failure (see CloseBundle).
+     */
     std::optional<bool> WasPaid(SidechainId id, const uint256& bundle_hash) const
     {
         const auto it{m_closed.find({id, bundle_hash})};

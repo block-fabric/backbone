@@ -152,9 +152,14 @@ void SidechainDB::CloseBundle(SidechainId id, const Bundle& bundle, bool paid, i
 {
     // The block that proposed a bundle cannot upvote it: a later upvote moved last_upvote.
     const ClosedBundle closed{paid, height, /*upvoted=*/bundle.last_upvote != bundle.height};
-    // A bundle closed before (the enforcer's rules let a closed bundle be proposed again) is remembered
-    // as it was closed last; the record before goes, as a forgotten one, which a disconnect brings back.
+    // A bundle closed before (the enforcer's rules let a closed bundle be proposed again, and paid or fail
+    // again; only the Chains rules refuse it, bad-dc-bundle-closed) is remembered as it was closed last,
+    // but for one thing: once paid, always paid. A payout is never forgotten nor downgraded to a failure:
+    // its withdrawals were paid, a copy of it that fails later must not be refunded by the sidechain, and
+    // the block template must never vote for it nor pay it again (MinerState::CreateBlockAdditions). The
+    // record before goes, as a forgotten one, which a disconnect brings back.
     if (const auto before{m_closed.find({id, bundle.hash})}; before != m_closed.end()) {
+        if (before->second.paid && !paid) return;
         undo.forgotten.emplace_back(before->first, before->second);
         if (!before->second.paid) FailedByHeight(before->second).erase({before->second.height, id, bundle.hash});
         m_closed.erase(before);

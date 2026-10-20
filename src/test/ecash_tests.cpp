@@ -150,7 +150,21 @@ struct EnforcerChain {
         scdb = after;
         tip = block.GetHash();
         ++height;
+        history.push_back(undo);
         return true;
+    }
+    //! The undo data of the blocks connected, in order (for reorgs over several blocks).
+    std::vector<BlockUndo> history;
+
+    /** Take back the last `count` blocks, as a reorg does. */
+    void Disconnect(int count)
+    {
+        for (int i{0}; i < count; ++i) {
+            scdb.DisconnectBlock(history.back());
+            tip = history.back().prev_block_hash;
+            history.pop_back();
+            --height;
+        }
     }
 
     /** Propose a sidechain and ack it until it activates: more acks than the threshold. */
@@ -581,6 +595,60 @@ BOOST_AUTO_TEST_CASE(enforcer_bundles)
     BOOST_REQUIRE(chain.Connect());
     BOOST_CHECK_EQUAL(chain.Score(2, hash_c), 0xFFFFFFFFU);
     BOOST_CHECK(chain.scdb.WasPaid(2, hash_c) == false);
+}
+
+BOOST_AUTO_TEST_CASE(enforcer_paid_bundle_memory)
+{
+    // Security review: a bundle paid out, proposed again (consensus allows it under the enforcer's rules,
+    // and would pay it again with the votes) and then failing, must stay remembered as paid; the block
+    // template never votes for it nor pays it again; reorgs take both closures back exactly.
+    EnforcerChain chain;
+    chain.Activate(MakeSidechain(2));
+    BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+    const CMutableTransaction blind{EnforcerChain::BlindBundle(COIN, 1000, 9)};
+    const uint256 hash{blind.GetHash().ToUint256()};
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, hash)}));
+    for (int i{0}; i < 5; ++i) BOOST_REQUIRE(chain.Connect({Votes({0})}));
+    const SidechainDB before_payout{chain.scdb};
+    const int before_payout_height{chain.height};
+    BOOST_REQUIRE(chain.Connect({Votes({0})}, {chain.WithdrawalTx(2, blind, COIN, 1000)}));
+    const int paid_height{chain.height};
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash) == true);
+    BOOST_CHECK(chain.scdb.LastPayoutHeight(2) == paid_height);
+
+    // Proposed again by someone, and left to expire: still paid, at the height it was paid.
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, hash)}));
+    const int reproposed_height{chain.height};
+    while (chain.height - reproposed_height <= chain.params.bundle_max_age) BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK_EQUAL(chain.Score(2, hash), 0xFFFFFFFFU);
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash) == true);
+    BOOST_CHECK_EQUAL(chain.scdb.GetClosed(2, hash)->height, paid_height);
+    BOOST_CHECK(chain.scdb.LastPayoutHeight(2) == paid_height);
+
+    // Proposed a third time: consensus takes it (as the enforcer does), the template does not help it.
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, hash)}));
+    MinerState miner;
+    std::string error;
+    BOOST_REQUIRE(miner.AddBundle(2, blind, error));
+    for (int i{0}; i < 8; ++i) {
+        miner.Prune(chain.scdb, chain.height + 1);
+        const auto additions{miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1)};
+        BOOST_CHECK(additions.withdrawals.empty());
+        for (const CTxOut& out : additions.coinbase_outputs) {
+            if (const auto votes{ParseVoteScript(out.scriptPubKey)}) BOOST_CHECK(votes->votes.empty() || votes->votes[0] == VOTE_ABSTAIN);
+            BOOST_CHECK(!ParseBundleScript(out.scriptPubKey));
+        }
+        // Others vote it up: consensus would pay it, the template still does not.
+        BOOST_REQUIRE(chain.Connect({Votes({0})}));
+    }
+    BOOST_CHECK_GT(chain.Score(2, hash), static_cast<uint32_t>(chain.params.bundle_threshold));
+
+    // A reorg back to before the payout takes both closures back exactly; connecting again gives them again.
+    chain.Disconnect(chain.height - before_payout_height);
+    BOOST_CHECK(chain.scdb == before_payout);
+    BOOST_CHECK(!chain.scdb.IsClosed(2, hash));
+    BOOST_REQUIRE(chain.Connect({Votes({0})}, {chain.WithdrawalTx(2, blind, COIN, 1000)}));
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash) == true);
 }
 
 BOOST_AUTO_TEST_CASE(enforcer_votes_repeat_and_alarm)
