@@ -34,6 +34,7 @@ class AppConfig;
 class Bridge;
 class NodeApi;
 class SidechainNodes;
+class SidechainSupervisor;
 class EventHub;
 class NodeEvents;
 class OptionsJournal;
@@ -77,6 +78,13 @@ public:
 
 private:
     void RegisterHostMethods();
+    void RegisterSidechainMethods(Bridge& b);
+    //! The supervisor of the sidechains, once the node is ready; throws HostError before.
+    std::shared_ptr<SidechainSupervisor> Supervisor() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! Make the supervisor (the node is ready) and start the sidechains enabled.
+    void StartSidechains() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! The RPC server of the node runs (started now if it did not), for the sidechains. Throws HostError.
+    void EnsureRpcServer() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void NodeThread() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     bool IntroIfNeeded() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     bool StartNode() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
@@ -164,6 +172,12 @@ private:
     std::unique_ptr<confirm::ConfirmedRpc> m_confirmed_rpc;
     //! The nodes of sidechains run from here.
     std::unique_ptr<SidechainNodes> m_sidechain_nodes;
+    //! The sidechains this app runs (Settings → Sidechains, doc/unified-app.md): made when the node is ready.
+    std::shared_ptr<SidechainSupervisor> m_supervisor GUARDED_BY(m_mutex);
+    //! The password of the user the sidechain daemons reach this node as (an -rpcauth of this run only).
+    std::string m_sidechain_rpc_password;
+    //! The folder the user last chose for the data of each sidechain (the page can only set one chosen so).
+    std::map<std::string, std::string> m_chosen_sidechain_dirs GUARDED_BY(m_mutex);
     std::thread m_node_thread;
     std::atomic<bool> m_restart_requested{false};
     //! Messages and questions of the node.

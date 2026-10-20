@@ -17,6 +17,9 @@
 #include <interfaces/init.h>
 #include <interfaces/node.h>
 #include <logging.h>
+#include <chainparamsbase.h>
+#include <random.h>
+#include <rpc/server.h>
 #include <node/interface_ui.h>
 #include <util/chaintype.h>
 #include <util/exception.h>
@@ -38,6 +41,7 @@
 #include <webui/options.h>
 #include <webui/rpcpolicy.h>
 #include <webui/sidechainnodes.h>
+#include <webui/supervisor.h>
 #include <webui/singleinstance.h>
 #ifdef WIN32
 #include <webui/urischeme.h>
@@ -59,6 +63,8 @@ using namespace std::chrono_literals;
 
 namespace webui {
 namespace {
+//! The RPC user of the sidechains this app runs.
+const std::string SIDECHAIN_RPC_USER{"chains-app-sidechains"};
 constexpr uint64_t GB_BYTES{1'000'000'000};
 constexpr bool DEFAULT_CHOOSE_DATADIR{false};
 constexpr bool DEFAULT_SPLASHSCREEN{true};
@@ -140,6 +146,9 @@ void SetupUIArgs(ArgsManager& argsman)
     argsman.AddArg("-splash", strprintf("Show splash screen on startup (default: %u)", DEFAULT_SPLASHSCREEN), ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-webuidevtools", "Enable the web inspector and the context menu of the web view (default: 0)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-webuiconfig=<file>", "File of the app settings (default: chains-app.json in the configuration folder of the user)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-sidechainbindir=<dir>", "Folder with the programs of sidechains this app runs (<name>d), searched before the folder of the app (can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::NETWORK_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-sidechainportbase=<port>", "Ports of the sidechains this app runs: RPC <port>+2i, peers <port>+2i+1 (default: the default ports of each sidechain)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-sidechainarg=<arg>", "An argument given to every sidechain daemon this app starts (can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
 #ifdef WEBUI_TEST_HOOKS
     // Only in a build for the tests (cmake -DWEBUI_TEST_HOOKS=ON): a release has neither the options nor the hooks.
     argsman.AddArg("-webuitestscript=<file>", "Run this script in the page once it is loaded, with the test methods of the bridge (for the tests of the app)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
@@ -596,6 +605,19 @@ bool App::StartNode()
         m_node_started = true;
     }
 
+    // The user the sidechains this app runs reach this node as (doc/unified-app.md): an -rpcauth of this run
+    // only, its password in memory and in an owner-only file of each sidechain, never on a command line. Only
+    // used if a sidechain is enabled: the RPC server is not started for it otherwise.
+    {
+        std::array<unsigned char, 32> secret;
+        GetStrongRandBytes(secret);
+        std::array<unsigned char, 16> salt;
+        GetStrongRandBytes(salt);
+        m_sidechain_rpc_password = HexStr(secret);
+        const std::string line{SidechainSupervisor::RpcAuthLine(SIDECHAIN_RPC_USER, m_sidechain_rpc_password, HexStr(salt))};
+        m_args.LockSettings([&](common::Settings& settings) { settings.command_line_options["rpcauth"].emplace_back(line); });
+    }
+
     interfaces::BlockAndHeaderTipInfo tip_info;
     const bool ok{m_node->appInitMain(&tip_info)};
     if (!ok || m_node->shutdownRequested()) {
@@ -628,6 +650,7 @@ bool App::StartNode()
     }
     SetPhase("ready", std::move(data));
     m_window->Post([this] { UpdateTray(); });
+    StartSidechains();
 
     std::vector<std::string> waiting;
     {
@@ -677,6 +700,13 @@ void App::NodeThread()
         if (m_node_events) m_node_events->Stop();
         m_bridge->Stop();
         if (m_instance) m_instance->Stop();
+        // The sidechains first: they follow this node (doc/unified-app.md, shutdown order).
+        std::shared_ptr<SidechainSupervisor> supervisor;
+        {
+            LOCK(m_mutex);
+            supervisor = m_supervisor;
+        }
+        if (supervisor) supervisor->StopAll();
         LogInfo("webui: shutting the node down");
         m_node->appShutdown();
         LogInfo("webui: node stopped");
@@ -1331,6 +1361,7 @@ void App::RegisterHostMethods()
             return Confirm({.title = title, .message = message, .accept = accept});
         });
     m_sidechain_nodes->Register(b);
+    RegisterSidechainMethods(b);
 
     // The options of the node (OptionsModel), in settings.json; the flag of a restart in the preferences.
     const auto options{[this, need_node]() {
@@ -1703,6 +1734,203 @@ void App::RegisterHostMethods()
         });
     }
 #endif
+}
+
+std::shared_ptr<SidechainSupervisor> App::Supervisor()
+{
+    LOCK(m_mutex);
+    if (!m_supervisor) throw HostError(BRIDGE_NOT_READY, "The node is not running");
+    return m_supervisor;
+}
+
+void App::EnsureRpcServer()
+{
+    if (IsRPCRunning()) return;
+    interfaces::Node* node;
+    {
+        LOCK(m_mutex);
+        if (!m_node_started || !m_node || m_phase != "ready") throw HostError(BRIDGE_NOT_READY, "The node is not running");
+        node = m_node.get();
+    }
+    // Sidechains follow this node over RPC: its server, on this computer only unless the user set otherwise.
+    if (!node->startRpcServer()) throw HostError(strprintf("The private connection of the sidechains to Chains could not be opened (is port %d in use?). See the log of the node.", m_args.GetIntArg("-rpcport", BaseParams().RPCPort())));
+}
+
+void App::StartSidechains()
+{
+    SidechainSupervisor::Options options;
+    options.chains_datadir = m_args.GetDataDirBase();
+    options.chain = m_args.GetChainType();
+    options.mainchain_rpc_port = m_args.GetIntArg("-rpcport", BaseParams().RPCPort());
+    options.mainchain_rpc_user = SIDECHAIN_RPC_USER;
+    options.mainchain_rpc_password = m_sidechain_rpc_password;
+    for (const std::string& dir : m_args.GetArgs("-sidechainbindir")) options.bin_dirs.push_back(fs::PathFromString(dir));
+#ifdef __linux__
+    // The programs of the sidechains come next to this app (phase 1: bundled).
+    {
+        std::error_code ec;
+        const auto self{std::filesystem::read_symlink("/proc/self/exe", ec)};
+        if (!ec) options.bin_dirs.push_back(fs::path{self.parent_path()});
+    }
+#endif
+    options.port_base = m_args.GetIntArg("-sidechainportbase", 0);
+    options.extra_args = m_args.GetArgs("-sidechainarg");
+    const std::string key{"sidechains:" + ChainTypeToString(m_args.GetChainType())};
+    auto supervisor{std::make_shared<SidechainSupervisor>(
+        std::move(options),
+        [this, key] {
+            UniValue value{m_config->Value(key)};
+            return value.isObject() ? value : UniValue{UniValue::VOBJ};
+        },
+        [this, key](const UniValue& value) { m_config->SetValue(key, value); },
+        [this](const std::string& stem) {
+            UniValue data{UniValue::VOBJ};
+            data.pushKV("stem", stem);
+            if (m_hub) m_hub->Emit("sidechains", std::move(data), "sidechains:" + stem);
+        })};
+    {
+        LOCK(m_mutex);
+        m_supervisor = supervisor;
+    }
+    // Chains alone unless a sidechain is enabled: then (only then) the RPC server and the daemons.
+    if (!supervisor->AnyEnabled()) return;
+    try {
+        EnsureRpcServer();
+    } catch (const std::exception& e) {
+        LogWarning("webui: sidechains not started: %s", e.what());
+        return;
+    }
+    supervisor->StartEnabled();
+}
+
+void App::RegisterSidechainMethods(Bridge& b)
+{
+    const auto stem_of{[](const UniValue& params) {
+        const std::string stem{ParamStr(params, "stem")};
+        if (!SidechainSupervisor::FindSpec(stem)) throw HostError(BRIDGE_INVALID_REQUEST, "No such sidechain");
+        return stem;
+    }};
+    // The errors of the supervisor are for the user, as they are.
+    const auto guarded{[](auto fn) {
+        return [fn](const UniValue& params) -> UniValue {
+            try {
+                return fn(params);
+            } catch (const HostError&) {
+                throw;
+            } catch (const std::runtime_error& e) {
+                throw HostError(e.what());
+            }
+        };
+    }};
+    b.RegisterHost("sidechains.list", guarded([this](const UniValue&) {
+        const auto s{Supervisor()};
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("network", ChainTypeToString(m_args.GetChainType()));
+        out.pushKV("rpcServer", IsRPCRunning());
+        out.pushKV("chainsDataDir", fs::PathToString(m_args.GetDataDirBase()));
+        out.pushKV("chains", s->List());
+        return out;
+    }));
+    b.RegisterHost("sidechains.enable", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        std::optional<std::string> wallet;
+        if (Param(params, "wallet").isStr()) wallet = Param(params, "wallet").get_str();
+        EnsureRpcServer();
+        s->Enable(stem, wallet);
+        return UniValue{true};
+    }), Bridge::Thread::LONG);
+    b.RegisterHost("sidechains.disable", guarded([this, stem_of](const UniValue& params) {
+        Supervisor()->Disable(stem_of(params));
+        return UniValue{true};
+    }), Bridge::Thread::LONG);
+    b.RegisterHost("sidechains.chooseDataDir", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        const SidechainSupervisor::Spec* spec{SidechainSupervisor::FindSpec(stem)};
+        Window::FileDialog dialog;
+        dialog.folder = true;
+        dialog.title = strprintf("Where %s keeps its data", spec->name);
+        dialog.start_dir = fs::PathToString(s->DataDir(stem).parent_path());
+        const auto chosen{Choose(dialog)};
+        if (!chosen) return UniValue{};
+        {
+            LOCK(m_mutex);
+            m_chosen_sidechain_dirs[stem] = *chosen;
+        }
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("path", *chosen);
+        out.pushKV("problem", s->CheckDataDir(stem, fs::PathFromString(*chosen)));
+        std::error_code ec;
+        const auto space{std::filesystem::space(fs::PathFromString(*chosen), ec)};
+        if (!ec) out.pushKV("freeGB", static_cast<double>(space.available) / 1e9);
+        return out;
+    }), Bridge::Thread::LONG);
+    b.RegisterHost("sidechains.setDataDir", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        std::optional<fs::path> dir;
+        if (Param(params, "dir").isStr()) {
+            const std::string path{Param(params, "dir").get_str()};
+            // Only a folder the user chose in the chooser of the desktop (or the default).
+            LOCK(m_mutex);
+            const auto it{m_chosen_sidechain_dirs.find(stem)};
+            if (it == m_chosen_sidechain_dirs.end() || it->second != path) throw HostError(BRIDGE_INVALID_REQUEST, "Choose the folder first");
+            dir = fs::PathFromString(path);
+        }
+        s->SetDataDir(stem, dir, Param(params, "move").isTrue());
+        return UniValue{true};
+    }), Bridge::Thread::LONG);
+    b.RegisterHost("sidechains.deleteData", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        const bool wallets{Param(params, "wallets").isTrue()};
+        const SidechainSupervisor::Spec* spec{SidechainSupervisor::FindSpec(stem)};
+        Window::ConfirmDialog dialog;
+        dialog.title = strprintf("Delete the data of %s", spec->name);
+        dialog.message = wallets ? strprintf("Everything %s keeps in %s goes, its wallets too: coins on %s whose keys are only there are lost for good.\n\nAccept only if you backed its wallet up, or it holds nothing.", spec->name, fs::PathToString(s->NetDataDir(stem)), spec->name)
+                                 : strprintf("The blocks and the state of %s in %s go; its wallets stay. Turned on again, it downloads its chain anew.", spec->name, fs::PathToString(s->NetDataDir(stem)));
+        dialog.accept = "Delete";
+        if (!Confirm(dialog)) return UniValue{false};
+        s->DeleteData(stem, wallets);
+        return UniValue{true};
+    }), Bridge::Thread::LONG);
+    b.RegisterHost("sidechains.overview", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        int height{-1};
+        {
+            LOCK(m_mutex);
+            if (m_node) height = m_node->getNumBlocks();
+        }
+        return s->Overview(stem, height);
+    }));
+    b.RegisterHost("sidechains.rpc", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const std::string method{ParamStr(params, "method")};
+        // Phase 1: the pages read a sidechain, they do not spend on it (doc/unified-app.md, security).
+        if (!SidechainSupervisor::IsReadOnlyMethod(method)) throw HostError(BRIDGE_METHOD_NOT_FOUND, strprintf("%s is not offered for sidechains yet", method));
+        const UniValue& args{Param(params, "params")};
+        const std::string wallet{Param(params, "wallet").isStr() ? Param(params, "wallet").get_str() : std::string{}};
+        return Supervisor()->Rpc(stem, method, args.isArray() ? args : UniValue{UniValue::VARR}, wallet);
+    }));
+    b.RegisterHost("sidechains.log", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        UniValue out{UniValue::VOBJ};
+        for (const auto& [key, path] : {std::pair{"node", s->NetDataDir(stem) / "debug.log"}, std::pair{"supervisor", s->LogFile(stem)}}) {
+            std::ifstream file{path.std_path(), std::ios::binary};
+            std::string text;
+            if (file) {
+                file.seekg(0, std::ios::end);
+                const std::streamoff size{file.tellg()};
+                file.seekg(std::max<std::streamoff>(0, size - 6000));
+                text.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+            }
+            out.pushKV(key, text);
+        }
+        return out;
+    }));
 }
 
 int App::Run()

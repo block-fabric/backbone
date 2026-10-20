@@ -16,6 +16,7 @@ add_executable(test_chains-app
   nodeapi_tests.cpp
   nodeevents_tests.cpp
   singleinstance_tests.cpp
+  supervisor_tests.cpp
   windowframe_tests.cpp
   $<$<BOOL:${ENABLE_WALLET}>:walletapi_tests.cpp>
 )

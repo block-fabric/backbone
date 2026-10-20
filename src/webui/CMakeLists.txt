@@ -76,6 +76,7 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   nodeevents.cpp
   options.cpp
   sidechainnodes.cpp
+  supervisor.cpp
   singleinstance.cpp
   windowframe.cpp
 )

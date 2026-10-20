@@ -70,6 +70,12 @@ bool AppInitInterfaces(node::NodeContext& node);
  * @pre Parameters should be parsed and config file should be read, AppInitLockDirectories should have been called.
  */
 bool AppInitMain(node::NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info = nullptr);
+/**
+ * Start the HTTP and RPC servers after AppInitMain, for a node started without -server (the Chains app
+ * starts them when a sidechain it runs needs them). Nothing when they run already; false once shutdown
+ * was requested, or when they could not be started (see the log).
+ */
+bool AppStartServersLate(node::NodeContext& node);
 
 /**
  * Register all arguments with the ArgsManager
