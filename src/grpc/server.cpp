@@ -608,6 +608,8 @@ public:
             if (!stream.request.call) continue;
             Call& call{*stream.request.call};
             const Call::State state{call.GetState()};
+            // A Connect unary reply's HTTP status is its status: sent once the call is over.
+            if (!stream.responded && call.GetProtocol() == Protocol::CONNECT_UNARY && !state.finished) continue;
             if (!stream.responded && (state.has_data || state.finished)) {
                 Respond(id, stream, state);
             } else if (stream.responded && stream.deferred && (state.has_data || state.finished)) {

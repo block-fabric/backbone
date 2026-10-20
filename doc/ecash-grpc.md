@@ -247,6 +247,10 @@ Not run: building or running the enforcer or a LayerTwo sidechain needs the user
 
 They keep JSON-RPC (default): `getsidechainevents` reports the bundles pending after each block with their
 scores, which the template's consensus uses (refund gating) and which the enforcer's interface does not have
-(only the current votes, GetWithdrawalBundleProposals). The template branch `ecash-grpc` adds an option to send
-its writes (BMM requests, bundles, vouching) through the enforcer's interface; following stays on JSON-RPC; see
-its `doc/mainchain-grpc.md` for the design of a full gRPC mode and what it would need.
+(only the current votes, GetWithdrawalBundleProposals). The template branch `ecash-grpc` (worktree
+`~/skydoge/sidechain-template-ecash-grpc`) adds `-mainchaingrpcport`/`-mainchaingrpcauth`: its BMM requests and
+withdrawal bundles go through the enforcer's interface (Connect JSON over its own HTTP/1.1 client; the hand-off
+is its word on the bundle, the block producer's KNOWN policy upvotes it); following stays on JSON-RPC. Its
+`doc/mainchain-grpc.md` has what is mapped, the limits (it cannot take its word back), and the design of a full
+gRPC mode, which needs the pending scores per block from the enforcer (or a replay of the votes).
+`feature_sidechain_ecash.py --mainchaingrpc` runs the whole eCash scenario that way against backboned.
