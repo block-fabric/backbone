@@ -869,3 +869,22 @@ balance, per-chain heights, daemon connection cards and an update indicator (`ro
 - **No third-party fast-withdrawal servers** built into the wallet.
 
 The repository has no screenshots of their UI, only logos, so none are included here.
+
+## 17. What remains after `unified-modules` (2026-10-20)
+
+- **The release key.** Generate it offline and put its public key in `ModuleInstaller::ReleaseKeys()`. Then sign
+  every manifest, and make `require` the default and later the only mode (§15.4).
+- **Publish manifests with the releases.** The release script must write `manifest-<prefix>.json` (and its `.sig`) for
+  each sidechain. Until it does, every public release is refused as "made before this app could run it": the newest
+  public Layers release, 20261020.1, has no host over RPC.
+- **Windows:** the download's progress and Cancel (curl.exe currently runs to the end), the supervisor and the packs
+  (§13.7).
+- **An intermittent crash at exit (`SIGSEGV`), seen in 2 of 6 runs of `run_modules.py`.** It happens after
+  "Shutdown done" and "node stopped", while the window is being torn down. It did not reproduce under gdb or with a
+  backtrace handler, and is not yet explained.
+- **The five other chains run through the app end to end, as modules.** Their packs have module mode (pinned), but
+  only Layers (`run_modules.py`) and Thunder (`run_packs.py`) have been driven end to end.
+- **Small gaps:**
+  - `webui_e2e_modules` is not registered in ctest yet.
+  - A user cannot pin a version (only update and rollback).
+  - Tags are compared as text in the UI.
