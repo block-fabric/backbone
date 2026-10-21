@@ -1,11 +1,10 @@
 # The unified Chains app
 
-One app for Chains and its sidechains. Status: **phase 1 (supervisor, switcher, wizards) and phase 2
-(the sidechains' own pages in the app, spends through the app's trusted dialog)** on branch
-`unified-app`; **sidechains as modules of one shell (§14) and their programs downloaded from GitHub releases (§15)**
-on branch `unified-modules`; **the app's own pages over every chain (§18)** on branch `unified-integrated`; **one chain
-selector (§19)** on `unified-ux`; **the quality pass (§20: one coherent app, coin control, the explorer, performance)** on
-`unified-ux2`; none merged.
+One app for Chains and its sidechains. Status: **one branch, `unified-main`** (§0.1), holding every round below: phase 1
+(supervisor, switcher, wizards) and phase 2 (the sidechains' own pages in the app, spends through the app's trusted dialog,
+§13); sidechains as modules of one shell (§14) and their programs downloaded from GitHub releases (§15); the app's own
+pages over every chain (§18); one chain selector (§19); the quality pass (§20); the hub's scale (§21); Trade, the DEX as a
+page of the app (§22); and **phase 3, the single seed (§23)**. Not merged into `main`, not pushed.
 Written 2026-10-20; phase 2 in §13; ideas taken from BitWindow in §16.
 
 ## 0. What the user decided (2026-10-20)
@@ -21,6 +20,41 @@ Written 2026-10-20; phase 2 in §13; ideas taken from BitWindow in §16.
 - **Onboarding wizards** where useful: first run, enable a sidechain, move coins into a sidechain.
 
 Everything below serves those decisions. Points that still need the user are collected in §12.
+
+### 0.1 The branches (consolidated 2026-10-21)
+
+Each round was a branch made from the one before it, so each holds every earlier one. They are consolidated into
+**`unified-main`** (worktree `~/skydoge/chains-unified`), made from `unified-dex` at 664feacb06; the earlier branches stay as
+they were (nothing is deleted), and new work goes on `unified-main`.
+
+| Branch | Head | Worktree | Section | Content | Merged into the next |
+|---|---|---|---|---|---|
+| `main` | 0175968371 | `~/skydoge/chains` (was) | — | Chains' app before the unified one | ✓ |
+| `unified-app` | 7c48417a77 | `~/skydoge/chains` | §1–§13 | phases 1 and 2 | ✓ |
+| `unified-modules` | 326bedbaa7 | `~/skydoge/chains-modules` | §14–§17 | modules, downloads, the exit crash fixed | ✓ |
+| `unified-integrated` | 50dbe1c26f | `~/skydoge/chains-integrated` | §18 | the app's own pages over every chain | ✓ |
+| `unified-ux` | 68ff1cf051 | `~/skydoge/chains-ux` | §19 | one chain selector, chains in the sidebar | ✓ |
+| `unified-ux2` | a8a81b5d70 | `~/skydoge/chains-ux2` | §20 | the quality pass, coin control, performance | ✓ |
+| `unified-ux3` | 5d5cddcfca | `~/skydoge/chains-ux3` | §21 | the hub's scale, Hivemind's menu, Staking whole, strips | ✓ |
+| `unified-dex` | 664feacb06 | `~/skydoge/chains-dex` | §22 | Trade (the DEX page), pools by id | ✓ |
+| **`unified-main`** | (this branch) | `~/skydoge/chains-unified` | §0.1, §23 | all of the above, then phase 3 | — |
+
+Checked when consolidated: every branch above is an ancestor of `unified-dex` (`git merge-base --is-ancestor`), no worktree
+had changes left uncommitted, and each pinned pack of `src/webui/sidechains.json` is a commit of its sidechain's branch
+(`layers` `ux3` f532ed1683, `fastblocks` `ux3`, `bitassets` `ux3`, `hivemind` `ux3` 60986426eb, `thunder`, `bitnames` and
+`zside` `modules`).
+
+**The sidechains' branches** the app needs (not in this repository): `sidechain-template` `modules` → `ux2` → `ux3`
+(f665509511), merged into each sidechain's branch of the same name; Layers' daemon for Trade is its branch **`unified-dex`**
+(d73bae7969, `~/skydoge/layers-dexui`: `ux3` and `dex-curves` merged). The tests below ran with these daemons: Layers
+`unified-dex`, Thunder, BitAssets, Hivemind and FastBlocks of their `main` builds (the hub's).
+
+**The tests of the consolidation** (2026-10-21, on `unified-main` at 664feacb06, binaries copied apart so other builds could
+not change them while they ran): vitest 55 files / 493 tests; `svelte-check` 586 files, 0 errors, 0 warnings;
+`i18n.mjs --check`; `test_chains-app` 137 cases (with `CHAINS_TEST_SIDECHAIN_BINDIR`, the real daemons too), no error;
+`run_startup.py` 5/5; `run_integrated.py` 66/66 (Layers, Thunder, BitAssets, Hivemind, FastBlocks); `run_dex.py` 23/23; the
+hub-scale cost (`run_showcase.py --scale hub`, the `webui_e2e_hub_cost` set with Trade's two tabs added, not run since the
+pools-by-id fix): idle every page 0.6–3.2 % of one core (budget 5), live 4.7–9.6 % (budget 25), all passing.
 
 ---
 
