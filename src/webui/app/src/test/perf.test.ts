@@ -184,3 +184,17 @@ describe('the parts of a page that every block and payment changes (doc/unified-
     expect(seen).toEqual(['dir', 'dir']);
   });
 });
+
+describe('a column of dates that must stay narrow', () => {
+  it('this year the month in words, the day and the time; another year the date', async () => {
+    const { compactTime } = await import('../lib/format');
+    const now = new Date(2026, 9, 21, 12, 0).getTime();
+    const same = compactTime(new Date(2026, 9, 21, 12, 3).getTime() / 1000, now);
+    expect(same).toMatch(/Oct/);
+    expect(same).toMatch(/12:03/);
+    const other = compactTime(new Date(2025, 9, 21, 12, 3).getTime() / 1000, now);
+    expect(other).toMatch(/2025/);
+    expect(other).not.toMatch(/12:03/);
+    expect(compactTime(0, now)).toBe('–');
+  });
+});

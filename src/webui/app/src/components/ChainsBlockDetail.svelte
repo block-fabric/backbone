@@ -7,7 +7,7 @@
   import Amount from './Amount.svelte';
   import BlockActivity from './BlockActivity.svelte';
   import CopyButton from './CopyButton.svelte';
-  import { formatBytes, formatCount, formatTime } from '../lib/format';
+  import { formatBytes, formatCount, formatTime, shortHash } from '../lib/format';
   import { host, rpc } from '../lib/rpc';
   import { simpleMode } from '../lib/uimode.svelte';
   import type { BlockDetail } from '../lib/explorer';
@@ -73,7 +73,7 @@
     {:else}
       <div class="grid">
         <dl class="facts" data-chains-block={block.height}>
-          <dt>{t('Hash')}</dt><dd class="mono break">{block.hash} <CopyButton text={block.hash} label={t('Copy the block hash')} /></dd>
+          <dt>{t('Hash')}</dt><dd class="line"><span class="mono" title={block.hash} translate="no">{shortHash(block.hash, 16)}</span><CopyButton text={block.hash} label={t('Copy the block hash')} /></dd>
           <dt>{t('Time')}</dt><dd>{formatTime(block.time)}</dd>
           <dt>{t('Confirmations')}</dt><dd class="num">{formatCount(block.confirmations)}</dd>
           <dt>{t('Transactions')}</dt><dd class="num">{formatCount(block.tx.length)}</dd>
@@ -82,14 +82,14 @@
           {#if block.previousblockhash}<dt>{t('Previous block')}</dt><dd class="mono break"><button type="button" class="mono linkish" onclick={() => onblock(block!.previousblockhash!)}>{formatCount(block.height - 1)}</button></dd>{/if}
           {#if !simpleMode()}
             <dt>{t('Difficulty')}</dt><dd class="num">{block.difficulty.toPrecision(8)}{' '}<span class="faint mono">{t('bits %1', block.bits)}</span></dd>
-            <dt>{t('Merkle root')}</dt><dd class="mono break">{block.merkleroot}</dd>
+            <dt>{t('Merkle root')}</dt><dd class="line"><span class="mono" title={block.merkleroot} translate="no">{shortHash(block.merkleroot, 16)}</span><CopyButton text={block.merkleroot} label={t('Copy the merkle root')} /></dd>
           {/if}
         </dl>
         <div class="txs-box">
           <h3>{tn('%n transaction(s)', block.tx.length)}</h3>
           <ul class="txs" aria-label={t('Transactions of the block')}>
             {#each all ? block.tx : block.tx.slice(0, SHOWN) as txid, i (txid)}
-              <li><button type="button" class="mono" onclick={() => ontx(txid)}><span class="faint">{i}</span> {txid}</button></li>
+              <li><button type="button" class="mono" title={txid} onclick={() => ontx(txid)}><span class="faint">{i}</span> {shortHash(txid, 22)}</button></li>
             {/each}
           </ul>
           {#if !all && block.tx.length > SHOWN}<button type="button" class="btn small ghost" onclick={() => (all = true)}>{t('Show all %1', formatCount(block.tx.length))}</button>{/if}
@@ -124,8 +124,13 @@
   .facts dd {
     margin: 0;
   }
-  .break {
-    overflow-wrap: anywhere;
+  /* A hash on one line, shortened in the middle (its whole in its tooltip and its copy button). */
+  .line {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    white-space: nowrap;
   }
   h3 {
     margin: 0 0 0.4rem;

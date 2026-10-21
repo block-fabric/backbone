@@ -115,6 +115,9 @@ describe('the Transactions page over every chain shown', () => {
     expect((reads[0].params as { count: number }).count).toBe(FULL);
     // A deposit of the wallet said as what it does.
     expect(rowOf('dd'.repeat(32)).textContent).toContain('Deposit into Layers');
+    // It fits its width (no sideways scroll; the label cut with an ellipsis), every chain in one coin: the head says it.
+    expect(document.querySelector('.table.fit')).toBeTruthy();
+    expect(headers()).toContain('Amount (CHN)');
     setSelectedChain('layers');
     await waitFor(() => expect(rowsOf(HOST).length).toBe(0));
     expect(rowsOf('layers').length).toBe(2);

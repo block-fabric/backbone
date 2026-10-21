@@ -160,7 +160,7 @@
     {#if o.chain === HOST}
       <ChainsBlockDetail hash={o.hash} {head} ontx={exploreTx} onaddress={exploreAddress} onblock={(h) => selectHash(HOST, h)} />
     {:else}
-      <SideBlockDetail stem={o.chain} hash={o.hash} {head} ontx={(txid) => inExplorer(o.chain, txid)} onblock={(h) => selectHash(o.chain, h)} />
+      <SideBlockDetail stem={o.chain} name={nameOf(o.chain)} hash={o.hash} {head} ontx={(txid) => inExplorer(o.chain, txid)} onblock={(h) => selectHash(o.chain, h)} onexplore={() => inExplorer(o.chain, o.hash)} />
     {/if}
   </div>
 {/if}

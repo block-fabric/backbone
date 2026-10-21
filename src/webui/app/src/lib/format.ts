@@ -65,6 +65,23 @@ export function formatTime(secs: number, short = false): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * A time, short, for a column of dates that must stay narrow: the month in words, the day and the time this year ("Oct
+ * 21, 12:03"), the date only in another ("Oct 21, 2025"); in the language of the page.
+ */
+export function compactTime(secs: number, now = Date.now()): string {
+  if (!secs) return '–';
+  const d = new Date(secs * 1000);
+  const lang = (typeof document !== 'undefined' && document.documentElement.lang) || undefined;
+  try {
+    return d.getFullYear() === new Date(now).getFullYear()
+      ? new Intl.DateTimeFormat(lang, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(d)
+      : new Intl.DateTimeFormat(lang, { year: 'numeric', month: 'short', day: 'numeric' }).format(d);
+  } catch {
+    return formatTime(secs, true);
+  }
+}
+
 /** An integer with thin spaces between groups of three digits. */
 export function formatCount(n: number): string {
   return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');

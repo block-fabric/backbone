@@ -5,7 +5,7 @@
   import { t, tn } from '../lib/i18n.svelte';
   import CopyButton from './CopyButton.svelte';
   import { request } from '../lib/bridge';
-  import { formatBytes, formatCount, formatTime } from '../lib/format';
+  import { formatBytes, formatCount, formatTime, shortHash } from '../lib/format';
   import { simpleMode } from '../lib/uimode.svelte';
   import type { Snippet } from 'svelte';
 
@@ -25,7 +25,8 @@
   }
 
   // head: the head of its panel; ontx: a transaction of the block (its chain's explorer); onblock: the block before.
-  let { stem, hash, head, ontx, onblock }: { stem: string; hash: string; head: Snippet; ontx: (txid: string) => void; onblock: (hash: string) => void } = $props();
+  // name: the chain's; onexplore: the block in that chain's own explorer.
+  let { stem, name, hash, head, ontx, onblock, onexplore }: { stem: string; name: string; hash: string; head: Snippet; ontx: (txid: string) => void; onblock: (hash: string) => void; onexplore: () => void } = $props();
 
   let block = $state<SideBlock | null>(null);
   let error = $state('');
@@ -59,25 +60,25 @@
     {:else}
       <div class="grid">
         <dl class="facts" data-side-block={`${stem}:${block.height ?? ''}`}>
-          <dt>{t('Hash')}</dt><dd class="mono break">{block.hash} <CopyButton text={block.hash} label={t('Copy the block hash')} /></dd>
+          <dt>{t('Hash')}</dt><dd class="line"><span class="mono" title={block.hash} translate="no">{shortHash(block.hash, 16)}</span><CopyButton text={block.hash} label={t('Copy the block hash')} /></dd>
           {#if block.time !== undefined}<dt>{t('Time')}</dt><dd>{block.height === 0 ? t('genesis') : formatTime(block.time)}</dd>{/if}
           {#if block.confirmations !== undefined}<dt>{t('Confirmations')}</dt><dd class="num">{formatCount(block.confirmations)}</dd>{/if}
           <dt>{t('Transactions')}</dt><dd class="num">{formatCount(block.nTx ?? block.tx.length)}</dd>
           {#if block.size !== undefined}<dt>{t('Size')}</dt><dd>{formatBytes(block.size)}{#if block.weight !== undefined}<span class="dot-sep">{' · '}</span>{t('weight %1', formatCount(block.weight))}{/if}</dd>{/if}
           {#if block.previousblockhash}<dt>{t('Previous block')}</dt><dd><button type="button" class="mono linkish" onclick={() => onblock(block!.previousblockhash!)}>{formatCount((block.height ?? 1) - 1)}</button></dd>{/if}
-          {#if !simpleMode() && block.merkleroot}<dt>{t('Merkle root')}</dt><dd class="mono break">{block.merkleroot}</dd>{/if}
+          {#if !simpleMode() && block.merkleroot}<dt>{t('Merkle root')}</dt><dd class="line"><span class="mono" title={block.merkleroot} translate="no">{shortHash(block.merkleroot, 16)}</span><CopyButton text={block.merkleroot} label={t('Copy the merkle root')} /></dd>{/if}
         </dl>
         <div>
           <h3>{tn('%n transaction(s)', block.tx.length)}</h3>
           <ul class="txs" aria-label={t('Transactions of the block')}>
             {#each all ? block.tx : block.tx.slice(0, SHOWN) as txid, i (txid)}
-              <li><button type="button" class="mono" onclick={() => ontx(txid)}><span class="faint">{i}</span> {txid}</button></li>
+              <li><button type="button" class="mono" title={txid} onclick={() => ontx(txid)}><span class="faint">{i}</span> {shortHash(txid, 22)}</button></li>
             {/each}
           </ul>
           {#if !all && block.tx.length > SHOWN}<button type="button" class="btn small ghost" onclick={() => (all = true)}>{t('Show all %1', formatCount(block.tx.length))}</button>{/if}
         </div>
       </div>
-      <p class="faint small">{t('Its peg, the block of Chains that merged mined it and what else the chain says of it: in its explorer.')}</p>
+      <p class="faint small">{t('Peg activity and the Chains block that merged-mined it:')} <button type="button" class="linkish" onclick={onexplore}>{t('open it in the %1 explorer', name)}</button>.</p>
     {/if}
   </div>
 </section>
@@ -105,8 +106,13 @@
   .facts dd {
     margin: 0;
   }
-  .break {
-    overflow-wrap: anywhere;
+  /* A hash on one line, shortened in the middle (its whole in its tooltip and its copy button). */
+  .line {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    white-space: nowrap;
   }
   h3 {
     margin: 0 0 0.4rem;

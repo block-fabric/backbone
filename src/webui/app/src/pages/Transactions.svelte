@@ -7,7 +7,7 @@
   // more than one chain is shown; search, filters, sorting, totals and the export over all of them; a row's details in
   // the app; what only this app's wallet can do (fee bumps, abandoning, raw transactions, its address book) on its rows.
   import { t } from '../lib/i18n.svelte';
-  import { simpleMode } from '../lib/uimode.svelte';
+  import { pageTitle, simpleMode } from '../lib/uimode.svelte';
   import { thirdPartyLinks } from '../lib/tools';
   import Amount from '../components/Amount.svelte';
   import ChainBadge from '../components/ChainBadge.svelte';
@@ -22,7 +22,7 @@
   import TxStatusIcon from '../components/TxStatusIcon.svelte';
   import { errorText, inform } from '../lib/dialogs.svelte';
   import { FILTERS, saveTextAs } from '../lib/files';
-  import { formatTime } from '../lib/format';
+  import { compactTime, formatTime, shortHash } from '../lib/format';
   import { go, nav } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
   import { prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
@@ -51,7 +51,7 @@
   import { current, refreshAddresses, refreshRecords } from '../lib/walletdata.svelte';
   import { node } from '../lib/state.svelte';
   import { detail, showDetail } from '../lib/detail.svelte';
-  import { ALL, chainEntries, chainHost, chainWallet, HOST, selectedChain, setSelectedChain, slotLabel } from '../lib/chains.svelte';
+  import { ALL, chainEntries, chainHost, chainUnit, chainWallet, HOST, selectedChain, setSelectedChain, slotLabel } from '../lib/chains.svelte';
   import { openModule } from '../lib/modules.svelte';
   import { chainOf, followSides, sideTxs } from '../lib/alltxs.svelte';
   import { untrack } from 'svelte';
@@ -205,7 +205,14 @@
     return typeText(r.type) || t('Other');
   }
 
-  const chainColumn = $derived<Column<TxRecord>[]>(several ? [{ key: 'chain', label: 'Chain', value: (r) => nameOf(rowChain(r)), width: narrow ? '2.6rem' : '8.6rem' }] : []);
+  const chainColumn = $derived<Column<TxRecord>[]>(several ? [{ key: 'chain', label: 'Chain', value: (r) => nameOf(rowChain(r)), width: narrow ? '2.6rem' : '7.8rem' }] : []);
+  /** The coin of a row: its chain's (the sidechains' are Chains' coin, CHN). */
+  const unitOf = (r: TxRecord) => (rowChain(r) === HOST ? prefs.unit : chainUnit(rowChain(r)));
+  /** Every chain shown in one coin: the head of the column says it; else each amount says its own. */
+  const oneUnit = $derived(sides.every((id) => chainUnit(id) === prefs.unit));
+  const amountLabel = $derived(oneUnit ? `Amount (${prefs.unit})` : 'Amount');
+  /** An address with no label, shortened in the middle in a window that is not wide (its whole in the row's tooltip). */
+  const shortAddress = (text: string) => (pageWidth < 1400 && text.length > 26 ? shortHash(text, 11) : text);
   const columns: Column<TxRecord>[] = $derived(
     narrow
       ? [
@@ -213,20 +220,21 @@
           { key: 'date', label: 'Date', value: (r) => r.time, width: '8.6rem' },
           ...chainColumn,
           { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(0, 1fr)' },
-          { key: 'amount', label: `Amount (${prefs.unit})`, value: (r) => r.amount, width: '9.5rem', align: 'end' },
+          { key: 'amount', label: amountLabel, value: (r) => r.amount, width: '9.5rem', align: 'end' },
         ]
       : [
           // Simple mode: the status in plain words beside its ring (waiting for the next block, confirmed, final).
           simple
-            ? { key: 'status', label: 'Status', value: (r) => r.sortKey, width: '15.5rem', noFilter: true }
+            ? { key: 'status', label: 'Status', value: (r) => r.sortKey, width: several ? '11rem' : '15.5rem', noFilter: true }
             : { key: 'status', label: '', value: (r) => r.sortKey, width: '2.6rem', align: 'center', noFilter: true },
-          // With a Chain column, the others a little tighter: the amount stays in view in a window of 1180 px, the
-          // words of a type ("Merged mining bid", "Deposit into BitAssets") whole.
-          { key: 'date', label: 'Date', value: (r) => r.time, width: several ? '10.2rem' : '11.5rem' },
+          // With a Chain column every column fits a window of 1180 px with no sideways scroll (coordinator review,
+          // 2026-10-21): the date short ("Oct 21, 12:03", whole in its tooltip), the label taking what is left, cut with an
+          // ellipsis, the amount never cut.
+          { key: 'date', label: 'Date', value: (r) => r.time, width: several ? '9rem' : '11.5rem' },
           ...chainColumn,
-          { key: 'type', label: 'Type', value: (r) => typeLabel(r), width: several ? '12.5rem' : '11rem' },
-          { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: several ? 'minmax(8rem, 1fr)' : 'minmax(14rem, 1fr)' },
-          { key: 'amount', label: `Amount (${prefs.unit})`, value: (r) => r.amount, width: several ? '11rem' : '12rem', align: 'end' },
+          { key: 'type', label: 'Type', value: (r) => typeLabel(r), width: several ? '12rem' : '11rem' },
+          { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: several ? 'minmax(6rem, 1fr)' : 'minmax(14rem, 1fr)' },
+          { key: 'amount', label: amountLabel, value: (r) => r.amount, width: several ? '11rem' : '12rem', align: 'end' },
         ],
   );
 
@@ -332,7 +340,7 @@
 
 <div class="page transactions" bind:this={pageEl} data-tx-chains={[...(withHost ? [HOST] : []), ...sides].join(',')}>
   <header class="page-head">
-    <h1>{t('Transactions')}</h1>
+    <h1>{pageTitle('transactions')}</h1>
     <div class="row">
       <span class="muted count" data-tx-count>{t('%1 of %2', totals.count.toLocaleString('en'), all.length.toLocaleString('en'))}</span>
       <button type="button" class="btn small" onclick={exportCsv} disabled={prefs.mask} title={t('Export the data in the current tab to a file')}><Icon name="download" size={16} /> {t('Export')}</button>
@@ -392,7 +400,7 @@
           bind:sortKey
           bind:sortDir
           label="Transactions"
-          fit={narrow}
+          fit
           empty={loaded ? 'No transactions yet' : 'Loading…'}
           onactivate={(r) => open(r)}
           oncontext={(r, e) => openMenu(r, e)}
@@ -400,13 +408,13 @@
           {#snippet cell(row, column)}
             <span class="cellwrap {rowClass(row)}" data-row-chain={rowChain(row)} data-txid={column.key === 'label' ? row.txid : undefined} title={column.key === 'label' ? `${statusText(row)}\n${typeLabel(row)} ${addressText(row, true)}` : undefined}>
               {#if column.key === 'status'}<TxStatusIcon record={row} />{#if simple && !narrow}<span class="status-word">{statusText(row)}</span>{/if}
-              {:else if column.key === 'date'}{narrow ? formatTime(row.time, true) : formatTime(row.time)}
+              {:else if column.key === 'date'}<span class="clip" title={formatTime(row.time)}>{narrow ? formatTime(row.time, true) : several ? compactTime(row.time) : formatTime(row.time)}</span>
               {:else if column.key === 'chain'}<ChainBadge id={rowChain(row)} name={nameOf(rowChain(row))} small markOnly={narrow} />
-              {:else if column.key === 'type'}<span class="type {row.type}"><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /> {typeLabel(row)}</span>
-              {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeLabel(row)}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span>{' '}{/if}<span class:bare={!row.label} translate="no">{addressText(row)}</span>
+              {:else if column.key === 'type'}<span class="type cut {row.type}" title={typeLabel(row)}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /><span class="clip">{typeLabel(row)}</span></span>
+              {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeLabel(row)}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span>{' '}{/if}<span class="clip" class:bare={!row.label} translate="no">{row.label ? addressText(row) : shortAddress(addressText(row))}</span>
               {:else if column.key === 'amount'}
                 {#if prefs.mask}<Amount sats={row.amount} showUnit={false} />
-                {:else}<span class="amt" class:neg={row.amount < 0n} translate="no">{amountText(row, prefs.unit)}</span>{/if}
+                {:else}<span class="amt" class:neg={row.amount < 0n} translate="no">{amountText(row, prefs.unit)}{#if !oneUnit}{' '}<span class="unit">{unitOf(row)}</span>{/if}</span>{/if}
               {/if}
             </span>
           {/snippet}
@@ -441,7 +449,11 @@
 
 <style>
   .status-word {
+    min-width: 0;
     margin-left: 0.45rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--text-muted);
     font-size: 0.9rem;
   }
@@ -503,6 +515,25 @@
   }
   .bare {
     color: var(--text-muted);
+  }
+  /* A cell's words cut with an ellipsis where its column ends (its whole in the tooltip). */
+  .clip {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The type: its icon, then its words cut with an ellipsis. */
+  .type.cut {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+  .unit {
+    color: var(--text-faint);
+    font-size: 0.85em;
   }
   .amt.neg {
     color: var(--negative);
