@@ -43,12 +43,24 @@ async function once<T>(key: string, maxAgeMs: number, ask: () => Promise<T>, kee
   }
 }
 
+/**
+ * Whether what was read again is what is shown: then it is not put in its place, so that nothing shown changes (a
+ * page left alone polls; under software GL each change is a frame drawn on every core, doc/unified-app.md §20.8).
+ */
+function same(a: unknown, b: unknown): boolean {
+  return a !== undefined && JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function refreshTxs(stem: string, maxAgeMs = 5000): Promise<void> {
-  return once(`txs:${stem}`, maxAgeMs, () => chainHost.transactions(stem, chainWallet(stem), 200), (r) => (many.txs[stem] = r.rows));
+  return once(`txs:${stem}`, maxAgeMs, () => chainHost.transactions(stem, chainWallet(stem), 200), (r) => {
+    if (!same(many.txs[stem], r.rows)) many.txs[stem] = r.rows;
+  });
 }
 
 export function refreshActivity(stem: string, maxAgeMs = 5000): Promise<void> {
-  return once(`activity:${stem}`, maxAgeMs, () => request<ChainActivityInfo>('host', 'chain.activity', { stem }), (r) => (many.activity[stem] = r));
+  return once(`activity:${stem}`, maxAgeMs, () => request<ChainActivityInfo>('host', 'chain.activity', { stem }), (r) => {
+    if (!same(many.activity[stem], r)) many.activity[stem] = r;
+  });
 }
 
 export function refreshPositions(stem: string, maxAgeMs = 8000): Promise<void> {
@@ -56,7 +68,10 @@ export function refreshPositions(stem: string, maxAgeMs = 8000): Promise<void> {
     `positions:${stem}`,
     maxAgeMs,
     () => request<{ positions: ChainPosition[] }>('host', 'chain.positions', { stem, ...(chainWallet(stem) ? { wallet: chainWallet(stem) } : {}) }),
-    (r) => (many.positions[stem] = (r.positions ?? []).filter((p) => /^[0-9a-f]{64}$/.test(p.market))),
+    (r) => {
+      const list = (r.positions ?? []).filter((p) => /^[0-9a-f]{64}$/.test(p.market));
+      if (!same(many.positions[stem], list)) many.positions[stem] = list;
+    },
   );
 }
 

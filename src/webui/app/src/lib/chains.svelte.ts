@@ -9,6 +9,7 @@
 //
 // One chain selector for every page, in the top bar (§19, prefs.chain): All, or one chain. Read views show every chain
 // with All, one chain else; actions act on one chain, picked in their form (in step with the selector).
+import { untrack } from 'svelte';
 import { request } from './bridge';
 import { prefs, savePrefs, wallets } from './state.svelte';
 import { hub } from './sidechains.svelte';
@@ -434,15 +435,18 @@ export function mergeTxs(lists: ManyChainTx[][]): ManyChainTx[] {
 /** The summary of a sidechain, asked again if older than maxAgeMs. */
 export async function refreshSummary(stem: string, maxAgeMs = 4000): Promise<ChainSummary | null> {
   if (stem === HOST) return null;
-  const at = chainState.asked[stem] ?? 0;
-  if (Date.now() - at < maxAgeMs && chainState.summaries[stem]) return chainState.summaries[stem];
-  chainState.asked[stem] = Date.now();
+  // Read without being followed: an $effect that asks for a summary is not run again because one came (it would ask
+  // again, and start its timers anew), and a summary that did not change is left in place (nothing shown changes).
+  const known = untrack(() => chainState.summaries[stem]);
+  const at = untrack(() => chainState.asked[stem] ?? 0);
+  if (Date.now() - at < maxAgeMs && known) return known;
+  untrack(() => (chainState.asked[stem] = Date.now()));
   try {
     const s = await chainHost.summary(stem, chainWallet(stem));
-    chainState.summaries[stem] = s;
-    return s;
+    if (JSON.stringify(untrack(() => chainState.summaries[stem])) !== JSON.stringify(s)) chainState.summaries[stem] = s;
+    return untrack(() => chainState.summaries[stem]) ?? s;
   } catch {
-    return chainState.summaries[stem] ?? null;
+    return untrack(() => chainState.summaries[stem]) ?? null;
   }
 }
 

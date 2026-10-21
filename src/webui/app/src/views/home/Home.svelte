@@ -166,10 +166,29 @@
   const recent = $derived(newest(current.records, 8));
   // Made again only when what it depends on changed (lib/chartdata.ts): a block that only adds confirmations to 20 000
   // records changes nothing here (doc/unified-app.md §20.6).
+  // And it follows the history at most every CHART_MS: a stream of transactions (blocks mined to the wallet while the
+  // node catches up) redraws the chart, the largest picture of the page, once in a while, not with each (§20.8).
+  const CHART_MS = 5000;
+  let chartRecords = $state.raw(untrack(() => current.records));
+  let chartAt = 0;
+  $effect(() => {
+    const records = current.records;
+    const wait = chartAt + CHART_MS - Date.now();
+    if (wait <= 0) {
+      chartAt = Date.now();
+      chartRecords = records;
+      return;
+    }
+    const timer = setTimeout(() => {
+      chartAt = Date.now();
+      chartRecords = current.records;
+    }, wait);
+    return () => clearTimeout(timer);
+  });
   let historyMemo: { key: string; points: { time: number; balance: bigint }[] } = { key: '', points: [] };
   const history = $derived.by(() => {
-    const key = historyKey(current.records);
-    if (key !== historyMemo.key) historyMemo = { key, points: balanceHistory(current.records) };
+    const key = historyKey(chartRecords);
+    if (key !== historyMemo.key) historyMemo = { key, points: balanceHistory(chartRecords) };
     return historyMemo.points;
   });
 

@@ -176,6 +176,31 @@ function setTip(tip: Tip): void {
   }
 }
 
+/**
+ * Blocks that come faster than one a TIP_MS (a node catching up, a script mining) are one change a TIP_MS for the pages:
+ * the newest. Each tip taken is work for every part that shows the chain (the height, the balances, the lists read
+ * again) and a frame of the window, which under software GL (WSLg) is drawn on every core: the catch-up of 670 blocks
+ * cost four cores before (doc/unified-app.md §20.8). The first of a burst is taken at once.
+ */
+export const TIP_MS = 1000;
+let tipTakenAt = 0;
+let tipWaiting: Tip | null = null;
+let tipTimer: ReturnType<typeof setTimeout> | undefined;
+function takeTip(tip: Tip): void {
+  tipWaiting = tip;
+  if (tipTimer !== undefined) return;
+  const wait = tipTakenAt + TIP_MS - Date.now();
+  const take = () => {
+    tipTimer = undefined;
+    tipTakenAt = Date.now();
+    const newest = tipWaiting;
+    tipWaiting = null;
+    if (newest) setTip(newest);
+  };
+  if (wait <= 0) take();
+  else tipTimer = setTimeout(take, wait);
+}
+
 function sats(n: unknown): bigint {
   return typeof n === 'number' ? BigInt(Math.round(n)) : 0n;
 }
@@ -263,7 +288,7 @@ export function subscribe(): void {
   on('bans', () => {
     node.bansChanged++;
   });
-  on<Tip>('tip', (tip) => setTip(tip));
+  on<Tip>('tip', takeTip);
   on<{ recv: number; sent: number; time: number }>('traffic', ({ recv, sent, time }) => addSample({ t: time, recv, sent }));
   on<{ size: number; usage: number; max: number }>('mempool', (m) => {
     node.mempool = m;
