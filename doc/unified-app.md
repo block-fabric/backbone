@@ -3,7 +3,9 @@
 One app for Chains and its sidechains. Status: **phase 1 (supervisor, switcher, wizards) and phase 2
 (the sidechains' own pages in the app, spends through the app's trusted dialog)** on branch
 `unified-app`; **sidechains as modules of one shell (§14) and their programs downloaded from GitHub releases (§15)**
-on branch `unified-modules`; **the app's own pages over every chain (§18)** on branch `unified-integrated`; none merged.
+on branch `unified-modules`; **the app's own pages over every chain (§18)** on branch `unified-integrated`; **one chain
+selector (§19)** on `unified-ux`; **the quality pass (§20: one coherent app, coin control, the explorer, performance)** on
+`unified-ux2`; none merged.
 Written 2026-10-20; phase 2 in §13; ideas taken from BitWindow in §16.
 
 ## 0. What the user decided (2026-10-20)
@@ -568,6 +570,9 @@ sidechain by hand, downloads from the app (phase 4).
 | 32 | **Stored choices** (`prefs.chain`, `prefs.chainGroupsFolded`) | Checked when read back: a chain id `[a-z0-9]{1,32}` or `all`, else All; folded groups chain ids only, at most 40 | chains.test.ts |
 | 33 | **Asset logos** (`chain.assetLogo`) | The chain's own host's logo (`bitassets.logo`, its bytes checked as its rules do); the app accepts only `data:image/png` or `data:image/jpeg` base64 of at most 44 KB for that asset, shown in an `<img>` only (img-src `data:` of the app's CSP), never as markup | chainadapter_tests (SVG, HTML, a URL, too large, another asset refused) |
 | 34 | **New reads** (`chain.positions`, `chain.activity`) | Reads only: of the chain's own pages' policy (`getwalletpositions`, `listmarkets`, `getrawmempool`) or the app's user's methods (`getblockhash`, `getblockheader`); an answer that asks is refused, not asked; bounded (200 positions, 6 blocks, 8 mempool rows of the first 5000); every amount through `ModuleAmount` (masked) | chainadapter_tests, ux.test.ts |
+| 35 | **Coin control** (§20.7: `inputs` of a deposit, of a withdrawal; `chain.coins`) | Outpoints only (`txid` 64 hex, `vout` 0..2^32-1, 1–500, none twice); the host checks each is an unspent coin of the wallet that pays (Chains' `listunspent` for a deposit, the sidechain's through its pages' policy for a withdrawal) **before anything is asked**; the node checks again (own, unspent, unlocked, mature, holding coins) and adds no other coin; the trusted dialog says "Paid with only the coins you chose", what they hold and each coin with its amount | walletapi_tests `deposit_paid_with_chosen_coins`, chainadapter_tests `coin_control_only_coins_of_the_wallet`, feature_drivechain_wallet, feature_sidechain, run_integrated |
+| 36 | **Searches and decodings** (`chain.search`, `explorer.outputs`) | Reads only: a query is classified by its characters (height, 64-hex hash, address) before any call; a sidechain is read with the app's user's methods (`getblockhash`, `getblockheader`) or through its pages' policy (`getrawtransaction`, its wallet's `gettransaction`, a read that asks refused); `explorer.outputs` parses scripts the page already has (at most 500, no node read) | chainadapter_tests, run_integrated |
+| 37 | **A place given to a chain's explorer** (`search:<q>` handed to a module's frame) | The tab is checked by the app (`[A-Za-z0-9_]{1,120}` after `search:`) before it is sent to the frame, and taken once: it is not searched again on another chain | modules.test.ts, run_integrated |
 
 ### 13.6 Coverage per chain
 
@@ -1208,3 +1213,273 @@ prepared or asked, exact amounts as text. New: see §13.5 #31–#34.
 - A sidechain's line uses its latest 200 transactions: an older wallet's line starts at what it held then.
 - The sidebar lists a chain's own pages under its group only while they are shown; listing them always would be long
   (Layers has a dozen).
+
+## 20. Quality pass: one coherent app over every chain (2026-10-20, branch `unified-ux2`)
+
+User feedback on §19: "think more on unified wallet, your results 2–3 days ago were much nicer." The rounds of §18–§19
+added views fast and the pages stopped agreeing with each other: Overview said *All chains* and showed one chain's total,
+lists were titled with raw addresses and filled with merged-mining dust, the sidebar repeated "Deposit and withdraw" in
+every group, boxes sat in boxes, the copy read like this document. And on the hub the build of §19 kept WebKit busy on
+ten cores. This section is the design the pages now follow; §20.6 is what was measured.
+
+### 20.1 What lives where
+
+```
+Sidebar                       why
+  Home                          a glance: what you hold on each chain, how the nodes are doing
+  WALLET  Overview              your balances and activity, in detail
+          Send · Receive        act on ONE chain (picked in the form, in step with the selector)
+          Transactions          every chain's history, one list
+          Manage wallets        each chain's wallets
+          Advanced transactions (Advanced)
+  CHAIN   Sidechains            moving coins in and out (ONE form), the state of the drivechain
+          Staking               only while a chain that stakes is on (FastBlocks, Layers)
+          Mine                  (Advanced)
+          Block explorer        every chain's blocks and transactions
+          ● Layers  ▸           one group per sidechain turned on: only what is ITS OWN
+          ● Thunder ▸
+  TOOLS   Tools                 (Advanced)
+```
+
+- **A sidechain's group** lists only that chain's own pages from its own app's *Chain* section (its local pages, not
+  the template's Drivechains, Merged mining and Explorer, which the app has once for every chain), without Staking (the
+  app's Staking entry has it). Its pages open in the app's main area (its module frame, §14), titled and iconed as its
+  own app does; in Simple mode only those its own Simple mode shows. The head of a group folds it; its dot says how its
+  node is doing. A chain with no page of its own (FastBlocks: Staking only) shows its head alone, which opens its Home.
+
+  | Group | Advanced | Simple |
+  |---|---|---|
+  | Layers | Browse assets, My assets, Trade, Auctions | My assets, Swap |
+  | BitAssets | Browse assets, My assets, Trade, Auctions | My assets, Swap |
+  | BitNames | Get a name, My names, Name directory, Paymail, DNS | Get a name, My names |
+  | Hivemind | Markets, Portfolio, Voting center, Decisions, Create, Votecoin, Payouts | Questions, My bets |
+  | zSide | Private, Memos, Private activity, Melt & cast, Shielded pool | Private payments |
+  | Thunder | Batch pay, Payments, Throughput | Payments, How busy |
+  | FastBlocks | — (its Staking is the app's Staking entry) | — |
+
+- **Gone from the sidebar:** "All assets", "All staking" (views of the selector, §19, that repeated the groups),
+  "Deposit and withdraw" in every group (the Sidechains page is the one place that moves coins; a chain's card and the
+  palette lead there with that chain selected), and "All its pages". **Settings → Sidechains → "Show every page of each
+  sidechain in the sidebar"** (off by default; Advanced) brings the last one back, for debugging: the chain's whole own
+  navigation under its group.
+- The app's Assets, Names and Markets pages (§18) stay for the palette and links; the sidebar leads to each chain's own
+  pages instead, which do more.
+
+### 20.2 All, or one chain: what each part shows
+
+The top bar's selector (§19) decides every page. A part that cannot follow it says what it shows in its title.
+
+| Part | All chains | Chains (this app's own) | One sidechain |
+|---|---|---|---|
+| Home, first row | **Balances**: one line per chain (its mark, name, available in its coin; pending under it), Send/Receive; **Network** (Chains), **Sidechains** (their nodes in step, deposits and withdrawals on their way) | as the standalone app: Balance, Network, Sidechains, Mining | that chain: **Balance** (its wallet, its assets), **Node** (height, in step with Chains), **Peg** (on their way, slot, escrow), **Merged mining** or **Staking** |
+| Home, chart | one line per chain, each on its own scale (§19.3) | the wallet's balance, timeframes | that chain's balance |
+| Overview, balances | a table: chain, available, pending, what else it holds | the wallet's balances and chart | that chain's |
+| Recent transactions | every chain, newest first, each named in words (§20.4); mining rewards of a chain folded into one row | the wallet's | that chain's |
+| Latest blocks | one table: chain, height, transactions, age (genesis said "genesis") | Chains' | that chain's |
+| Send, Receive | tiles: a chain with coins, then those without (muted, "empty"); no form until one is picked | the form | the form |
+| Transactions | every chain, a Chain column | as before | that chain's |
+| Sidechains | **Move coins** (one form) + **Your sidechains** (a table) + the drivechain's tabs | the same | **Move coins** on that chain + its row |
+| Block explorer | search every chain at once, results named by chain; each chain's newest blocks; waiting transactions of each | Chains' explorer (§20.5) | that chain's own explorer, in the page |
+| Staking | each chain that stakes, a row | "Chains does not stake", the chains that do a click away | that chain's own Staking |
+
+### 20.3 Visual rules
+
+- **Spacing**: 4 · 8 · 12 · 16 · 24 · 32 px (0.25 to 2 rem). Between the sections of a page 1.1 rem; inside a panel
+  1.3 rem of padding; between a label and its value 0.25 rem; between rows of a list 0.5 rem.
+- **One box per section.** A section is one `.panel`. Inside it: rows separated by a line, tables, definition lists —
+  never another bordered box, except the tiles of a choice (Send's chains, Move coins' direction) and inputs.
+- **A row of cards has equal heights**, its buttons at the bottom; a card never holds a lone line in a tall box.
+- **Type**: page title 1.7 rem; panel title 1.2 rem (`h2`); a small-caps label for groups of a panel; numbers in the
+  number font, tabular; secondary text muted, never smaller than 0.8 rem.
+- **Numbers**: amounts exact, 8 decimals, the unit after the figure (`<Amount>`, `<ModuleAmount>`), masked in privacy
+  mode; counts with separators; a time is relative under a day ("3 minutes ago"), else a date; a chain's first block
+  is "genesis".
+- **Chains**: named in words with their mark (`ChainBadge`) wherever a chain is meant; its colour only on its mark, its
+  line and its tile edge, never a whole card.
+- **Titles of rows are words**: what happened ("Received from Alice", "Mining rewards", "Deposit into Layers"), the
+  address or id only as the secondary line, shortened in the middle.
+- **Separators**: "·" between facts is a `.dot-sep` (`{' · '}`, kept as written by CSS). Svelte drops the space at the edge of an `{#if}`
+  block, which made "main· own backup" everywhere.
+- **Copy**: plain, short, friendly; second person; what to do, not how it works ("You confirm the details in the next
+  step"). No internal words (wallet modes, "pack", "adapter", "host").
+- **Simple mode**: the drivechain's internals (proposals, bundles, votes, raw data) go; coin control behind "Choose
+  coins"; the explorer without raw JSON.
+
+### 20.4 Page by page
+
+```
+HOME (All)                                    [Send] [Receive] [Move coins] [Explorer]  All actions ⌃K
+┌ Balances ───────────────────────┐┌ Network ─────┐┌ Sidechains ──────┐
+│ ● Chains      4 239.97692241 CHN ││ ✓ Up to date ││ 4 on, all in step│
+│ ● Layers         18.99990000 CHN ││ Height  186  ││ On their way   1 │
+│ ● Thunder ...                    ││ Peers     0  ││ In escrow  60.00 │
+│ [Send] [Receive]                 ││ [Peers]      ││ [Move coins]     │
+└──────────────────────────────────┘└──────────────┘└──────────────────┘
+┌ Balance of each chain (chart) ───────────────────┐┌ Blind merged mining ┐
+└──────────────────────────────────────────────────┘└─────────────────────┘
+[ Open positions ] (Hivemind, when any)
+[ Transactions | Sidechains | Blocks | Peers ]  one table, the selector's chains
+
+OVERVIEW (All)
+┌ Balances ─ table: chain · available · pending · holds ─────────────┐
+┌ Recent transactions ──────────┐┌ Latest blocks ─────────────────────┐
+│ ↓ Received from Alice  +12.5  ││ ● Chains   186  2 tx  12 s ago      │
+│ ⛏ Layers: 9 mining rewards    ││ ● Layers    11  1 tx  20 s ago      │
+└───────────────────────────────┘└────────────────────────────────────┘
+
+SIDECHAINS
+┌ Move coins ─────────────────────────┐┌ Your sidechains ─────────────────────┐
+│ [Into a sidechain][Back to Chains]  ││ chain · node · balance · merged mining│
+│ Sidechain  [● Layers ▾]             ││ On their way: deposit 1.00 → Layers   │
+│ Amount [       ] CHN  Available …   │└──────────────────────────────────────┘
+│ To  your Layers wallet              │
+│ ▸ Choose coins (Advanced; Simple: a link)
+│ [Deposit…]  You confirm it next.    │
+└─────────────────────────────────────┘
+[ Overview | Proposals | Withdrawals ]  (Advanced: slots, every active sidechain, its deposits)
+```
+
+- **Move coins** is the only deposit and withdrawal form: direction first (into a sidechain / back to Chains), then the
+  sidechain (every active one; those this app runs first, with their balances; one it does not run takes a typed deposit
+  address), the amount with what is available on the side it leaves, where it goes (your wallet on that chain, or an
+  address of Chains for a withdrawal, "Mine" filling one), the fee, then **Choose coins**: the coins of the side the coins
+  leave (Chains' wallet for a deposit, the sidechain's wallet for a withdrawal), ticked; only those are spent. The old
+  "Deposit to the selected sidechain" form of the Overview tab is this one (merged).
+- **Send**: tiles, then a single panel: what to send (coin, assets), pay to, amount; the help line one short sentence.
+  No second title ("Layers Send"): the tile picked says the chain.
+
+### 20.5 The block explorer
+
+- **One page that follows the selector**; its own views (home, block, transaction, address, waiting transactions) are
+  places of the page (`nav.tab`: `block:<hash>`, `tx:<txid>`, `address:<address>`, `mempool`), so Back and Forward, a
+  link from Transactions or another chain all lead to one view.
+- **All**: one search for a height, a hash, a transaction id or an address on every chain at once (`chain.search`;
+  Chains by its own node), each result named by its chain and opening that chain's view; the newest blocks of every
+  chain in one table (chain, height, transactions, age); the waiting transactions of each.
+- **Chains**: the explorer of the standalone app, reorganised as an explorer: the home (the ribbon, the blocks with
+  their pagination, the waiting transactions), the **block** (header facts with copy buttons; its coinbase; its
+  drivechain messages as tables, as explorer.blockfab.org has them: blind merged mining M7 with the bid and its M8
+  request, deposits M5, withdrawals M6, votes M4, bundles M3, proposals and acks M1/M2, each sidechain named, each
+  sidechain block a link into that chain's explorer when this app runs it), the **transaction** (inputs and outputs, what
+  each drivechain output says, the escrow before and after, a deposit's credit on its sidechain, a bundle's payouts),
+  the **address** (what the wallet knows of it: no index is added).
+- **A sidechain**: its own explorer (the chain's page in its frame, §14) inside the app's page: its blocks with the peg
+  of each, the block of Chains that merged-mined it, deposits with their transaction on Chains, its own operations
+  (assets, names, markets) as its own app shows them. Links between chains go through the app: a sidechain block of a
+  BMM row opens that chain's explorer at it (`search:<hash>`); a deposit's credit on its sidechain is the deposit
+  address credited, searched there.
+
+### 20.6 Performance
+
+Budget: idle (window shown, nothing happening) **under 5 % of one core** for the app and its web process together; a
+page switch without a dropped frame; a sidechain catching up under one core on average. Measured by `run_showcase.py
+--perf` (four sidechains on, a lived-in wallet, software GL as under WSLg): see §20.8 for the numbers before and after
+and the causes found.
+
+### 20.7 Security
+
+Unchanged: the trusted dialog names the chain first with its mark, a wrong-chain address is refused before anything is
+asked, amounts are exact text, every amount is masked in privacy mode. New, coin control: the coins chosen are named
+by `{txid, vout}` only; the host checks their shape and that each is an unspent coin of the wallet that pays (Chains'
+wallet for a deposit, the sidechain's for a withdrawal) before anything is asked; the node checks again (`inputs` of
+`createsidechaindeposit` and of the sidechains' `createwithdrawal`: the wallet's own, unspent, unlocked, mature, holding
+coins, named once; no other coin is added); the trusted dialog says "Paid with only the coins you chose", what they
+hold, and each coin with its amount.
+
+### 20.8 What was measured, what was changed (performance)
+
+How: `src/webui/test/e2e/run_showcase.py --perf` starts the app on a lived-in regtest state (two wallets, four
+sidechains on, 20 000 records of history, 300 payments on Layers, assets, a market, a withdrawal on its way), on the
+user's WSLg desktop with software GL (`--real-display`, `LIBGL_ALWAYS_SOFTWARE=1`, as the hub runs it), and samples the
+CPU time of every process it started (`/proc/<pid>/stat`, the web process's threads by name) while the page is left
+alone: the first 45 s after the start, Home while a block comes every 10 s and a payment every 2 s ("busy"), Home while
+blocks come as fast as the node takes them ("catch-up"), then each page idle. In % of one core, the app and its web
+process (the sidechains' nodes apart, about 1 % for four).
+
+**Numbers** (2026-10-20, % of one core, the app and its web process; the build of §19 against this one, the same
+state, the same desktop; `--perf-seconds 45`):
+
+| While | §19 (`unified-ux`) | §20 | |
+|---|---|---|---|
+| The first 45 s after the start | 15.1 | 3.4 | |
+| Home, idle | 9.2 | **2.4** | budget 5: passes |
+| Overview, idle | 7.5 | 2.6 | |
+| Transactions, idle | 7.2 | 2.0 | |
+| Sidechains, idle | 6.3 | 2.0 | |
+| Block explorer (All), idle | 13.2 | 1.6 | |
+| Home, a block every 10 s and a payment every 2 s | 94.6 | 69.6 | of it the node's own work (the payments of a 20 000-record wallet): 24 and 27 |
+| Home, catching up 670 blocks in 35 s | **410.7** | **90.4** | budget one core: passes; the web process 402 → 85 |
+
+The sidechains' four nodes add about 1 % in all, idle. The catch-up is what the hub saw: four cores and more, the web
+process's llvmpipe threads drawing a frame for each block.
+
+**Causes found.** Under software GL every frame WebKit composites is drawn by llvmpipe on every core, so the cost is the
+number of frames times their area, not JavaScript:
+
+1. *Hidden pages of every sidechain*: each module frame (a whole app) was made at the start, hidden, and kept polling
+   and repainting its own status bar. Now a chain's frame is made the first time one of its pages is opened (or embedded:
+   the explorer, a group page), `ModuleFrames.svelte` `wanted`.
+2. *The status bar's new-block animation*: 900 ms of transform and a spreading box-shadow on every block: during a
+   catch-up a block every few hundred ms, so the animation never stopped and the whole bar repainted each frame. Now a
+   300 ms fade, and none in reduced effects.
+3. *The balance chart*: one path point per record (20 000), its path rebuilt and redrawn on every transaction; now
+   decimated to the pixels it has (`lib/chartdata.ts`) and recomputed only when its records change (`historyKey`).
+4. *Clocks*: relative times ticked every 5 s on Home; now 30 s.
+5. *Software rendering itself*: when the app runs with software GL (`app.info.softwareRendering`, from
+   `LIBGL_ALWAYS_SOFTWARE`, `GALLIUM_DRIVER=llvmpipe|softpipe` or `WEBKIT_DISABLE_COMPOSITING_MODE`), the page drops
+   its animations, transitions, large shadows (`.reduced-effects`): each is a repaint of its area per frame.
+
+6. *A block, a change of everything*: the host already merges tips (250 ms), but any event that is not merged (a new
+   transaction of the wallet: each block mined to it) delivered the newest tip at once, so a catch-up gave the page
+   ~20 tips a second, each read again by every part that shows the chain. The page now takes the newest tip once a
+   second (`lib/state.svelte.ts` `takeTip`, `TIP_MS`); the wallet's changes were already merged to one a second.
+7. *Reads that change nothing*: the polls of the sidechains (activity, transactions, positions, summaries) put what they
+   read in place even when it was the same, and the summary's own bookkeeping was followed by the `$effect`s that asked
+   for it (each answer ran them again: their timers anew, the peg asked again). Now an unchanged answer is left alone and
+   the bookkeeping is not followed (`refreshSummary`, `lib/manychains.svelte.ts` `same`).
+8. *Home's chart* follows the history at most every 5 s (`CHART_MS`).
+
+Polling was already paused while the window is hidden (`document.hidden`); the wallet's history on Transactions was
+already windowed (`DataTable`); the list of every chain is the newest 500 rows.
+
+### 20.9 Tests
+
+- **Node** (`test/functional/feature_drivechain_wallet.py`): a deposit paid with the coins chosen spends exactly them
+  and the escrow; refused: a coin not of the wallet, named twice, none, locked, spent, too few (not topped up),
+  `inputs` with `replaces` (immature and no-value coins are refused by the same checks, not exercised there). The
+  sidechains (`feature_sidechain.py`, template, merged into every chain's `ux2` branch): a withdrawal paid with the
+  coins chosen, the same refusals.
+- **Host** (`test_chains-app`): the trusted dialog of a deposit with chosen coins ("Paid with", "They hold", each coin),
+  a coin not of the wallet refused before anything is asked (`walletapi_tests` `deposit_paid_with_chosen_coins`); the
+  adapter's `chain.coins` and its check of the coins of a withdrawal (`chainadapter_tests`
+  `coin_control_only_coins_of_the_wallet`); the records say what a transaction does on the drivechain (field 18).
+- **Pages** (vitest): the sidebar's groups (own pages only, Simple, every page with the option), the palette, the
+  activity in words (`activity.test.ts`: rewards and bids folded, rows of no value left out, deposits named, a block's
+  age, the genesis).
+- **End to end** (`run_integrated.py`, the app and four sidechains): one Move coins panel; a deposit with two coins
+  chosen spends exactly those (and the escrow), its question names them; a withdrawal from Layers with one coin chosen
+  spends exactly it (checked by the runner on Layers' node); Home, Overview, the explorer under All (one search, the
+  result in Layers' own explorer), under Chains (a block's merged mining a link into Layers' explorer, a deposit's credit
+  a link to the address it credits), the search of one chain not made again on another; the sidebar by default and with
+  every page; the deposit said "Deposit into Layers" on Transactions.
+- **Showcase and cost** (`run_showcase.py`): a lived-in state made once, every page pictured in each mode, look and
+  size of a matrix; `--perf --budget 5` fails when the app costs more than 5 % of one core idle on Home (ctest
+  `webui_e2e_idle_cost`, with the sidechains' programs).
+
+### 20.10 Before → after
+
+Pictures in `media/unified-app/ux2/`: `pages/` every page per mode, look and size; `before/` the build of §19 on the
+same state; `e2e/` the end-to-end run with its trusted dialogs; `perf/` the numbers.
+
+| Seen in §19 | Now |
+|---|---|
+| Overview with All: one chain's total and chart | A Balances table of every chain (available, pending and what is on its way, assets), then recent transactions and latest blocks of every chain |
+| Recent transactions buried in mining dust, titled with addresses and txids | Each row in words (your label, else "Payment received", "Deposit into Layers", "Coins in from Chains"); rewards and merged mining bids folded into one row per chain; rows of no value left out; the address short, on the second line |
+| Latest blocks: "15 years and 37…" for a genesis, cramped columns | One table (chain, height, transactions, hash, age), "genesis", relative ages, the hash column goes when the panel is narrow |
+| Home: "Every chain" cards repeating Balance | One Balances card for every chain beside Network and Sidechains; one sidechain selected: its own Balance, Node, Peg, Merged mining or Staking |
+| "main· own backup" everywhere | Separators keep their spaces (`.dot-sep`; spaces at the edge of an `{#if}` kept in a dozen places) |
+| Sidebar groups: "Deposit and withdraw", "All its pages", generic icons, "All assets", "All staking" | Each chain's own pages only, with its own titles and icons (Simple's in Simple); every page only with Settings → Sidechains' option; one Staking entry |
+| Sidechains: a deposit and a withdrawal box per chain, stat boxes, a second deposit form | One Move coins panel (direction, sidechain, amount, where, fee, Choose coins) beside one Your sidechains table |
+| Send: empty chains as equals, "1 assets", "An address of Layers· An address of this wallet", "Layers Send", copy like a spec | Empty chains muted ("Nothing to send"), "1 asset", "A Layers address", no second title, one short line |
+| The explorer of Chains only | It follows the selector: one search over every chain, each chain's own explorer, links between chains, a block's drivechain messages and a transaction's outputs said |
+| WebKit at four cores and more on the hub while catching up | Under one core; idle 2 % instead of 6-13 % (§20.8) |
