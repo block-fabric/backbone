@@ -407,12 +407,15 @@ describe('Receive, wallets, coins in and out, staking, assets', () => {
     expect(prefs.chain).toBe('layers');
   });
 
-  it('Transactions: every chain by default with a Chain column; the app\'s own page by the top bar\'s selection', async () => {
+  it('Transactions: the app\'s own page over every chain shown, a Chain column; this app\'s chain alone by the top bar\'s selection', async () => {
     render(Transactions);
-    await waitFor(() => expect(document.querySelectorAll('tr[data-chain-tx]').length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(document.querySelectorAll('.cellwrap[data-row-chain="layers"][data-txid]').length).toBe(1));
+    await waitFor(() => expect(document.querySelectorAll('.cellwrap[data-row-chain="thunder"][data-txid]').length).toBe(1));
+    expect([...document.querySelectorAll('[role="columnheader"]')].some((h) => h.textContent?.includes('Chain'))).toBe(true);
     expect(document.querySelector('[data-chain-chips]')).toBeNull();
     setSelectedChain(HOST);
-    await waitFor(() => expect(document.querySelector('[data-chain-activity]')).toBeNull());
+    await waitFor(() => expect(document.querySelector('.cellwrap[data-row-chain="layers"]')).toBeNull());
+    expect([...document.querySelectorAll('[role="columnheader"]')].some((h) => h.textContent?.includes('Chain'))).toBe(false);
   });
 });
 

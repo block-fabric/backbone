@@ -114,6 +114,10 @@ struct Nodes {
             if (method == "getblockcount") return UniValue{42};
             if (method == "getblockhash") return UniValue{params[0].getInt<int>() == 39 ? std::string{"nothex"} : strprintf("%064x", params[0].getInt<int>())};
             if (method == "getblockheader") return Json(R"({"time":1000,"nTx":3})");
+            if (method == "getblock") {
+                if (params[0].get_str() != std::string(64, 'b')) throw std::runtime_error{"Block not found"};
+                return Json(R"({"hash":")" + std::string(64, 'B') + R"(","height":41,"time":1000,"confirmations":2,"size":300,"weight":1200,"nTx":2,"difficulty":0.5,"merkleroot":"nothex","previousblockhash":")" + std::string(64, 'a') + R"(","tx":[")" + std::string(64, 'c') + R"(","nothex",")" + TXID + R"("],"extra":{"a":1}})");
+            }
             if (method == "getmainchaininfo") return Json(R"({"slot":7,"connected":true,"state":"ok","height":300})");
             if (method == "getdepositaddress") return Json(R"({"depositaddress":"s7_rsc1qlayersown00_abcdef","address":"rsc1qlayersown00","slot":7})");
             if (method == "listtransactions") {
@@ -274,6 +278,12 @@ BOOST_AUTO_TEST_CASE(reads_mapped_to_each_node)
     BOOST_CHECK_EQUAL(rows[0].find_value("fee").get_str(), "-0.00000141");
     BOOST_CHECK_EQUAL(rows[1].find_value("amount").get_str(), "20.00000000");
     BOOST_CHECK_EQUAL(nodes.rpcs.back().wallet, "other");
+    BOOST_CHECK_EQUAL(nodes.rpcs.back().params[1].getInt<int>(), 200);
+    // A whole history for the Transactions page: up to 5 000 rows asked of the node, no more.
+    adapter.Transactions(P(R"({"stem":"layers","count":5000})"));
+    BOOST_CHECK_EQUAL(nodes.rpcs.back().params[1].getInt<int>(), 5000);
+    adapter.Transactions(P(R"({"stem":"layers","count":99999})"));
+    BOOST_CHECK_EQUAL(nodes.rpcs.back().params[1].getInt<int>(), 5000);
 
     const UniValue staking{adapter.Staking(P(R"({"stem":"layers"})"))};
     BOOST_CHECK(staking.find_value("node").find_value("validator").isTrue());
@@ -335,8 +345,31 @@ BOOST_AUTO_TEST_CASE(activity_of_a_chain_its_blocks_and_mempool)
     BOOST_REQUIRE_EQUAL(rows.size(), 2U);
     BOOST_CHECK_EQUAL(rows[0].find_value("txid").get_str(), std::string(64, '2'));
     BOOST_CHECK_EQUAL(rows[0].find_value("fee").get_str(), "0.0000025");
+    // As many as asked, 1 to 30 (the explorer's strips): 2 of them, and never past the list's end.
+    BOOST_CHECK_EQUAL(adapter.Activity(P(R"({"stem":"thunder","count":2})")).find_value("blocks").size(), 2U);
+    BOOST_CHECK_EQUAL(adapter.Activity(P(R"({"stem":"thunder","count":0})")).find_value("blocks").size(), 1U);
+    BOOST_CHECK_EQUAL(adapter.Activity(P(R"({"stem":"thunder","count":1000})")).find_value("blocks").size(), 3U);
     nodes.up = {"layers"};
     BOOST_CHECK_EQUAL(Code([&] { adapter.Activity(P(R"({"stem":"thunder"})")); }), BRIDGE_NOT_READY);
+}
+
+BOOST_AUTO_TEST_CASE(a_block_of_a_sidechain_its_facts_and_transactions)
+{
+    Nodes nodes;
+    ChainAdapter adapter{nodes.Hooks()};
+    const UniValue b{adapter.Block(P(R"({"stem":"thunder","hash":")" + std::string(64, 'b') + R"("})"))};
+    BOOST_CHECK_EQUAL(b.find_value("height").getInt<int>(), 41);
+    BOOST_CHECK_EQUAL(b.find_value("hash").get_str(), std::string(64, 'b'));
+    BOOST_CHECK_EQUAL(b.find_value("previousblockhash").get_str(), std::string(64, 'a'));
+    // What is not a hash is left out; nothing but what a page shows.
+    BOOST_CHECK(b.find_value("merkleroot").isNull());
+    BOOST_CHECK(b.find_value("extra").isNull());
+    BOOST_REQUIRE_EQUAL(b.find_value("tx").size(), 2U);
+    BOOST_CHECK_EQUAL(b.find_value("tx")[0].get_str(), std::string(64, 'c'));
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Block(P(R"({"stem":"thunder","hash":"nothex"})")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Block(P(R"({"stem":"thunder","hash":")" + std::string(64, 'e') + R"("})")); }), BRIDGE_INVALID_REQUEST);
+    nodes.up = {"layers"};
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Block(P(R"({"stem":"thunder","hash":")" + std::string(64, 'b') + R"("})")); }), BRIDGE_NOT_READY);
 }
 
 BOOST_AUTO_TEST_CASE(asset_logos_only_as_png_or_jpeg_data_urls)

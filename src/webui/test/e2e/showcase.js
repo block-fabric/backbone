@@ -376,6 +376,72 @@
         await settle(3000);
         await shot(`explorer-chains-block-${tag}`);
       }
+      // The explorer with every chain: a strip of boxes each (§21.4), then a block of Chains opened under them, then one of
+      // the first sidechain; and Chains alone, its strip above the block it opened.
+      if (want('explorer-strips')) {
+        await select('all');
+        go('explorer');
+        await settle(5000);
+        await shot(`explorer-strips-${tag}`);
+        const chainsBox = $$('[data-strip="chains"] button[data-strip-block]').find((b) => b.dataset.stripBlock !== 'next');
+        if (chainsBox) {
+          chainsBox.click();
+          await settle(3000);
+          $('[data-strip-detail]')?.scrollIntoView({ block: 'start' });
+          await sleep(300);
+          await snapshot(`explorer-strips-block-chains-${tag}`);
+        }
+        const sideBox = $$(`[data-strip="${SIDE[0]}"] button[data-strip-block]`).find((b) => b.dataset.stripBlock !== 'next');
+        if (sideBox) {
+          scrollTop();
+          sideBox.click();
+          await settle(6000);
+          $('[data-strip-detail]')?.scrollIntoView({ block: 'start' });
+          await sleep(300);
+          await snapshot(`explorer-strips-block-${SIDE[0]}-${tag}`);
+        }
+        await select('chains');
+        go('explorer');
+        await settle(4000);
+        const box = $('.ribbon button.blk');
+        if (box) {
+          box.click();
+          await settle(3000);
+          await shot(`explorer-one-chain-block-${tag}`);
+        }
+      }
+      // Hivemind's group: Markets and its Create tab, the Voting center and its Votecoin tab (§21.1).
+      if (SIDE.includes('hivemind') && want('hivemind-pages')) {
+        await select('all');
+        go('home');
+        await settle(1000);
+        const groupInView = () => {
+          const box = $('.sidebar .scroll');
+          const g = $('[data-chain-group="hivemind"]');
+          if (box && g) box.scrollTop = g.offsetTop - 80;
+        };
+        for (const [item, name, then] of [
+          ['markets', 'hivemind-markets', null],
+          ['create', 'hivemind-create', null],
+          ['voting', 'hivemind-voting', null],
+          ['voting', 'hivemind-votecoin', 'hm.transfer'],
+        ]) {
+          const el = $(`[data-chain-item="hivemind:${item}"]`);
+          if (!el) continue;
+          el.click();
+          if (then) T().buildCommands().find((c) => c.id === `module.hivemind.cmd.${then}`)?.run();
+          await settle(5000);
+          groupInView();
+          await snapshot(`${name}-${tag}`);
+        }
+      }
+      // Staking: the first chain that stakes, its whole page under the app's title (§21.2).
+      if (want('staking-chain')) {
+        await select('all');
+        go('staking');
+        await settle(6000);
+        await shot(`staking-chain-${tag}`);
+      }
       // Move coins with "Choose coins" open, the coins of Chains' wallet.
       if (want('sidechains-choose-coins')) {
         await select('all');

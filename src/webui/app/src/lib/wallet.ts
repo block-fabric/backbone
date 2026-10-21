@@ -709,15 +709,22 @@ export interface TxFilter {
   showInactive: boolean;
 }
 
-/** TransactionFilterProxy::filterAcceptsRow. The search looks in the address, the label and the txid. */
+/** TransactionFilterProxy::filterAcceptsRow. The search looks in the address, the label, the txid and the amount. */
 // What the search looks in, lower case, made once per record: kept by the key of the record, as a new
 // block makes new record objects (their status) but not new text.
 const haystacks = new Map<string, { label: string; text: string }>();
 
+/** An amount as the search reads it: in the coin, plain ("-1.50000000"), so that "1.5" finds it. */
+function searchedAmount(sats: bigint): string {
+  const neg = sats < 0n;
+  const abs = neg ? -sats : sats;
+  return `${neg ? '-' : ''}${abs / 100_000_000n}.${(abs % 100_000_000n).toString().padStart(8, '0')}`;
+}
+
 function haystack(r: TxRecord): string {
   const kept = haystacks.get(r.key);
   if (kept && kept.label === r.label) return kept.text;
-  const text = `${r.address}\n${r.label}\n${r.txid}`.toLowerCase();
+  const text = `${r.address}\n${r.label}\n${r.txid}\n${searchedAmount(r.amount)}`.toLowerCase();
   if (haystacks.size > 500_000) haystacks.clear();
   haystacks.set(r.key, { label: r.label, text });
   return text;
@@ -774,18 +781,22 @@ export function isoLocal(secs: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-/** The transaction history as chains-qt exports it: Confirmed, Date, Type, Label, Address, Amount, ID. */
-export function transactionsCsv(records: readonly TxRecord[], unit: Unit): string {
+/**
+ * The transaction history as chains-qt exports it: Confirmed, Date, Type, Label, Address, Amount, ID; with `chainOf`
+ * (the history of many chains, doc/unified-app.md §21.4) a Chain column first, the chain of each row in words.
+ */
+export function transactionsCsv(records: readonly TxRecord[], unit: Unit, chainOf?: (r: TxRecord) => string, typeOf: (r: TxRecord) => string = (r) => typeText(r.type)): string {
   const rows = records.map((r) => [
+    ...(chainOf ? [chainOf(r)] : []),
     String(r.status === 'confirmed' || r.status === 'confirming'),
     isoLocal(r.time),
-    typeText(r.type),
+    typeOf(r),
     r.label,
     r.address,
     formatAmount(r.amount, unit, { separators: false }),
     r.txid,
   ]);
-  return toCsv(['Confirmed', 'Date', 'Type', 'Label', 'Address', `Amount (${unit})`, 'ID'], rows);
+  return toCsv([...(chainOf ? ['Chain'] : []), 'Confirmed', 'Date', 'Type', 'Label', 'Address', `Amount (${unit})`, 'ID'], rows);
 }
 
 /** The address list as chains-qt exports it: Label, Address. */

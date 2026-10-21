@@ -622,7 +622,9 @@ UniValue ChainAdapter::Transactions(const UniValue& params) const
     std::string stem;
     Caps(params, stem);
     const std::string wallet{Wallet(stem, params)};
-    const int64_t count{std::clamp<int64_t>(Param(params, "count").isNum() ? Param(params, "count").getInt<int64_t>() : 200, 1, 500)};
+    // Up to 5 000 rows: the whole history of a sidechain's wallet as the hub's (2 300 on Layers) for the app's Transactions
+    // page (doc/unified-app.md §21.4), which reads it once and then its latest rows.
+    const int64_t count{std::clamp<int64_t>(Param(params, "count").isNum() ? Param(params, "count").getInt<int64_t>() : 200, 1, 5000)};
     const UniValue listed{m_hooks.rpc(stem, "listtransactions", Array({UniValue{"*"}, UniValue{count}}), wallet)};
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
@@ -1095,8 +1097,10 @@ UniValue ChainAdapter::Activity(const UniValue& params) const
     const UniValue count{m_hooks.rpc(stem, "getblockcount", UniValue{UniValue::VARR}, "")};
     const int64_t height{count.isNum() ? count.getInt<int64_t>() : -1};
     out.pushKV("height", height);
+    // The newest 6, or as many as asked (1 to 30: the explorer's strip of each chain, doc/unified-app.md §21.4).
+    const int64_t wanted{std::clamp<int64_t>(Param(params, "count").isNum() ? Param(params, "count").getInt<int64_t>() : 6, 1, 30)};
     UniValue blocks{UniValue::VARR};
-    for (int64_t h{height}; h >= 0 && h > height - 6; --h) {
+    for (int64_t h{height}; h >= 0 && h > height - wanted; --h) {
         const UniValue hash{m_hooks.rpc(stem, "getblockhash", Array({UniValue{h}}), "")};
         if (!hash.isStr() || !IsHex64(hash.get_str())) break;
         const UniValue header{m_hooks.rpc(stem, "getblockheader", Array({hash}), "")};
@@ -1151,6 +1155,41 @@ std::string ChainAdapter::QueryKind(const std::string& q)
     if (q.size() == 64 && IsHex(q)) return "hash";
     if (q.size() >= 14 && q.size() <= 120 && std::all_of(q.begin(), q.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; })) return "address";
     return {};
+}
+
+UniValue ChainAdapter::Block(const UniValue& params) const
+{
+    std::string stem;
+    Caps(params, stem);
+    if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
+    const std::string hash{ToLower(util::TrimString(Str(params, "hash")))};
+    if (!IsHex64(hash)) throw HostError(BRIDGE_INVALID_REQUEST, "Not the hash of a block");
+    UniValue b;
+    try {
+        b = m_hooks.rpc(stem, "getblock", Array({UniValue{hash}, UniValue{1}}), "");
+    } catch (const std::exception&) {
+        b = UniValue{};
+    }
+    if (!b.isObject() || ToLower(Str(b, "hash")) != hash) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("%s has no block of this hash", m_hooks.name(stem)));
+    // Only what a page shows, checked: numbers as numbers, hashes as hashes, at most 500 transactions.
+    UniValue out{UniValue::VOBJ};
+    out.pushKV("stem", stem);
+    out.pushKV("hash", hash);
+    for (const char* key : {"height", "time", "mediantime", "confirmations", "size", "weight", "nTx", "version"}) {
+        if (Param(b, key).isNum()) out.pushKV(key, Param(b, key).getInt<int64_t>());
+    }
+    if (Param(b, "difficulty").isNum()) out.pushKV("difficulty", Param(b, "difficulty").get_real());
+    for (const char* key : {"previousblockhash", "nextblockhash", "merkleroot"}) {
+        const std::string v{ToLower(Str(b, key))};
+        if (IsHex64(v)) out.pushKV(key, v);
+    }
+    UniValue txs{UniValue::VARR};
+    const UniValue& tx{Param(b, "tx")};
+    for (size_t i{0}; tx.isArray() && i < tx.size() && txs.size() < 500; ++i) {
+        if (tx[i].isStr() && IsHex64(tx[i].get_str())) txs.push_back(ToLower(tx[i].get_str()));
+    }
+    out.pushKV("tx", std::move(txs));
+    return out;
 }
 
 UniValue ChainAdapter::Search(const UniValue& params) const

@@ -236,7 +236,52 @@
     //     Layers found by its hash opens Layers' own explorer, in the page.
     go('explorer');
     await waitFor('the explorer of every chain', () => $('[data-all-search]'), 20000);
-    await waitFor('every chain\'s newest blocks', () => $('[data-many-blocks="blocks"] [data-block-row="layers"]') && $('[data-many-blocks="blocks"] [data-block-row="chains"]'), 30000);
+    // A strip of boxes for each chain (§21.4), not a table of the newest blocks; a block opens under the strips.
+    await waitFor('a strip of each chain', () => $('[data-strip="chains"] button[data-strip-block]:not([data-strip-block="next"])') && $('[data-strip="layers"] button[data-strip-block]:not([data-strip-block="next"])'), 30000);
+    await check('the strips: Chains first, then each sidechain on, the block being made first; no table of the newest blocks', $$('[data-strip]').map((r) => r.dataset.strip)[0] === 'chains' && $$('[data-strip]').length === 3 + extra.length && $('[data-strip="layers"] button[data-strip-block]').dataset.stripBlock === 'next' && !$('[data-many-blocks="blocks"]'), $$('[data-strip]').map((r) => r.dataset.strip).join(','));
+    await sleep(1500);
+    await shot('ux3-explorer-all-strips');
+    $$('[data-strip="chains"] button[data-strip-block]')[1].click();
+    await waitFor('a block of Chains under the strips', () => $('[data-strip-detail^="chains:"] [data-chains-block]'), 30000);
+    // → the older one, as in its strip.
+    const firstOpen = $('[data-strip-detail]').dataset.stripDetail;
+    $('[data-strip-detail]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    await waitFor('→ the block before it', () => $('[data-strip-detail]') && $('[data-strip-detail]').dataset.stripDetail !== firstOpen, 10000);
+    await sleep(1000);
+    scrollTo($('[data-strip-detail]'));
+    await sleep(500);
+    await shot('ux3-explorer-block-chains');
+    $$('[data-strip="layers"] button[data-strip-block]')[1].click();
+    await waitFor('a block of Layers under the strips, from its node', () => $('[data-strip-detail^="layers:"] [data-side-block^="layers:"]'), 60000);
+    await sleep(1000);
+    scrollTo($('[data-strip-detail]'));
+    await sleep(800);
+    await shot('ux3-explorer-block-layers');
+    $('[data-strip-close]').click();
+    await waitFor('closed', () => !$('[data-strip-detail]'), 10000);
+    T().savePrefs({ uiMode: 'simple' });
+    await sleep(1500);
+    $('#content').scrollTo(0, 0);
+    await shot('ux3-explorer-all-strips-simple');
+    T().savePrefs({ uiMode: 'advanced', theme: 'light' });
+    await sleep(1500);
+    $$('[data-strip="chains"] button[data-strip-block]')[1].click();
+    await waitFor('a block of Chains, light', () => $('[data-strip-detail^="chains:"] [data-chains-block]'), 30000);
+    await sleep(800);
+    $('#content').scrollTo(0, 0);
+    await shot('ux3-explorer-all-strips-light');
+    T().savePrefs({ theme: 'midnight' });
+    $('[data-strip-close]').click();
+    // Chains alone: its strip on top, the block a box opens under it.
+    await selectChain('chains');
+    await waitFor('Chains\' strip', () => $('.ribbon button.blk'), 30000);
+    $('.ribbon button.blk').click();
+    await waitFor('…its block under the strip', () => $('.ribbon') && $('section.detail[aria-label^="Block"]'), 30000);
+    await sleep(1000);
+    await shot('ux3-explorer-one-chain');
+    await selectChain('all');
+    go('explorer');
+    await waitFor('the explorer of every chain again', () => $('[data-all-search]'), 20000);
     const layersTip = await host('sidechains.rpc', { stem: 'layers', method: 'getbestblockhash' });
     type($('[data-all-search]'), layersTip);
     $('[data-all-search]').closest('form').requestSubmit();
@@ -348,25 +393,47 @@
     const tshown = $('[data-sidechain-receive="thunder"] [data-receive-address]').dataset.receiveAddress;
     await check('an address of Thunder\'s wallet, refused on Layers', !!(await host('chain.validate', { stem: 'thunder', address: tshown })).own && (await host('chain.validate', { stem: 'layers', address: tshown }).then(() => false, (e) => e.code === -5)), tshown);
 
-    // 5. Transactions: every chain in one list, with a filter; a row's details in the app.
+    // 5. Transactions (doc/unified-app.md §21.4): the app's own page over every chain the top bar shows, a Chain column;
+    //    one search over every chain; a sidechain's row's details in the app.
     go('transactions');
     await selectChain('all');
-    await waitFor('every chain\'s transactions', () => $('tr[data-chain-tx="layers"]') && $('tr[data-chain-tx="thunder"]') && $('tr[data-chain-tx="chains"]'), 30000);
-    await check('no selector of chains in the page: the top bar\'s', !$('[data-chain-filter]') && !$('[data-chain-chips]'));
-    // Rows said in words (doc/unified-app.md §20.3): the deposit of step 1 named by the sidechain it went into.
-    const depositRow = $(`tr[data-chain-tx="chains"][data-txid="${depositTx}"]`);
-    await check('the deposit of the wallet said as "Deposit into Layers"', !!depositRow && depositRow.textContent.includes('Deposit into Layers'), depositRow ? depositRow.textContent : 'no row');
+    const txCell = (chain, txid) => $(txid ? `.cellwrap[data-row-chain="${chain}"][data-txid="${txid}"]` : `.cellwrap[data-row-chain="${chain}"][data-txid]`);
+    const search = (text) => {
+      const box = $('.transactions input[type="search"]');
+      box.value = text;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    await waitFor('the transactions of every chain', () => $(`[data-tx-chains="${['chains', ...inOrder].join(',')}"]`) && txCell('chains'), 30000);
+    await check('the app\'s own table with a Chain column; no selector of chains in the page: the top bar\'s', $$('[role="columnheader"]').some((h) => h.textContent.includes('Chain')) && !$('[data-chain-filter]') && !$('[data-chain-chips]'));
     await shot('integrated-transactions');
     await shot('ux-transactions');
-    await selectChain('layers');
-    await waitFor('only Layers', () => $('tr[data-chain-tx="layers"]') && !$('tr[data-chain-tx="thunder"]') && !$('tr[data-chain-tx="chains"]'), 20000);
-    $(`tr[data-chain-tx="layers"][data-txid="${sentTx}"]`)?.click() ?? $('tr[data-chain-tx="layers"]').click();
+    await shot('ux3-transactions-all');
+    // The deposit of step 1 said as what it does (doc/unified-app.md §20.3).
+    search(depositTx);
+    await waitFor('the deposit found', () => txCell('chains', depositTx), 20000);
+    const depositRow = txCell('chains', depositTx).closest('.dt-row');
+    await check('the deposit of the wallet said as "Deposit into Layers"', depositRow.textContent.includes('Deposit into Layers'), depositRow.textContent);
+    // One search over every chain: the 20 into Layers, sent from Chains and credited on Layers.
+    search('20.0000');
+    await waitFor('a row of Chains and one of Layers found', () => txCell('chains') && txCell('layers'), 30000);
+    await check('one search over every chain: the deposit on Chains and its credit on Layers', !!txCell('chains', depositTx) && !!txCell('layers'));
+    await shot('ux3-transactions-search');
+    search('');
+    // A sidechain's row: its details read from its node, in the app.
+    search(sentTx || 'rsc1');
+    await waitFor('the row of Layers', () => txCell('layers'), 30000);
+    (txCell('layers', sentTx) ?? txCell('layers')).closest('.dt-row').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await waitFor('its details in the app', () => $('[data-tx-chain="layers"]') && $('dialog[open] .details'), 30000);
     await check('a sidechain transaction\'s details shown by the app, not its module', T().nav.page === 'transactions');
     await shot('integrated-transaction-details');
+    await shot('ux3-transactions-sidechain-details');
     $$('dialog[open] button').find((b) => b.textContent.trim() === 'Close').click();
+    search('');
+    await selectChain('layers');
+    await waitFor('only Layers', () => $('[data-tx-chains="layers"]') && txCell('layers') && !txCell('chains'), 20000);
+    await check('one chain: no Chain column', !$$('[role="columnheader"]').some((h) => h.textContent.includes('Chain')));
     await selectChain('chains');
-    await waitFor('the app\'s own history', () => !$('[data-chain-activity]'), 20000);
+    await waitFor('the app\'s own history', () => $('[data-tx-chains="chains"]') && !txCell('layers'), 20000);
     await selectChain('all');
 
     // 6. Wallets: each chain's.

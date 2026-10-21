@@ -623,8 +623,12 @@
     <button type="button" class="btn" onclick={() => { cache.clear(); blocks = []; refreshBlocks(); refreshMempool(); }}>Refresh</button>
   </form>
 
+  <!-- The strip of boxes stays on top while a block is open: the block a box opens is said under it (user, 2026-10-21:
+       "when we click on any block its description would open below"). -->
+  {#if !shown || shown.kind === 'block'}
+    <BlockRibbon blocks={ribbon} selected={shown?.kind === 'block' ? shown.block.hash : selectedBlock} {fresh} now={nowSecs} onselect={pickBlock} onmore={moreDetails} />
+  {/if}
   {#if !shown}
-  <BlockRibbon blocks={ribbon} selected={selectedBlock} {fresh} now={nowSecs} onselect={pickBlock} onmore={moreDetails} />
 
   <div class="list-bar">
   <div class="tabs" role="tablist" aria-label="Lists" id="explorer-lists">

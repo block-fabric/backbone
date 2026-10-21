@@ -6,8 +6,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import Sidebar from '../components/Sidebar.svelte';
 import StatusBar from '../components/StatusBar.svelte';
 import ChainsOverview from '../components/ChainsOverview.svelte';
-import { chainState } from '../lib/chains.svelte';
-import ChainActivity from '../components/ChainActivity.svelte';
+import { chainState, setSelectedChain } from '../lib/chains.svelte';
+import Transactions from '../pages/Transactions.svelte';
+import { resetSideTxs } from '../lib/alltxs.svelte';
 import ModuleProgram from '../components/ModuleProgram.svelte';
 import ModuleFrames from '../components/ModuleFrames.svelte';
 import NotificationBell from '../components/NotificationBell.svelte';
@@ -428,21 +429,26 @@ describe('the views across modules', () => {
       render(Sidebar);
       await waitFor(() => expect(document.querySelector('[data-field="module-balance"]')).toBeTruthy());
       expect(document.querySelector('[data-field="module-balance"]')?.textContent).not.toContain('3.0');
-      render(ChainActivity, { chain: 'layers' });
-      await waitFor(() => expect(document.querySelector('tr[data-chain-tx="layers"]')).toBeTruthy());
-      expect(document.querySelector('tr[data-chain-tx="layers"]')?.textContent).not.toContain('1.25');
+      // Its history too, as the app's own: hidden whole in privacy mode.
+      render(Transactions);
+      await waitFor(() => screen.getByText('The history is hidden while values are masked.'));
+      expect(document.querySelector('.cellwrap[data-row-chain="layers"]')).toBeNull();
+      expect(document.body.textContent).not.toContain('1.25');
     } finally {
       prefs.mask = false;
     }
   });
 
   it('every chain\'s transactions, a module\'s read from its node by the host, its details in the app', async () => {
-    render(ChainActivity, { chain: 'layers' });
-    await waitFor(() => expect(document.querySelectorAll('tr[data-chain-tx="layers"]').length).toBe(1));
+    resetSideTxs();
+    await refreshSidechains();
+    setSelectedChain('layers');
+    render(Transactions);
+    await waitFor(() => expect(document.querySelectorAll('.cellwrap[data-row-chain="layers"][data-txid]').length).toBe(1));
     const call = calls.find((c) => c.method === 'chain.transactions')!;
     expect(call.params).toMatchObject({ stem: 'layers' });
     expect(calls.some((c) => c.method === 'sidechains.rpc')).toBe(false);
-    await fireEvent.click(document.querySelector('tr[data-chain-tx="layers"]') as HTMLElement);
+    await fireEvent.dblClick(document.querySelector('.cellwrap[data-row-chain="layers"][data-txid]')!.closest('.dt-row') as HTMLElement);
     await waitFor(() => expect(calls.some((c) => c.method === 'chain.transaction')).toBe(true));
     expect(calls.find((c) => c.method === 'chain.transaction')!.params).toMatchObject({ stem: 'layers', txid: 'aa'.repeat(32) });
     await waitFor(() => expect(document.querySelector('[data-tx-chain="layers"]')).toBeTruthy());

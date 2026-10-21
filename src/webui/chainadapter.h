@@ -157,6 +157,8 @@ public:
      * knows), an address (valid there; the wallet's own said). Reads only; no index is asked for.
      */
     UniValue Search(const UniValue& params) const;
+    /** chain.block {stem, hash}: a block of a sidechain, its facts and its transactions (the explorer's strips, §21.4). */
+    UniValue Block(const UniValue& params) const;
     //! What a search text is: "height", "hash", "address" or "" (nothing a node is asked about).
     static std::string QueryKind(const std::string& q);
 

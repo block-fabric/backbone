@@ -1,19 +1,19 @@
 <script lang="ts">
   // The block explorer with every chain (doc/unified-app.md §20.5): one search for a height, a hash, a transaction id or
   // an address on every chain at once, each result named by its chain and opening that chain's own explorer at it; then
-  // the newest blocks of every chain in one table, and what waits to be mined on each. This app's own chain is searched
-  // by its own node, a sidechain by its node (chain.search: reads only, no index).
+  // a strip of boxes for each chain, its newest blocks, a block clicked opening under them (components/BlockStrips.svelte,
+  // §21.4: it took the place of the table of the newest blocks and of the one of the waiting transactions, each strip's
+  // first box the block being made and what waits for it). This app's own chain is searched by its own node, a
+  // sidechain by its node (chain.search: reads only, no index).
   import { untrack } from 'svelte';
   import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import ChainBadge from './ChainBadge.svelte';
   import SafeText from './SafeText.svelte';
-  import ManyChainBlocks from './ManyChainBlocks.svelte';
+  import BlockStrips from './BlockStrips.svelte';
   import { formatCount, shortHash } from '../lib/format';
   import { request } from '../lib/bridge';
   import { rpc } from '../lib/rpc';
-  import { node } from '../lib/state.svelte';
-  import { every } from '../lib/poll';
   import { go, nav } from '../lib/nav.svelte';
   import { productName } from '../lib/modules.svelte';
   import { mayBeAddress } from '../lib/explorer';
@@ -35,48 +35,6 @@
   let searching = $state(false);
   let searched = $state('');
   let found = $state<Found[]>([]);
-  let now = $state(Math.floor(Date.now() / 1000));
-  $effect(() => every(15000, () => (now = Math.floor(Date.now() / 1000))));
-
-  // This app's own chain: its node.
-  interface Header {
-    height: number;
-    hash: string;
-    time: number;
-    nTx: number;
-    previousblockhash?: string;
-  }
-  let blocks = $state<{ height: number; hash: string; time: number; txs: number }[]>([]);
-  $effect(() => {
-    const tip = node.tip?.hash;
-    if (!tip) return;
-    const controller = new AbortController();
-    (async () => {
-      const rows: { height: number; hash: string; time: number; txs: number }[] = [];
-      let hash: string | undefined = tip;
-      for (let i = 0; i < 6 && hash; i++) {
-        const h: Header = await rpc.raw('getblockheader', [hash, true], { signal: controller.signal });
-        rows.push({ height: h.height, hash, time: h.time, txs: h.nTx });
-        hash = h.previousblockhash;
-      }
-      blocks = rows;
-    })().catch(() => undefined);
-    return () => controller.abort();
-  });
-  let mempool = $state<{ txid: string; time: number; fee: string; vsize: number }[]>([]);
-  $effect(() => {
-    void node.mempool.size;
-    void node.tip?.height;
-    rpc
-      .raw<Record<string, { time: number; fees: { base: number }; vsize: number }>>('getrawmempool', [true])
-      .then((all) => {
-        mempool = Object.entries(all)
-          .map(([txid, e]) => ({ txid, time: e.time, fee: e.fees.base.toFixed(8), vsize: e.vsize }))
-          .sort((a, b) => b.time - a.time)
-          .slice(0, 8);
-      })
-      .catch(() => undefined);
-  });
 
   /** What this app's own node knows of a search. */
   async function searchHost(q: string): Promise<Found[]> {
@@ -171,16 +129,7 @@
     </section>
   {/if}
 
-  <div class="lists">
-    <section class="panel" aria-labelledby="all-blocks-title">
-      <div class="panel-head"><h2 id="all-blocks-title">{t('Latest blocks')}</h2><span class="muted small">{t('Each chain\'s newest first')}</span></div>
-      <div class="panel-body"><ManyChainBlocks chains={shownIds} hostBlocks={blocks} {now} count={12} perChain={3} /></div>
-    </section>
-    <section class="panel" aria-labelledby="all-waiting-title">
-      <div class="panel-head"><h2 id="all-waiting-title">{t('Waiting to be mined')}</h2></div>
-      <div class="panel-body"><ManyChainBlocks chains={shownIds} mode="mempool" hostMempool={mempool} hostWaiting={node.mempool.size} {now} count={8} /></div>
-    </section>
-  </div>
+  <BlockStrips chains={shownIds} />
 </div>
 
 <style>
@@ -234,18 +183,8 @@
     gap: 0.25rem;
     color: var(--link);
   }
-  .lists {
-    display: grid;
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-    gap: 1rem;
-    align-items: start;
-  }
   .small {
     font-size: 0.82rem;
   }
-  @media (max-width: 1100px) {
-    .lists {
-      grid-template-columns: minmax(0, 1fr);
-    }
-  }
+
 </style>

@@ -177,11 +177,9 @@
     await sleep(1500);
     await shot('modules-portfolio');
     T().go('transactions');
-    await waitFor('the chain filter', () => $('[data-chain-filter]'), 10000);
-    const sel = $('[data-chain-filter]');
-    sel.value = 'all';
-    sel.dispatchEvent(new Event('change'));
-    await waitFor('every chain\'s transactions', () => $$('tr[data-chain-tx="layers"]').length > 0 && $$('tr[data-chain-tx="chains"]').length > 0, 30000);
+    // Every chain: the top bar's selector (doc/unified-app.md §19), the app's own page with a Chain column (§21.4).
+    T().savePrefs({ chain: 'all' });
+    await waitFor('every chain\'s transactions', () => $$('.cellwrap[data-row-chain="layers"][data-txid]').length > 0 && $$('.cellwrap[data-row-chain="chains"][data-txid]').length > 0, 30000);
     await check('the transactions of both chains in one list', true);
     await shot('modules-transactions-all');
 

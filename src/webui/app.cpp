@@ -2198,6 +2198,7 @@ void App::RegisterSidechainMethods(Bridge& b)
              {"chain.peg", &ChainAdapter::Peg, Bridge::Thread::WORKER},
              {"chain.coins", &ChainAdapter::Coins, Bridge::Thread::WORKER},
              {"chain.search", &ChainAdapter::Search, Bridge::Thread::WORKER},
+             {"chain.block", &ChainAdapter::Block, Bridge::Thread::WORKER},
              {"chain.assets", &ChainAdapter::Assets, Bridge::Thread::WORKER},
              {"chain.names", &ChainAdapter::Names, Bridge::Thread::WORKER},
              {"chain.markets", &ChainAdapter::Markets, Bridge::Thread::WORKER},
