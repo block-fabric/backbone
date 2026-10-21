@@ -1252,7 +1252,7 @@ Sidebar                       why
   | Layers | Browse assets, My assets, Trade, Auctions | My assets, Swap |
   | BitAssets | Browse assets, My assets, Trade, Auctions | My assets, Swap |
   | BitNames | Get a name, My names, Name directory, Paymail, DNS | Get a name, My names |
-  | Hivemind | Markets, Portfolio, Voting center, Decisions, Create, Votecoin, Payouts | Questions, My bets |
+  | Hivemind | Markets (and under it Create, its tab), Portfolio, Voting center (Votecoin its tab), Decisions, Payouts (§21.1) | Questions, My bets |
   | zSide | Private, Memos, Private activity, Melt & cast, Shielded pool | Private payments |
   | Thunder | Batch pay, Payments, Throughput | Payments, How busy |
   | FastBlocks | — (its Staking is the app's Staking entry) | — |
@@ -1279,8 +1279,8 @@ The top bar's selector (§19) decides every page. A part that cannot follow it s
 | Send, Receive | tiles: a chain with coins, then those without (muted, "empty"); no form until one is picked | the form | the form |
 | Transactions | every chain, a Chain column | as before | that chain's |
 | Sidechains | **Move coins** (one form) + **Your sidechains** (a table) + the drivechain's tabs | the same | **Move coins** on that chain + its row |
-| Block explorer | search every chain at once, results named by chain; each chain's newest blocks; waiting transactions of each | Chains' explorer (§20.5) | that chain's own explorer, in the page |
-| Staking | each chain that stakes, a row | "Chains does not stake", the chains that do a click away | that chain's own Staking |
+| Block explorer | search every chain at once, results named by chain; a strip of blocks of each chain, a block opening under them (§21.4) | Chains' explorer (§20.5), a block opening under its strip | that chain's own explorer, in the page |
+| Staking | a tab beside the title for each chain that stakes, the one shown its whole own page (§21.2) | "Chains has no staking", the chains that do as tabs | that chain's own page, its tab alone |
 
 ### 20.3 Visual rules
 
@@ -1483,3 +1483,230 @@ same state; `e2e/` the end-to-end run with its trusted dialogs; `perf/` the numb
 | Send: empty chains as equals, "1 assets", "An address of Layers· An address of this wallet", "Layers Send", copy like a spec | Empty chains muted ("Nothing to send"), "1 asset", "A Layers address", no second title, one short line |
 | The explorer of Chains only | It follows the selector: one search over every chain, each chain's own explorer, links between chains, a block's drivechain messages and a transaction's outputs said |
 | WebKit at four cores and more on the hub while catching up | Under one core; idle 2 % instead of 6-13 % (§20.8) |
+
+## 21. The hub's scale, Hivemind's menu, Staking whole (2026-10-21, branch `unified-ux3`)
+
+User feedback on §20: on the hub, five minutes after the start (the sidechains caught up), WebKit's web process still
+used 117–213 % of a core; the test data of §20.8 was smaller than the hub's. And two requests: "for Hivemind, in the
+unified wallet, I'd like to get Votecoin into the Voting center section as one. Also, Create should be nested under
+Markets"; "the bond / unbond / turn on section visible by default inside the sidechain staking window; we would show the
+full page. Beside the Staking title, just a tab selector … to browse the different ones that have PoS only."
+
+### 21.1 Hivemind: Votecoin in the Voting center, Create under Markets
+
+```
+Sidebar (Advanced)              Hivemind's pages (its pack, the same in its own app)
+● Hivemind ▾
+  Markets                       Markets   [Portfolio] [+ Create a market]
+    Create          (nested)    [ All markets | Create › A market · A decision alone ]
+  Portfolio
+  Voting center                 Voting center                          [🔔 Remind me]
+  Decisions                     [Your voting power] [To vote on] [To reveal now] [For the voters]
+  Payouts                       [ Vote | Votecoin ]
+Simple: Questions, My bets        Votecoin: what it is for · Accounts of this wallet · Move votecoin
+                                            Over time · Largest holders
+```
+
+- **Votecoin is a tab of the Voting center**, one page: what the wallet's votecoin weighs (*Your voting power*: the
+  votecoin it holds, its share of all, in how many accounts) heads both tabs; *Vote* is the center as it was (vote as,
+  reveal now, to vote on, coming up, your votes); *Votecoin* says what it is for in two sentences with the figures the
+  rules give (in all, voters, the least that seals a vote), then the accounts of the wallet (their share of all), moving
+  it, how it went, the largest holders. The four figure cards Votecoin had are the head's. With no votecoin, the Vote tab
+  says so and links to the Votecoin tab.
+- **Create is a tab of Markets** (`All markets | Create`), its sub-tabs what it creates (`A market · A decision alone`,
+  the kit's nested tabs, §TabRow), the wizard without a title of its own; *Create a market* stays the Markets page's
+  primary action (it opens the tab) while the list shows.
+- Both are `tabOf` pages of the pack (`chain/local.ts`): `go('create', …)`, `go('votecoin')`, the palette's *Create a
+  market…*, *List a decision…*, *Move votecoin…* and Decisions' *Open a market on it* lead to the tabs; in Hivemind's
+  own app the sidebar shows Markets and Voting center only (its kit has no third level). The pack is pinned at
+  `hivemind` `ux3` (branch from `ux2`, `modules` merged).
+- **The app's sidebar** lists Create nested under Markets (`lib/chaingroups.ts` `under`, drawn as the group's deep
+  entries): the user asked for it *under* Markets, and the groups already have a deeper level; it opens Markets on its
+  Create tab, is current while that tab shows (Markets then reads as the place it is in, `within`), and is Advanced's
+  (Simple keeps Questions and My bets). Votecoin has no entry: it is the Voting center's.
+
+### 21.2 Staking: the chain's whole page, a tab per chain that stakes
+
+```
+Staking  ( ● Layers  ● FastBlocks )            ← the chains that stake, of those the top selector shows
+Slot 1 234 · epoch 12 …                        ← the chain's own Staking page, whole (its frame, headless)
+[ Overview | Validator | Bonds | Network ]
+…  bond, unbond, turn staking on or off, its keys, payout, the validator set …
+```
+
+- The page is the chain's own Staking page (FastBlocks', Layers'), whole, in the app's page: its frame laid over the
+  page (§18 `ModuleEmbed`), **headless** (a new flag of the kit's module mode, `sidechain-template` `ux3`: the page's
+  own title hidden, the app's is the title), filling the window and scrolling inside. Every spend is its own question in
+  the app's trusted dialog with the chain's mark, as before.
+- Beside the title a **tab per chain that stakes**, turned on and shown by the top bar's selector: All → each (Layers,
+  FastBlocks), one chain → that one; one that does not stake → "Thunder has no staking", the chains that do as the tabs
+  (a tab then selects its chain). The tab is remembered (`prefs.stakingChain`). Only the chain of the tab shown is asked
+  anything (its frame); the summaries the page read of every chain every 8 s are gone, with its cards and tables that
+  repeated the chain's own page (proposed: no cross-chain summary; the tab's dot says how each node is doing).
+- Simple mode: the chain's own Simple card (stake and earn), under the same title and tabs.
+- Layers' and FastBlocks' *Fee split* card said a sentence in the size of a figure ("Fee split from block 2 147 483 647:
+  validators 50 % / BMM 50 %"); now the two shares (`50 % / 50 %`) and under them who gets which and since when (now, from
+  block N, not scheduled yet).
+
+### 21.3 At the hub's scale: what was measured, what was the cause, what was changed
+
+**Measured where it happened.** `run_showcase.py --scale hub` makes a state the size of the hub's once (`hubscale.py`,
+through each node's RPC, about 25 minutes): Chains' wallet of 25 778 transactions (17 000 sends, 8 000 mining rewards,
+the bids of merged mining, a few hundred received; the hub's has 27 992: 19 649 sends, 7 938 rewards), Layers with
+2 000 payments and 35 assets (26 logos), BitAssets with 700 and 63 assets (28 logos), Hivemind with 80 decisions,
+90 markets and 5 positions; Layers, BitAssets and Hivemind on, as on the hub. It looks at it as the hub does: a window
+of 3440 × 1380, Catppuccin Mocha, the text two steps larger, every block in the explorer (`explorerCount` 0), and draws
+as WSLg draws (software GL, `LIBGL_ALWAYS_SOFTWARE=1`, WebKit's DMA-BUF renderer: on a virtual display with
+`--env WEBKIT_DISABLE_DMABUF_RENDERER=`, checked against the user's own display with `--real-display`). It measures
+each page left alone (30 s), and each page **live** (`--steady`, 90 s: a block of Chains a minute with each sidechain
+merged-mined in it, the bids paid by Chains' wallet, and a payment on a sidechain every 3 s), with `--probe` (what
+changes in the page, by part, and how late its timers run) and `--tick-test` (one word changed each second: what one
+frame of this window costs).
+
+**Numbers** (% of one core, the app and its web process, the sidechains' nodes apart; the app's own share includes about
+2 % of RPC the runner itself asks; pictures `media/unified-app/ux3/perf/`):
+
+| While | before (`unified-ux2`) | after |
+|---|---|---|
+| The first 45 s after the start | 12.5 | 3.5 |
+| Home, idle | 3.5 | 1.2 |
+| Overview / Transactions / Sidechains / Explorer, idle | 3.2 / 2.8 / 0.7 / 4.5 | 1.8 / 0.7 / 0.8 / 1.1 |
+| Hivemind's Markets / Voting center, idle | 2.8 / 2.0 | 2.7 / 2.3 |
+| BitAssets' Browse assets / Layers' My assets, idle | 12.3 / **40.8** | 3.1 / 4.2 |
+| One word changed each second | **48.0** | 2.9 |
+| Home, live | 54.4 | 7.9 |
+| Overview, live | 57.8 | 10.4 |
+| Transactions, live | 51.7 | 6.8 |
+| Block explorer, live | **140.4** | 9.4 |
+| Hivemind's Markets, live | **93.1** | 9.6 |
+| BitAssets' Browse assets, live | **260.9** | 14.4 |
+
+On the user's own display (WSLg, the hub's way), the same state and the build of §20, with GL compositing and painted
+without it (change 1 below alone): one word a second 39.0 % → 3.5 %, Home live 34.5 % → 9.8 %, the first 45 s 15.1 % →
+3.2 %. Budgets: idle under 5 % (every page passes), live under 25 % (every page
+passes, the heaviest 14 %).
+
+**The cause: a frame of this window, drawn by WebKit's GL compositing on an emulated GPU, cost 0.38 s of processor.**
+Under WSLg (and any machine without a GPU driver) OpenGL is llvmpipe: Mesa's rasteriser on the processor, on 32 threads
+here. WebKit composites every frame of the window with it, and the hub's window is 4.7 million pixels: one word changed
+each second cost 39-48 % of a core, a page whose parts change a few times a second (a list read again, a sidechain's
+pages polling, a chart, the ages of rows) one to three cores — the 117-213 % the hub showed. With the same page painted
+by the processor without the GL compositing (`WEBKIT_DISABLE_COMPOSITING_MODE`), a frame costs 0.03 s, eleven times
+less. Tried on the same live Home: Skia's CPU painting 22 %, llvmpipe on 4 threads 20 %, both 15 %, no GL compositing 8 %.
+
+**What was changed:**
+1. *Painted without GL when GL is emulated* (`-webuicompositing=auto|on|off`, `webui/appconfig.cpp` `ApplyRendering`, set
+   before the web view starts): with `LIBGL_ALWAYS_SOFTWARE` or llvmpipe, `WEBKIT_DISABLE_COMPOSITING_MODE=1` and llvmpipe
+   on 4 threads (`LP_NUM_THREADS`) for what still uses it; what the user set is kept; `-webuicompositing=on` keeps the GL
+   compositing. A machine with a GPU is not touched. The look is the same (pictures).
+2. *Fewer changes of the page*, each a frame: the chart of balances follows the chains at most every 15 s and the latest
+   transactions every 5 s (`lib/throttle.svelte.ts`); rows keyed by transaction, not by their place (a new one made every
+   row of the list written again: 13 000 changes of the page in 90 s on Transactions); a text of the outside has its
+   direction set only when it changes (`SafeText`: Svelte assigned `dir` at each update of an element with `dir="auto"`,
+   on every row of every list read again; in the app and the kit of the packs); the explorer's ribbon draws as many boxes
+   as are scrolled to (every block listed made a thousand boxes, laid out again at each block).
+3. *Less work at the hub's sizes*: the rows of every chain made from the newest of the wallet, not its 28 000 records at
+   each block; ids sorted as they are, not by the locale (the ties of a long history); the Transactions page's rows are the
+   wallet's records as kept (§21.5).
+4. *The sidechains' frames*: a frame not shown rests as a window not seen (the shim's `document.hidden` and
+   `visibilitychange`: its pages' timers stop), the state of its node (tip, mempool, peers) is handed the newest once a
+   second while shown and held while hidden (`lib/packs.svelte.ts`), and a hidden one raises a notice at most every 30 s
+   (a busy sidechain's payments made a notice slide in and out every few seconds; the bell has them all).
+
+**The check** (ctest `webui_e2e_hub_cost`, with the sidechains' programs): the hub's state (made once, kept), Home,
+Overview, Transactions, Sidechains, the explorer, Hivemind's Markets and BitAssets' assets idle under 5 %, Home, Overview,
+Transactions and Hivemind's Markets live under 25 %, drawn as WSLg draws.
+
+### 21.4 The block explorer: a strip of blocks for each chain
+
+User: "I'd like to depict the block representation of all active sidechains on the block explorer main page rather than
+the latest blocks table. The 3D representation is nice. Then when we click on any block its description would open
+below."
+
+```
+Block explorer      [ height, block hash, transaction id or address, on every chain ]  [Search]
+┌ Blocks of each chain ──────── Newest first. Click a block to see it below. ─────────────────────┐
+│ ● Chains   8 279   ┊8 280┊ ▣8 279 ▣8 278 ▣8 277 …   (a box: height, transactions, the sidechains │
+│ ● Layers   7 863   ┊7 864┊ ▣7 863 ▣7 862 …           it merged mined by their marks, how long ago) │
+│ ● BitAssets …                                                                                    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ ● Chains  Block 8 279                       [‹] [›] [⧉ hash] [Open in its explorer] [✕] ┐
+│ its facts · its transactions · its coinbase and drivechain messages (as its page in Chains' explorer) │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **All chains**: one strip per chain the selector shows (Chains first, then each sidechain on), its newest 24 blocks
+  newest at the left, after an outline of the block being made with what waits for it (a click: that chain's waiting
+  transactions). The boxes are the explorer's ribbon's (§19, `BlockBox`), smaller (`StripBox`): a lid in the chain's
+  colour and a side, two skewed faces, still. A box of Chains shows the sidechains it merged mined by their marks.
+- **A box clicked opens its block under the strips**, in a panel of its own: a block of Chains as its page in Chains'
+  explorer says it (`ChainsBlockDetail`: its facts, transactions, coinbase and drivechain messages, `BlockActivity`), a
+  sidechain's facts and transactions from its node (`SideBlockDetail`, the host's new `chain.block`: what a page shows,
+  checked; its peg and the block of Chains that merged mined it in its own explorer, a click away — embedding that
+  explorer showed its lists first and the block below them); the panel's arrows and ← → go to
+  the block at the left (newer) or right (older), as in the strip, Escape closes it; the hash can be copied; *Open in its
+  explorer* goes to that block's page. The tables of the newest blocks and of the waiting transactions are gone from the
+  page.
+- **One chain**: that chain's explorer as before — its strip (the larger ribbon) on top — and now the block a box opens
+  is said *under* the strip (Chains' explorer kept the strip only over its lists); a sidechain's own explorer has its own
+  strip. Its table of blocks stays there, the way through a chain's whole history.
+- **Light**: a strip is read in parts (`lib/strips.svelte.ts`): Chains at its tip (taken at most once a second) for the
+  new blocks only (`explorer.blocks` with summaries, from the strip's head), a sidechain every 8 s for its newest three
+  (`chain.activity` now takes a `count`, 1 to 30), more only when it went further; a box keeps its place (keyed by its
+  hash), so a new block is one box more at the head; the ages follow every 30 s. The faces are still (no animation); in
+  reduced effects (software GL) the boxes keep their faces, which cost nothing once painted (§21.3: painted without GL).
+
+### 21.5 Transactions: the app's own page over every chain
+
+User: "I don't like the combined view. I'd use a standard view (of Chains), but include transactions from all coins
+selected and add a column to know which chain it is from — but keep the same search/features as a regular transaction
+page."
+
+- The page is the app's own Transactions page (its windowed table, columns, search, filters of type, dates and amount,
+  sorting, totals and count, CSV, details, the menu of a row) over every chain the selector shows, with one **Chain**
+  column (mark and name) when more than one chain is listed. The combined view (`ChainActivity`) is gone.
+- Search, filters and sorting work on the merged list (the search also matches an amount: "1.5" finds 1.50000000); the
+  CSV has a Chain column first when the rows are not all Chains'. A deposit reads "Deposit into Layers", a merged mining
+  bid "Merged mining bid".
+- A sidechain's row: its details in the app (read from its node, `chain.transaction`), *Open in Layers*, *Show in block
+  explorer*, the copies; fee bumping, abandoning, the raw transaction, the label and the third-party links stay on
+  Chains' rows.
+- At the hub's scale (`lib/alltxs.svelte.ts`): Chains' rows are its wallet's records as kept (§20.8), never made again at
+  a block; a sidechain's history is read once (up to 5 000 rows, `chain.transactions`' most is now 5 000), then its
+  latest 100 every 10 s while shown and seen, merged by transaction (unchanged rows keep their object: their row is not
+  drawn again), whole again every 5 minutes, at a change of wallet or a burst; a block of Chains never reads a
+  sidechain's history again.
+
+### 21.6 Tests
+
+- **Pages** (vitest): Hivemind's group (Markets with Create under it, current with its tab, no Votecoin, Simple),
+  Staking (a tab per chain that stakes beside the title, remembered, one chain alone, a chain that does not stake said,
+  only the shown chain's frame laid in the page), the frames' state held while hidden and handed the newest once a
+  second, a hidden sidechain's notices limited, a value followed at most once a period (`ThrottleHarness`), a text's
+  direction set only when it changes, the strips (`strips.test.ts`: a new block one box more, the others kept, only the
+  new ones read; a block opened under the strips, ← → and Escape; a sidechain's in its own explorer; no table of the
+  newest blocks), the Transactions page over every chain (`transactions-all.test.ts`). Hivemind's own pages (its
+  `hivemind.test.ts`: Markets' Create tab and its sub-tabs, the Voting center's Votecoin tab, one title each), the kit's
+  headless module mode and SafeText (the template's `module-mode.test.ts`, `perf.test.ts`), Layers' and FastBlocks' fee
+  split card.
+- **Host** (`test_chains-app`): `-webuicompositing` (`appconfig_tests` `software_gl_paints_without_compositing`),
+  `chain.activity`'s count and `chain.transactions`' 5 000 (`chainadapter_tests`).
+- **End to end**: `run_integrated.py` with FastBlocks too (the Staking tabs, FastBlocks' and Layers' own pages, Simple
+  and Light; Hivemind's group, Markets' Create, the Voting center and its Votecoin tab, Light and Simple; the explorer's
+  strips, a block of Chains and one of Layers opened under them, ← →, Simple and Light, Chains alone with its block under
+  its strip; the Transactions page with its Chain column, a search across chains, a sidechain's row's details);
+  `run_startup.py`; `run_showcase.py --scale hub` (the numbers of §21.3 and the pictures at the hub's scale).
+
+### 21.7 Before → after
+
+Pictures in `media/unified-app/ux3/`: `e2e/` the end-to-end run (Hivemind's group and pages, Staking, the explorer's
+strips, Transactions), `pages/` the hub-sized state pictured (Advanced and Simple, Midnight and Light), `perf/` the
+numbers and their chart.
+
+| Seen in §20 | Now |
+|---|---|
+| On the hub, WebKit at 117–213 % of a core after the start; a page of BitAssets 261 %, the explorer 140 % with the network alive | Every page under 5 % idle and under 15 % with the network alive, at the hub's sizes and window (§21.3) |
+| Hivemind's group: Markets, Portfolio, Voting center, Decisions, Create, Votecoin, Payouts | Markets with Create under it (its tab), Portfolio, Voting center (Votecoin its tab, the wallet's voting power above both), Decisions, Payouts |
+| Staking: summaries of every chain, the bond, unbond and staking switch behind "Bond, unbond, turn on…" | The chain's whole staking page under the title, a tab beside it for each chain that stakes |
+| The explorer's main page: a table of the newest blocks of every chain and one of the waiting transactions | A strip of boxes for each chain, a block opening under the strips |
+| Transactions with every chain: a separate list of 500 rows, no search, no filters | The app's own Transactions page over every chain, a Chain column, its search, filters, sorting, CSV and details |

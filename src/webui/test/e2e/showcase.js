@@ -142,6 +142,8 @@
     if (Date.now() / 1000 - tipTime > 1800) {
       await rpc('generatetoaddress', [1, await rpc('getnewaddress', [], 'demo')]);
       await waitFor('up to date', () => T().node.tip && !T().node.tip.ibd, 60000).catch(() => undefined);
+      // The sidechains too (their own pages say they catch up when their newest block is hours old): a block each.
+      if (S.matrix && S.matrix.length) for (const stem of SIDE) await bmm(stem, 1).catch(() => undefined);
       await sleep(2000);
     }
     T().savePrefs({ theme: 'midnight', layout: 'dashboard', chain: 'all' });
@@ -338,7 +340,8 @@
     const size = S.maximize ? 'wide' : '1180';
     for (const entry of S.matrix) {
       const [mode, look] = entry.split(':');
-      T().savePrefs({ uiMode: mode, theme: look, layout: 'dashboard', sidebarAllPages: false });
+      // At the text's own size (the hub's larger text is for its measures).
+      T().savePrefs({ uiMode: mode, theme: look, layout: 'dashboard', sidebarAllPages: false, fontAdjust: 0 });
       const tag = `${mode}-${look}-${size}`;
       await sleep(800);
       const pages = [
