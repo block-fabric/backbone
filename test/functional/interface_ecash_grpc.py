@@ -468,9 +468,26 @@ class EcashGrpcTest(BitcoinTestFramework):
         assert_equal((code, message), (INVALID_ARGUMENT, 'Missing field in message `cusf.mainchain.v1.GetBlockInfoRequest`: `block_hash`'))
         code, message, _ = self.grpc.call(V + 'GetBlockInfo', {'block_hash': {}, 'sidechain_id': u32(SLOT)})
         assert_equal((code, message), (INVALID_ARGUMENT, 'Missing field in message `cusf.common.v1.ReverseHex`: `hex`'))
-        code, message, _ = self.grpc.call(V + 'GetBlockInfo', {'block_hash': rh('zz'), 'sidechain_id': u32(SLOT)})
-        assert_equal(code, INVALID_ARGUMENT)
-        assert message.startswith('Invalid field value in field `block_hash` of message `cusf.mainchain.v1.GetBlockInfoRequest`: `zz`')
+        # The cause as the Rust crates word it (the texts the enforcer 17eb2ce gave on the lab server, 2026-10-21):
+        # ReverseHex and Hex through the hex crate, ConsensusHex through rust-bitcoin's lazy deserialize_hex.
+        prefix = 'Invalid field value in field `{}` of message `{}`: `{}`: '
+        for value, cause in (('zz', "Invalid character 'z' at position 0"), ('0z', "Invalid character 'z' at position 1"),
+                             ('\t0', "Invalid character '\\t' at position 0"), ('0\x7f', "Invalid character '\\u{7f}' at position 1"), ('\u00e9', "Invalid character '\u00c3' at position 0"),
+                             ('0', 'Odd number of digits'), ('00' * 31, 'IO error: I/O Error: UnexpectedEof'),
+                             ('00' * 33, 'parse failed: data not consumed entirely when explicitly deserializing')):
+            code, message, _ = self.grpc.call(V + 'GetBlockInfo', {'block_hash': rh(value), 'sidechain_id': u32(SLOT)})
+            assert_equal((code, message), (INVALID_ARGUMENT, prefix.format('block_hash', 'cusf.mainchain.v1.GetBlockInfoRequest', value) + cause))
+        for value, cause in (('', 'decoding error: invalid consensus encoding: IO error: I/O Error: UnexpectedEof'),
+                             ('000', 'odd length, failed to create bytes from hex: odd hex string length 3'),
+                             ('zz', 'decoding error: other decoding error: InvalidCharError { invalid: 122 }'),
+                             ('00' * 33, 'decoding error: attempted to decode object from an iterator that yielded too many bytes')):
+            code, message, _ = self.grpc.call('cusf.crypto.v1.CryptoService/Secp256k1SecretKeyToPublicKey', {'secret_key': rh(value)})
+            assert_equal((code, message), (INVALID_ARGUMENT, prefix.format('secret_key', 'cusf.crypto.v1.Secp256k1SecretKeyToPublicKeyRequest', value) + cause))
+        # A Vec<u8>: its compact size first (non-minimal: refused), then the bytes.
+        for value, cause in (('fd0000', 'decoding error: invalid consensus encoding: non-minimal varint'),
+                             ('00' * 32, 'decoding error: attempted to decode object from an iterator that yielded too many bytes')):
+            code, message, _ = self.grpc.call(V + 'GetCoinbasePSBT', {'propose_sidechains': [{'sidechain_number': u32(1), 'data': rh(value)}]})
+            assert_equal((code, message), (INVALID_ARGUMENT, prefix.format('data', 'cusf.mainchain.v1.GetCoinbasePSBTRequest.ProposeSidechain', value) + cause))
         code, message, _ = self.grpc.call(V + 'GetBlockInfo', {'block_hash': rh('00' * 32), 'sidechain_id': u32(256)})
         assert_equal(code, INVALID_ARGUMENT)
         assert message.startswith('Invalid field value in field `sidechain_id` of message `cusf.mainchain.v1.GetBlockInfoRequest`: `256`')
