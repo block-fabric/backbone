@@ -186,6 +186,8 @@ public:
             uint32_t fork_bits{0};
             uint32_t replay_locktime{499'999'998};
             std::set<uint256> repurpose_txids{};
+            //! -testecashmagic: the message start and port of eCash's client on regtest, to peer with it.
+            bool ecash_magic{false};
         };
         std::optional<EcashOptions> ecash{};
     };

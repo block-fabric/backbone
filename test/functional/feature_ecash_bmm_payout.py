@@ -13,7 +13,8 @@ anything, which was the M6 the sidechain node had sent, before the merged miner'
 from decimal import Decimal
 
 from test_framework.address import address_to_scriptpubkey
-from test_framework.messages import COIN, CTransaction, CTxOut
+from test_framework.messages import COIN, MAGIC_BYTES, CTransaction, CTxOut
+from test_framework.p2p import P2PInterface
 from test_framework.script import CScript, OP_RETURN
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
@@ -32,7 +33,8 @@ class EcashBmmPayoutTest(BitcoinTestFramework):
         self.wallet_names = ["w"]
 
     def setup_network(self):
-        self.extra_args = [["-fallbackfee=0.0002"] + ([] if self.options.chains_rules else ["-testecash"])]
+        # -testecashmagic: eCash's regtest message start, as the test's own P2P connection checks.
+        self.extra_args = [["-fallbackfee=0.0002"] + ([] if self.options.chains_rules else ["-testecash", "-testecashmagic"])]
         self.setup_nodes()
 
     def skip_test_if_missing_module(self):
@@ -54,6 +56,11 @@ class EcashBmmPayoutTest(BitcoinTestFramework):
 
     def run_test(self):
         node = self.node = self.nodes[0]
+        if not self.options.chains_rules:
+            self.log.info("-testecashmagic: a P2P connection with eCash's regtest message start (eca5b134)")
+            assert_equal(MAGIC_BYTES[node.p2p_net], bytes.fromhex("eca5b134"))
+            node.add_p2p_connection(P2PInterface()).sync_with_ping()
+            node.disconnect_p2ps()
         self.address = node.getnewaddress()
         self.mine(110)
 

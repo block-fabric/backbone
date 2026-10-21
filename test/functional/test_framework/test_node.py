@@ -259,6 +259,8 @@ class TestNode():
             extra_args.append(f"-bind=127.0.0.1:{tor_port(self.index)}=onion")
 
         self.use_v2transport = "-v2transport=1" in extra_args or (self.default_to_v2 and "-v2transport=0" not in extra_args)
+        # -testecashmagic: eCash's regtest message start (the P2P connections of the test use it).
+        self.p2p_net = "regtest-ecash" if self.chain == "regtest" and any(e in ("-testecashmagic", "-testecashmagic=1") for e in extra_args) else self.chain
 
         # Add a new stdout and stderr file each time bitcoind is started
         if stderr is None:
@@ -733,7 +735,7 @@ class TestNode():
         if self.use_v2transport:
             kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V2
         supports_v2_p2p = self.use_v2transport and supports_v2_p2p
-        p2p_conn.peer_connect(**kwargs, send_version=send_version, net=self.chain, timeout_factor=self.timeout_factor, supports_v2_p2p=supports_v2_p2p)()
+        p2p_conn.peer_connect(**kwargs, send_version=send_version, net=getattr(self, 'p2p_net', self.chain), timeout_factor=self.timeout_factor, supports_v2_p2p=supports_v2_p2p)()
 
         self.p2ps.append(p2p_conn)
         if not expect_success:
@@ -810,7 +812,7 @@ class TestNode():
         reconnect = advertise_v2_p2p and not supports_v2_p2p
         # P2PConnection needs to be advertised to support v2 P2P so that ellswift bytes are sent instead of msg_version
         supports_v2_p2p = supports_v2_p2p and advertise_v2_p2p
-        p2p_conn.peer_accept_connection(connect_cb=addconnection_callback, connect_id=p2p_idx + 1, net=self.chain, timeout_factor=self.timeout_factor, supports_v2_p2p=supports_v2_p2p, reconnect=reconnect, **kwargs)()
+        p2p_conn.peer_accept_connection(connect_cb=addconnection_callback, connect_id=p2p_idx + 1, net=getattr(self, 'p2p_net', self.chain), timeout_factor=self.timeout_factor, supports_v2_p2p=supports_v2_p2p, reconnect=reconnect, **kwargs)()
 
         if reconnect:
             p2p_conn.wait_for_reconnect()

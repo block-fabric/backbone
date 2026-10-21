@@ -926,6 +926,13 @@ public:
         pchMessageStart[2] = 0xc1;
         pchMessageStart[3] = 0xda;
         nDefaultPort = 29555;
+        if (opts.ecash && opts.ecash->ecash_magic) {
+            // eCash's client on regtest (ecash-com/bitcoin, "Use custom network magic and default ports"): its
+            // message start and port, so that a regtest node of each can peer (and read each other's block files).
+            // Not the default: -testecash alone shares regtest's with Bitcoin's rules (feature_ecash_fork.py).
+            pchMessageStart = {0xec, 0xa5, 0xb1, 0x34};
+            nDefaultPort = 18644;
+        }
         nPruneAfterHeight = opts.fastprune ? 100 : 1000;
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;
