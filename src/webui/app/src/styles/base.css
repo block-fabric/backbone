@@ -486,6 +486,55 @@ input[type='radio'] {
   color: var(--negative);
 }
 
+/* A table of rows inside a panel (doc/unified-app.md §20.3: no box in a box): lines between the rows, the header in
+   small muted words, numbers at the right; the first and last cells flush with the panel's text. */
+table.rows {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+table.rows th {
+  padding: 0 0.6rem 0.45rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+table.rows td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.rows tbody tr:last-child td {
+  border-bottom: 0;
+}
+table.rows th:first-child,
+table.rows td:first-child {
+  padding-left: 0.2rem;
+}
+table.rows th:last-child,
+table.rows td:last-child {
+  padding-right: 0.2rem;
+}
+table.rows .end {
+  text-align: right;
+}
+table.rows tr.clickable {
+  cursor: pointer;
+}
+table.rows tr.clickable:hover td {
+  background: var(--raised);
+}
+
+/* " · " between two facts of a line: written <span class="dot-sep">{' · '}</span>, its spaces in an expression, which
+   Svelte keeps (it drops plain spaces at the edge of an {#if} block: "main· own backup", doc/unified-app.md §20.3). */
+.dot-sep {
+  color: var(--text-faint);
+  white-space: pre;
+}
+
 kbd {
   font-family: var(--font-mono);
   font-size: 0.8em;
@@ -494,6 +543,22 @@ kbd {
   border-bottom-width: 2px;
   border-radius: 4px;
   color: var(--text-muted);
+}
+
+/* Drawn by the processor (software GL, as under WSLg): every frame is painted on every core, so nothing moves by itself
+   and the large soft shadows go (doc/unified-app.md §20.6). The look is the same otherwise. */
+.reduced-effects *,
+.reduced-effects *::before,
+.reduced-effects *::after {
+  animation: none !important;
+  transition: none !important;
+}
+.reduced-effects .panel {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 10%) !important;
+}
+.reduced-effects .btn.primary,
+.reduced-effects .btn.cta {
+  box-shadow: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

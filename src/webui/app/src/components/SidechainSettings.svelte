@@ -10,7 +10,9 @@
   import FirstRunWizard from './FirstRunWizard.svelte';
   import { confirm, errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
-  import { toast } from '../lib/state.svelte';
+  import { prefs, savePrefs, toast } from '../lib/state.svelte';
+  import { simpleMode } from '../lib/uimode.svelte';
+  import { chainColor } from '../lib/chaincolors';
   import { hub, refreshSidechains, selectChain, sidechainHost, watchSidechains } from '../lib/sidechains.svelte';
   import { describeState, resources, type SidechainEntry } from '../lib/unified';
 
@@ -117,7 +119,7 @@
     <section class="panel card" data-stem={e.stem} class:on={e.enabled}>
       <div class="panel-body">
         <div class="top">
-          <span class="mark" aria-hidden="true"><SafeText text={e.name.slice(0, 1)} /></span>
+          <span class="mark" aria-hidden="true" style:background={e.enabled ? chainColor(e.stem) : undefined}><SafeText text={e.name.slice(0, 1)} /></span>
           <div class="grow">
             <h3><SafeText text={e.name} /></h3>
             <p class="muted desc">{t(e.description)}</p>
@@ -136,7 +138,7 @@
         {#if !e.program}<p class="hint small"><Icon name="info" size={14} /> Its program ({e.stem}d) is not on this computer yet: turning it on downloads it from its releases.</p>{/if}
         {#if e.enabled || e.program}
           <details class="program-box" open={!!downloads.updates[e.stem]} data-program-box={e.stem} ontoggle={(ev) => (programOpen[e.stem] = (ev.currentTarget as HTMLDetailsElement).open)}>
-            <summary>{t('Its program and its updates')}{#if downloads.updates[e.stem]} <span class="badge accent">{t('Update available')}</span>{/if}</summary>
+            <summary>{t('Its program and its updates')}{#if downloads.updates[e.stem]}{' '}<span class="badge accent">{t('Update available')}</span>{/if}</summary>
             <!-- Asked of its releases only once opened (they are on GitHub: no request for every card shown). -->
             {#if programOpen[e.stem] || downloads.updates[e.stem]}<ModuleProgram stem={e.stem} name={e.name} mode="settings" />{/if}
           </details>
@@ -158,6 +160,19 @@
   <p class="muted foot">Nothing more runs while every sidechain is off: no extra node, no extra memory.</p>
 {/if}
 
+{#if !simpleMode()}
+  <!-- For debugging (doc/unified-app.md §20.1): each sidechain's whole own navigation under its group of the sidebar. -->
+  <section class="panel sidebar-option">
+    <div class="panel-body">
+      <label class="check">
+        <input id="opt-sidebar-all-pages" type="checkbox" checked={prefs.sidebarAllPages} onchange={(e) => savePrefs({ sidebarAllPages: (e.currentTarget as HTMLInputElement).checked })} />
+        <span>{t('Show every page of each sidechain in the sidebar')}</span>
+      </label>
+      <p class="hint">{t('Its group then also lists "All its pages": everything its own app has. Useful for testing; off, the sidebar keeps only what is each chain\'s own.')}</p>
+    </div>
+  </section>
+{/if}
+
 {#if hub.wizard?.kind === 'enable'}
   {@const stem = hub.wizard?.stem}
   {@const target = list.find((c) => c.stem === stem)}
@@ -167,6 +182,15 @@
 {/if}
 
 <style>
+  .sidebar-option {
+    margin-top: 0.9rem;
+  }
+  .sidebar-option .panel-body {
+    padding-top: 1rem;
+  }
+  .sidebar-option .hint {
+    margin: 0.35rem 0 0 1.6rem;
+  }
   .program-box {
     margin: 0.4rem 0;
     padding: 0.5rem 0.7rem;
@@ -230,9 +254,9 @@
     background: var(--raised);
     font-weight: 800;
   }
+  /* On: its colour, as its mark everywhere else (lib/chaincolors.ts). */
   .card.on .mark {
-    background: var(--accent);
-    color: var(--on-accent);
+    color: #fff;
   }
   .facts,
   .where {

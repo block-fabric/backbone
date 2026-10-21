@@ -1,5 +1,7 @@
 <script lang="ts">
   import ChainWallets from '../components/ChainWallets.svelte';
+  import ChainBadge from '../components/ChainBadge.svelte';
+  import { productName } from '../lib/modules.svelte';
   import { ALL, chainEntries, HOST, viewFilter } from '../lib/chains.svelte';
   // Every chain's wallets (doc/unified-app.md §18): this app's own, then each sidechain's, with a filter of chains.
   const walletChains = $derived(chainEntries());
@@ -429,6 +431,7 @@
 
 
   {#if walletFilter === ALL || walletFilter === HOST}
+  {#if walletChains.length > 1}<h2 class="chain-head"><ChainBadge id={HOST} name={productName()} /></h2>{/if}
   <div class="grid">
     <section class="panel current" aria-labelledby="current-title">
       <div class="panel-head">
@@ -493,10 +496,7 @@
     <section class="panel dir" aria-labelledby="dir-title">
       <div class="panel-head">
         <h2 id="dir-title">Wallets of this node</h2>
-        <div class="row">
-          <button type="button" class="btn ghost small" onclick={restoreMigrate} title="Restore a legacy wallet file and migrate it">Restore and migrate…</button>
-          <button type="button" class="btn ghost small" onclick={closeAll} disabled={walletState.list.length === 0}>Close all</button>
-        </div>
+        <button type="button" class="btn ghost small" onclick={closeAll} disabled={walletState.list.length === 0}>Close all</button>
       </div>
       <ul class="panel-body list" id="wallet-dir" tabindex="-1" aria-label="Wallets in the data directory">
         {#each dir as w (w.name)}
@@ -520,6 +520,9 @@
           <li class="muted">No wallets available</li>
         {/each}
       </ul>
+      <div class="dir-foot">
+        <button type="button" class="btn ghost small" onclick={restoreMigrate} title="Restore a legacy wallet file and migrate it">Restore and migrate…</button>
+      </div>
     </section>
   </div>
   {/if}
@@ -595,6 +598,11 @@
 </Dialog>
 
 <style>
+  /* With other chains below, this app's own wallets are named as they are. */
+  .chain-head {
+    margin: 0.2rem 0 -0.3rem;
+    font-size: 1rem;
+  }
   .wallets {
     display: flex;
     flex-direction: column;
@@ -710,5 +718,9 @@
     .grid {
       grid-template-columns: minmax(0, 1fr);
     }
+  }
+  /* Rare: under the list, the head keeps its title on one line. */
+  .dir-foot {
+    padding: 0 1.3rem 1rem;
   }
 </style>

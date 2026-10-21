@@ -1,13 +1,15 @@
 <script lang="ts">
-  // The latest blocks of every chain shown (doc/unified-app.md §19: Home, Overview), or their mempools (mode
-  // "mempool": the transactions waiting there): each chain a column of its own rows, its mark and name at the head;
-  // this app's own given by the page (its explorer a click away), a sidechain's from its node (chain.activity).
+  // The latest blocks of the chains shown (doc/unified-app.md §20.2: Home, Overview), or their waiting transactions
+  // (mode "mempool"), as ONE table: the chain, its height (or the transaction), how many transactions (or its size and
+  // fee), how long ago. With several chains each chain's newest come first so that every chain shows, then the rest by
+  // time; a chain's first block says "genesis" (its makers wrote any time in it). A row opens it in the block explorer
+  // on its chain. This app's own given by the page, a sidechain's from its node (chain.activity).
   import { t } from '../lib/i18n.svelte';
   import ChainBadge from './ChainBadge.svelte';
   import ModuleAmount from './ModuleAmount.svelte';
   import SafeText from './SafeText.svelte';
-  import { formatCount, formatTime, niceTimeOffset, shortHash } from '../lib/format';
-  import { chainLabel, HOST } from '../lib/chains.svelte';
+  import { ageText, formatCount, shortHash } from '../lib/format';
+  import { chainLabel, HOST, setSelectedChain } from '../lib/chains.svelte';
   import { many, poll, refreshActivity } from '../lib/manychains.svelte';
   import { productName } from '../lib/modules.svelte';
   import { go } from '../lib/nav.svelte';
@@ -33,133 +35,126 @@
     hostMempool = [],
     hostWaiting = 0,
     now,
-    count = 5,
-  }: { chains: string[]; mode?: 'blocks' | 'mempool'; hostBlocks?: Block[]; hostMempool?: Waiting[]; hostWaiting?: number; now: number; count?: number } = $props();
+    count = 8,
+    perChain = 2,
+  }: { chains: string[]; mode?: 'blocks' | 'mempool'; hostBlocks?: Block[]; hostMempool?: Waiting[]; hostWaiting?: number; now: number; count?: number; perChain?: number } = $props();
 
   const sides = $derived(chains.filter((c) => c !== HOST));
   $effect(() => {
     const list = sides;
-    return poll(() => list.forEach((s) => void refreshActivity(s)), 6000);
+    return poll(() => list.forEach((s) => void refreshActivity(s)), 8000);
   });
+  const several = $derived(chains.length > 1);
+  const nameOf = (id: string) => (id === HOST ? productName() : chainLabel(id));
 
-  const columns = $derived(
-    chains.map((id) => {
-      if (id === HOST) return { id, name: productName(), blocks: hostBlocks.slice(0, count), waiting: hostMempool.slice(0, count), size: hostWaiting, error: '' };
-      const a = many.activity[id];
-      return { id, name: chainLabel(id), blocks: (a?.blocks ?? []).slice(0, count), waiting: (a?.mempool.rows ?? []).slice(0, count), size: a?.mempool.size ?? 0, error: many.errors[`activity:${id}`] ?? '' };
-    }),
+  /** Each chain's newest first (up to perChain of each when several), then the others by time, `count` at most. */
+  function pick<T extends { time: number }>(lists: { chain: string; rows: T[] }[]): { chain: string; row: T }[] {
+    if (!several) return (lists[0]?.rows ?? []).slice(0, count).map((row) => ({ chain: lists[0].chain, row }));
+    const first = lists.flatMap((l) => l.rows.slice(0, perChain).map((row) => ({ chain: l.chain, row })));
+    const rest = lists.flatMap((l) => l.rows.slice(perChain).map((row) => ({ chain: l.chain, row }))).sort((a, b) => b.row.time - a.row.time);
+    return [...first, ...rest].slice(0, Math.max(count, first.length));
+  }
+
+  const blockRows = $derived(
+    pick(chains.map((id) => ({ chain: id, rows: id === HOST ? hostBlocks : (many.activity[id]?.blocks ?? []) }))),
   );
+  const waitingRows = $derived(
+    pick(chains.map((id) => ({ chain: id, rows: id === HOST ? hostMempool : (many.activity[id]?.mempool.rows ?? []) }))).sort((a, b) => b.row.time - a.row.time),
+  );
+  const waitingTotal = $derived(chains.reduce((n, id) => n + (id === HOST ? hostWaiting : (many.activity[id]?.mempool.size ?? 0)), 0));
+  const missing = $derived(sides.filter((s) => !many.activity[s] && many.errors[`activity:${s}`]));
+
+  function openBlock(chain: string, hash: string) {
+    setSelectedChain(chain);
+    go('explorer', chain === HOST ? `block:${hash}` : `search:${hash}`);
+  }
+  function openTx(chain: string, txid: string) {
+    setSelectedChain(chain);
+    go('explorer', chain === HOST ? `tx:${txid}` : `search:${txid}`);
+  }
 </script>
 
-<div class="columns" data-many-blocks={mode}>
-  {#each columns as c (c.id)}
-    <div class="column" data-chain-column={c.id}>
-      <div class="col-head">
-        <ChainBadge id={c.id} name={c.name} small />
-        {#if mode === 'mempool'}<span class="muted small">{t('%1 waiting', formatCount(c.size))}</span>{:else if c.blocks[0]}<span class="muted small num">{formatCount(c.blocks[0].height)}</span>{/if}
-      </div>
-      {#if c.error && !c.blocks.length}<p class="error small"><SafeText text={c.error} /></p>{/if}
-      <ol>
-        {#if mode === 'blocks'}
-          {#each c.blocks as b (b.hash)}
-            <li>
-              <button type="button" class="row" disabled={c.id !== HOST} title={c.id === HOST ? t('Show block %1 in the block explorer', String(b.height)) : formatTime(b.time)} onclick={() => go('explorer', `search:${b.hash}`)}>
-                <span class="num strong">{formatCount(b.height)}</span>
-                <span class="mono muted hash">{shortHash(b.hash, 5)}</span>
-                <span class="num muted">{b.txs} tx</span>
-                <time class="muted" datetime={new Date(b.time * 1000).toISOString()}>{niceTimeOffset(Math.max(0, now - b.time))}</time>
-              </button>
-            </li>
-          {:else}
-            <li class="muted small empty">{t('Waiting for its node…')}</li>
-          {/each}
-        {:else}
-          {#each c.waiting as w (w.txid)}
-            <li>
-              <button type="button" class="row" disabled={c.id !== HOST} title={c.id === HOST ? t('Show the transaction in the block explorer') : w.txid} onclick={() => go('explorer', `search:${w.txid}`)}>
-                <span class="mono hash">{shortHash(w.txid, 5)}</span>
-                <span class="num muted">{formatCount(w.vsize)} vB</span>
-                <span class="num muted"><ModuleAmount text={w.fee} coins /></span>
-                <time class="muted" datetime={new Date(w.time * 1000).toISOString()}>{niceTimeOffset(Math.max(0, now - w.time))}</time>
-              </button>
-            </li>
-          {:else}
-            <li class="muted small empty">{t('Nothing waiting to be mined.')}</li>
-          {/each}
-        {/if}
-      </ol>
-    </div>
-  {/each}
+<div class="fit">
+<table class="rows chain-rows" data-many-blocks={mode}>
+  {#if mode === 'blocks'}
+    <thead>
+      <tr>{#if several}<th>{t('Chain')}</th>{/if}<th class="end">{t('Height')}</th><th class="end">{t('Transactions')}</th><th class="hash-col">{t('Hash')}</th><th class="end">{t('Age')}</th></tr>
+    </thead>
+    <tbody>
+      {#each blockRows as { chain, row: b } (chain + b.hash)}
+        <tr class="clickable" onclick={() => openBlock(chain, b.hash)} title={t('Open block %1 in the block explorer', String(b.height))} data-block-row={chain}>
+          {#if several}<td><ChainBadge id={chain} name={nameOf(chain)} small /></td>{/if}
+          <td class="end num strong"><button type="button" class="link" onclick={(e) => { e.stopPropagation(); openBlock(chain, b.hash); }}>{formatCount(b.height)}</button></td>
+          <td class="end num">{formatCount(b.txs)}</td>
+          <td class="mono hash-col faint" translate="no">{shortHash(b.hash, 6)}</td>
+          <td class="end muted">{ageText(b.time, now, b.height)}</td>
+        </tr>
+      {:else}
+        <tr><td colspan="5" class="muted">{t('Waiting for the nodes…')}</td></tr>
+      {/each}
+    </tbody>
+  {:else}
+    <thead>
+      <tr>{#if several}<th>{t('Chain')}</th>{/if}<th>{t('Transaction')}</th><th class="end">{t('Size')}</th><th class="end">{t('Fee')}</th><th class="end">{t('Waiting for')}</th></tr>
+    </thead>
+    <tbody>
+      {#each waitingRows as { chain, row: w } (chain + w.txid)}
+        <tr class="clickable" onclick={() => openTx(chain, w.txid)} title={t('Open the transaction in the block explorer')} data-waiting-row={chain}>
+          {#if several}<td><ChainBadge id={chain} name={nameOf(chain)} small /></td>{/if}
+          <td class="mono" translate="no"><button type="button" class="link mono" onclick={(e) => { e.stopPropagation(); openTx(chain, w.txid); }}>{shortHash(w.txid, 8)}</button></td>
+          <td class="end num">{formatCount(w.vsize)} vB</td>
+          <td class="end"><ModuleAmount text={w.fee} coins /></td>
+          <td class="end muted">{ageText(w.time, now)}</td>
+        </tr>
+      {:else}
+        <tr><td colspan="5" class="muted">{several ? t('Nothing is waiting to be mined on any chain.') : t('Nothing is waiting to be mined.')}</td></tr>
+      {/each}
+    </tbody>
+  {/if}
+</table>
 </div>
+{#if mode === 'mempool' && waitingTotal > waitingRows.length}<p class="faint small more">{t('%1 waiting in all', formatCount(waitingTotal))}</p>{/if}
+{#each missing as s (s)}<p class="error small"><SafeText text={`${chainLabel(s)}: ${many.errors[`activity:${s}`]}`} /></p>{/each}
 
 <style>
-  .columns {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-    gap: 0.9rem;
-  }
-  .column {
+  /* The table follows the room its panel has: the least useful columns go first (doc/unified-app.md §20.3). */
+  .fit {
+    container-type: inline-size;
     min-width: 0;
   }
-  .col-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding-bottom: 0.35rem;
-    border-bottom: 1px solid var(--line);
-  }
-  ol {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  li {
-    border-bottom: 1px solid var(--line);
-  }
-  li:last-child {
-    border-bottom: 0;
-  }
-  .row {
-    display: grid;
-    grid-template-columns: 4.2rem minmax(0, 1fr) auto auto;
-    gap: 0.5rem;
-    align-items: center;
+  .chain-rows {
     width: 100%;
-    padding: 0.4rem 0.15rem;
-    border: 0;
-    background: none;
-    color: inherit;
-    font: inherit;
-    font-size: 0.88rem;
-    text-align: left;
-    cursor: pointer;
   }
-  .row:disabled {
-    cursor: default;
-  }
-  .row:hover:not(:disabled) {
-    background: var(--raised);
-  }
-  [data-many-blocks='mempool'] .row {
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
-  }
-  .hash {
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .chain-rows td,
+  .chain-rows th {
     white-space: nowrap;
   }
   .strong {
     font-weight: 650;
   }
-  time {
-    text-align: right;
-    font-size: 0.82rem;
+  .hash-col {
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .small {
-    font-size: 0.82rem;
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
   }
-  .empty {
-    padding: 0.5rem 0;
+  .link:hover {
+    color: var(--link);
+    text-decoration: underline;
+  }
+  .more {
+    margin: 0.4rem 0 0;
+  }
+  @container (max-width: 30rem) {
+    .hash-col {
+      display: none;
+    }
   }
 </style>

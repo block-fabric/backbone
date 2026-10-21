@@ -8,6 +8,7 @@
   import { formatTime } from '../lib/format';
   import { prefs } from '../lib/state.svelte';
   import { formatAmount, unitInfo } from '../lib/units';
+  import { decimate } from '../lib/chartdata';
 
   let {
     points,
@@ -43,7 +44,12 @@
     }
     return [{ time: from, balance: before.balance }, ...after];
   });
-  const data = $derived(shown.length ? [...shown, { time: Math.max(now, shown[shown.length - 1].time), balance: shown[shown.length - 1].balance }] : []);
+  // Never more points than the chart has pixels (lib/chartdata.ts).
+  const data = $derived.by(() => {
+    if (!shown.length) return [];
+    const end = { time: Math.max(now, shown[shown.length - 1].time), balance: shown[shown.length - 1].balance };
+    return [...decimate(shown, shown[0].time, end.time, Math.max(60, width - 20)), end];
+  });
   const t0 = $derived(data.length ? data[0].time : 0);
   const t1 = $derived(data.length ? Math.max(data[data.length - 1].time, t0 + 1) : 1);
   const maxB = $derived(data.reduce((m, p) => (p.balance > m ? p.balance : m), 1n));

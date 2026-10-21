@@ -106,6 +106,8 @@ beforeAll(() => {
 beforeEach(async () => {
   prefs.chain = 'all';
   prefs.chainGroupsFolded = [];
+  prefs.sidebarAllPages = false;
+  modules.opened = {};
   app.phase = 'ready';
   hub.list = null;
   hub.selected = 'chains';
@@ -249,6 +251,8 @@ describe('what a module\'s frame says is checked', () => {
 describe('one shell: the module switcher and the sidebar', () => {
   it('a chain\'s own pages open from its group of the sidebar, listed under it; and back', async () => {
     say('manifest', MANIFEST);
+    // Every page of a chain under its group: only with Settings → Sidechains (debugging, doc/unified-app.md §20.1).
+    prefs.sidebarAllPages = true;
     render(Sidebar);
     await waitFor(() => expect(document.querySelector('[data-chain-group="layers"]')).toBeTruthy());
     // No separate switcher: the chain's group is the way in (doc/unified-app.md §19).
@@ -389,8 +393,10 @@ describe('back and forward are the app\'s', () => {
   it('puts the modules and their pages in the palette, named after them', () => {
     say('manifest', MANIFEST);
     const cmds = buildCommands();
-    const trade = cmds.find((c) => c.id === 'module.layers.trade')!;
+    // Trade is one of Layers' own pages (its group's): once in the palette, as its group has it.
+    const trade = cmds.find((c) => c.id === 'chain.layers.trade')!;
     expect(trade.arg).toBe('Layers: Trade');
+    expect(cmds.some((c) => c.id === 'module.layers.trade')).toBe(false);
     trade.run();
     expect(activeModule()).toBe('layers');
     expect(cmds.some((c) => c.id === 'module.layers.cmd.ba.swap')).toBe(true);

@@ -30,8 +30,10 @@
     if (a === 'N') return t('No');
     return a ? a.split('').join(' · ') : t('Outcome %1', String(p.state));
   }
+  // The chain's own Portfolio (its group's item), else its Markets.
   function openMarkets(e: ChainEntry) {
-    const item = chainGroupItems(e).find((i) => i.id === 'positions');
+    const items = chainGroupItems(e);
+    const item = items.find((i) => i.id === 'portfolio') ?? items.find((i) => i.id === 'markets');
     if (item) openChainItem(e.id, item);
   }
 </script>
@@ -59,7 +61,7 @@
         {#each rows.slice(0, card ? 5 : 200) as { e, p } (e.id + p.market + p.state + p.account)}
           <tr data-position={p.market}>
             {#if chains.length > 1}<td><ChainBadge id={e.id} name={e.name} small /></td>{/if}
-            <td class="market"><SafeText text={p.text || `${p.market.slice(0, 12)}…`} />{#if p.status && p.status !== 'trading'} <span class="badge"><SafeText text={p.status} /></span>{/if}</td>
+            <td class="market"><SafeText text={p.text || `${p.market.slice(0, 12)}…`} />{#if p.status && p.status !== 'trading'}{' '}<span class="badge"><SafeText text={p.status} /></span>{/if}</td>
             <td><span class="badge accent">{outcome(p)}</span></td>
             <td class="num"><ModuleAmount text={p.shares} /></td>
             <td class="num"><ModuleAmount text={p.price ?? null} /></td>

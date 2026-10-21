@@ -93,6 +93,12 @@ export const modules = $state({
    */
   embed: null as null | { stem: string; page: string; tab: string },
   embedRect: null as null | EmbedRect,
+  /**
+   * The modules whose pages were shown in this run (doc/unified-app.md §20.6): only those have a frame. A frame is a
+   * whole app of its own (its scripts, its fonts, its own polling of its node): made when first needed, then kept
+   * (switching back is instant), never all of them at the start.
+   */
+  opened: {} as Record<string, true>,
 });
 
 /** Where a module's frame is laid inside an app's page: its box, and how much of it the page's area cuts at its top and bottom. */
@@ -143,7 +149,8 @@ export function frameShown(): boolean {
 
 const STEM = /^[a-z0-9]{1,32}$/;
 const PAGE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const TAB = /^[a-z0-9/_-]{0,60}$/;
+// A tab of a module's page, or a search handed to its explorer (a height, a hash, an address: letters, digits, "_").
+const TAB = /^(?:[a-z0-9/_-]{0,60}|search:[A-Za-z0-9_]{1,120})$/;
 /** An SVG path: commands and numbers only (it is put in a d attribute, nothing else). */
 const PATH = /^[MmLlHhVvCcSsQqTtAaZz0-9 .,eE+-]{0,2000}$/;
 /** Text of a frame: a bounded line, no control or format characters (bidi marks that turn text around). */

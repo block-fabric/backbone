@@ -427,7 +427,7 @@
   {/if}
 
   {#if sendChain === null}
-    <p class="muted wait" data-send-wait>{t('The form for the chain you pick: its addresses, its assets, its checks.')}</p>
+    <p class="muted wait" data-send-wait>{t('Pick a chain above to send on it.')}</p>
   {:else if sendChain !== HOST && sendOn}
     {#key sendChain}<SidechainSend stem={sendOn.id} name={sendOn.name} />{/key}
   {:else}

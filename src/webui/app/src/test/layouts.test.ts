@@ -528,7 +528,7 @@ describe('the layouts', () => {
       expect(chainBeforeTools(pages, (p) => p), name).toBeNull();
     }
     // Home: Send and Receive first, then the chain, then the tools.
-    expect(HOME_QUICK_ACTIONS.map((q) => q.label)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine']);
+    expect(HOME_QUICK_ACTIONS.map((q) => q.label)).toEqual(['Send', 'Receive', 'Move coins', 'Block explorer', 'Mine']);
   });
 
   it('dashboard: the quick actions of Home in that order, as shown', () => {
@@ -538,7 +538,7 @@ describe('the layouts', () => {
     const row = screen.getByRole('navigation', { name: 'Quick actions' });
     const labels = within(row).getAllByRole('button').map((b) => b.textContent?.trim() ?? '');
     // No Sign message nor Load PSBT (user decision); "All actions" stays.
-    expect(labels.slice(0, 5)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine']);
+    expect(labels.slice(0, 5)).toEqual(['Send', 'Receive', 'Move coins', 'Block explorer', 'Mine']);
     expect(labels.some((l) => /Sign message|Load PSBT/.test(l))).toBe(false);
     expect(within(row).getByRole('button', { name: /All actions/ })).toBeTruthy();
     expect(chainBeforeTools(labels.slice(0, 5), (l) => HOME_QUICK_ACTIONS.find((q) => q.label === l)?.page)).toBeNull();

@@ -17,6 +17,19 @@ export function niceTimeOffset(secs: number): string {
   return t('%1 and %2', tn('%n year(s)', Math.floor(s / YEAR)), tn('%n week(s)', Math.floor((s % YEAR) / WEEK)));
 }
 
+/**
+ * When something happened, as a list says it (doc/unified-app.md §20.3): "just now", "3 minutes ago" within two days,
+ * else its date; a chain's first block (height 0) is "genesis", whatever time its makers wrote in it.
+ */
+export function ageText(time: number, now: number, height?: number): string {
+  if (height === 0) return t('genesis');
+  if (!time) return '–';
+  const secs = now - time;
+  if (secs < 10) return t('just now');
+  if (secs < 2 * 86400) return t('%1 ago', niceTimeOffset(secs));
+  return formatTime(time);
+}
+
 /** A duration, short: "3 d 4 h", "5 m 2 s" (GUIUtil::formatDurationStr). */
 export function shortDuration(secs: number): string {
   let s = Math.max(0, Math.floor(secs));

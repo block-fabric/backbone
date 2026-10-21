@@ -11,9 +11,9 @@ import { app, prefs, wallets } from '../lib/state.svelte';
 import { packs } from '../lib/packs.svelte';
 import { buildCommands, moduleCommands, pageAvailable } from '../lib/commands.svelte';
 import { handleShortcut } from '../lib/keyboard';
-import { modules } from '../lib/modules.svelte';
+import { moduleRoute, modules } from '../lib/modules.svelte';
 import { ALL, chainEntries, chainLink, chainState, cycleChain, HOST, loadCapabilities, selectedChain, selectedWith, setSelectedChain } from '../lib/chains.svelte';
-import { aggregateItems, chainGroupItems } from '../lib/chaingroups';
+import { chainGroupItems } from '../lib/chaingroups';
 import { chainBalanceHistory, forgetAsked, many, positionValue } from '../lib/manychains.svelte';
 import { chainColor } from '../lib/chaincolors';
 import GlobalChainSelector from '../components/GlobalChainSelector.svelte';
@@ -144,22 +144,23 @@ describe('one chain selector for every page', () => {
     expect(selectedChain()).toBe('thunder');
     expect(cycleChain(1)).toBe(ALL);
     const ids = moduleCommands().map((c) => c.id);
-    expect(ids).toEqual(expect.arrayContaining(['chain.select.all', 'chain.select.chains', 'chain.select.layers', 'chain.next', 'chain.previous', 'chain.layers.trade', 'chain.layers.staking']));
-    expect(ids).not.toContain('chain.thunder.staking');
+    expect(ids).toEqual(expect.arrayContaining(['chain.select.all', 'chain.select.chains', 'chain.select.layers', 'chain.next', 'chain.previous', 'chain.layers.trade', 'chain.thunder.payments']));
+    expect(ids).not.toContain('chain.layers.staking');
     moduleCommands().find((c) => c.id === 'chain.layers.trade')!.run();
     expect(prefs.chain).toBe('layers');
-    expect(nav.page).toBe('assets');
-    expect(nav.tab).toBe('trade');
+    expect(hub.selected).toBe('layers');
+    expect(moduleRoute('layers').page).toBe('trade');
   });
 });
 
 describe('the sections of a page follow the chain shown', () => {
-  it('a page of what some chains add only while one of them is shown', () => {
+  it('a page of what some chains add only while one of them is shown; Staking while a chain that stakes is on (§20.1)', () => {
     expect(pageAvailable('staking')).toBe(true);
     setSelectedChain('thunder');
-    expect(pageAvailable('staking')).toBe(false);
+    // Staking stays (its page says which chains stake); Assets goes with the selection.
+    expect(pageAvailable('staking')).toBe(true);
     expect(pageAvailable('assets')).toBe(false);
-    expect(buildCommands().some((c) => c.id === 'page.staking')).toBe(false);
+    expect(buildCommands().some((c) => c.id === 'page.assets')).toBe(false);
     setSelectedChain('layers');
     expect(pageAvailable('staking')).toBe(true);
     expect(selectedWith('assets').map((e) => e.id)).toEqual(['layers']);
@@ -173,7 +174,8 @@ describe('the sections of a page follow the chain shown', () => {
     await fireEvent.click(document.querySelector('[data-show-chain="layers"]') as HTMLElement);
     expect(prefs.chain).toBe('layers');
     // 250100000000 base units: 2501 of its coin (as its bonds are), never the raw number.
-    await waitFor(() => expect(document.querySelector('[data-stake-total]')?.textContent).toContain('2501.00000000'));
+    // Its digits in groups of three, as the app writes amounts (a thin space).
+    await waitFor(() => expect(document.querySelector('[data-stake-total]')?.textContent).toContain('2\u2009501.00000000'));
     expect(document.body.textContent).not.toContain('250100000000');
   });
 
@@ -288,9 +290,10 @@ describe('Hivemind\'s open positions on Home', () => {
     expect(row).toContain('0.75000000');
     expect(row).toContain('9.37500000');
     expect(document.querySelectorAll('[data-position]').length).toBe(1);
+    // Its link: Hivemind's own Portfolio (its group's item).
     await fireEvent.click(document.querySelector('[data-open-markets]') as HTMLElement);
-    expect(nav.page).toBe('markets');
-    expect(nav.tab).toBe('positions');
+    expect(hub.selected).toBe('hivemind');
+    expect(moduleRoute('hivemind').page).toBe('portfolio');
     expect(prefs.chain).toBe('hivemind');
   });
 
@@ -307,34 +310,54 @@ describe('Hivemind\'s open positions on Home', () => {
   });
 });
 
-describe('one group per sidechain in the sidebar\'s Chain section', () => {
-  it('each chain\'s own features; an item selects its chain; a group folds, remembered', async () => {
-    hub.list!.chains = [entry('layers'), entry('thunder'), entry('hivemind')];
-    const items = (id: string) => chainGroupItems(chainEntries().find((e) => e.id === id)!).map((i) => i.id);
-    expect(items('layers')).toEqual(['assets', 'trade', 'staking', 'move', 'own']);
-    expect(items('thunder')).toEqual(['move', 'own']);
-    expect(items('hivemind')).toEqual(['markets', 'positions', 'votes', 'move', 'own']);
-    expect(chainGroupItems(chainEntries().find((e) => e.id === 'layers')!, true).map((i) => i.id)).toEqual(['assets', 'trade', 'staking', 'move']);
+describe('one group per sidechain in the sidebar\'s Chain section (§20.1)', () => {
+  it('only each chain\'s own pages (its app\'s Chain section, without Staking); an item opens it on its chain; a group folds', async () => {
+    hub.list!.chains = [entry('layers'), entry('thunder'), entry('hivemind'), entry('fastblocks')];
+    const items = (id: string, simple = false, all = false) => chainGroupItems(chainEntries().find((e) => e.id === id)!, simple, all).map((i) => i.id);
+    expect(items('layers')).toEqual(['assets', 'my-assets', 'trade', 'auctions']);
+    expect(items('thunder')).toEqual(['batchpay', 'payments', 'throughput']);
+    expect(items('hivemind')).toEqual(['markets', 'portfolio', 'voting', 'decisions', 'create', 'votecoin', 'payouts']);
+    expect(items('fastblocks')).toEqual([]);
+    // Simple mode: what the chain's own Simple mode shows; no "All its pages", even when asked.
+    expect(items('layers', true, true)).toEqual(['my-assets', 'trade']);
+    expect(chainGroupItems(chainEntries().find((e) => e.id === 'layers')!, true).map((i) => i.label)).toEqual(['My assets', 'Swap']);
+    // Never a deposit nor Staking: the Sidechains page and the Staking entry have them.
+    for (const id of ['layers', 'thunder', 'hivemind', 'fastblocks']) expect(items(id)).not.toContain('move');
+    expect(items('layers')).not.toContain('staking');
+    // Settings → Sidechains, for debugging: every page of the chain.
+    expect(items('thunder', false, true)).toEqual(['batchpay', 'payments', 'throughput', 'own']);
     render(SidebarChainGroups);
-    await waitFor(() => expect(document.querySelectorAll('[data-chain-group]').length).toBe(3));
-    await fireEvent.click(document.querySelector('[data-chain-item="layers:staking"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelectorAll('[data-chain-group]').length).toBe(4));
+    expect(document.querySelector('[data-chain-item$=":own"]')).toBeNull();
+    await fireEvent.click(document.querySelector('[data-chain-item="layers:trade"]') as HTMLElement);
     expect(prefs.chain).toBe('layers');
-    expect(nav.page).toBe('staking');
-    expect(document.querySelector('[data-chain-item="layers:staking"]')?.getAttribute('aria-current')).toBe('page');
+    expect(hub.selected).toBe('layers');
+    expect(document.querySelector('[data-chain-item="layers:trade"]')?.getAttribute('aria-current')).toBe('page');
     await fireEvent.click(document.querySelector('[data-chain-group-head="thunder"]') as HTMLElement);
     expect(prefs.chainGroupsFolded).toEqual(['thunder']);
-    await waitFor(() => expect(document.querySelector('[data-chain-item="thunder:move"]')).toBeNull());
-    await fireEvent.click(document.querySelector('[data-chain-item="hivemind:votes"]') as HTMLElement);
-    expect(hub.selected).toBe('hivemind');
-    expect(nav.page).toBe('sidechain');
-    expect(prefs.chain).toBe('hivemind');
+    await waitFor(() => expect(document.querySelector('[data-chain-item="thunder:payments"]')).toBeNull());
+    // A chain with nothing of its own: its head alone, which opens its Home.
+    expect(document.querySelector('[data-chain-group="fastblocks"] [data-chain-item]')).toBeNull();
+    await fireEvent.click(document.querySelector('[data-chain-group-head="fastblocks"]') as HTMLElement);
+    expect(hub.selected).toBe('fastblocks');
+    expect(prefs.chain).toBe('fastblocks');
   });
 
-  it('the views over many chains while All is shown: All assets with two chains of assets', () => {
-    hub.list!.chains = [entry('layers'), entry('bitassets')];
-    expect(aggregateItems(chainEntries()).map((a) => a.label)).toEqual(['All assets']);
-    expect(aggregateItems(chainEntries(), 'layers')).toEqual([]);
+  it('the chain\'s own words and icons once its pages said them; only the pages it lists', () => {
     hub.list!.chains = [entry('layers')];
-    expect(aggregateItems(chainEntries())).toEqual([]);
+    modules.manifests.layers = {
+      name: 'Layers',
+      unit: 'CHN',
+      home: 'home',
+      sections: [{ title: 'Chain', pages: ['peg', 'staking', 'trade', 'explorer'] }],
+      pages: [
+        { id: 'trade', title: 'Échanger', icon: 'swap', iconPath: 'M1 1L2 2', section: 'Chain', summary: 's', wallet: false },
+        { id: 'staking', title: 'Staking', icon: 'stake', iconPath: '', section: 'Chain', summary: 's', wallet: false },
+      ],
+      commands: [],
+    };
+    const got = chainGroupItems(chainEntries().find((e) => e.id === 'layers')!);
+    expect(got.map((i) => [i.id, i.label, i.iconPath])).toEqual([['trade', 'Échanger', 'M1 1L2 2']]);
+    delete modules.manifests.layers;
   });
 });

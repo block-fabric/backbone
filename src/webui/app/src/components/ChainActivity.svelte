@@ -9,10 +9,11 @@
   import ChainBadge from './ChainBadge.svelte';
   import Dialog from './Dialog.svelte';
   import TxDetailsView from './TxDetailsView.svelte';
-  import { formatTime } from '../lib/format';
+  import { formatTime, shortHash } from '../lib/format';
+  import { isEmptyRow, whatHappened, whatWords } from '../lib/activity';
   import { hub } from '../lib/sidechains.svelte';
   import { moduleName, openModule, productName } from '../lib/modules.svelte';
-  import { ALL, chainHost, chainWallet, formatUnits, HOST, mergeTxs, sidechainTxs, type ManyChainTx } from '../lib/chains.svelte';
+  import { ALL, chainHost, chainWallet, formatUnits, HOST, mergeTxs, sidechainTxs, slotLabel, type ManyChainTx } from '../lib/chains.svelte';
   import { wallets, node } from '../lib/state.svelte';
   import { current } from '../lib/walletdata.svelte';
   import type { TxDetails } from '../lib/wallet';
@@ -55,10 +56,14 @@
   // The app's own, in the same rows (every chain together).
   const own = $derived<ManyChainTx[]>(
     chain === ALL
-      ? current.records.map((r) => ({ chain: HOST, name: productName(), txid: r.txid, time: r.time, category: r.type, amount: formatUnits(r.amount, 8), address: r.address, label: r.label, confirmations: r.depth, vout: r.idx }))
+      ? current.records.map((r) => ({ chain: HOST, name: productName(), txid: r.txid, time: r.time, category: r.type, amount: formatUnits(r.amount, 8), address: r.address, label: r.label, confirmations: r.depth, vout: r.idx, drivechain: r.drivechain ?? null }))
       : [],
   );
-  const rows = $derived(mergeTxs([own, ...stems.map((s) => lists[s] ?? [])]).slice(0, 500));
+  const rows = $derived(
+    mergeTxs([own, ...stems.map((s) => lists[s] ?? [])])
+      .filter((r) => !isEmptyRow(r, HOST))
+      .slice(0, 500),
+  );
 
   function show(r: ManyChainTx) {
     open = r;
@@ -82,8 +87,8 @@
         <tr data-chain-tx={r.chain} data-txid={r.txid} onclick={() => show(r)} class="tx-row">
           <td><ChainBadge id={r.chain} name={r.name} small /></td>
           <td>{formatTime(r.time)}</td>
-          <td><SafeText text={r.category} /></td>
-          <td class="addr" translate="no"><SafeText text={r.label || r.address || r.txid.slice(0, 16) + '…'} /></td>
+          <td>{whatWords(whatHappened(r, HOST), productName(), r.drivechain?.kind === 'deposit' ? slotLabel(r.drivechain.slot) : '')}</td>
+          <td class="addr" translate="no" title={r.address || r.txid}>{#if r.label}<SafeText text={r.label} />{:else}<span class="mono faint"><SafeText text={shortHash(r.address || r.txid, 8)} /></span>{/if}</td>
           <td class="num amt" class:neg={r.amount.startsWith('-')} translate="no"><ModuleAmount text={r.amount} plus coins /></td>
           <td class="num">{r.confirmations}</td>
         </tr>

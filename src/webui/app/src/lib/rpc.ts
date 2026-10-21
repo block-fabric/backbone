@@ -141,6 +141,8 @@ export interface AppInfo {
   blockSpacing?: number;
   /** The weight a block of this chain and network may have (consensus.max_block_weight). */
   blockWeight?: number;
+  /** Drawn by the processor (software GL): the page leaves out its animations and heavy shadows (doc/unified-app.md §20.6). */
+  softwareRendering?: boolean;
 }
 
 export interface Dialog {

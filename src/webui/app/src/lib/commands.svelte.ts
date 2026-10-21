@@ -13,7 +13,7 @@ import { app, node, prefs, savePrefs, toast, wallets, walletsEnabled } from './s
 import { clampFontAdjust, THEMES } from './themes';
 import { UNITS } from './units';
 import { pageTitleSource, simpleMode, switchModeLabel, toggleUiMode } from './uimode.svelte';
-import { ALL, chainEntries, cycleChain, selectedChain, selectedWith, setSelectedChain } from './chains.svelte';
+import { ALL, chainEntries, chainsWith, cycleChain, selectedChain, selectedWith, setSelectedChain } from './chains.svelte';
 import { chainGroupItems, openChainItem } from './chaingroups';
 
 /** The menus of chains-qt, in their order, then the groups of the app. */
@@ -72,7 +72,10 @@ export function pageAvailable(id: PageId): boolean {
   if (id === 'sidechain') return false;
   // What sidechains add: only while one that has it is turned on (its table, lib/chains.svelte.ts).
   // Within the chain selected in the top bar: Staking goes when Thunder alone is shown.
+  // Staking stays in the navigation while a chain that stakes is on, whatever the selection (its page says which chains
+  // stake when the one selected does not); the others while the selection has one.
   const needs = CHAIN_PAGES[id];
+  if (needs === 'staking') return chainsWith('staking').length > 0;
   if (needs) return selectedWith(needs).length > 0;
   return true;
 }
@@ -249,15 +252,17 @@ export function moduleCommands(): Command[] {
     out.push({ id: `module.${c.stem}`, group: 'Modules', label: 'Switch to %1', arg: c.name, icon: 'modules', run: () => openModule(c.stem), keywords: `module switch ${c.stem}` });
     // What it adds, as its group of the sidebar has it ("Layers: Trade").
     const entry = chainEntries().find((e) => e.id === c.stem);
+    const grouped = new Set<string>();
     if (entry) {
       for (const item of chainGroupItems(entry)) {
-        if (item.id === 'own') continue;
-        out.push({ id: `chain.${c.stem}.${item.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${t(item.label)}`, icon: item.icon, run: () => openChainItem(c.stem, item), keywords: `${c.stem} ${item.summary}` });
+        grouped.add(item.id);
+        out.push({ id: `chain.${c.stem}.${item.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${item.label}`, icon: item.icon, run: () => openChainItem(c.stem, item), keywords: `${c.stem} ${item.summary}` });
       }
     }
     const m = modules.manifests[c.stem];
     if (!m) continue;
     for (const p of m.pages) {
+      if (grouped.has(p.id)) continue;
       out.push({ id: `module.${c.stem}.${p.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${p.title}`, icon: 'modules', run: () => openModule(c.stem, p.id), keywords: `${c.stem} ${p.summary}` });
     }
     for (const x of m.commands) {

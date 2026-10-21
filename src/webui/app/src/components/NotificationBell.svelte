@@ -79,7 +79,7 @@
                 <span class="ic" class:in={r && r.amount >= 0n}><Icon name={r && r.amount < 0n ? 'send' : 'receive'} size={15} /></span>
                 <span class="what">
                   <span class="title">{r ? (r.amount >= 0n ? 'Incoming transaction' : 'Sent transaction') : 'New transaction'}</span>
-                  <span class="faint small">{#if r}{#if addressText(r)}<SafeText text={addressText(r)} />{:else}{typeText(r.type)}{/if} · {formatTime(r.time)}{:else}In wallet <SafeText text={walletDisplayName(n.wallet)} />{/if}</span>
+                  <span class="faint small">{#if r}{#if addressText(r)}<SafeText text={addressText(r)} />{:else}{typeText(r.type)}{/if}<span class="dot-sep">{' · '}</span>{formatTime(r.time)}{:else}In wallet <SafeText text={walletDisplayName(n.wallet)} />{/if}</span>
                 </span>
                 {#if r}<Amount sats={r.amount} colored plus showUnit={false} />{/if}
               </button>
@@ -94,8 +94,8 @@
               <button type="button" class="item" class:unread={n.unread} data-module-notice={n.stem} onclick={() => { close(); if (n.app) go('settings', 'sidechains'); else openModule(n.stem, n.kind === 'tx' ? 'transactions' : 'home'); }}>
                 <span class="ic in"><Icon name={n.kind === 'tx' ? 'receive' : 'bell'} size={15} /></span>
                 <span class="what">
-                  <span class="title"><SafeText text={moduleName(n.stem)} /> · {#if n.kind === 'tx'}{t('New transaction')}{:else}<SafeText text={n.title} />{/if}</span>
-                  <span class="faint small">{#if n.kind === 'tx'}<SafeText text={(n.txid ?? '').slice(0, 16) + '…'} />{:else}<SafeText text={n.text} />{/if} · {formatTime(n.time)}</span>
+                  <span class="title"><SafeText text={moduleName(n.stem)} /><span class="dot-sep">{' · '}</span>{#if n.kind === 'tx'}{t('New transaction')}{:else}<SafeText text={n.title} />{/if}</span>
+                  <span class="faint small">{#if n.kind === 'tx'}<SafeText text={(n.txid ?? '').slice(0, 16) + '…'} />{:else}<SafeText text={n.text} />{/if}<span class="dot-sep">{' · '}</span>{formatTime(n.time)}</span>
                 </span>
               </button>
             </li>

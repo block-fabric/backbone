@@ -12,6 +12,7 @@
   import { formatUnits } from '../lib/chains.svelte';
   import { prefs } from '../lib/state.svelte';
   import type { ChartSeries as Series } from '../lib/manychains.svelte';
+  import { decimate } from '../lib/chartdata';
 
   let { series, height = 210, from = undefined }: { series: Series[]; height?: number; from?: number } = $props();
 
@@ -42,7 +43,9 @@
       shown = [{ time: from, balance: before.balance }, ...after];
     }
     const last = shown[shown.length - 1];
-    return last.time < now ? [...shown, { time: now, balance: last.balance }] : shown;
+    // Never more points than the chart has pixels (lib/chartdata.ts).
+    const thin = decimate(shown, shown[0].time, Math.max(now, last.time), Math.max(60, width - 20));
+    return last.time < now ? [...thin, { time: now, balance: last.balance }] : thin;
   }
   const drawn = $derived(series.map((s) => ({ ...s, data: clip(s.points) })).filter((s) => s.data.length >= 2));
   const single = $derived(drawn.length === 1);

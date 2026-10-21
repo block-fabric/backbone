@@ -10,7 +10,8 @@
   import { liveModules, modules, openModule, setEmbed } from '../lib/modules.svelte';
   import { hub } from '../lib/sidechains.svelte';
 
-  let { stem, page, tab = '', name, height = '34rem' }: { stem: string; page: string; tab?: string; name: string; height?: string } = $props();
+  // bare: the page is the chain's page alone (the explorer): no border of its own.
+  let { stem, page, tab = '', name, height = '34rem', bare = false }: { stem: string; page: string; tab?: string; name: string; height?: string; bare?: boolean } = $props();
 
   let place: HTMLDivElement | undefined = $state();
   const live = $derived(liveModules().some((c) => c.stem === stem) && !!hub.list?.chains.find((c) => c.stem === stem && c.state === 'running' && c.ready));
@@ -50,7 +51,7 @@
   });
 </script>
 
-<div class="module-embed" bind:this={place} style:height data-module-embed={stem} data-embed-page={page}>
+<div class="module-embed" class:bare bind:this={place} style:height data-module-embed={stem} data-embed-page={page}>
   {#if !live}
     <div class="fallback">
       <Icon name="modules" size={22} />
@@ -70,6 +71,11 @@
     border-radius: var(--radius-m, 0.7rem);
     background: var(--bg);
     min-height: 12rem;
+  }
+  .module-embed.bare {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
   .fallback {
     display: flex;

@@ -58,7 +58,7 @@
     <h2><ChainBadge id={stem} {name} /></h2>
     {#if data}
       {#if data.mode === 'separate'}
-        <span class="badge warning" title={t('Its keys are not made from the app\'s backup phrase: back this wallet up on its own.')}>{t('Its own backup')}</span>
+        <span class="badge warning" title={t('Its keys are not made from the app\'s backup phrase: back this wallet up on its own.')}>{t('Separate backup')}</span>
       {:else}
         <span class="badge accent" title={t('Its keys come from the app\'s backup phrase.')}>{t('From your backup phrase')}</span>
       {/if}

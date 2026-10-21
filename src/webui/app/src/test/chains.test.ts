@@ -369,7 +369,7 @@ describe('Receive, wallets, coins in and out, staking, assets', () => {
   it('the wallets of a chain: its own backup said, open, use', async () => {
     render(ChainWallets, { stem: 'thunder', name: 'Thunder', running: true });
     await waitFor(() => expect(document.querySelector('[data-chain-wallet="savings"]')).toBeTruthy());
-    expect(document.body.textContent).toContain('Its own backup');
+    expect(document.body.textContent).toContain('Separate backup');
     await fireEvent.click(screen.getByText('Open'));
     await waitFor(() => expect(calls.some((c) => c.method === 'chain.wallet.load' && (c.params as Record<string, unknown>).name === 'savings')).toBe(true));
   });

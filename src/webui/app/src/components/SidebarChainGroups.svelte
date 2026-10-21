@@ -1,9 +1,10 @@
 <script lang="ts">
-  // The sidechains in the sidebar's Chain section (doc/unified-app.md §19): one group per sidechain turned on, with its
-  // mark, its name and how its node is doing, holding what that chain adds (lib/chaingroups.ts): Layers its Assets,
-  // Trade and Staking; Hivemind its Markets, Positions and Votes; every chain its deposits and withdrawals and its own
-  // pages. A group folds (remembered: prefs.chainGroupsFolded); opening an item selects its chain for every page. While
-  // a chain's own pages are shown, its group lists them, so the chain stays one place of the sidebar.
+  // The sidechains in the sidebar's Chain section (doc/unified-app.md §20.1): one group per sidechain turned on, with its
+  // mark, its name and how its node is doing, holding only what is that chain's own (lib/chaingroups.ts): its own pages
+  // of its app's Chain section, Staking aside (the app's Staking entry), in its own words and icons. A group folds
+  // (remembered: prefs.chainGroupsFolded); a chain with no page of its own shows its head alone, which opens its Home.
+  // "All its pages" only with Settings → Interface → every page of each sidechain (debugging): then, while the chain's own
+  // pages are shown, its whole navigation is listed under it.
   import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import SafeText from './SafeText.svelte';
@@ -22,6 +23,7 @@
 
   const sidechains = $derived(chainEntries().filter((e) => !e.host));
   const selection = $derived(selectedChain());
+  const allPages = $derived(prefs.sidebarAllPages && !simple);
   const toneWords: Record<string, string> = { ok: 'Running', busy: 'Starting or stopping', warn: 'Has a problem', bad: 'Stopped: needs your attention', off: 'Off' };
 
   function folded(stem: string): boolean {
@@ -40,23 +42,34 @@
     openModule(stem, page);
     onvisit();
   }
+  // The head of a group with nothing in it, and a chain's mark in the rail with nothing in its group: its Home.
+  function openHome(stem: string) {
+    visitModulePage(stem, 'home');
+  }
   // The rail (folded sidebar): a chain's mark opens its first item.
   function railOpen(stem: string, items: ChainGroupItem[]) {
     if (items[0]) visit(stem, items[0]);
+    else openHome(stem);
   }
 </script>
 
 {#each sidechains as e (e.id)}
-  {@const items = chainGroupItems(e, simple)}
+  {@const items = chainGroupItems(e, simple, allPages)}
   {@const tone = e.entry ? describeState(e.entry).tone : 'off'}
   {@const isFolded = folded(e.id)}
   {@const shownModule = activeModule() === e.id}
   {@const groupId = `chain-group-${e.id}`}
   <div class="group" class:selected={selection === e.id} data-chain-group={e.id}>
     {#if collapsed}
-      <button type="button" class="entry head rail" title={`${e.name} · ${t(toneWords[tone])}`} aria-label={e.name} onclick={() => railOpen(e.id, items)}>
+      <button type="button" class="entry head rail" title={`${e.name}: ${t(toneWords[tone])}`} aria-label={e.name} onclick={() => railOpen(e.id, items)}>
         <ChainBadge id={e.id} name={e.name} markOnly />
         <span class="dot {tone}" aria-hidden="true"></span>
+      </button>
+    {:else if items.length === 0}
+      <button type="button" class="entry head" class:current={shownModule} title={`${e.name}: ${t(toneWords[tone])}`} data-chain-group-head={e.id} onclick={() => openHome(e.id)}>
+        <ChainBadge id={e.id} name={e.name} markOnly />
+        <span class="grow name"><SafeText text={e.name} /></span>
+        <span class="dot {tone}" aria-label={t(toneWords[tone])}></span>
       </button>
     {:else}
       <button type="button" class="entry head" aria-expanded={!isFolded} aria-controls={groupId} title={t(toneWords[tone])} data-chain-group-head={e.id} onclick={() => toggle(e.id)}>
@@ -69,12 +82,12 @@
         <div class="items" id={groupId} role="group" aria-label={e.name}>
           {#each items as item (item.id)}
             {@const current = chainItemCurrent(e.id, item)}
-            <button type="button" class="entry sub" class:current aria-current={current ? 'page' : undefined} title={t(item.summary)} data-chain-item={`${e.id}:${item.id}`} onclick={() => visit(e.id, item)}>
-              <Icon name={item.icon} size={16} />
-              <span class="grow">{t(item.label)}</span>
+            <button type="button" class="entry sub" class:current aria-current={current ? 'page' : undefined} title={item.id === 'own' ? t(item.summary) : item.summary} data-chain-item={`${e.id}:${item.id}`} onclick={() => visit(e.id, item)}>
+              <Icon name={item.icon} path={item.iconPath} size={16} />
+              <span class="grow"><SafeText text={item.id === 'own' ? t(item.label) : item.label} /></span>
             </button>
             {#if item.id === 'own' && shownModule}
-              <!-- Its own pages while shown: listed here, under its group. -->
+              <!-- Its own pages while shown (debugging: Settings → Interface): listed here, under its group. -->
               {@const m = modules.manifests[e.id]}
               {@const at = moduleRoute(e.id).page}
               {#each m?.pages ?? [] as p (p.id)}

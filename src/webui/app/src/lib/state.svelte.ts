@@ -129,6 +129,8 @@ export const prefs = $state({
   chain: 'all',
   /** The sidechains whose group of the sidebar is folded (Sidebar.svelte). */
   chainGroupsFolded: [] as string[],
+  /** Every page of each sidechain in its group of the sidebar (Settings → Interface; for debugging, off by default). */
+  sidebarAllPages: false,
   loaded: false,
 });
 
@@ -336,7 +338,7 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (raw.layout !== undefined) prefs.layout = isLayout(raw.layout) ? raw.layout : DEFAULT_LAYOUT;
   if (typeof raw.lastWallet === 'string') prefs.lastWallet = raw.lastWallet;
   if (raw.uiMode === 'simple' || raw.uiMode === 'advanced') prefs.uiMode = raw.uiMode;
-  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'showTray', 'minimizeToTray', 'minimizeOnClose', 'tipsDone', 'sidebarCollapsed'] as const) {
+  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'showTray', 'minimizeToTray', 'minimizeOnClose', 'tipsDone', 'sidebarCollapsed', 'sidebarAllPages'] as const) {
     if (typeof raw[key] === 'boolean') prefs[key] = raw[key];
   }
   if (raw.feeMode === 'smart' || raw.feeMode === 'custom') prefs.feeMode = raw.feeMode;

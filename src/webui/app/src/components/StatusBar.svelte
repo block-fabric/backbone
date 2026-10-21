@@ -291,12 +291,12 @@
     background: var(--accent-soft);
     color: var(--text);
     font-weight: 600;
-    animation: arrive 900ms ease-out;
+    /* A short fade (the compositor's alone: no shadow, no layout), and none under software GL (base.css). */
+    animation: arrive 300ms ease-out;
   }
   @keyframes arrive {
     from {
-      transform: translateX(-0.5rem) scale(0.9);
-      box-shadow: 0 0 0 0.35rem var(--accent-soft);
+      opacity: 0.4;
     }
   }
   .spacer {

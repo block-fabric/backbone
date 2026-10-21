@@ -56,7 +56,7 @@
     </span>
     <span class="who">
       <span class="tag" class:untagged={!block.tag}>{#if block.tag}<SafeText text={block.tag} title={block.tag} />{:else}{block.tag === null ? '…' : t('no tag')}{/if}</span>
-      <span class="txs faint">{formatCount(block.nTx)} tx{#if block.weight !== null} · {formatCount(Math.round(block.weight / 1000))} kWU{/if}</span>
+      <span class="txs faint">{formatCount(block.nTx)} tx{#if block.weight !== null}<span class="dot-sep">{' · '}</span>{formatCount(Math.round(block.weight / 1000))} kWU{/if}</span>
     </span>
     {#if block.bmm.length}
       <span class="bmm" aria-hidden="true">

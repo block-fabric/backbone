@@ -43,18 +43,20 @@
   <div class="chain-step" data-chain-tiles={kind}>
     <div class="label-row">
       <span class="label" id="chain-tiles-{kind}">{t(label)}</span>
-      {#if !value}<span class="need" data-chain-needed>{t('Choose a chain first: each chain\'s coins are its own.')}</span>{/if}
+      {#if !value}<span class="need" data-chain-needed>{kind === 'send' ? t('Pick the chain your coins are on.') : t('Pick the chain to be paid on.')}</span>{/if}
     </div>
     <div class="tiles" role="radiogroup" aria-labelledby="chain-tiles-{kind}" aria-required="true">
       {#each entries as e, i (e.id)}
         {@const s = chainState.summaries[e.id]}
         {@const b = balanceOf(s)}
         {@const on = value === e.id}
+        {@const empty = kind === 'send' && (e.host ? own !== undefined && own.trusted === 0n : !!b.available && !/[1-9]/.test(b.available))}
         <button
           type="button"
           role="radio"
           class="tile"
           class:on
+          class:empty
           aria-checked={on}
           tabindex={e.id === focusable ? 0 : -1}
           disabled={!e.host && !e.running}
@@ -73,7 +75,8 @@
               <ModuleAmount text={b.available} unit={e.unit} coins />
             {/if}
           </span>
-          {#if !e.host && s?.assets?.length}<span class="extra muted"><SafeText text={t('%1 assets', String(s.assets.length))} /></span>{/if}
+          {#if !e.host && s?.assets?.length}<span class="extra muted"><SafeText text={s.assets.length === 1 ? t('1 asset') : t('%1 assets', String(s.assets.length))} /></span>
+          {:else if empty}<span class="extra muted">{t('Nothing to send')}</span>{/if}
         </button>
       {/each}
     </div>
@@ -143,6 +146,11 @@
   .tile:disabled {
     opacity: 0.55;
     cursor: default;
+  }
+  /* Nothing to send there: still a choice (assets may be), quieter. */
+  .tile.empty:not(.on) .bal {
+    color: var(--text-muted);
+    font-weight: 500;
   }
   .bal {
     font-size: 0.95rem;

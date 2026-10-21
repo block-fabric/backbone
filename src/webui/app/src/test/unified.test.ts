@@ -12,7 +12,7 @@ import { modules, NODE_PAGE, openModule } from '../lib/modules.svelte';
 import { dispatch, setTransport, type BridgeRequest } from '../lib/bridge';
 import { nav } from '../lib/nav.svelte';
 import { hub, refreshSidechains, selectChain } from '../lib/sidechains.svelte';
-import { app } from '../lib/state.svelte';
+import { app, prefs } from '../lib/state.svelte';
 import { deliver, installPackRoute, onFrameMessage, packs, packUrl, registerFrame, route, wrap } from '../lib/packs.svelte';
 import {
   canContinue,
@@ -177,6 +177,7 @@ let calls: BridgeRequest[];
 
 beforeEach(() => {
   app.phase = 'ready';
+  prefs.sidebarAllPages = false;
   hub.list = null;
   hub.selected = 'chains';
   hub.wizard = null;
@@ -351,6 +352,7 @@ describe('the chains of the sidebar and the overview', () => {
     state.chains[0] = entry('layers', { enabled: true, state: 'running', ready: true });
     await refreshSidechains();
     render(SidebarChainGroups);
+    prefs.sidebarAllPages = true;
     await waitFor(() => expect(document.querySelectorAll('[data-chain-group]').length).toBe(1));
     await fireEvent.click(document.querySelector('[data-chain-item="layers:own"]') as HTMLElement);
     expect(hub.selected).toBe('layers');

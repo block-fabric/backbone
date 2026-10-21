@@ -120,7 +120,7 @@
 
 <section class="panel sidechain-send" aria-label={t('Send on %1', name)} data-sidechain-send={stem}>
   <header class="head">
-    <h2 class="title"><ChainBadge id={stem} {name} /> <span class="muted">{t('Send')}</span></h2>
+    <span class="grow"></span>
     {#if summary?.wallets && summary.wallets.length > 1}
       <label class="wallet-pick"><span class="muted small">{t('From the wallet')}</span>
         <select value={wallet} onchange={pickWallet} data-send-wallet>
@@ -169,19 +169,19 @@
 
   <div class="field">
     <label for="send-to-{stem}">{t('Pay to')}</label>
-    <input id="send-to-{stem}" class="mono" type="text" spellcheck="false" autocomplete="off" placeholder={shielded ? t('A shielded address of %1', name) : t('An address of %1', name)} bind:value={address} aria-invalid={check.state === 'bad' ? 'true' : undefined} aria-describedby="send-to-help-{stem}" data-send-address />
+    <input id="send-to-{stem}" class="mono" type="text" spellcheck="false" autocomplete="off" placeholder={shielded ? t('A shielded %1 address', name) : t('A %1 address', name)} bind:value={address} aria-invalid={check.state === 'bad' ? 'true' : undefined} aria-describedby="send-to-help-{stem}" data-send-address />
     <span id="send-to-help-{stem}" class="help">
       {#if check.state === 'bad'}
         <span class="refused" role="alert" data-address-error>
           <Icon name="alert" size={16} />
-          <span><strong>{t('Not an address to pay on %1', name)}</strong><br /><SafeText text={check.text} /></span>
+          <span><strong>{t('Not a %1 address', name)}</strong><br /><SafeText text={check.text} /></span>
         </span>
       {:else if check.state === 'checking'}
-        <span class="muted small">{t('Checking the address against %1 and the other chains…', name)}</span>
+        <span class="muted small">{t('Checking…')}</span>
       {:else if check.state === 'ok'}
-        <span class="ok small" data-address-ok><Icon name="check" size={14} /> {t('An address of %1', name)}{#if check.own} · {t('An address of this wallet')}{/if}</span>
+        <span class="ok small" data-address-ok><Icon name="check" size={14} /> {t('A %1 address', name)}{#if check.own}<span class="dot-sep">{' · '}</span>{t('one of yours')}{/if}</span>
       {:else}
-        <span class="muted small">{t('Only an address of %1: one of another chain is refused before anything is sent.', name)}</span>
+        <span class="muted small">{t('Addresses of other chains are refused.')}</span>
       {/if}
     </span>
   </div>
@@ -197,7 +197,7 @@
       {/if}
     </div>
     <span class="help">
-      {#if amountError}<span class="error">{t(amountError, String(decimals))}</span>{:else}<span class="muted small">{t('Available')} <ModuleAmount text={available} unit={unit} coins={!chosenAsset} />{#if chosenAsset} · {t('%1 decimals', String(decimals))}{/if}</span>{/if}
+      {#if amountError}<span class="error">{t(amountError, String(decimals))}</span>{:else}<span class="muted small">{t('Available')} <ModuleAmount text={available} unit={unit} coins={!chosenAsset} />{#if chosenAsset}<span class="dot-sep">{' · '}</span>{t('%1 decimals', String(decimals))}{/if}</span>{/if}
     </span>
   </div>
 
@@ -221,7 +221,7 @@
 
   <footer class="actions">
     <button type="button" class="btn primary" disabled={!canSend} onclick={send} data-send-go><Icon name="send" size={17} /> {busy ? t('Working…') : t('Send…')}</button>
-    <span class="muted small note">{t('%1 asks you first, in the app\'s own dialog: on %2, what is sent, where, and the fee.', name, name)}</span>
+    <span class="muted small note">{t('You confirm the details in the next step.')}</span>
   </footer>
 </section>
 
@@ -238,12 +238,7 @@
     gap: 1rem;
     flex-wrap: wrap;
   }
-  .title {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0;
-    font-size: 1rem;
+  .grow {
     flex: 1;
   }
   .wallet-pick {

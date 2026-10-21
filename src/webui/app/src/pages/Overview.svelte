@@ -2,53 +2,32 @@
   import ChainsOverview from '../components/ChainsOverview.svelte';
   import ManyChainRecent from '../components/ManyChainRecent.svelte';
   import ManyChainBlocks from '../components/ManyChainBlocks.svelte';
-  import { ALL, chainEntries, HOST, selectedChain } from '../lib/chains.svelte';
+  import { ALL, chainEntries, chainState, formatUnits, HOST, parseUnits, refreshSummary, selectedChain } from '../lib/chains.svelte';
+  import ChainBalanceChart from '../components/ChainBalanceChart.svelte';
+  import ModuleAmount from '../components/ModuleAmount.svelte';
+  import SafeText from '../components/SafeText.svelte';
+  import { chainColor } from '../lib/chaincolors';
+  import { chainBalanceHistory, many as manyState, type ChartSeries } from '../lib/manychains.svelte';
   import { t } from '../lib/i18n.svelte';
-  import { untrack } from 'svelte';
   // Overview: the balances of the wallet, and the chain as it grows (overviewpage.cpp, chainactivity.cpp).
   import Amount from '../components/Amount.svelte';
   import Icon from '../components/Icon.svelte';
-  import { formatCount, formatTime, niceTimeOffset, shortHash } from '../lib/format';
+  import { formatCount } from '../lib/format';
   import { go } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
   import { node, prefs, savePrefs, wallets, walletsEnabled } from '../lib/state.svelte';
   import { coinsToSats } from '../lib/units';
   import BalanceChart from '../components/BalanceChart.svelte';
-  import TxStatusIcon from '../components/TxStatusIcon.svelte';
   import { nav } from '../lib/nav.svelte';
-  import { addressText, typeText, walletApi, type TxRecord } from '../lib/wallet';
+  import { walletApi } from '../lib/wallet';
 
   /** The number of transactions shown (NUM_ITEMS of the overview of chains-qt). */
   const NUM_ITEMS = 5;
 
-  // The newest transactions and the balance chart, asked of the host: the overview never loads the
-  // whole history (a large wallet would stall it, and every block would send it again).
-  let recent: TxRecord[] = $state.raw([]);
-  let recentOf: string | null = $state(null);
+  // The balance chart of the wallet, asked of the host: the overview never loads the whole history (a large wallet
+  // would stall it, and every block would send it again).
   let history: { time: number; balance: bigint }[] = $state.raw([]);
   let historyOf: string | null = null;
-  $effect(() => {
-    void wallets.txVersion;
-    void node.tip?.hash;
-    const name = wallets.current;
-    if (name === null) {
-      recent = [];
-      return;
-    }
-    // At once the first time; then at most a few times a second while blocks come fast (a sync).
-    const t = setTimeout(() => {
-      walletApi(name)
-        .latest(NUM_ITEMS)
-        .then((r) => {
-          if (wallets.current === name) {
-            recent = r;
-            recentOf = name;
-          }
-        })
-        .catch(() => undefined);
-    }, untrack(() => recentOf) === name ? 150 : 0);
-    return () => clearTimeout(t);
-  });
   $effect(() => {
     void wallets.txVersion;
     const name = wallets.current;
@@ -80,11 +59,27 @@
   const shownIds = $derived(entries.filter((e) => (sel === ALL || sel === e.id) && (e.host || e.running)).map((e) => e.id));
   const withHost = $derived(sel === ALL || sel === HOST);
   const many = $derived(shownIds.some((id) => id !== HOST));
-
-  function openTx(txid: string) {
-    nav.highlightTx = txid;
-    go('transactions');
-  }
+  let now = $state(Math.floor(Date.now() / 1000));
+  /** One sidechain selected: its entry, its summary, its balance over time. */
+  const sideEntry = $derived(sel !== ALL && sel !== HOST ? (entries.find((e) => e.id === sel) ?? null) : null);
+  const sideSummary = $derived(sideEntry ? chainState.summaries[sideEntry.id] : undefined);
+  const sideTotal = $derived.by(() => {
+    const b = sideSummary?.balances;
+    if (!b) return null;
+    const sum = (parseUnits(b.trusted || '0', 8) ?? 0n) + (parseUnits(b.pending || '0', 8) ?? 0n) + (parseUnits(b.immature || '0', 8) ?? 0n);
+    return formatUnits(sum, 8);
+  });
+  const sideSeries = $derived<ChartSeries[]>(sideEntry ? [{ id: sideEntry.id, name: sideEntry.name, unit: sideEntry.unit, color: chainColor(sideEntry.id), points: chainBalanceHistory(manyState.txs[sideEntry.id] ?? [], sideSummary, now) }] : []);
+  $effect(() => {
+    const stem = sideEntry?.id;
+    if (!stem) return;
+    const load = () => void refreshSummary(stem, 4000);
+    load();
+    const timer = setInterval(() => {
+      if (!document.hidden) load();
+    }, 8000);
+    return () => clearInterval(timer);
+  });
 
   const balances = $derived(wallets.current !== null ? wallets.balances[wallets.current] : undefined);
   const total = $derived(balances ? balances.trusted + balances.untrustedPending + balances.immature : null);
@@ -114,7 +109,6 @@
     txs: number;
   }
   let blocks: BlockRow[] = $state([]);
-  let now = $state(Math.floor(Date.now() / 1000));
 
   $effect(() => {
     const tip = node.tip;
@@ -174,7 +168,7 @@
   });
 </script>
 
-<div class="page overview">
+<div class="page overview" class:many>
   <header class="page-head">
     <h1>Overview</h1>
     <button type="button" class="btn ghost small" aria-pressed={prefs.mask} title="Mask values (Ctrl+Shift+M)" onclick={() => savePrefs({ mask: !prefs.mask })}>
@@ -182,7 +176,6 @@
       {prefs.mask ? 'Values masked' : 'Mask values'}
     </button>
   </header>
-  <ChainsOverview page="overview" />
 
   {#if node.tip?.ibd}
     <button type="button" class="out-of-sync" title="The displayed information may be out of date. Your wallet automatically synchronizes with the network after a connection is established, but this process has not completed yet." onclick={() => (nav.dialog = 'sync')}>
@@ -190,7 +183,10 @@
     </button>
   {/if}
 
-  {#if withHost}
+  {#if sel === ALL && many}
+    <!-- Every chain: a row each, in its own coin (doc/unified-app.md §20.2). -->
+    <ChainsOverview page="overview" />
+  {:else if withHost}
   <section class="balances panel" aria-labelledby="balances-title">
     <div class="panel-head">
       <h2 id="balances-title">Balances</h2>
@@ -229,129 +225,86 @@
       </div>
     {/if}
   </section>
-  {/if}
-
-  {#if many}
-    <section class="recent panel" aria-labelledby="recent-title">
-      <div class="panel-head">
-        <h2 id="recent-title">{t('Recent transactions')}</h2>
-        <button type="button" class="btn ghost small" disabled={prefs.mask} onclick={() => go('transactions')}>{t('All transactions')}</button>
-      </div>
-      <div class="panel-body"><ManyChainRecent chains={shownIds} count={NUM_ITEMS + 3} /></div>
-    </section>
-  {:else if wallets.current !== null}
-    <section class="recent panel" aria-labelledby="recent-title">
-      <div class="panel-head">
-        <h2 id="recent-title">Recent transactions</h2>
-        <button type="button" class="btn ghost small" disabled={prefs.mask} onclick={() => go('transactions')}>All transactions</button>
-      </div>
-      <div class="panel-body">
-        {#if recent.length === 0}
-          <p class="muted">{recentOf === wallets.current ? 'No transactions yet.' : 'Loading…'}</p>
-        {:else}
-          <ul class="txs-list">
-            {#each recent as r (r.key)}
-              <li>
-                <button type="button" class="tx" disabled={prefs.mask} title={prefs.mask ? 'Hidden: privacy mode' : 'Show in the transactions'} onclick={() => openTx(r.txid)}>
-                  <TxStatusIcon record={r} />
-                  <span class="what">
-                    <span class="addr" class:muted={!r.label} translate="no">{addressText(r)}</span>
-                    <span class="faint small">{typeText(r.type) || 'Other'} · {formatTime(r.time)}</span>
-                  </span>
-                  <span class:pending={!r.countsForBalance} title={r.countsForBalance ? undefined : 'Not counted in the balance yet'}><Amount sats={r.amount} colored plus /></span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
-    </section>
-  {/if}
-
-  {#if many}
-    <section class="chain panel wide" aria-labelledby="chain-title">
-      <div class="panel-head">
-        <h2 id="chain-title">{t('Latest blocks')}</h2>
-        {#if withHost}<button type="button" class="btn ghost small" onclick={() => go('explorer')}>{t('Block explorer')}</button>{/if}
-      </div>
-      <div class="panel-body"><ManyChainBlocks chains={shownIds} hostBlocks={blocks} {now} /></div>
-    </section>
-    <section class="chain panel wide" aria-labelledby="mempool-title">
-      <div class="panel-head">
-        <h2 id="mempool-title">{t('Latest transactions')}</h2>
-        <span class="muted">{t('Waiting to be mined, on each chain')}</span>
-      </div>
-      <div class="panel-body"><ManyChainBlocks chains={shownIds} mode="mempool" hostMempool={mempoolRows.map((m) => ({ ...m, fee: m.fee.toFixed(8) }))} hostWaiting={node.mempool.size} {now} /></div>
-    </section>
-  {:else}
-  <section class="chain panel" aria-labelledby="chain-title">
+  {:else if sideEntry}
+  <!-- One sidechain: its wallet, as the app's own (its balances in its coin, its chart). -->
+  <section class="balances panel" aria-labelledby="balances-title" data-side-balances={sideEntry.id}>
     <div class="panel-head">
-      <h2 id="chain-title">Latest blocks</h2>
-      <button type="button" class="btn ghost small" onclick={() => go('explorer')}>Block explorer</button>
+      <h2 id="balances-title">{t('Balances on %1', sideEntry.name)}</h2>
+      {#if sideSummary?.wallet}<span class="muted" translate="no"><SafeText text={sideSummary.wallet} /></span>{/if}
+    </div>
+    <div class="panel-body figures">
+      <div class="total">
+        <span class="caption">{t('Total')}</span>
+        <span class="big"><ModuleAmount text={sideTotal} unit={sideEntry.unit} coins /></span>
+      </div>
+      <dl>
+        <div><dt>{t('Available')}</dt><dd><ModuleAmount text={sideSummary?.balances?.trusted} unit={sideEntry.unit} coins /></dd></div>
+        <div><dt>{t('Pending')}</dt><dd><ModuleAmount text={sideSummary?.balances?.pending} unit={sideEntry.unit} coins /></dd></div>
+        <div><dt>{t('Immature')}</dt><dd><ModuleAmount text={sideSummary?.balances?.immature} unit={sideEntry.unit} coins /></dd></div>
+      </dl>
+      {#if !prefs.mask}<ChainBalanceChart series={sideSeries} height={150} />{/if}
+    </div>
+  </section>
+  {/if}
+
+  <section class="recent panel" aria-labelledby="recent-title">
+    <div class="panel-head">
+      <h2 id="recent-title">{t('Recent transactions')}</h2>
+      <button type="button" class="btn ghost small" disabled={prefs.mask} onclick={() => go('transactions')}>{t('All transactions')}</button>
     </div>
     <div class="panel-body">
-      {#if blocks.length === 0}
-        <p class="muted">Waiting for the node…</p>
+      {#if withHost && !many && wallets.current === null}
+        <p class="muted">{t('No wallet is loaded.')}</p>
       {:else}
-        <ol class="blocks">
-          {#each blocks as b (b.hash)}
-            <li>
-              <button type="button" class="block-row" title="Show block {b.height} in the block explorer" onclick={() => go('explorer', `search:${b.hash}`)}>
-                <span class="height num">{formatCount(b.height)}</span>
-                <span class="mono hash" title={b.hash}>{shortHash(b.hash, 6)}</span>
-                <span class="num txs">{b.txs} tx{b.txs === 1 ? '' : 's'}</span>
-                <time class="muted" datetime={new Date(b.time * 1000).toISOString()} title={formatTime(b.time)}>{niceTimeOffset(now - b.time)} ago</time>
-              </button>
-            </li>
-          {/each}
-        </ol>
+        <ManyChainRecent chains={shownIds} count={NUM_ITEMS + 3} />
       {/if}
     </div>
   </section>
 
-  <section class="chain panel" aria-labelledby="mempool-title">
+  <section class="chain panel blocks" aria-labelledby="chain-title">
     <div class="panel-head">
-      <h2 id="mempool-title">Latest transactions</h2>
-      <span class="muted">{formatCount(node.mempool.size)} waiting</span>
+      <h2 id="chain-title">{t('Latest blocks')}</h2>
+      <button type="button" class="btn ghost small" onclick={() => go('explorer')}>{t('Block explorer')}</button>
     </div>
-    <div class="panel-body">
-      {#if mempoolRows.length === 0}
-        <p class="muted">No transaction is waiting to be mined.</p>
-      {:else}
-        <ol class="blocks">
-          {#each mempoolRows as t (t.txid)}
-            <li>
-              <button type="button" class="block-row" title="Show the transaction in the block explorer" onclick={() => go('explorer', `search:${t.txid}`)}>
-                <span class="mono hash" title={t.txid}>{shortHash(t.txid, 6)}</span>
-                <span class="num txs">{formatCount(t.vsize)} vB</span>
-                <span class="num txs">fee <Amount sats={coinsToSats(t.fee)} masked={false} /></span>
-                <time class="muted" datetime={new Date(t.time * 1000).toISOString()} title={formatTime(t.time)}>{niceTimeOffset(now - t.time)} ago</time>
-              </button>
-            </li>
-          {/each}
-        </ol>
-      {/if}
-    </div>
+    <div class="panel-body"><ManyChainBlocks chains={shownIds} hostBlocks={blocks} {now} count={many ? 8 : 6} /></div>
   </section>
-  {/if}
+
+  <section class="chain panel waiting" aria-labelledby="mempool-title">
+    <div class="panel-head">
+      <h2 id="mempool-title">{t('Waiting to be mined')}</h2>
+      {#if !many}<span class="muted">{t('%1 waiting', formatCount(node.mempool.size))}</span>{/if}
+    </div>
+    <div class="panel-body"><ManyChainBlocks chains={shownIds} mode="mempool" hostMempool={mempoolRows.map((m) => ({ ...m, fee: m.fee.toFixed(8) }))} hostWaiting={node.mempool.size} {now} count={5} /></div>
+  </section>
 </div>
 
 <style>
+  /* The balances across the page; the recent transactions at the left, the latest blocks and what waits to be mined at
+     the right (doc/unified-app.md §20.4). */
   .overview {
     display: grid;
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
     gap: 1rem;
     align-content: start;
     align-items: start;
   }
-  .overview :global(.chains-overview) {
+  .overview :global(.chains-overview),
+  .page-head,
+  .out-of-sync,
+  .balances {
     grid-column: 1 / -1;
     margin: 0;
   }
-  .page-head,
-  .out-of-sync,
-  .wide {
-    grid-column: 1 / -1;
+  .recent {
+    grid-row: span 2;
+  }
+  @media (max-width: 1000px) {
+    .overview {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .recent {
+      grid-row: auto;
+    }
   }
   .out-of-sync {
     display: flex;
@@ -366,57 +319,20 @@
     text-align: left;
     cursor: pointer;
   }
-  .txs-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  /* Each transaction a rounded row-card. */
-  .tx {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.7rem;
-    align-items: center;
-    width: 100%;
-    padding: 0.55rem 0.8rem;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-l);
-    background: var(--surface-2);
-    color: var(--text);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-  .tx:hover:not(:disabled) {
-    background: var(--raised);
-  }
-  .tx:disabled {
-    cursor: default;
-  }
-  .what {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-  .addr {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .small {
-    font-size: 0.82rem;
-  }
-  /* Not counted in the balance yet: in italics (a faded amount was too faint to read). */
-  .pending {
-    font-style: italic;
-  }
+  /* Across the page: the total and its parts at the left, the chart at the right. */
   .figures {
-    display: flex;
-    flex-direction: column;
-    gap: 1.1rem;
+    display: grid;
+    grid-template-columns: minmax(17rem, 0.9fr) minmax(0, 1.3fr);
+    gap: 0.6rem 2rem;
+    align-items: center;
+  }
+  .figures > :global(:last-child:not(dl):not(.total)) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .figures .total,
+  .figures dl {
+    grid-column: 1;
   }
   .caption {
     display: block;
@@ -431,7 +347,7 @@
   }
   dl {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
     gap: 0.8rem;
     margin: 0;
     padding-top: 1rem;
@@ -448,59 +364,13 @@
   .empty p {
     color: var(--text-muted);
   }
-  .blocks {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .blocks li {
-    border-bottom: 1px solid var(--line);
-  }
-  .block-row {
-    display: grid;
-    grid-template-columns: 5.5rem minmax(0, 1fr) 4.5rem 8.5rem;
-    gap: 0.6rem;
-    align-items: center;
-    width: 100%;
-    padding: 0.45rem 0.2rem;
-    border: 0;
-    background: none;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-  .block-row:hover {
-    background: var(--raised);
-  }
-  [aria-labelledby='mempool-title'] .block-row {
-    grid-template-columns: minmax(0, 1fr) 5rem 9.5rem 7.5rem;
-  }
-  .blocks li:last-child {
-    border-bottom: 0;
-  }
-  .height {
-    font-weight: 650;
-  }
-  .hash {
-    white-space: nowrap;
-    color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .txs {
-    text-align: right;
-  }
-  time {
-    text-align: right;
-    font-size: 0.88rem;
-  }
   @media (max-width: 980px) {
-    .overview {
+    .figures {
       grid-template-columns: minmax(0, 1fr);
     }
-    dl {
-      grid-template-columns: minmax(0, 1fr);
+    .figures > :global(:last-child:not(dl):not(.total)) {
+      grid-column: 1;
+      grid-row: auto;
     }
   }
 </style>

@@ -384,6 +384,8 @@ export interface TxRecord {
   abandoned: boolean;
   /** Whether the wallet trusts it, as the host said (what matters for a transaction out of a block). */
   trusted: boolean;
+  /** What it does on the drivechain when this wallet paid it: a merged mining bid (M8) or a deposit, for a sidechain. */
+  drivechain?: { kind: 'bmm' | 'deposit'; slot: number } | null;
 }
 
 /**
@@ -435,6 +437,12 @@ export function noticeRecordOf(records: readonly TxRecord[], txid: string): TxRe
   return mergeByTxid(own, () => true)[0];
 }
 
+/** What a record's transaction does on the drivechain ("bmm:<slot>", "deposit:<slot>" from the host), or null. */
+function drivechainOf(v: unknown): TxRecord['drivechain'] {
+  const m = typeof v === 'string' ? /^(bmm|deposit):(\d{1,3})$/.exec(v) : null;
+  return m ? { kind: m[1] as 'bmm' | 'deposit', slot: Number(m[2]) } : null;
+}
+
 /** The records as the host sends them: one array each (RecordJson in walletapi.cpp). */
 export function parseRecords(raw: unknown[][]): TxRecord[] {
   return raw.map((r) => {
@@ -461,6 +469,7 @@ export function parseRecords(raw: unknown[][]): TxRecord[] {
       coinbase: Boolean(r[15]),
       abandoned: Boolean(r[16]),
       trusted: r.length > 17 ? Boolean(r[17]) : Boolean(r[11]),
+      drivechain: drivechainOf(r[18]),
     };
   });
 }

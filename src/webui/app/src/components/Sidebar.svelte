@@ -16,8 +16,6 @@
   import WalletPicker from './WalletPicker.svelte';
   import SidebarChainGroups from './SidebarChainGroups.svelte';
   import { activeModule, moduleName, modules } from '../lib/modules.svelte';
-  import { aggregateItems } from '../lib/chaingroups';
-  import { ALL, chainEntries, selectedChain } from '../lib/chains.svelte';
   import { buildCommands, pageAvailable, pageDisabled } from '../lib/commands.svelte';
   import { navSections, pageIcon } from '../lib/layout';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
@@ -59,8 +57,8 @@
   // A chain's own pages shown: its wallet in the card.
   const moduleStem = $derived(activeModule());
   const moduleSummary = $derived(moduleStem ? modules.summaries[moduleStem] : undefined);
-  // The views over many chains while All is selected (lib/chaingroups.ts).
-  const aggregates = $derived(aggregateItems(chainEntries()));
+  // The sidechains' groups come after the last page of the section that moves coins (Chain; Simple mode: Features).
+  const groupsAfter = $derived(sections.find((s) => s.pages.includes('sidechains'))?.pages.at(-1) ?? null);
 </script>
 
 {#if open}
@@ -142,14 +140,8 @@
             {#if !page.ready}<span class="soon" title="Being rebuilt">•</span>{/if}
             {#if id === 'settings' && pendingNow() > 0}<span class="pending" title="Changes of the settings wait for Apply" aria-label="Changes wait for Apply"></span>{/if}
           </button>
-        {#if id === 'sidechains'}
-          <!-- What the sidechains add: one group per chain, under the drivechain's own page (deposits, bundles, votes). -->
-          {#each aggregates as ag (ag.page)}
-            <button type="button" class="entry" class:current={nav.page === ag.page && selectedChain() === ALL} aria-current={nav.page === ag.page ? 'page' : undefined} title={t(ag.label)} aria-label={collapsed ? t(ag.label) : undefined} data-aggregate={ag.page} onclick={() => visit(ag.page)}>
-              <Icon name={ag.icon} size={19} />
-              <span class="text"><span class="grow">{t(ag.label)}</span></span>
-            </button>
-          {/each}
+        {#if id === groupsAfter}
+          <!-- What is each sidechain's own: one group per chain (doc/unified-app.md §20.1). -->
           <SidebarChainGroups {collapsed} {simple} onvisit={() => (open = false)} />
         {/if}
         {/each}

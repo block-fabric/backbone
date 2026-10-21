@@ -30,6 +30,10 @@
   $effect(() => {
     applyLook(document, prefs.theme, prefs.customThemes, look.preview, prefs.fontAdjust, prefersDark, prefs.fontFamily, prefs.moneyFont);
   });
+  // Drawn by the processor (software GL, as under WSLg): no animations, no heavy shadows (doc/unified-app.md §20.6).
+  $effect(() => {
+    document.documentElement.classList.toggle('reduced-effects', !!app.info?.softwareRendering);
+  });
 
   async function refreshNode() {
     try {

@@ -71,6 +71,11 @@
 
   const live = $derived(liveModules());
   const shown = $derived(activeModule());
+  // Only the modules shown so far have a frame (§20.6): made at the first visit, kept after.
+  const wanted = $derived(live.filter((c) => modules.opened[c.stem] || shown === c.stem || modules.embed?.stem === c.stem));
+  $effect(() => {
+    for (const c of wanted) if (!modules.opened[c.stem]) modules.opened[c.stem] = true;
+  });
 
   // The app's look, to every frame, once the app has drawn it.
   $effect(() => {
@@ -81,7 +86,7 @@
     void prefs.moneyFont;
     void prefs.uiMode;
     void themeLook.preview;
-    const stems = live.map((c) => c.stem);
+    const stems = wanted.map((c) => c.stem);
     const timer = setTimeout(() => {
       const l = currentLook();
       for (const stem of stems) tellFrame(stem, 'look', l);
@@ -106,7 +111,7 @@
   });
 </script>
 
-{#each live as c (c.stem)}
+{#each wanted as c (c.stem)}
   {@const embedded = !(frameShown() && shown === c.stem) && embeddedIn(c.stem)}
   <ModuleFrame stem={c.stem} name={c.name} running={c.state === 'running' && c.ready} visible={(frameShown() && shown === c.stem) || embedded} above={!!modules.modal[c.stem]} rect={embedded ? modules.embedRect : null} />
 {/each}

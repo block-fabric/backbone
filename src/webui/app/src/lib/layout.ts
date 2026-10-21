@@ -181,7 +181,7 @@ export interface QuickAction {
 export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
   { label: 'Send', icon: 'send', page: 'send', panel: 'send' },
   { label: 'Receive', icon: 'receive', page: 'receive', panel: 'receive' },
-  { label: 'Deposit to a sidechain', icon: 'sidechains', page: 'sidechains' },
+  { label: 'Move coins', icon: 'sidechains', page: 'sidechains' },
   { label: 'Block explorer', icon: 'explorer', page: 'explorer' },
   { label: 'Mine', icon: 'mine', page: 'mine' },
   // No Sign message nor Load PSBT here (user decision): "All actions" (the palette) reaches them.
@@ -193,9 +193,10 @@ export const CHAIN_GROUP_PAGES: readonly PageId[] = ['assets', 'staking', 'names
 /** The dashboard's sidebar: every page (after Home), in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
   { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets', 'advanced'] },
-  // What concerns the chain before the tools. What the sidechains add is not here: one group per sidechain, after the
-  // Sidechains page (components/SidebarChainGroups.svelte, doc/unified-app.md §19).
-  { title: 'Chain', pages: ['sidechains', 'mine', 'explorer'] },
+  // What concerns the chain before the tools: moving coins (every sidechain at once), staking (while a chain that stakes is
+  // on), mining, the explorer; then one group per sidechain with what is its own (components/SidebarChainGroups.svelte,
+  // doc/unified-app.md §20.1).
+  { title: 'Chain', pages: ['sidechains', 'staking', 'mine', 'explorer'] },
   { title: 'Tools', pages: ['tools'] },
   { title: 'Node', pages: ['node', 'settings', 'kit'] },
 ];

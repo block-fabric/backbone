@@ -127,6 +127,12 @@ export interface ChainSendParams {
 
 const w = (stem: string, wallet?: string) => ({ stem, ...(wallet ? { wallet } : {}) });
 
+/** A coin named by its transaction and output (coin control). */
+export interface Outpoint {
+  txid: string;
+  vout: number;
+}
+
 /** The host's chain.* methods (webui/chainadapter.h). */
 export const chainHost = {
   capabilities: () => request<ChainCaps[]>('host', 'chain.capabilities', {}),
@@ -142,8 +148,11 @@ export const chainHost = {
   depositAddress: (stem: string, wallet?: string) => request<{ depositaddress: string; address: string; slot: number; wallet: string }>('host', 'chain.depositAddress', w(stem, wallet)),
   validate: (stem: string, address: string, wallet?: string, shielded = false) => request<{ address: string; own: boolean; hrp?: string; shielded?: boolean }>('host', 'chain.validate', { ...w(stem, wallet), address, shielded }),
   send: (p: ChainSendParams) => request<{ stem: string; wallet: string; txid?: string }>('host', 'chain.send', { ...p }),
-  withdraw: (stem: string, address: string, amount: string, fee?: string, wallet?: string) => request<{ txid?: string }>('host', 'chain.withdraw', { ...w(stem, wallet), address, amount, ...(fee ? { fee } : {}) }),
-  deposit: (stem: string, amount: string, wallet?: string) => request<{ txid?: string; address: string }>('host', 'chain.deposit', { ...w(stem, wallet), amount }),
+  withdraw: (stem: string, address: string, amount: string, fee?: string, wallet?: string, inputs?: Outpoint[]) =>
+    request<{ txid?: string }>('host', 'chain.withdraw', { ...w(stem, wallet), address, amount, ...(fee ? { fee } : {}), ...(inputs?.length ? { inputs } : {}) }),
+  deposit: (stem: string, amount: string, wallet?: string, inputs?: Outpoint[]) => request<{ txid?: string; address: string }>('host', 'chain.deposit', { ...w(stem, wallet), amount, ...(inputs?.length ? { inputs } : {}) }),
+  /** The coins of a chain's wallet a withdrawal may be paid with (coin control). */
+  coins: (stem: string, wallet?: string) => request<{ stem: string; wallet: string; coins: { txid: string; vout: number; amount: string; confirmations: number; address: string; label: string }[] }>('host', 'chain.coins', w(stem, wallet)),
   staking: (stem: string, wallet?: string) => request<ChainStaking>('host', 'chain.staking', w(stem, wallet)),
   peg: (stem: string, wallet?: string) => request<ChainPeg>('host', 'chain.peg', w(stem, wallet)),
   assets: (stem: string, wallet?: string) => request<{ stem: string; wallet: string; assets: ChainAsset[] }>('host', 'chain.assets', w(stem, wallet)),
@@ -404,6 +413,8 @@ export interface ManyChainTx {
   label: string;
   confirmations: number;
   vout: number;
+  /** This app's own: what its wallet paid on the drivechain (a merged mining bid, a deposit), for a sidechain's slot. */
+  drivechain?: { kind: 'bmm' | 'deposit'; slot: number } | null;
 }
 
 export function sidechainTxs(stem: string, name: string, rows: ChainTxRow[]): ManyChainTx[] {
@@ -465,6 +476,11 @@ export function canEmbed(stem: string, page: string): boolean {
 export function chainLabel(id: string): string {
   if (id === HOST) return productName();
   return hub.list?.chains.find((c) => c.stem === id)?.name ?? id;
+}
+
+/** The name of the sidechain in a slot of the drivechain, as the app knows it (its catalog), else "" (one it does not know). */
+export function slotLabel(slot: number): string {
+  return hub.list?.chains.find((c) => c.slot === slot)?.name ?? '';
 }
 
 // ---- Deposits on their way (made from the app's pages): until the sidechain's wallet shows them ----
