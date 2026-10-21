@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <mutex>
+#include <map>
 #include <set>
 
 namespace webui::confirm {
@@ -184,6 +185,60 @@ std::optional<int64_t> SlotArg(const UniValue& value)
     return std::nullopt;
 }
 
+/**
+ * The coins a spend names as its only inputs (coin control: [{txid, vout}, ...]), said in its question: how many, what
+ * they hold together as the wallet has them, and each of them with its amount; the shape checked here (the node checks
+ * they are the wallet's and spendable). Returns how many were named (0 without a list).
+ */
+size_t ChosenCoinRows(const Call& call, const UniValue& inputs, std::vector<dialog::Row>& rows)
+{
+    if (inputs.isNull()) return 0;
+    if (!inputs.isArray() || inputs.empty() || inputs.size() > 500) throw HostError(BRIDGE_INVALID_REQUEST, "inputs: 1 to 500 coins, each {txid, vout}");
+    std::vector<std::pair<std::string, int64_t>> named;
+    std::set<std::pair<std::string, int64_t>> seen;
+    for (const UniValue& in : inputs.getValues()) {
+        const UniValue& txid{in.isObject() ? in.find_value("txid") : NullUniValue};
+        const UniValue& vout{in.isObject() ? in.find_value("vout") : NullUniValue};
+        if (!txid.isStr() || txid.get_str().size() != 64 || !IsHex(txid.get_str()) || !vout.isNum() || vout.getInt<int64_t>() < 0 || vout.getInt<int64_t>() > 0xffffffffLL) {
+            throw HostError(BRIDGE_INVALID_REQUEST, "inputs: each {txid (64 hex), vout (an output number)}");
+        }
+        const std::pair<std::string, int64_t> coin{ToLower(txid.get_str()), vout.getInt<int64_t>()};
+        if (!seen.insert(coin).second) throw HostError(BRIDGE_INVALID_REQUEST, "inputs: a coin named twice");
+        named.push_back(coin);
+    }
+    std::map<std::pair<std::string, int64_t>, CAmount> held;
+    UniValue args{UniValue::VARR};
+    args.push_back(0);
+    args.push_back(9999999);
+    args.push_back(UniValue{UniValue::VARR});
+    args.push_back(true);
+    const UniValue unspent{call.Read("listunspent", args, /*in_wallet=*/true)};
+    for (size_t i{0}; unspent.isArray() && i < unspent.size(); ++i) {
+        const UniValue& u{unspent[i]};
+        if (!u.find_value("txid").isStr() || !u.find_value("vout").isNum()) continue;
+        const std::pair<std::string, int64_t> coin{ToLower(u.find_value("txid").get_str()), u.find_value("vout").getInt<int64_t>()};
+        if (!seen.contains(coin)) continue;
+        if (const auto amount{ParseMoney(u.find_value("amount").getValStr())}) held[coin] = *amount;
+    }
+    CAmount total{0};
+    for (const auto& [coin, amount] : held) total += amount;
+    // Only coins of this wallet that are unspent: anything else is refused before it is asked.
+    for (const auto& coin : named) {
+        if (!held.contains(coin)) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("%s:%d is not an unspent coin of this wallet", coin.first, coin.second));
+    }
+    rows.push_back(Text("Paid with", named.size() == 1 ? std::string{"only the coin you chose"} : strprintf("only the %u coins you chose", named.size())));
+    rows.push_back(Amount("They hold", total));
+    for (size_t i{0}; i < named.size(); ++i) {
+        if (i == 12) {
+            rows.push_back(Note(strprintf("and %u more coins", named.size() - 12)));
+            break;
+        }
+        const auto it{held.find(named[i])};
+        rows.push_back(Destination("Coin", strprintf("%s:%d%s", named[i].first, named[i].second, it == held.end() ? std::string{} : "  " + Coins(it->second))));
+    }
+    return named.size();
+}
+
 std::optional<Window::ConfirmDialog> SignMessage(const Call& call)
 {
     Window::ConfirmDialog dialog;
@@ -203,7 +258,7 @@ std::optional<Window::ConfirmDialog> Deposit(const Call& call)
     const auto slot{SlotArg(call.Arg(0))};
     const UniValue destination{call.Arg(1)};
     const UniValue amount_value{call.Arg(2)};
-    if (!slot || !destination.isStr()) throw HostError(BRIDGE_INVALID_REQUEST, "A deposit is [slot, destination, amount]");
+    if (!slot || !destination.isStr()) throw HostError(BRIDGE_INVALID_REQUEST, "A deposit is [slot, destination, amount, replaces?, inputs?]");
     const std::optional<CAmount> amount{amount_value.isNum() ? ParseMoney(amount_value.getValStr()) : amount_value.isStr() ? ParseMoney(amount_value.get_str()) : std::nullopt};
     if (!amount || *amount <= 0 || !MoneyRange(*amount)) throw HostError(BRIDGE_INVALID_REQUEST, "The amount of a deposit is a positive number of coins");
     Window::ConfirmDialog dialog;
@@ -234,9 +289,12 @@ std::optional<Window::ConfirmDialog> Deposit(const Call& call)
         dialog.rows.push_back(Destination("Makes again", replaces.get_str()));
         dialog.rows.push_back(Note("In place of this deposit, which the mempool dropped: it spends a coin the dropped one spent, so that only one of the two can ever be mined."));
     }
+    // Coin control: only the coins chosen pay it.
+    const size_t chosen{ChosenCoinRows(call, call.Arg(4), dialog.rows)};
     // The fee: what the wallet would pay at its fee rate for a deposit of the usual size (the escrow output spent and made
-    // again, one coin of the wallet, its change, the destination), said as an estimate.
-    const int64_t vsize{11 + 41 + 68 + 9 + 10 + 9 + 3 + static_cast<int64_t>(destination.get_str().size()) + 31};
+    // again, one coin of the wallet or each coin chosen, its change, the destination), said as an estimate.
+    const int64_t coins_in{chosen > 0 ? static_cast<int64_t>(chosen) : 1};
+    const int64_t vsize{11 + 41 + 68 * coins_in + 9 + 10 + 9 + 3 + static_cast<int64_t>(destination.get_str().size()) + 31};
     if (call.fee_for) {
         if (const auto fee{call.fee_for(vsize)}) {
             dialog.rows.push_back({"Network fee", "about " + Coins(*fee), dialog::Row::Kind::AMOUNT});

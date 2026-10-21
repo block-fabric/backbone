@@ -27,6 +27,9 @@
 
 #include <univalue.h>
 
+#include <limits>
+#include <set>
+
 using common::FeeModeFromString;
 using common::FeeModesDetail;
 using common::InvalidEstimateModeErrorMessage;
@@ -407,6 +410,17 @@ RPCMethod createsidechaindeposit()
             {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The amount in " + CURRENCY_UNIT + " to deposit"},
             {"replaces", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The txid of a deposit of this wallet to the same sidechain that was dropped (see \"sidechain_deposit_dropped\" in\n"
              "gettransaction), which this one makes again: it spends the coins of the wallet that one spent, so that only one of the two can ever be mined"},
+            {"inputs", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "The coins of this wallet to pay the deposit and its fee with, and no others (coin control): each an unspent, unlocked,\n"
+             "mature coin of the wallet, named once; too few fail, they are not topped up. Not with \"replaces\"",
+                {
+                    {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
+                        {
+                            {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
+                            {"vout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The output number"},
+                        },
+                    },
+                },
+            },
         },
         RPCResult{RPCResult::Type::OBJ, "", "",
         {
@@ -414,7 +428,8 @@ RPCMethod createsidechaindeposit()
             {RPCResult::Type::STR_AMOUNT, "total", "The amount held in escrow by the sidechain after this deposit"},
         }},
         RPCExamples{HelpExampleCli("createsidechaindeposit", "0 \"sidechainaddress\" 1.5") +
-                    HelpExampleCli("-named createsidechaindeposit", "slot=0 destination=\"sidechainaddress\" amount=1.5 replaces=\"txid\"")},
+                    HelpExampleCli("-named createsidechaindeposit", "slot=0 destination=\"sidechainaddress\" amount=1.5 replaces=\"txid\"") +
+                    HelpExampleCli("-named createsidechaindeposit", "slot=0 destination=\"sidechainaddress\" amount=1.5 inputs='[{\"txid\":\"mytxid\",\"vout\":0}]'")},
         [&](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
 {
     std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
@@ -441,6 +456,9 @@ RPCMethod createsidechaindeposit()
     }
     const CAmount amount{AmountFromValue(request.params[2])};
     if (amount <= 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "The amount must be positive");
+    if (!request.params[3].isNull() && !request.params[4].isNull()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "inputs: not with replaces (a deposit made again spends the coins the dropped one spent)");
+    }
 
     EnsureWalletIsUnlocked(*pwallet);
 
@@ -504,6 +522,36 @@ RPCMethod createsidechaindeposit()
             throw JSONRPCError(RPC_WALLET_ERROR, "The coins the dropped deposit spent are spent by another transaction that is not confirmed, or come from "
                                                  "transactions that were dropped too: wait for a block, or make those again first");
         }
+    }
+
+    // Coin control: only the coins named pay (with the escrow output), and no other is added.
+    if (!request.params[4].isNull()) {
+        const UniValue& inputs{request.params[4]};
+        if (!inputs.isArray() || inputs.empty()) throw JSONRPCError(RPC_INVALID_PARAMETER, "inputs: an array of {\"txid\", \"vout\"}, not empty");
+        if (inputs.size() > 500) throw JSONRPCError(RPC_INVALID_PARAMETER, "inputs: at most 500 coins");
+        LOCK(pwallet->cs_wallet);
+        std::set<COutPoint> seen;
+        for (const UniValue& input : inputs.getValues()) {
+            if (!input.isObject()) throw JSONRPCError(RPC_INVALID_PARAMETER, "inputs: each an object {\"txid\", \"vout\"}");
+            const Txid in_txid{Txid::FromUint256(ParseHashO(input, "txid"))};
+            const UniValue& vout_value{input.find_value("vout")};
+            if (!vout_value.isNum()) throw JSONRPCError(RPC_INVALID_PARAMETER, "inputs: vout, the index of an output");
+            const int64_t vout{vout_value.getInt<int64_t>()};
+            if (vout < 0 || vout > std::numeric_limits<uint32_t>::max()) throw JSONRPCError(RPC_INVALID_PARAMETER, "inputs: vout cannot be negative");
+            const COutPoint outpoint{in_txid, static_cast<uint32_t>(vout)};
+            if (!seen.insert(outpoint).second) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("inputs: %s named twice", outpoint.ToString()));
+            const CWalletTx* wtx{pwallet->GetWalletTx(in_txid)};
+            if (!wtx || outpoint.n >= wtx->GetTx()->vout.size() || !pwallet->IsMine(wtx->GetTx()->vout[outpoint.n])) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("%s is not a coin of this wallet", outpoint.ToString()));
+            }
+            if (pwallet->IsSpent(outpoint)) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s is spent already", outpoint.ToString()));
+            if (pwallet->IsLockedCoin(outpoint)) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s is locked: unlock it to spend it", outpoint.ToString()));
+            if (pwallet->GetTxDepthInMainChain(*wtx) < 0 || wtx->isAbandoned()) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s comes from a transaction that cannot be mined", outpoint.ToString()));
+            if (pwallet->IsTxImmatureCoinBase(*wtx)) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s is not mature yet", outpoint.ToString()));
+            if (wtx->GetTx()->vout[outpoint.n].nValue <= 0) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s holds no coins", outpoint.ToString()));
+            coin_control.Select(outpoint);
+        }
+        coin_control.m_allow_other_inputs = false;
     }
 
     // The mempool takes a deposit of MAX_DRIVECHAIN_TX_VSIZE at most, and one that spends the
