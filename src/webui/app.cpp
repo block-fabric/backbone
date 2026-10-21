@@ -228,6 +228,16 @@ UniValue App::Info()
         info.pushKV("language", m_language);
     }
     info.pushKV("test", !m_test_script.empty());
+    // Drawn by the processor (software GL, as under WSLg with LIBGL_ALWAYS_SOFTWARE): every frame is costly there, on
+    // every core, so the page leaves out its animations and its heavy shadows (doc/unified-app.md §20.6).
+    {
+        const auto env_on{[](const char* name) {
+            const char* v{std::getenv(name)};
+            return v && (std::string_view{v} == "1" || std::string_view{v} == "true");
+        }};
+        const char* driver{std::getenv("GALLIUM_DRIVER")};
+        info.pushKV("softwareRendering", env_on("LIBGL_ALWAYS_SOFTWARE") || (driver && (std::string_view{driver} == "llvmpipe" || std::string_view{driver} == "softpipe")) || env_on("WEBKIT_DISABLE_COMPOSITING_MODE"));
+    }
 #if defined(__linux__)
     info.pushKV("platform", "linux");
 #elif defined(WIN32)
@@ -2012,12 +2022,33 @@ UniValue App::PackDeposit(const std::string& stem, const UniValue& params)
         if (wallets.isArray() && !wallets.empty() && wallets[0].isStr()) wallet = wallets[0].get_str();
     }
     if (wallet.empty()) throw HostError(-18, strprintf("%s has no wallet loaded to pay the deposit from", CLIENT_NAME));
+    // Coin control (doc/unified-app.md §20.7): only unspent coins of that wallet, refused here before anything is asked;
+    // the node checks them again.
+    const UniValue inputs{ChainAdapter::ParseInputs(Param(params, "inputs"))};
+    if (!inputs.isNull()) {
+        interfaces::Node* node;
+        {
+            LOCK(m_mutex);
+            if (!m_node_started || !m_node || m_phase != "ready") throw HostError(BRIDGE_NOT_READY, "The node is not running");
+            node = m_node.get();
+        }
+        UniValue range{UniValue::VARR};
+        range.push_back(0);
+        range.push_back(9999999);
+        const UniValue coins{ChainAdapter::CoinRows(node->executeRpc("listunspent", range, WalletUri(wallet)))};
+        const std::string missing{ChainAdapter::MissingCoin(inputs, coins)};
+        if (!missing.empty()) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("%s is not an unspent coin of your %s wallet %s", missing, CLIENT_NAME, wallet));
+    }
     // The slot of the address: Chains' own describer says the sidechain of that slot by its title, and a slot that is
     // not this sidechain's.
     UniValue args{UniValue::VARR};
     args.push_back(static_cast<int64_t>(parsed.slot));
     args.push_back(destination);
     args.push_back(amount);
+    if (!inputs.isNull()) {
+        args.push_back(UniValue{});
+        args.push_back(inputs);
+    }
     UniValue call{UniValue::VOBJ};
     call.pushKV("method", "createsidechaindeposit");
     call.pushKV("params", args);
@@ -2165,6 +2196,8 @@ void App::RegisterSidechainMethods(Bridge& b)
              {"chain.deposit", &ChainAdapter::Deposit, Bridge::Thread::LONG},
              {"chain.staking", &ChainAdapter::Staking, Bridge::Thread::WORKER},
              {"chain.peg", &ChainAdapter::Peg, Bridge::Thread::WORKER},
+             {"chain.coins", &ChainAdapter::Coins, Bridge::Thread::WORKER},
+             {"chain.search", &ChainAdapter::Search, Bridge::Thread::WORKER},
              {"chain.assets", &ChainAdapter::Assets, Bridge::Thread::WORKER},
              {"chain.names", &ChainAdapter::Names, Bridge::Thread::WORKER},
              {"chain.markets", &ChainAdapter::Markets, Bridge::Thread::WORKER},

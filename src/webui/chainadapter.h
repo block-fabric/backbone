@@ -84,7 +84,17 @@ public:
     static UniValue ConfirmedRequest(const std::string& wallet, const std::string& method, const UniValue& params);
     static UniValue AssetSendRequest(const std::string& wallet, const std::string& address, const std::string& asset_id, const std::string& amount);
     static UniValue ShieldedSendRequest(const std::string& wallet, const std::string& address, const std::string& amount, const std::string& memo);
-    static UniValue WithdrawRequest(const std::string& wallet, const std::string& mainchain_address, const std::string& amount, const std::string& fee);
+    static UniValue WithdrawRequest(const std::string& wallet, const std::string& mainchain_address, const std::string& amount, const std::string& fee, const UniValue& inputs = UniValue{});
+
+    //! Coins a spend names as its only inputs (coin control): [{txid, vout}], 1 to 500, each a txid of 64 lower-case hex
+    //! digits and an output number, none named twice; as a clean array. Null for none given; throws HostError otherwise.
+    static UniValue ParseInputs(const UniValue& inputs);
+    //! The coins of listunspent as a page may choose them: {txid, vout, amount (text), confirmations, address, label},
+    //! spendable ones holding coins only (a coin of no value carries an asset or a name: never paid with), 500 at most,
+    //! the largest first.
+    static UniValue CoinRows(const UniValue& listed);
+    //! Whether every coin named is among the coins listed (CoinRows): the first that is not, else "".
+    static std::string MissingCoin(const UniValue& inputs, const UniValue& coins);
 
     // ---- Over the nodes ----
 
@@ -125,10 +135,13 @@ public:
     UniValue Validate(const UniValue& params) const;
     /** {stem, wallet, address, amount, asset?, subtractFee?, shielded?, memo?}: the chain's question in the trusted dialog. */
     UniValue Send(const UniValue& params) const;
-    /** {stem, wallet, address (of this app's chain), amount, fee?}. */
+    /** {stem, wallet, address (of this app's chain), amount, fee?, inputs?}: inputs only coins of that wallet (checked here). */
     UniValue Withdraw(const UniValue& params) const;
-    /** {stem, wallet (the sidechain's, credited), amount}: paid by this app's wallet, asked in Chains' own dialog. */
+    /** {stem, wallet (the sidechain's, credited), amount, inputs?}: paid by this app's wallet (with only the coins named,
+     *  checked by the deposit hook against that wallet), asked in Chains' own dialog. */
     UniValue Deposit(const UniValue& params) const;
+    /** {stem, wallet?} → {stem, wallet, coins: CoinRows}: the coins a withdrawal may be paid with. */
+    UniValue Coins(const UniValue& params) const;
     UniValue Staking(const UniValue& params) const;
     UniValue Peg(const UniValue& params) const;
     UniValue Assets(const UniValue& params) const;
@@ -138,6 +151,15 @@ public:
     UniValue Positions(const UniValue& params) const;
     /** {stem} → {height, blocks (its latest 6: height, hash, time, txs), mempool: {size, rows (its newest 8: txid, time, fee, vsize)}}. */
     UniValue Activity(const UniValue& params) const;
+    /**
+     * {stem, q} → {stem, results: [{kind: block|tx|address, ...}]}: what a search of the explorer finds on that chain
+     * (doc/unified-app.md §20.5): a height (its block), a 64-digit hash (a block, else a transaction its node or its wallet
+     * knows), an address (valid there; the wallet's own said). Reads only; no index is asked for.
+     */
+    UniValue Search(const UniValue& params) const;
+    //! What a search text is: "height", "hash", "address" or "" (nothing a node is asked about).
+    static std::string QueryKind(const std::string& q);
+
     /** {stem (a chain of assets), asset (64 hex)} → {asset, hash, mime, url} (a data: URL of PNG or JPEG bytes) or null. */
     UniValue AssetLogo(const UniValue& params) const;
     //! A logo as a page may show it: a data: URL of PNG or JPEG in base64, bounded; anything else is not one.

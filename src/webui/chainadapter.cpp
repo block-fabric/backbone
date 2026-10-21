@@ -347,9 +347,77 @@ UniValue ChainAdapter::ShieldedSendRequest(const std::string& wallet, const std:
     return ConfirmedRequest(wallet, "sendshielded", args);
 }
 
-UniValue ChainAdapter::WithdrawRequest(const std::string& wallet, const std::string& mainchain_address, const std::string& amount, const std::string& fee)
+UniValue ChainAdapter::WithdrawRequest(const std::string& wallet, const std::string& mainchain_address, const std::string& amount, const std::string& fee, const UniValue& inputs)
 {
-    return ConfirmedRequest(wallet, "createwithdrawal", Array({UniValue{mainchain_address}, UniValue{amount}, UniValue{fee}}));
+    UniValue args{Array({UniValue{mainchain_address}, UniValue{amount}, UniValue{fee}})};
+    if (!inputs.isNull()) args.push_back(inputs);
+    return ConfirmedRequest(wallet, "createwithdrawal", args);
+}
+
+UniValue ChainAdapter::ParseInputs(const UniValue& inputs)
+{
+    if (inputs.isNull()) return UniValue{};
+    if (!inputs.isArray() || inputs.empty() || inputs.size() > 500) throw HostError(BRIDGE_INVALID_REQUEST, "inputs: 1 to 500 coins, each {txid, vout}");
+    UniValue out{UniValue::VARR};
+    std::set<std::pair<std::string, int64_t>> seen;
+    for (const UniValue& in : inputs.getValues()) {
+        const std::string txid{in.isObject() ? Str(in, "txid") : std::string{}};
+        const UniValue& vout{Param(in, "vout")};
+        if (!IsHex64(txid) || !vout.isNum() || vout.getValStr().find_first_not_of("0123456789") != std::string::npos || vout.getValStr().size() > 10) {
+            throw HostError(BRIDGE_INVALID_REQUEST, "inputs: each {txid (64 hex digits), vout (an output number)}");
+        }
+        const int64_t n{vout.getInt<int64_t>()};
+        if (n > 0xffffffffLL) throw HostError(BRIDGE_INVALID_REQUEST, "inputs: vout, an output number");
+        if (!seen.emplace(txid, n).second) throw HostError(BRIDGE_INVALID_REQUEST, "inputs: a coin named twice");
+        UniValue coin{UniValue::VOBJ};
+        coin.pushKV("txid", txid);
+        coin.pushKV("vout", n);
+        out.push_back(std::move(coin));
+    }
+    return out;
+}
+
+UniValue ChainAdapter::CoinRows(const UniValue& listed)
+{
+    struct Row {
+        int64_t units;
+        UniValue value;
+    };
+    std::vector<Row> rows;
+    for (size_t i{0}; listed.isArray() && i < listed.size() && i < 5000; ++i) {
+        const UniValue& u{listed[i]};
+        const std::string txid{Str(u, "txid")};
+        const UniValue& vout{Param(u, "vout")};
+        if (!IsHex64(txid) || !vout.isNum()) continue;
+        if (Param(u, "spendable").isFalse()) continue;
+        const std::string amount{AmountText(Param(u, "amount"))};
+        const auto units{ParseUnits(amount, COIN_DECIMALS)};
+        if (!units || *units <= 0) continue;
+        UniValue row{UniValue::VOBJ};
+        row.pushKV("txid", txid);
+        row.pushKV("vout", vout.getInt<int64_t>());
+        row.pushKV("amount", FormatUnits(*units, COIN_DECIMALS));
+        row.pushKV("confirmations", Param(u, "confirmations").isNum() ? Param(u, "confirmations").getInt<int64_t>() : 0);
+        row.pushKV("address", Line(Str(u, "address"), 120));
+        row.pushKV("label", Line(Str(u, "label"), 120));
+        row.pushKV("safe", !Param(u, "safe").isFalse());
+        rows.push_back({*units, std::move(row)});
+    }
+    std::ranges::stable_sort(rows, [](const Row& a, const Row& b) { return a.units > b.units; });
+    UniValue out{UniValue::VARR};
+    for (size_t i{0}; i < rows.size() && i < 500; ++i) out.push_back(std::move(rows[i].value));
+    return out;
+}
+
+std::string ChainAdapter::MissingCoin(const UniValue& inputs, const UniValue& coins)
+{
+    std::set<std::pair<std::string, int64_t>> have;
+    for (size_t i{0}; coins.isArray() && i < coins.size(); ++i) have.emplace(Str(coins[i], "txid"), Param(coins[i], "vout").getInt<int64_t>());
+    for (size_t i{0}; inputs.isArray() && i < inputs.size(); ++i) {
+        const std::pair<std::string, int64_t> coin{Str(inputs[i], "txid"), Param(inputs[i], "vout").getInt<int64_t>()};
+        if (!have.contains(coin)) return strprintf("%s:%d", coin.first, coin.second);
+    }
+    return {};
 }
 
 // ---- Over the nodes ----
@@ -820,7 +888,14 @@ UniValue ChainAdapter::Withdraw(const UniValue& params) const
     const std::string fee_text{Param(params, "fee").isStr() && !Str(params, "fee").empty() ? util::TrimString(Str(params, "fee")) : std::string{"0.0001"}};
     const auto fee{ParseUnits(fee_text, COIN_DECIMALS)};
     if (!fee || !MoneyRange(*fee)) throw HostError(BRIDGE_INVALID_REQUEST, "The fee: a number with at most 8 decimals");
-    const UniValue result{m_hooks.call(stem, WithdrawRequest(wallet, address, FormatUnits(*amount, COIN_DECIMALS), FormatUnits(*fee, COIN_DECIMALS)))};
+    // Coin control: only coins of that wallet, unspent, holding coins; refused here before anything is asked (the
+    // chain's node checks them again).
+    const UniValue inputs{ParseInputs(Param(params, "inputs"))};
+    if (!inputs.isNull()) {
+        const std::string missing{MissingCoin(inputs, CoinRows(PageRead(stem, "listunspent", Array({UniValue{0}, UniValue{9999999}}), wallet)))};
+        if (!missing.empty()) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("%s is not an unspent coin of your %s wallet %s", missing, m_hooks.name(stem), wallet));
+    }
+    const UniValue result{m_hooks.call(stem, WithdrawRequest(wallet, address, FormatUnits(*amount, COIN_DECIMALS), FormatUnits(*fee, COIN_DECIMALS), inputs))};
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
     if (IsHex64(Str(result, "txid"))) out.pushKV("txid", Str(result, "txid"));
@@ -841,6 +916,9 @@ UniValue ChainAdapter::Deposit(const UniValue& params) const
     UniValue p{UniValue::VOBJ};
     p.pushKV("destination", Str(dep, "depositaddress"));
     p.pushKV("amount", FormatUnits(*amount, COIN_DECIMALS));
+    // Coin control: the coins of this app's wallet that pay it (checked against that wallet by the hook).
+    const UniValue inputs{ParseInputs(Param(params, "inputs"))};
+    if (!inputs.isNull()) p.pushKV("inputs", inputs);
     const UniValue result{m_hooks.deposit(stem, p)};
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
@@ -848,6 +926,18 @@ UniValue ChainAdapter::Deposit(const UniValue& params) const
     out.pushKV("address", Str(dep, "address"));
     if (IsHex64(Str(result, "txid"))) out.pushKV("txid", Str(result, "txid"));
     out.pushKV("result", Bounded(result));
+    return out;
+}
+
+UniValue ChainAdapter::Coins(const UniValue& params) const
+{
+    std::string stem;
+    Caps(params, stem);
+    const std::string wallet{Wallet(stem, params)};
+    UniValue out{UniValue::VOBJ};
+    out.pushKV("stem", stem);
+    out.pushKV("wallet", wallet);
+    out.pushKV("coins", CoinRows(PageRead(stem, "listunspent", Array({UniValue{0}, UniValue{9999999}}), wallet)));
     return out;
 }
 
@@ -1051,6 +1141,101 @@ UniValue ChainAdapter::Activity(const UniValue& params) const
         mempool.pushKV("error", Line(e.what(), 200));
     }
     out.pushKV("mempool", std::move(mempool));
+    return out;
+}
+
+std::string ChainAdapter::QueryKind(const std::string& q)
+{
+    if (q.empty() || q.size() > 120) return {};
+    if (q.size() <= 9 && std::all_of(q.begin(), q.end(), [](char c) { return c >= '0' && c <= '9'; })) return "height";
+    if (q.size() == 64 && IsHex(q)) return "hash";
+    if (q.size() >= 14 && q.size() <= 120 && std::all_of(q.begin(), q.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; })) return "address";
+    return {};
+}
+
+UniValue ChainAdapter::Search(const UniValue& params) const
+{
+    std::string stem;
+    Caps(params, stem);
+    if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
+    const std::string q{util::TrimString(Str(params, "q"))};
+    const std::string kind{QueryKind(q)};
+    UniValue results{UniValue::VARR};
+    const auto attempt{[](const std::function<void()>& fn) {
+        try {
+            fn();
+        } catch (const std::exception&) {
+            // Not on this chain.
+        }
+    }};
+    if (kind == "height") {
+        attempt([&] {
+            const UniValue hash{m_hooks.rpc(stem, "getblockhash", Array({UniValue{std::stoll(q)}}), "")};
+            if (!hash.isStr() || !IsHex64(hash.get_str())) return;
+            UniValue r{UniValue::VOBJ};
+            r.pushKV("kind", "block");
+            r.pushKV("height", std::stoll(q));
+            r.pushKV("hash", hash.get_str());
+            results.push_back(std::move(r));
+        });
+    } else if (kind == "hash") {
+        const std::string h{ToLower(q)};
+        bool block{false};
+        attempt([&] {
+            const UniValue header{m_hooks.rpc(stem, "getblockheader", Array({UniValue{h}}), "")};
+            if (!Param(header, "height").isNum()) return;
+            UniValue r{UniValue::VOBJ};
+            r.pushKV("kind", "block");
+            r.pushKV("height", Param(header, "height").getInt<int64_t>());
+            r.pushKV("hash", h);
+            results.push_back(std::move(r));
+            block = true;
+        });
+        if (!block) {
+            bool found{false};
+            attempt([&] {
+                const UniValue tx{PageRead(stem, "getrawtransaction", Array({UniValue{h}, UniValue{1}}), "")};
+                if (Str(tx, "txid") != h) return;
+                UniValue r{UniValue::VOBJ};
+                r.pushKV("kind", "tx");
+                r.pushKV("txid", h);
+                r.pushKV("confirmations", Param(tx, "confirmations").isNum() ? Param(tx, "confirmations").getInt<int64_t>() : 0);
+                if (IsHex64(Str(tx, "blockhash"))) r.pushKV("block", Str(tx, "blockhash"));
+                results.push_back(std::move(r));
+                found = true;
+            });
+            if (!found) {
+                attempt([&] {
+                    const std::string wallet{Wallet(stem, params)};
+                    const UniValue tx{PageRead(stem, "gettransaction", Array({UniValue{h}}), wallet)};
+                    if (Str(tx, "txid") != h) return;
+                    UniValue r{UniValue::VOBJ};
+                    r.pushKV("kind", "tx");
+                    r.pushKV("txid", h);
+                    r.pushKV("mine", true);
+                    r.pushKV("confirmations", Param(tx, "confirmations").isNum() ? Param(tx, "confirmations").getInt<int64_t>() : 0);
+                    if (IsHex64(Str(tx, "blockhash"))) r.pushKV("block", Str(tx, "blockhash"));
+                    results.push_back(std::move(r));
+                });
+            }
+        }
+    } else if (kind == "address") {
+        attempt([&] {
+            const UniValue v{PageRead(stem, "validateaddress", Array({UniValue{q}}), "")};
+            if (!Param(v, "isvalid").isTrue()) return;
+            UniValue r{UniValue::VOBJ};
+            r.pushKV("kind", "address");
+            r.pushKV("address", q);
+            bool mine{false};
+            attempt([&] { mine = PageRead(stem, "getaddressinfo", Array({UniValue{q}}), Wallet(stem, params)).find_value("ismine").isTrue(); });
+            r.pushKV("mine", mine);
+            results.push_back(std::move(r));
+        });
+    }
+    UniValue out{UniValue::VOBJ};
+    out.pushKV("stem", stem);
+    out.pushKV("q", Line(q, 120));
+    out.pushKV("results", std::move(results));
     return out;
 }
 

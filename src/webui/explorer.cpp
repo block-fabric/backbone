@@ -485,4 +485,83 @@ UniValue BlockDetail(ChainstateManager& chainman, const uint256& hash)
     return out;
 }
 
+UniValue DescribeOutputs(const UniValue& scripts)
+{
+    if (!scripts.isArray() || scripts.size() > MAX_LISTED) throw HostError(BRIDGE_INVALID_REQUEST, "scripts: at most 500 output scripts, in hex");
+    UniValue out{UniValue::VARR};
+    bool after_escrow{false};
+    int64_t escrow_slot{-1};
+    for (const UniValue& hex : scripts.getValues()) {
+        UniValue o{UniValue::VOBJ};
+        if (!hex.isStr() || hex.get_str().size() > 20000 || !IsHex(hex.get_str())) {
+            o.pushKV("kind", "");
+            out.push_back(std::move(o));
+            after_escrow = false;
+            continue;
+        }
+        const std::vector<unsigned char> bytes{ParseHex(hex.get_str())};
+        const CScript script(bytes.begin(), bytes.end());
+        if (const auto proposal{drivechain::ParseProposalScript(script)}) {
+            o.pushKV("kind", "proposal");
+            o.pushKV("slot", static_cast<int64_t>(proposal->slot));
+            o.pushKV("title", proposal->title);
+            o.pushKV("hash", proposal->GetHash().GetHex());
+        } else if (const auto ack{drivechain::ParseAckScript(script)}) {
+            o.pushKV("kind", "ack");
+            o.pushKV("slot", static_cast<int64_t>(ack->first));
+            o.pushKV("hash", ack->second.GetHex());
+        } else if (const auto bundle{drivechain::ParseBundleScript(script)}) {
+            o.pushKV("kind", "bundle");
+            o.pushKV("slot", static_cast<int64_t>(bundle->first));
+            o.pushKV("hash", bundle->second.GetHex());
+        } else if (const auto message{drivechain::ParseVoteScript(script)}) {
+            o.pushKV("kind", "vote");
+            o.pushKV("form", FormName(message->form));
+            o.pushKV("count", static_cast<int64_t>(message->votes.size()));
+        } else if (const auto accept{drivechain::ParseBmmAcceptScript(script)}) {
+            o.pushKV("kind", "bmm");
+            o.pushKV("slot", static_cast<int64_t>(accept->first));
+            o.pushKV("hash", accept->second.GetHex());
+        } else if (const auto request{drivechain::ParseBmmRequestScript(script)}) {
+            o.pushKV("kind", "bmmrequest");
+            o.pushKV("slot", static_cast<int64_t>(request->slot));
+            o.pushKV("hash", request->side_block_hash.GetHex());
+            o.pushKV("prev", request->prev_main_block_hash.GetHex());
+        } else if (IsWitnessCommitment(script)) {
+            o.pushKV("kind", "witness");
+        } else if (const auto slot{drivechain::ParseEscrowScript(script)}) {
+            o.pushKV("kind", "escrow");
+            o.pushKV("slot", static_cast<int64_t>(*slot));
+            out.push_back(std::move(o));
+            after_escrow = true;
+            escrow_slot = *slot;
+            continue;
+        } else if (const auto fee{drivechain::ParseWithdrawalFeeScript(script)}; fee && out.empty()) {
+            // Output 0 of a bundle's payout (M6, blinded): the fee it pays the miners.
+            o.pushKV("kind", "withdrawalfee");
+            o.pushKV("fee", *fee);
+        } else if (const auto data{script.IsUnspendable() ? drivechain::ParseDestinationScript(script) : std::nullopt}; data && after_escrow) {
+            // The destination of a deposit (M5) follows its escrow output.
+            o.pushKV("kind", "destination");
+            o.pushKV("slot", escrow_slot);
+            if (const auto text{Printable(std::span{reinterpret_cast<const unsigned char*>(data->data()), data->size()})}) {
+                o.pushKV("text", *text);
+                drivechain::DepositAddress parsed;
+                if (drivechain::ParseDepositAddress(*text, parsed) == drivechain::DepositAddressKind::VALID && parsed.slot == static_cast<uint32_t>(escrow_slot)) o.pushKV("address", parsed.address);
+            }
+        } else if (script.IsUnspendable()) {
+            o.pushKV("kind", "data");
+            o.pushKV("hex", HexStr(script).substr(0, 160));
+            if (const auto data{drivechain::ParseDestinationScript(script)}) {
+                if (const auto text{Printable(std::span{reinterpret_cast<const unsigned char*>(data->data()), data->size()})}) o.pushKV("text", *text);
+            }
+        } else {
+            o.pushKV("kind", "");
+        }
+        after_escrow = false;
+        out.push_back(std::move(o));
+    }
+    return out;
+}
+
 } // namespace webui::explorer

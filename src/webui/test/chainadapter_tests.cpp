@@ -86,6 +86,12 @@ struct Nodes {
             result = Json(R"([{"id":")" + MARKET + R"(","text":"Rain tomorrow?","status":"trading","states":[{"state":0,"answers":"N","price":0.25},{"state":1,"answers":"Y","price":0.75000000}]}])");
         } else if (method == "getrawmempool") {
             result = Json(R"({")" + std::string(64, '1') + R"(":{"time":5,"vsize":141,"fees":{"base":0.00000141}},")" + std::string(64, '2') + R"(":{"time":9,"vsize":200,"fees":{"base":0.0000025}},"bad":{"time":99}})");
+        } else if (method == "listunspent") {
+            // Two coins of the wallet, one of no value (an asset's: never offered), one not spendable.
+            result = Json(R"([{"txid":")" + TXID + R"(","vout":0,"amount":1.5,"confirmations":4,"address":"rsc1qlayersown00","label":"","spendable":true,"safe":true},)"
+                          R"({"txid":")" + std::string(64, 'd') + R"(","vout":2,"amount":20.00000000,"confirmations":9,"address":"rsc1qlayersown00","label":"Savings","spendable":true,"safe":true},)"
+                          R"({"txid":")" + std::string(64, 'e') + R"(","vout":1,"amount":0,"confirmations":9,"spendable":true},)"
+                          R"({"txid":")" + std::string(64, 'f') + R"(","vout":0,"amount":3,"confirmations":9,"spendable":false}])");
         } else if (method == "bitassets.logo") {
             result = Json(logo);
         } else if (method == "getstakinginfo") {
@@ -507,6 +513,60 @@ BOOST_AUTO_TEST_CASE(withdrawals_deposits_receive)
     adapter.WalletCreate(P(R"({"stem":"layers","name":"savings"})"));
     BOOST_CHECK_EQUAL(nodes.rpcs.back().method, "createwallet");
     BOOST_CHECK_EQUAL(nodes.rpcs.back().params[0].get_str(), "savings");
+}
+
+BOOST_AUTO_TEST_CASE(coin_control_only_coins_of_the_wallet)
+{
+    // §20.7: the coins a withdrawal or a deposit is paid with are named by {txid, vout} only, checked here before anything
+    // is asked (only unspent coins of that wallet, holding coins), and passed to the node, which checks them again.
+    BOOST_CHECK(ChainAdapter::ParseInputs(UniValue{}).isNull());
+    for (const char* bad : {R"([])", R"("x")", R"([{"txid":"zz","vout":0}])", R"([{"txid":")" "BBBB" R"(","vout":0}])", R"([{"vout":0}])"}) {
+        BOOST_CHECK_EQUAL(Code([&] { ChainAdapter::ParseInputs(Json(bad)); }), BRIDGE_INVALID_REQUEST);
+    }
+    const std::string coin{R"({"txid":")" + TXID + R"(","vout":0})"};
+    BOOST_CHECK_EQUAL(Code([&] { ChainAdapter::ParseInputs(Json("[" + coin + "," + coin + "]")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Code([&] { ChainAdapter::ParseInputs(Json(R"([{"txid":")" + TXID + R"(","vout":-1}])")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Code([&] { ChainAdapter::ParseInputs(Json(R"([{"txid":")" + TXID + R"(","vout":1.5}])")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Code([&] { ChainAdapter::ParseInputs(Json(R"([{"txid":")" + TXID + R"(","vout":4294967296}])")); }), BRIDGE_INVALID_REQUEST);
+    UniValue many{UniValue::VARR};
+    for (int i{0}; i < 501; ++i) many.push_back(Json(strprintf(R"({"txid":"%s","vout":%d})", TXID, i)));
+    BOOST_CHECK_EQUAL(Code([&] { ChainAdapter::ParseInputs(many); }), BRIDGE_INVALID_REQUEST);
+
+    Nodes nodes;
+    ChainAdapter adapter{nodes.Hooks()};
+    // The coins offered: spendable ones that hold coins, the largest first, amounts as exact text.
+    const UniValue coins{adapter.Coins(P(R"({"stem":"layers"})")).find_value("coins")};
+    BOOST_REQUIRE_EQUAL(coins.size(), 2U);
+    BOOST_CHECK_EQUAL(coins[0].find_value("amount").get_str(), "20.00000000");
+    BOOST_CHECK_EQUAL(coins[0].find_value("label").get_str(), "Savings");
+    BOOST_CHECK_EQUAL(coins[1].find_value("amount").get_str(), "1.50000000");
+    BOOST_CHECK_EQUAL(nodes.rpcs.back().method, "webuihost");
+
+    // A withdrawal with two coins of the wallet: exactly them, after the amount and the fee.
+    const std::string two{"[" + coin + R"(,{"txid":")" + std::string(64, 'd') + R"(","vout":2}])"};
+    adapter.Withdraw(P(R"({"stem":"layers","address":"rchn1qmainaddress0","amount":"2","inputs":)" + two + "}"));
+    BOOST_REQUIRE_EQUAL(nodes.calls.size(), 1U);
+    BOOST_CHECK_EQUAL(nodes.calls[0].second.find_value("params").find_value("params").write(),
+                      R"(["rchn1qmainaddress0","2.00000000","0.00010000",[{"txid":")" + TXID + R"(","vout":0},{"txid":")" + std::string(64, 'd') + R"(","vout":2}]])");
+    nodes.calls.clear();
+    // Not a coin of the wallet, a coin of no value (an asset's), one not spendable: refused, nothing asked.
+    for (const std::string& stranger : {std::string(64, 'a'), std::string(64, 'e'), std::string(64, 'f')}) {
+        const std::string one{R"([{"txid":")" + stranger + R"(","vout":)" + (stranger[0] == 'e' ? "1" : "0") + "}]"};
+        const std::string said{Message([&] { adapter.Withdraw(P(R"({"stem":"layers","address":"rchn1qmainaddress0","amount":"2","inputs":)" + one + "}")); })};
+        BOOST_CHECK_MESSAGE(said.find("is not an unspent coin of your Layers wallet") != std::string::npos, said);
+    }
+    BOOST_CHECK(nodes.calls.empty());
+
+    // A deposit with chosen coins: passed to the deposit (whose hook checks them against this app's wallet).
+    adapter.Deposit(P(R"({"stem":"layers","amount":"1","inputs":[)" + coin + "]}"));
+    BOOST_REQUIRE_EQUAL(nodes.deposits.size(), 1U);
+    BOOST_CHECK_EQUAL(nodes.deposits[0].second.find_value("inputs").write(), "[" + coin + "]");
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Deposit(P(R"({"stem":"layers","amount":"1","inputs":[]})")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(nodes.deposits.size(), 1U);
+
+    // MissingCoin: the first coin named that is not listed.
+    BOOST_CHECK_EQUAL(ChainAdapter::MissingCoin(Json("[" + coin + "]"), coins), "");
+    BOOST_CHECK_EQUAL(ChainAdapter::MissingCoin(Json(R"([{"txid":")" + std::string(64, 'a') + R"(","vout":3}])"), coins), std::string(64, 'a') + ":3");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -278,11 +278,27 @@ struct Record {
     Txid hash;
     int64_t time{0};
     RecordType type{RecordType::Other};
-    std::string address;
+    std::string address{};
     CAmount debit{0};
     CAmount credit{0};
     int idx{0};
+    //! What the transaction does on the drivechain, for the pages to say it in words: "bmm:<slot>" (a blind merged
+    //! mining request, M8, paid by this wallet), "deposit:<slot>" (a deposit into a sidechain, paid by this wallet), or
+    //! empty.
+    std::string drivechain{};
 };
+
+/** What a transaction this wallet paid does on the drivechain (Record::drivechain): its outputs say it. */
+std::string DrivechainKind(const CTransaction& tx)
+{
+    for (const CTxOut& out : tx.vout) {
+        if (const auto request{drivechain::ParseBmmRequestScript(out.scriptPubKey)}) return strprintf("bmm:%u", request->slot);
+    }
+    for (const CTxOut& out : tx.vout) {
+        if (const auto slot{drivechain::ParseEscrowScript(out.scriptPubKey)}) return strprintf("deposit:%u", *slot);
+    }
+    return {};
+}
 
 //! Number of confirmations recommended for accepting a transaction (TransactionRecord::RecommendedNumConfirmations).
 constexpr int RECOMMENDED_CONFIRMATIONS{6};
@@ -310,6 +326,8 @@ std::vector<Record> Decompose(const interfaces::WalletTx& wtx)
         }
     }
 
+    // Only what this wallet paid: a deposit into the escrow credited to it, or a bundle paying it, is not its own.
+    const std::string kind{any_from_me ? DrivechainKind(*wtx.tx) : std::string{}};
     if (all_from_me || !any_from_me) {
         CAmount nTxFee{nDebit - wtx.tx->GetValueOut()};
         for (unsigned int i = 0; i < wtx.tx->vout.size(); i++) {
@@ -333,6 +351,7 @@ std::vector<Record> Decompose(const interfaces::WalletTx& wtx)
                     nTxFee = 0;
                 }
                 sub.debit = -nValue;
+                sub.drivechain = kind;
                 parts.push_back(sub);
             }
             if (wtx.txout_is_mine[i]) {
@@ -355,6 +374,7 @@ std::vector<Record> Decompose(const interfaces::WalletTx& wtx)
         Record sub{.hash = hash, .time = nTime};
         sub.type = RecordType::Other;
         sub.debit = nNet;
+        sub.drivechain = kind;
         parts.push_back(sub);
     }
     return parts;
@@ -490,6 +510,7 @@ UniValue RecordJson(const Record& rec, const RecordStatus& s, const interfaces::
     r.push_back(status.is_coinbase);
     r.push_back(status.is_abandoned);
     r.push_back(status.is_trusted);
+    r.push_back(rec.drivechain);
     return r;
 }
 
