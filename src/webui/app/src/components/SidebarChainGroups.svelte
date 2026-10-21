@@ -4,13 +4,14 @@
   // of its app's Chain section, Staking aside (the app's Staking entry), in its own words and icons. A group folds
   // (remembered: prefs.chainGroupsFolded); a chain with no page of its own shows its head alone, which opens its Home.
   // "All its pages" only with Settings → Interface → every page of each sidechain (debugging): then, while the chain's own
-  // pages are shown, its whole navigation is listed under it.
+  // pages are shown, its whole navigation is listed under it. A page that is a tab of another is listed nested under it
+  // (Hivemind: Create under Markets).
   import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import SafeText from './SafeText.svelte';
   import ChainBadge from './ChainBadge.svelte';
   import { chainEntries, loadCapabilities, selectedChain, setSelectedChain } from '../lib/chains.svelte';
-  import { chainGroupItems, chainItemCurrent, openChainItem, type ChainGroupItem } from '../lib/chaingroups';
+  import { chainGroupItems, chainItemCurrent, chainItemWithin, openChainItem, type ChainGroupItem } from '../lib/chaingroups';
   import { activeModule, modules, moduleRoute, NODE_PAGE, openModule, pageIconOf } from '../lib/modules.svelte';
   import { prefs, savePrefs } from '../lib/state.svelte';
   import { describeState } from '../lib/unified';
@@ -82,7 +83,7 @@
         <div class="items" id={groupId} role="group" aria-label={e.name}>
           {#each items as item (item.id)}
             {@const current = chainItemCurrent(e.id, item)}
-            <button type="button" class="entry sub" class:current aria-current={current ? 'page' : undefined} title={item.id === 'own' ? t(item.summary) : item.summary} data-chain-item={`${e.id}:${item.id}`} onclick={() => visit(e.id, item)}>
+            <button type="button" class="entry sub" class:deep={!!item.under} class:within={!current && chainItemWithin(e.id, item, items)} class:current aria-current={current ? 'page' : undefined} title={item.id === 'own' ? t(item.summary) : item.summary} data-chain-item={`${e.id}:${item.id}`} onclick={() => visit(e.id, item)}>
               <Icon name={item.icon} path={item.iconPath} size={16} />
               <span class="grow"><SafeText text={item.id === 'own' ? t(item.label) : item.label} /></span>
             </button>
@@ -183,6 +184,10 @@
   .deep {
     padding-left: 1.4rem;
     font-size: 0.86rem;
+  }
+  /* A page one of whose tabs (listed under it) is shown: the place the app is in. */
+  .entry.within {
+    color: var(--text);
   }
   .entry.current {
     background: var(--accent);

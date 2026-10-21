@@ -15,6 +15,21 @@
       window.parent.postMessage({ chainsPack: 1, id: id, request: request }, APP);
     });
   };
+  // Hidden by the app (another of its pages shown: the frame waits, display: none; doc/unified-app.md §21.3): the pages
+  // rest as in a window that is not seen. document.hidden and visibilityState say so, and visibilitychange is sent, as
+  // for a minimized window: their timers stop asking their node, and catch up when the frame is shown again.
+  var hiddenByApp = false;
+  var hiddenOf = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+  var stateOf = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
+  if (hiddenOf && hiddenOf.get && stateOf && stateOf.get) {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return hiddenByApp || hiddenOf.get.call(document); } });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return hiddenByApp ? 'hidden' : stateOf.get.call(document); } });
+  }
+  function setHidden(hidden) {
+    if (hidden === hiddenByApp) return;
+    hiddenByApp = hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
   // Module mode (doc/unified-app.md §14): these pages bring no chrome of their own; they tell the app what they have
   // and where they are, the app tells them its look and the page to show. What the app said before they listened waits.
   var listeners = [];
@@ -44,6 +59,8 @@
       else waiting.reject(data.error);
     } else if (data.chainsPackEvents === 1 && typeof data.batch === 'string' && typeof window.__chainsEvents === 'function') {
       window.__chainsEvents(data.batch);
+    } else if (data.chainsModuleHost === 1 && data.type === 'visibility') {
+      setHidden(!!(data.data && data.data.hidden === true));
     } else if (data.chainsModuleHost === 1 && typeof data.type === 'string') {
       if (listeners.length === 0) early.push(data);
       else listeners.forEach(function (fn) { fn(data.type, data.data); });

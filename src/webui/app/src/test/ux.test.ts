@@ -26,7 +26,7 @@ import Staking from '../pages/Staking.svelte';
 import Assets from '../pages/Assets.svelte';
 import type { SidechainEntry } from '../lib/unified';
 
-const NAMES: Record<string, string> = { layers: 'Layers', thunder: 'Thunder', bitassets: 'BitAssets', hivemind: 'Hivemind' };
+const NAMES: Record<string, string> = { layers: 'Layers', thunder: 'Thunder', bitassets: 'BitAssets', hivemind: 'Hivemind', fastblocks: 'FastBlocks' };
 function entry(stem: string, over: Partial<SidechainEntry> = {}): SidechainEntry {
   return { stem, name: NAMES[stem] ?? stem, description: '', slot: 7, diskGB: 4, ramMB: 400, staking: false, enabled: true, state: 'running', pid: 1, restarts: 0, ready: true, dataDir: '', defaultDataDir: '', customDataDir: false, hasData: true, program: '', rpcPort: 0, port: 0, wallet: 'shared', ...over };
 }
@@ -61,6 +61,7 @@ beforeEach(async () => {
   nav.tab = '';
   prefs.chain = 'all';
   prefs.chainGroupsFolded = [];
+  prefs.stakingChain = '';
   prefs.chainWallets = {};
   prefs.mask = false;
   prefs.uiMode = 'advanced';
@@ -166,17 +167,43 @@ describe('the sections of a page follow the chain shown', () => {
     expect(selectedWith('assets').map((e) => e.id)).toEqual(['layers']);
   });
 
-  it('Staking with Thunder shown: said, the chains that stake a click away; stakes in the chain\'s coin', async () => {
+  it('Staking with Thunder shown: said, the chains that stake its tabs, a click away', async () => {
     setSelectedChain('thunder');
     render(Staking);
     await waitFor(() => expect(document.querySelector('[data-not-on-chain="thunder"]')).toBeTruthy());
     expect(document.body.textContent).toContain('Thunder has no staking');
-    await fireEvent.click(document.querySelector('[data-show-chain="layers"]') as HTMLElement);
+    expect(document.querySelector('[data-staking-tab="layers"]')?.getAttribute('aria-selected')).toBe('false');
+    await fireEvent.click(document.querySelector('[data-staking-tab="layers"]') as HTMLElement);
     expect(prefs.chain).toBe('layers');
-    // 250100000000 base units: 2501 of its coin (as its bonds are), never the raw number.
-    // Its digits in groups of three, as the app writes amounts (a thin space).
-    await waitFor(() => expect(document.querySelector('[data-stake-total]')?.textContent).toContain('2\u2009501.00000000'));
-    expect(document.body.textContent).not.toContain('250100000000');
+    expect(prefs.stakingChain).toBe('layers');
+    await waitFor(() => expect(document.querySelector('[data-staking-chain="layers"] [data-module-embed="layers"]')).toBeTruthy());
+  });
+
+  it('Staking with All: a tab per chain that stakes beside the title, the last one remembered; one chain selected: its tab alone', async () => {
+    CAPS.push({ ...base, stem: 'fastblocks', staking: true, embed: ['staking'] });
+    try {
+      hub.list!.chains = [entry('layers'), entry('thunder'), entry('fastblocks')];
+      chainState.caps.fastblocks = structuredClone(CAPS.at(-1)!) as never;
+      prefs.stakingChain = 'fastblocks';
+      render(Staking);
+      await waitFor(() => expect(document.querySelectorAll('[data-staking-tab]').length).toBe(2));
+      expect([...document.querySelectorAll('[data-staking-tab]')].map((b) => b.getAttribute('data-staking-tab'))).toEqual(['layers', 'fastblocks']);
+      // The title and the tabs on one row.
+      expect(document.querySelector('.page-head [role="tablist"]')).toBeTruthy();
+      expect(document.querySelector('[data-staking-tab="fastblocks"]')?.getAttribute('aria-selected')).toBe('true');
+      expect(document.querySelector('[data-staking-chain="fastblocks"]')).toBeTruthy();
+      await fireEvent.click(document.querySelector('[data-staking-tab="layers"]') as HTMLElement);
+      expect(prefs.stakingChain).toBe('layers');
+      expect(prefs.chain).toBe('all');
+      await waitFor(() => expect(document.querySelector('[data-staking-chain="layers"]')).toBeTruthy());
+      // Only the chain of the tab shown: one frame laid in the page.
+      expect(document.querySelectorAll('[data-module-embed]').length).toBe(1);
+      setSelectedChain('fastblocks');
+      await waitFor(() => expect(document.querySelectorAll('[data-staking-tab]').length).toBe(1));
+      expect(document.querySelector('[data-staking-chain="fastblocks"]')).toBeTruthy();
+    } finally {
+      CAPS.pop();
+    }
   });
 
   it('Assets → Trade with All and two chains of markets: asks which chain', async () => {
@@ -316,7 +343,9 @@ describe('one group per sidechain in the sidebar\'s Chain section (§20.1)', () 
     const items = (id: string, simple = false, all = false) => chainGroupItems(chainEntries().find((e) => e.id === id)!, simple, all).map((i) => i.id);
     expect(items('layers')).toEqual(['assets', 'my-assets', 'trade', 'auctions']);
     expect(items('thunder')).toEqual(['batchpay', 'payments', 'throughput']);
-    expect(items('hivemind')).toEqual(['markets', 'portfolio', 'voting', 'decisions', 'create', 'votecoin', 'payouts']);
+    // Hivemind (user, 2026-10-21): Votecoin is the Voting center's tab; Create, Markets' tab, nested under it.
+    expect(items('hivemind')).toEqual(['markets', 'create', 'portfolio', 'voting', 'decisions', 'payouts']);
+    expect(items('hivemind', true)).toEqual(['markets', 'portfolio']);
     expect(items('fastblocks')).toEqual([]);
     // Simple mode: what the chain's own Simple mode shows; no "All its pages", even when asked.
     expect(items('layers', true, true)).toEqual(['my-assets', 'trade']);
@@ -341,6 +370,45 @@ describe('one group per sidechain in the sidebar\'s Chain section (§20.1)', () 
     await fireEvent.click(document.querySelector('[data-chain-group-head="fastblocks"]') as HTMLElement);
     expect(hub.selected).toBe('fastblocks');
     expect(prefs.chain).toBe('fastblocks');
+  });
+
+  it('Hivemind: Create nested under Markets, current while its tab of Markets is shown; Votecoin in the Voting center', async () => {
+    hub.list!.chains = [entry('hivemind')];
+    const hivemind = () => chainEntries().find((e) => e.id === 'hivemind')!;
+    // Its pages as they are now: Create and Votecoin tabs (not in its manifest's pages), its commands lead there.
+    modules.manifests.hivemind = {
+      name: 'Hivemind',
+      unit: 'CHN',
+      home: 'home',
+      sections: [{ title: 'Chain', pages: ['markets', 'portfolio', 'voting', 'decisions', 'payouts'] }],
+      pages: ['markets', 'portfolio', 'voting', 'decisions', 'payouts'].map((id) => ({ id, title: id[0].toUpperCase() + id.slice(1), icon: 'market', iconPath: '', section: 'Chain', summary: 's', wallet: false })),
+      commands: [{ id: 'hm.create-market', label: 'Create a market…', page: 'create', tab: 'market' }],
+    };
+    const got = chainGroupItems(hivemind());
+    expect(got.map((i) => [i.id, i.under ?? ''])).toEqual([['markets', ''], ['create', 'markets'], ['portfolio', ''], ['voting', ''], ['decisions', ''], ['payouts', '']]);
+    expect(got.find((i) => i.id === 'create')!.label).toBe('Create');
+    render(SidebarChainGroups);
+    await waitFor(() => expect(document.querySelector('[data-chain-item="hivemind:create"]')).toBeTruthy());
+    const create = document.querySelector('[data-chain-item="hivemind:create"]') as HTMLElement;
+    const markets = document.querySelector('[data-chain-item="hivemind:markets"]') as HTMLElement;
+    expect(create.classList.contains('deep')).toBe(true);
+    expect(markets.classList.contains('deep')).toBe(false);
+    expect(document.querySelector('[data-chain-item="hivemind:votecoin"]')).toBeNull();
+    // Opened: the chain's page "create" (its own pages lead it to Markets' tab), then where they say it went.
+    await fireEvent.click(create);
+    expect(modules.routes.hivemind).toEqual({ page: 'create', tab: '' });
+    expect(create.getAttribute('aria-current')).toBe('page');
+    modules.routes.hivemind = { page: 'markets', tab: 'create/decision' };
+    await waitFor(() => expect(create.getAttribute('aria-current')).toBe('page'));
+    expect(markets.getAttribute('aria-current')).toBeNull();
+    expect(markets.classList.contains('within')).toBe(true);
+    modules.routes.hivemind = { page: 'markets', tab: '' };
+    await waitFor(() => expect(markets.getAttribute('aria-current')).toBe('page'));
+    expect(create.getAttribute('aria-current')).toBeNull();
+    // Simple mode: neither (creating is Advanced's).
+    expect(chainGroupItems(hivemind(), true).map((i) => i.id)).not.toContain('create');
+    delete modules.manifests.hivemind;
+    delete modules.routes.hivemind;
   });
 
   it('the chain\'s own words and icons once its pages said them; only the pages it lists', () => {

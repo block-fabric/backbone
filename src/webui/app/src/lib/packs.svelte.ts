@@ -83,12 +83,69 @@ interface Frame {
 }
 const frames = new Map<string, Frame>();
 
+/**
+ * The events of a sidechain's node its frame needs only the newest of (its tip, its headers, its mempool, its traffic,
+ * its peers): a chain catching up or a busy one sends many, and each is work for every part of its pages that shows the
+ * chain (doc/unified-app.md §21.3). The newest of each is handed at most once a FRAME_STATE_MS while the frame is shown,
+ * and once when it is shown again while it waits hidden; every other event (its wallet's transactions, its dialogs) is
+ * handed at once.
+ */
+export const LATEST_ONLY = new Set(['tip', 'headerTip', 'mempool', 'traffic', 'connections', 'networkActive', 'progress', 'alert', 'bans']);
+export const FRAME_STATE_MS = 1000;
+interface Held {
+  hidden: boolean;
+  latest: Map<string, unknown>;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  sentAt: number;
+}
+const held = new Map<string, Held>();
+function heldOf(stem: string): Held {
+  let h = held.get(stem);
+  if (!h) held.set(stem, (h = { hidden: false, latest: new Map(), timer: undefined, sentAt: 0 }));
+  return h;
+}
+function flushLatest(stem: string): void {
+  const h = heldOf(stem);
+  if (h.timer !== undefined) clearTimeout(h.timer);
+  h.timer = undefined;
+  if (h.latest.size === 0) return;
+  const frame = frames.get(stem);
+  const events = [...h.latest.values()];
+  h.latest.clear();
+  h.sentAt = Date.now();
+  if (frame) post(frame, { chainsPackEvents: 1, batch: JSON.stringify(events) });
+}
+function scheduleLatest(stem: string): void {
+  const h = heldOf(stem);
+  if (h.hidden || h.timer !== undefined) return;
+  const wait = h.sentAt + FRAME_STATE_MS - Date.now();
+  if (wait <= 0) flushLatest(stem);
+  else h.timer = setTimeout(() => flushLatest(stem), wait);
+}
+
+/**
+ * A frame hidden or shown again by the app (ModuleFrame): its pages rest as in a window not seen (the shim's
+ * document.hidden), and the newest state its node sent meanwhile is handed to it when it is shown.
+ */
+export function setFrameHidden(stem: string, hidden: boolean): void {
+  const h = heldOf(stem);
+  if (h.hidden === hidden) return;
+  h.hidden = hidden;
+  tellFrame(stem, 'visibility', { hidden });
+  if (!hidden) flushLatest(stem);
+}
+
 /** Requests of each frame so far (the tests wait for its pages to start). */
 export const traffic = $state<Record<string, number>>({});
 
 export function registerFrame(stem: string, win: Window | null): void {
   if (win) frames.set(stem, { stem, win });
-  else frames.delete(stem);
+  else {
+    frames.delete(stem);
+    const h = held.get(stem);
+    if (h?.timer !== undefined) clearTimeout(h.timer);
+    held.delete(stem);
+  }
 }
 
 function post(frame: Frame, message: unknown): void {
@@ -99,11 +156,35 @@ function post(frame: Frame, message: unknown): void {
   }
 }
 
-/** Hand a frame a batch of events (JSON text of [{type, data}]), as the host hands the app its own. */
+/** Hand a frame a batch of events (JSON text of [{type, data}]), as the host hands the app its own (LATEST_ONLY aside). */
 export function deliver(stem: string, batch: string): boolean {
   const frame = frames.get(stem);
   if (!frame) return false;
-  post(frame, { chainsPackEvents: 1, batch });
+  let events: unknown;
+  try {
+    events = JSON.parse(batch);
+  } catch {
+    events = null;
+  }
+  if (!Array.isArray(events)) {
+    post(frame, { chainsPackEvents: 1, batch });
+    return true;
+  }
+  const now: unknown[] = [];
+  let kept = false;
+  for (const e of events) {
+    const type = e && typeof e === 'object' ? (e as { type?: unknown }).type : undefined;
+    if (typeof type === 'string' && LATEST_ONLY.has(type)) {
+      const h = heldOf(stem);
+      h.latest.delete(type);
+      h.latest.set(type, e);
+      kept = true;
+    } else {
+      now.push(e);
+    }
+  }
+  if (now.length) post(frame, { chainsPackEvents: 1, batch: now.length === events.length ? batch : JSON.stringify(now) });
+  if (kept) scheduleLatest(stem);
   return true;
 }
 

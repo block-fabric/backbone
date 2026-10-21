@@ -385,11 +385,17 @@ describe('Receive, wallets, coins in and out, staking, assets', () => {
     await waitFor(() => expect(document.querySelector('[data-peg-withdrawal]')).toBeTruthy());
   });
 
-  it('Staking: every chain that stakes, its validator and bonds', async () => {
+  it('Staking: the whole staking page of a chain that stakes (its own, under the title), a tab for each that stakes', async () => {
     render(Staking);
-    await waitFor(() => expect(document.querySelector(`[data-validator="${'ab'.repeat(32)}"]`)).toBeTruthy());
-    expect(document.querySelector('[data-staking-chain="layers"]')?.textContent).toContain('this node');
+    await waitFor(() => expect(document.querySelector('[data-staking-chain="layers"]')).toBeTruthy());
+    // Its own page in its frame, laid here without its title (headless), not a summary of the app's.
+    const embed = document.querySelector('[data-staking-chain="layers"] [data-module-embed="layers"]');
+    expect(embed?.getAttribute('data-embed-page')).toBe('staking');
+    expect(document.querySelector('[data-staking-tab="layers"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(document.querySelector('[data-staking-tab="thunder"]')).toBeNull();
     expect(document.querySelector('[data-staking-chain="thunder"]')).toBeNull();
+    // Nothing asked of every chain: the chain's own page asks its node.
+    expect(calls.some((c) => c.method === 'chain.staking')).toBe(false);
   });
 
   it('Assets: the assets of every chain that has them, each sent on its chain', async () => {

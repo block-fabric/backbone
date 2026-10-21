@@ -129,6 +129,8 @@ export const prefs = $state({
   chain: 'all',
   /** The sidechains whose group of the sidebar is folded (Sidebar.svelte). */
   chainGroupsFolded: [] as string[],
+  /** The chain whose staking the Staking page showed last (its tab, pages/Staking.svelte); '' for the first. */
+  stakingChain: '',
   /** Every page of each sidechain in its group of the sidebar (Settings → Interface; for debugging, off by default). */
   sidebarAllPages: false,
   loaded: false,
@@ -385,6 +387,7 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (raw.chainWallets !== undefined) prefs.chainWallets = cleanChainViews(raw.chainWallets, WALLET_NAME);
   if (raw.chain !== undefined) prefs.chain = cleanChainId(raw.chain);
   if (raw.chainGroupsFolded !== undefined) prefs.chainGroupsFolded = cleanChainGroups(raw.chainGroupsFolded);
+  if (raw.stakingChain !== undefined) prefs.stakingChain = cleanChainId(raw.stakingChain) === 'all' ? '' : cleanChainId(raw.stakingChain);
   prefs.loaded = true;
 }
 

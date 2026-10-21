@@ -2,7 +2,7 @@
   // The pages of one module (doc/unified-app.md §14): its own origin, sandboxed as before (§13.5 #10), and now
   // chromeless: no border, the app's look, the size of the main area. The app owns where it is (the sidebar, back and
   // forward): it tells the frame the page to show; the frame tells it where a link of its pages went.
-  import { packUrl, registerFrame, tellFrame, tellPhase } from '../lib/packs.svelte';
+  import { packUrl, registerFrame, setFrameHidden, tellFrame, tellPhase } from '../lib/packs.svelte';
   import { clearModal, currentLook, modules, moduleRoute, NODE_PAGE, type EmbedRect } from '../lib/modules.svelte';
 
   // rect: shown inside one of the app's pages (ModuleEmbed), laid over the place it keeps for it.
@@ -29,6 +29,8 @@
     // Loaded again: whatever it said before (a dialog open) is gone with it.
     clearModal(stem);
     tellFrame(stem, 'look', currentLook());
+    // A page loaded again starts seen: told whether it waits hidden.
+    tellFrame(stem, 'visibility', { hidden: !visible });
     const r = modules.routes[stem];
     if (r && r.page !== NODE_PAGE) tellFrame(stem, 'navigate', r);
   }
@@ -37,12 +39,19 @@
     if (loaded) tellPhase(stem, running ? 'ready' : 'init');
   });
 
+  // Hidden (another page shown): its pages rest as in a window not seen, the newest state of its node handed to it when
+  // it is shown again (doc/unified-app.md §21.3).
+  $effect(() => {
+    setFrameHidden(stem, !visible);
+  });
+
   // Shown: the page it should be at (the app may have moved while it was hidden), and the keyboard follows.
   $effect(() => {
     if (!visible) clearModal(stem);
     if (!loaded || !visible) return;
-    const r = rect && modules.embed?.stem === stem ? modules.embed : moduleRoute(stem);
-    if (r.page !== NODE_PAGE) tellFrame(stem, 'navigate', { page: r.page, tab: r.tab });
+    const embed = rect && modules.embed?.stem === stem ? modules.embed : null;
+    const r = embed ?? moduleRoute(stem);
+    if (r.page !== NODE_PAGE) tellFrame(stem, 'navigate', { page: r.page, tab: r.tab, ...(embed?.headless ? { headless: true } : {}) });
   });
 </script>
 

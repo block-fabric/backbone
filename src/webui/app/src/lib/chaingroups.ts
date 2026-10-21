@@ -24,6 +24,8 @@ export interface ChainGroupItem {
   module?: string;
   /** What it is for: its tooltip, the palette's keywords. */
   summary: string;
+  /** A tab of another of the chain's pages (its id), listed under it in the group (Hivemind: Create under Markets). */
+  under?: string;
 }
 
 interface OwnPage {
@@ -33,6 +35,12 @@ interface OwnPage {
   simple?: string;
   icon: IconName;
   summary: string;
+  /**
+   * A tab of another page of the chain (its id), listed nested under it in the group (user, 2026-10-21: Hivemind's
+   * Create "nested under Markets"): `tab` is the tab of that page it is (the chain's own pages lead its id there).
+   */
+  under?: string;
+  tab?: string;
 }
 
 /** The chains' own icons of their pages (each pack's chain/icons.ts at the pinned commits): the same before and after a
@@ -92,13 +100,13 @@ export const OWN_PAGES: Record<string, OwnPage[]> = {
     { id: 'paymail', label: 'Paymail', icon: 'text', summary: 'Messages with a payment that only the holder of a name reads' },
     { id: 'dns', label: 'DNS', icon: 'explorer', summary: 'The DNS server of .x names on its node' },
   ],
+  // Votecoin is a tab of the Voting center, Create one of Markets, listed under it (user, 2026-10-21).
   hivemind: [
     { id: 'markets', label: 'Markets', simple: 'Questions', icon: 'dashboard', summary: 'The prediction markets, to trade in' },
+    { id: 'create', label: 'Create', icon: 'plus', summary: 'List a decision and open a market on it', under: 'markets', tab: 'create' },
     { id: 'portfolio', label: 'Portfolio', simple: 'My bets', icon: 'coins', summary: 'Your shares and what they are worth' },
-    { id: 'voting', label: 'Voting center', icon: 'check', summary: 'Seal and reveal your votes on the decisions' },
+    { id: 'voting', label: 'Voting center', icon: 'check', summary: 'Your votes on the decisions and the votecoin that casts them' },
     { id: 'decisions', label: 'Decisions', icon: 'book', summary: 'The questions the markets are about, and their calendar' },
-    { id: 'create', label: 'Create', icon: 'plus', summary: 'List a decision and open a market on it' },
-    { id: 'votecoin', label: 'Votecoin', icon: 'key', summary: 'The reputation that votes' },
     { id: 'payouts', label: 'Payouts', icon: 'download', summary: 'What the markets paid' },
   ],
   zside: [
@@ -127,8 +135,14 @@ export function chainGroupItems(e: ChainEntry, simple = false, allPages = false)
   const out: ChainGroupItem[] = [];
   for (const own of OWN_PAGES[e.id] ?? []) {
     const p = listed?.get(own.id);
-    // Known from its manifest: only what it lists (its version, its mode). Not yet: what its mode shows here.
-    if (listed ? !p : simple && !own.simple) continue;
+    if (own.under !== undefined) {
+      // A tab of another page, under it: while that page is listed, in Advanced (its own manifest may still list it
+      // as a page of its own: a version of its pages before it became a tab).
+      if (simple || !out.some((i) => i.id === own.under && !i.under)) continue;
+    } else if (listed ? !p : simple && !own.simple) {
+      // Known from its manifest: only what it lists (its version, its mode). Not yet: what its mode shows here.
+      continue;
+    }
     const icon = p ? pageIconOf(p) : PATHS[OWN_ICON[own.id] ?? ''] ? { path: PATHS[OWN_ICON[own.id] ?? ''] } : { name: own.icon };
     out.push({
       id: own.id,
@@ -137,10 +151,16 @@ export function chainGroupItems(e: ChainEntry, simple = false, allPages = false)
       ...(icon.path ? { iconPath: icon.path } : {}),
       module: own.id,
       summary: p?.summary || own.summary,
+      ...(own.under !== undefined ? { under: own.under } : {}),
     });
   }
   if (allPages && !simple) out.push({ id: 'own', label: 'All its pages', icon: 'modules', module: 'home', summary: "The chain's own pages, as in its own app" });
   return out;
+}
+
+/** Whether one of the items listed under an item is where the app is now (the item reads as the place it is in). */
+export function chainItemWithin(stem: string, item: ChainGroupItem, items: readonly ChainGroupItem[]): boolean {
+  return items.some((i) => i.under === item.id && chainItemCurrent(stem, i));
 }
 
 /** Open an item: its chain selected for every page, then its page. */
@@ -150,12 +170,23 @@ export function openChainItem(stem: string, item: ChainGroupItem): void {
   else if (item.page) openChains(item.page, item.tab ?? '');
 }
 
+/** Whether the chain's page shown is the tab of another page that an own page is (its route: the page and its tab). */
+function inTabOf(own: OwnPage, route: { page: string; tab: string }): boolean {
+  return own.under !== undefined && own.tab !== undefined && route.page === own.under && (route.tab === own.tab || route.tab.startsWith(`${own.tab}/`));
+}
+
 /** Whether an item is where the app is now (its chain's page shown). */
 export function chainItemCurrent(stem: string, item: ChainGroupItem): boolean {
   if (item.module) {
     if (activeModule() !== stem) return false;
-    const at = moduleRoute(stem).page;
-    if (item.id === 'own') return !(OWN_PAGES[stem] ?? []).some((p) => p.id === at);
+    const route = moduleRoute(stem);
+    const at = route.page;
+    const owns = OWN_PAGES[stem] ?? [];
+    if (item.id === 'own') return !owns.some((p) => p.id === at || inTabOf(p, route));
+    const self = owns.find((p) => p.id === item.id);
+    if (self?.under !== undefined) return at === self.id || inTabOf(self, route);
+    // A page with one of its tabs listed under it: that one is current while its tab is shown.
+    if (owns.some((p) => p.under === item.module && inTabOf(p, route))) return false;
     return at === item.module;
   }
   if (activeModule() || selectedChain() !== stem || nav.page !== item.page) return false;

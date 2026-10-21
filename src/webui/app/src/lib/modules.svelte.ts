@@ -91,7 +91,8 @@ export const modules = $state({
    * Staking), where the app has no view of its own for it: its frame, unchanged in what it can reach, laid over the
    * place the app's page keeps for it (rect, in the window's coordinates).
    */
-  embed: null as null | { stem: string; page: string; tab: string },
+  /** headless: under a title of the app's page (Staking), the chain's page without its own title. */
+  embed: null as null | { stem: string; page: string; tab: string; headless?: boolean },
   embedRect: null as null | EmbedRect,
   /**
    * The modules whose pages were shown in this run (doc/unified-app.md §20.6): only those have a frame. A frame is a
@@ -112,7 +113,7 @@ export interface EmbedRect {
 }
 
 /** Show a page of a module inside the app's page that asks (ModuleEmbed); null to stop. */
-export function setEmbed(embed: { stem: string; page: string; tab?: string } | null): void {
+export function setEmbed(embed: { stem: string; page: string; tab?: string; headless?: boolean } | null): void {
   if (!embed) {
     modules.embed = null;
     modules.embedRect = null;
@@ -120,9 +121,12 @@ export function setEmbed(embed: { stem: string; page: string; tab?: string } | n
   }
   if (!STEM.test(embed.stem) || !PAGE_ID.test(embed.page)) return;
   const tab = embed.tab && TAB.test(embed.tab) ? embed.tab : '';
+  const headless = embed.headless === true;
   const before = modules.embed;
-  modules.embed = { stem: embed.stem, page: embed.page, tab };
-  if (before?.stem !== embed.stem || before?.page !== embed.page || before?.tab !== tab) tellModule(embed.stem, 'navigate', { page: embed.page, tab });
+  modules.embed = { stem: embed.stem, page: embed.page, tab, ...(headless ? { headless } : {}) };
+  if (before?.stem !== embed.stem || before?.page !== embed.page || before?.tab !== tab || !!before?.headless !== headless) {
+    tellModule(embed.stem, 'navigate', { page: embed.page, tab, ...(headless ? { headless } : {}) });
+  }
 }
 
 /** Whether a module's frame is shown inside an app's page now. */
@@ -254,6 +258,19 @@ export function allowRaise(stem: string, now = Date.now()): boolean {
   return true;
 }
 
+/**
+ * A module whose pages are not shown (its frame waits hidden) raises a notice at most once a HIDDEN_RAISE_MS: a busy
+ * sidechain (a payment of its wallet every few seconds) made a notice slide in and out of the app's corner all the
+ * time, each a change of the window (doc/unified-app.md §21.3). Every one of its transactions is in the bell anyway.
+ */
+export const HIDDEN_RAISE_MS = 30_000;
+const raisedHidden = new Map<string, number>();
+export function allowHiddenRaise(stem: string, now = Date.now()): boolean {
+  if (now - (raisedHidden.get(stem) ?? -Infinity) < HIDDEN_RAISE_MS) return false;
+  raisedHidden.set(stem, now);
+  return true;
+}
+
 let nextNotice = 1;
 const NOTICES_MAX = 100;
 
@@ -361,7 +378,8 @@ export function onModuleMessage(stem: string, type: unknown, data: unknown): boo
     }
     case 'toast': {
       const x = parseToast(data);
-      if (!x || !allowRaise(stem)) return false;
+      const hidden = activeModule() !== stem && !embeddedIn(stem);
+      if (!x || !allowRaise(stem) || (hidden && !allowHiddenRaise(stem))) return false;
       // Named after the module, by the app: a page cannot make its notice look like one of the app's own.
       toast(x.kind, `${moduleName(stem)} · ${x.title}`, x.message);
       return true;

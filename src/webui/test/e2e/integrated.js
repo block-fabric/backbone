@@ -85,7 +85,7 @@
     await host('sidechains.enable', { stem: 'layers', wallet: 'separate' });
     await host('sidechains.enable', { stem: 'thunder', wallet: 'separate' });
     for (const stem of extra) {
-      await rpc('createsidechainproposal', [{ bitassets: 4, hivemind: 9 }[stem], { bitassets: 'BitAssets', hivemind: 'Hivemind' }[stem], 'e2e']);
+      await rpc('createsidechainproposal', [{ bitassets: 4, hivemind: 9, fastblocks: 5 }[stem], { bitassets: 'BitAssets', hivemind: 'Hivemind', fastblocks: 'FastBlocks' }[stem], 'e2e']);
     }
     if (extra.length) await rpc('generatetoaddress', [25, mining]);
     for (const stem of extra) await host('sidechains.enable', { stem, wallet: 'separate' });
@@ -93,6 +93,8 @@
     for (const stem of extra) await waitFor(`${stem} running`, async () => (await chainOf(stem)).ready, 180000);
     await bmm('layers', 2);
     await bmm('thunder', 2);
+    // FastBlocks merged-mined too: its node up to date (not "synchronizing") on the Staking page.
+    if (extra.includes('fastblocks')) await bmm('fastblocks', 2);
     const caps = await host('chain.capabilities');
     await check('a table of what each chain does', caps.find((c) => c.stem === 'layers').assets && caps.find((c) => c.stem === 'layers').staking && !caps.find((c) => c.stem === 'thunder').assets, JSON.stringify(caps.map((c) => c.stem)));
 
@@ -201,7 +203,10 @@
     // The selector open, with All and each chain.
     $('[data-global-chain]').click();
     await waitFor('the list of chains', () => $('[data-global-chain-list] [data-chain-option="thunder"]'), 10000);
-    await check('the selector: All, then each chain with its mark', $$('[data-chain-option]').map((o) => o.dataset.chainOption).join(',') === ['all', 'chains', 'layers', 'thunder', ...extra].join(','), $$('[data-chain-option]').map((o) => o.dataset.chainOption).join(','));
+    // In the order of the app's catalog.
+    const CATALOG = ['layers', 'fastblocks', 'thunder', 'bitnames', 'bitassets', 'zside', 'hivemind'];
+    const inOrder = ['layers', 'thunder', ...extra].sort((a, b) => CATALOG.indexOf(a) - CATALOG.indexOf(b));
+    await check('the selector: All, then each chain with its mark', $$('[data-chain-option]').map((o) => o.dataset.chainOption).join(',') === ['all', 'chains', ...inOrder].join(','), $$('[data-chain-option]').map((o) => o.dataset.chainOption).join(','));
     await shot('ux-topbar-all');
     $('[data-chain-option="layers"]').click();
     await waitFor('Home follows the selection: Layers\' own cards', () => !$('[data-chain-card="thunder"]') && $('[data-sidechain-cards="layers"]') && !$('[data-chain-card="chains"]'), 20000);
@@ -211,9 +216,10 @@
     await shot('ux-topbar-layers');
     go('overview');
     await waitFor('Overview with Layers only: its balances, no other chain', () => $('[data-side-balances="layers"]') && !$('[data-chain-card="thunder"]') && !$('[data-chain-card="chains"]'), 30000);
-    // Ctrl+] goes on to the next chain (Thunder), then All after the last.
+    // Ctrl+] goes on to the next chain (Thunder, or FastBlocks when it is on), then All after the last.
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', ctrlKey: true, bubbles: true }));
-    await waitFor('Ctrl+] to Thunder', () => T().prefs.chain === 'thunder', 5000);
+    const after = inOrder[inOrder.indexOf('layers') + 1];
+    await waitFor(`Ctrl+] to ${after}`, () => T().prefs.chain === after, 5000);
     await selectChain('all');
     await waitFor('every chain on Overview', () => $('[data-chains-overview="overview"] [data-chain-card="thunder"]'), 30000);
     await waitFor('every chain\'s latest blocks on Overview, one table', () => $('[data-many-blocks="blocks"] [data-block-row="layers"]') && $('[data-many-blocks="blocks"] [data-block-row="thunder"]') && $('[data-many-blocks="blocks"] [data-block-row="chains"]'), 30000);
@@ -380,15 +386,46 @@
     await waitFor('the withdrawal on its way', () => $('[data-sidechain-status] [data-on-their-way="withdrawal"]'), 60000);
     await shot('integrated-sidechains');
 
-    // 8. Staking: Layers' validator.
+    // 8. Staking (user, 2026-10-21): Layers' whole staking page, its own, under the app's title; beside the title a tab
+    // for each chain that stakes (Layers only here: Thunder does not).
     go('staking');
-    await waitFor('the staking of Layers', () => $('[data-staking-chain="layers"] [data-staking-keys="layers"] [data-node-key]'), 30000);
-    await check('Staking shows the validator key of Layers\' node', $('[data-staking-chain="layers"]').textContent.includes('Validator'));
-    await check('Staking only for the chains that stake', !$('[data-staking-chain="thunder"]'));
+    await waitFor('the staking page of Layers inside the app\'s', () => $('[data-staking-chain="layers"] [data-module-embed="layers"]') && $('iframe.module-frame.embedded[data-stem="layers"]:not([hidden])'), 60000);
+    await check('Staking: Layers\' own staking page (bond, unbond, its validator) laid in the page, without its own title', T().modules.embed && T().modules.embed.stem === 'layers' && T().modules.embed.page === 'staking' && T().modules.embed.headless === true, JSON.stringify(T().modules.embed));
+    await check('Staking: a tab beside the title for each chain that stakes, Layers\' shown', $('.page-head [data-staking-tab="layers"]') && $('[data-staking-tab="layers"]').getAttribute('aria-selected') === 'true' && !$('[data-staking-tab="thunder"]'));
+    await sleep(3000);
     await shot('integrated-staking');
+    if (extra.includes('fastblocks')) {
+      // Two chains that stake: a tab for each beside the title with All; the other one's own page at a click; the last
+      // one remembered; one chain selected: its tab alone.
+      await waitFor('a tab for FastBlocks too', () => $('[data-staking-tab="fastblocks"]'), 20000);
+      await check('Staking with All: Layers and FastBlocks, each a tab', $$('[data-staking-tab]').map((b) => b.dataset.stakingTab).join(',') === 'layers,fastblocks');
+      $('[data-staking-tab="fastblocks"]').click();
+      await waitFor('FastBlocks\' own staking page', () => T().modules.embed && T().modules.embed.stem === 'fastblocks' && $('iframe.module-frame.embedded[data-stem="fastblocks"]:not([hidden])'), 60000);
+      await check('the tab remembered, the frame of Layers no longer laid over the page', T().prefs.stakingChain === 'fastblocks' && !$('iframe.module-frame.embedded[data-stem="layers"]:not([hidden])'));
+      await sleep(3000);
+      await shot('ux3-staking-fastblocks');
+      go('home');
+      await sleep(500);
+      go('staking');
+      await waitFor('FastBlocks again, as left', () => $('[data-staking-chain="fastblocks"]'), 20000);
+      await selectChain('layers');
+      await waitFor('Layers alone', () => $$('[data-staking-tab]').length === 1 && $('[data-staking-chain="layers"]'), 20000);
+      await sleep(2500);
+      await shot('ux3-staking-layers-selected');
+      T().savePrefs({ uiMode: 'simple' });
+      await sleep(3500);
+      await shot('ux3-staking-layers-simple');
+      T().savePrefs({ uiMode: 'advanced', theme: 'light' });
+      await sleep(3500);
+      await shot('ux3-staking-layers-light');
+      T().savePrefs({ theme: 'midnight' });
+      await selectChain('all');
+      $('[data-staking-tab="layers"]').click();
+      await sleep(1500);
+    }
     await selectChain('thunder');
     await waitFor('Staking with Thunder: said, not shown', () => $('[data-not-on-chain="thunder"]') && !$('[data-staking-chain]'), 20000);
-    await check('a page of what Thunder has not: its sections gone, the chains that have it a click away', !!$('[data-not-on-chain="thunder"] [data-show-chain="layers"]'));
+    await check('a page of what Thunder has not: said, the chains that stake its tabs, a click away', !!$('[data-staking-tab="layers"]') && $('[data-not-on-chain="thunder"]').textContent.includes('Thunder has no staking'));
     await shot('ux-sections-staking-thunder');
     await selectChain('all');
 
@@ -473,6 +510,56 @@
       $('[data-open-markets]').click();
       await waitFor('Hivemind\'s own Portfolio', () => T().prefs.chain === 'hivemind' && $('iframe.module-frame[data-stem="hivemind"]:not([hidden])'), 60000);
       await shot('ux2-hivemind-portfolio');
+      // Hivemind's group (user, 2026-10-21): Votecoin is the Voting center's tab; Create, Markets' tab, nested under it.
+      const route = () => T().modules.routes.hivemind || { page: '', tab: '' };
+      const hmItems = $$('[data-chain-group="hivemind"] [data-chain-item]').map((b) => b.dataset.chainItem);
+      await check('Hivemind\'s group: Markets with Create under it, Portfolio, Voting center, Decisions, Payouts; no Votecoin', JSON.stringify(hmItems) === JSON.stringify(['hivemind:markets', 'hivemind:create', 'hivemind:portfolio', 'hivemind:voting', 'hivemind:decisions', 'hivemind:payouts']), JSON.stringify(hmItems));
+      await check('Create nested under Markets', $('[data-chain-item="hivemind:create"]').classList.contains('deep') && !$('[data-chain-item="hivemind:markets"]').classList.contains('deep'));
+      $('[data-chain-item="hivemind:create"]').click();
+      await waitFor('Hivemind\'s Markets on its Create tab', () => route().page === 'markets' && route().tab.startsWith('create') && $('iframe.module-frame[data-stem="hivemind"]:not([hidden])'), 60000);
+      await check('Create current, Markets the place it is in', $('[data-chain-item="hivemind:create"]').getAttribute('aria-current') === 'page' && $('[data-chain-item="hivemind:markets"]').classList.contains('within'));
+      // The group in view in the pictures.
+      const showGroup = () => scrollTo($('[data-chain-group="hivemind"]'), $('.sidebar .scroll'));
+      showGroup();
+      await sleep(2500);
+      await shot('ux3-hivemind-markets-create');
+      T().savePrefs({ theme: 'light' });
+      await sleep(2500);
+      showGroup();
+      await shot('ux3-hivemind-markets-create-light');
+      T().savePrefs({ theme: 'midnight' });
+      $('[data-chain-item="hivemind:markets"]').click();
+      await waitFor('Hivemind\'s Markets', () => route().page === 'markets' && !route().tab.startsWith('create'), 30000);
+      await check('Markets current, Create not', $('[data-chain-item="hivemind:markets"]').getAttribute('aria-current') === 'page' && !$('[data-chain-item="hivemind:create"]').getAttribute('aria-current'));
+      await sleep(2500);
+      await shot('ux3-hivemind-markets');
+      $('[data-chain-item="hivemind:voting"]').click();
+      await waitFor('the Voting center', () => route().page === 'voting', 30000);
+      showGroup();
+      await sleep(2500);
+      await shot('ux3-hivemind-voting');
+      // The palette's "Move votecoin…" of Hivemind: the Voting center, on its Votecoin tab.
+      T().buildCommands().find((c) => c.id === 'module.hivemind.cmd.hm.transfer').run();
+      await waitFor('the Voting center\'s Votecoin tab', () => route().page === 'voting' && route().tab === 'votecoin', 30000);
+      await check('the Voting center current while its Votecoin tab shows', $('[data-chain-item="hivemind:voting"]').getAttribute('aria-current') === 'page');
+      showGroup();
+      await sleep(2500);
+      await shot('ux3-hivemind-votecoin');
+      T().savePrefs({ theme: 'light' });
+      await sleep(2500);
+      showGroup();
+      await shot('ux3-hivemind-votecoin-light');
+      // Simple mode: its Questions and My bets only (voting and creating are Advanced's).
+      T().savePrefs({ theme: 'midnight', uiMode: 'simple' });
+      await sleep(1500);
+      const simpleItems = $$('[data-chain-group="hivemind"] [data-chain-item]').map((b) => b.dataset.chainItem);
+      await check('Hivemind in Simple mode: Questions and My bets', JSON.stringify(simpleItems) === JSON.stringify(['hivemind:markets', 'hivemind:portfolio']), JSON.stringify(simpleItems));
+      $('[data-chain-item="hivemind:markets"]').click();
+      await sleep(3500);
+      showGroup();
+      await shot('ux3-hivemind-simple');
+      T().savePrefs({ uiMode: 'advanced' });
+      await sleep(800);
       go('home');
       await selectChain('all');
     } else {

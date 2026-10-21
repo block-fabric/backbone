@@ -10,8 +10,17 @@
   import { liveModules, modules, openModule, setEmbed } from '../lib/modules.svelte';
   import { hub } from '../lib/sidechains.svelte';
 
-  // bare: the page is the chain's page alone (the explorer): no border of its own.
-  let { stem, page, tab = '', name, height = '34rem', bare = false }: { stem: string; page: string; tab?: string; name: string; height?: string; bare?: boolean } = $props();
+  // bare: the page is the chain's page alone (the explorer): no border of its own. headless: under the title of the app's
+  // page (Staking): the chain's page without its own title.
+  let {
+    stem,
+    page,
+    tab = '',
+    name,
+    height = '34rem',
+    bare = false,
+    headless = false,
+  }: { stem: string; page: string; tab?: string; name: string; height?: string; bare?: boolean; headless?: boolean } = $props();
 
   let place: HTMLDivElement | undefined = $state();
   const live = $derived(liveModules().some((c) => c.stem === stem) && !!hub.list?.chains.find((c) => c.stem === stem && c.state === 'running' && c.ready));
@@ -30,7 +39,7 @@
 
   $effect(() => {
     if (!live || !place) return;
-    setEmbed({ stem, page, tab });
+    setEmbed({ stem, page, tab, headless });
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(place);

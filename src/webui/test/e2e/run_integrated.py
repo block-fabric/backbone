@@ -11,7 +11,7 @@ Layers from the Sidechains page, an asset sent on Layers from Send (the chain pi
 address refused first), Receive on each chain, Transactions of every chain, the wallets of each, Staking, Assets; the one
 chain selector of the top bar on every page (§19). With BitAssets and Hivemind in a --sidechain-bindir too, both are
 turned on as well: their groups in the sidebar, and a trade on a Hivemind market (made here with its own CLI, as its
-pages would) whose open position shows on Home. This runner merged-mines the sidechains' blocks when the page asks
+pages would) whose open position shows on Home; with FastBlocks too, the Staking page's tab of each chain that stakes. This runner merged-mines the sidechains' blocks when the page asks
 ("CHECKPOINT bmm <stem> <count>") and makes the market ("CHECKPOINT hivemind trade 0").
 
     run_integrated.py --app build_app/bin/chains-app --sidechain-bindir ~/skydoge/layers/build_rel/bin \\
@@ -40,7 +40,7 @@ from run_unified import cli  # noqa: E402
 # (its bmm reads its own table: the two more added there).
 SIDECHAINS.update({"bitassets": (4, 4), "hivemind": (9, 6)})
 REQUIRED = ("layers", "thunder")
-OPTIONAL = ("bitassets", "hivemind")
+OPTIONAL = ("bitassets", "hivemind", "fastblocks")
 
 
 def hivemind_trade(side_cli, datadir, port, bmm_one):
