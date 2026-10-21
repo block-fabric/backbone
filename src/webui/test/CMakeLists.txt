@@ -124,6 +124,28 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
             --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
         )
         set_tests_properties(webui_e2e_integrated PROPERTIES TIMEOUT 3000 RUN_SERIAL TRUE)
+        # What the app costs while nothing happens (doc/unified-app.md §20.6): Home with every chain, a wallet of 20 000
+        # records, Layers, Thunder, BitAssets and Hivemind on, software GL; fails over 5 % of one core. Needs the
+        # programs of BitAssets and Hivemind too: -DWEBUI_E2E_EXTRA_BINDIRS=<bitassets bin>;<hivemind bin>.
+        set(WEBUI_E2E_EXTRA_BINDIRS "" CACHE STRING "Folders with bitassetsd and hivemindd, for the idle cost of the app")
+        if(WEBUI_E2E_EXTRA_BINDIRS)
+          set(extra_bindirs)
+          foreach(dir IN LISTS WEBUI_E2E_EXTRA_BINDIRS)
+            list(APPEND extra_bindirs --sidechain-bindir ${dir})
+          endforeach()
+          add_test(NAME webui_e2e_idle_cost
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_showcase.py
+              --app $<TARGET_FILE:chains-app>
+              --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+              --sidechain-bindir ${WEBUI_E2E_THUNDER_BINDIR}
+              ${extra_bindirs}
+              --state ${CMAKE_CURRENT_BINARY_DIR}/e2e-showcase-state
+              --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-showcase
+              --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+              --perf --perf-seconds 60 --pages home --budget 5
+          )
+          set_tests_properties(webui_e2e_idle_cost PROPERTIES TIMEOUT 3600 RUN_SERIAL TRUE)
+        endif()
       endif()
       # The supervisor's unit tests with a real layersd wired to a real chainsd.
       set_tests_properties(webui_tests PROPERTIES ENVIRONMENT "CHAINS_TEST_SIDECHAIN_BINDIR=${WEBUI_E2E_SIDECHAIN_BINDIR}")

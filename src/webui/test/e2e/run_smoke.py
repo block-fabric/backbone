@@ -43,13 +43,14 @@ class App:
     #: this, the app is stuck, and is stopped with the last thing the page said.
     QUIET = 300
 
-    def __init__(self, app, args, env, log_path):
+    def __init__(self, app, args, env, log_path, screen="1400x900", virtual=True):
         self.lines = []
         self.events = {}
         self.last = "nothing yet (the page script did not start)"
         self.last_time = time.time()
         self.log = open(log_path, "w", encoding="utf-8")
-        cmd = ["xvfb-run", "-a", "-s", "-screen 0 1400x900x24", str(app)] + args
+        # virtual=False: on the desktop the user has (as the hub runs it), not a virtual display.
+        cmd = (["xvfb-run", "-a", "-s", f"-screen 0 {screen}x24"] if virtual else []) + [str(app)] + args
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, bufsize=1, start_new_session=True)
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()

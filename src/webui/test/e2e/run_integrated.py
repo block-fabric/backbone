@@ -115,9 +115,20 @@ def main():
             if message is None:
                 break
             app.events.pop("CHECKPOINT", None)
-            _, what, stem, count = message.split()
+            parts = message.split()
+            what, stem = parts[1], parts[2]
+            count = parts[3] if len(parts) > 3 else "0"
             try:
-                if what == "bmm":
+                if what == "vin":
+                    # The inputs of a sidechain's transaction are exactly the coins named (coin control, §20.7).
+                    txid, wanted = parts[3], set(parts[4].split(","))
+                    side = [f"-datadir={datadir}/sidechains/{stem}/data", "-regtest", f"-rpcport={ports[stem]}", "-rpcwallet=main"]
+                    vin = {f"{i['txid']}:{i['vout']}" for i in cli(programs[stem], side + ["gettransaction", txid, "true", "true"])["decoded"]["vin"]}
+                    if vin != wanted:
+                        failures.append(f"the inputs of {txid} on {stem}: {sorted(vin)}, not the coins chosen {sorted(wanted)}")
+                    else:
+                        print(f"  {stem} {txid[:16]}: paid with exactly the coins chosen", flush=True)
+                elif what == "bmm":
                     bmm(chains_cli, programs[stem], datadir, rpc_port, stem, ports[stem], int(count))
                 elif what == "hivemind" and stem == "trade":
                     one = lambda: bmm(chains_cli, programs["hivemind"], datadir, rpc_port, "hivemind", ports["hivemind"], 1)  # noqa: E731
