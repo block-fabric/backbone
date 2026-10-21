@@ -93,10 +93,14 @@ const std::vector<ChainAdapter::Capabilities>& ChainAdapter::Table()
     // One row per sidechain of the catalog (supervisor.cpp). What a chain does is written here, with its own pages the
     // host shows inside its own where it has no view of its own for them (the module's frame).
     static const std::vector<Capabilities> table{
-        {.stem = "layers", .assets = true, .dex = true, .staking = true, .embed = {"trade", "auctions", "staking", "assets", "my-assets", "issue"}},
+        {.stem = "layers", .assets = true, .dex = true, .staking = true, .embed = {"trade", "auctions", "staking", "assets", "my-assets", "issue"},
+         // Layers' DEX (its doc/layers.md "The DEX"): routes of up to four pools cleared in batches, each pool's price
+         // averaged over time; pool kinds when its node says they apply (dex-curves).
+         .dex_features = {.route = true, .twap = true, .curves = true}},
         {.stem = "fastblocks", .staking = true, .embed = {"staking"}},
         {.stem = "thunder", .embed = {}},
         {.stem = "bitnames", .names = true, .embed = {"names", "register", "directory"}},
+        // BitAssets: pools of two assets, constant product at 0.30 %, a swap in one pool.
         {.stem = "bitassets", .assets = true, .dex = true, .embed = {"trade", "auctions", "assets", "my-assets", "issue"}},
         {.stem = "zside", .shielded = true, .embed = {"private", "zhistory"}},
         {.stem = "hivemind", .markets = true, .embed = {"markets", "votecoin", "decisions", "portfolio"}},
@@ -131,6 +135,17 @@ UniValue ChainAdapter::CapabilitiesJson(const Capabilities& caps)
     UniValue embed{UniValue::VARR};
     for (const std::string& e : caps.embed) embed.push_back(e);
     out.pushKV("embed", std::move(embed));
+    if (caps.dex) {
+        UniValue dex{UniValue::VOBJ};
+        dex.pushKV("pair", true);
+        dex.pushKV("liquidity", true);
+        dex.pushKV("route", caps.dex_features.route);
+        dex.pushKV("twap", caps.dex_features.twap);
+        dex.pushKV("curves", caps.dex_features.curves);
+        dex.pushKV("orders", caps.dex_features.orders);
+        dex.pushKV("stats", caps.dex_features.stats);
+        out.pushKV("dexFeatures", std::move(dex));
+    }
     return out;
 }
 

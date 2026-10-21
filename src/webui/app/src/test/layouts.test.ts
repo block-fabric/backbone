@@ -150,8 +150,9 @@ describe('the commands', () => {
     const all = buildCommands();
     // A sidechain the app runs is reached from the chain switcher, which says which one (doc/unified-app.md).
     const pages = (Object.keys(PAGES) as PageId[]).filter((p) => p !== 'kit' && p !== 'home' && p !== 'sidechain' && !PAGES[p].tabOf);
-    // What sidechains add (Staking, Assets, Names, Markets) is reached while a chain that has it is on (chains.test.ts).
-    const chainPages = new Set<PageId>(['staking', 'assets', 'names', 'markets']);
+    // What sidechains add (Staking, Assets, Names, Markets, Trade) is reached while a chain that has it is on (chains.test.ts,
+    // dex.test.ts).
+    const chainPages = new Set<PageId>(['staking', 'assets', 'names', 'markets', 'trade']);
     for (const p of pages) {
       if (!chainPages.has(p)) expect(all.some((c) => c.id === `page.${p}`), p).toBe(true);
       expect(AREAS.some((a) => a.tabs.some((t) => t.page === p)), `workspace: ${p}`).toBe(true);

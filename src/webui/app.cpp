@@ -1896,6 +1896,11 @@ void App::StartSidechains()
         if (!p) throw HostError(BRIDGE_NOT_READY, "The app is stopping");
         return p->Call(stem, request);
     };
+    adapter_hooks.call_rows = [weak = std::weak_ptr<SidechainPages>{pages}](const std::string& stem, const UniValue& request, const UniValue& rows) {
+        const auto p{weak.lock()};
+        if (!p) throw HostError(BRIDGE_NOT_READY, "The app is stopping");
+        return p->Call(stem, request, rows);
+    };
     adapter_hooks.running = [supervisor](const std::string& stem) {
         const auto status{supervisor->GetStatus(stem)};
         return status.state == SidechainSupervisor::State::RUNNING && status.rpc_ready;
@@ -2205,6 +2210,16 @@ void App::RegisterSidechainMethods(Bridge& b)
              {"chain.positions", &ChainAdapter::Positions, Bridge::Thread::WORKER},
              {"chain.activity", &ChainAdapter::Activity, Bridge::Thread::WORKER},
              {"chain.assetLogo", &ChainAdapter::AssetLogo, Bridge::Thread::WORKER},
+             // The DEX of each chain that has one (doc/unified-app.md §22): reads, then its spends through the trusted dialog.
+             {"chain.dex.info", &ChainAdapter::DexInfo, Bridge::Thread::WORKER},
+             {"chain.dex.pools", &ChainAdapter::DexPools, Bridge::Thread::WORKER},
+             {"chain.dex.quote", &ChainAdapter::DexQuote, Bridge::Thread::WORKER},
+             {"chain.dex.chart", &ChainAdapter::DexChart, Bridge::Thread::WORKER},
+             {"chain.dex.positions", &ChainAdapter::DexPositions, Bridge::Thread::WORKER},
+             {"chain.dex.swap", &ChainAdapter::DexSwap, Bridge::Thread::LONG},
+             {"chain.dex.addLiquidity", &ChainAdapter::DexAddLiquidity, Bridge::Thread::LONG},
+             {"chain.dex.removeLiquidity", &ChainAdapter::DexRemoveLiquidity, Bridge::Thread::LONG},
+             {"chain.dex.createPool", &ChainAdapter::DexCreatePool, Bridge::Thread::LONG},
          }) {
         b.RegisterHost(name, guarded([this, fn](const UniValue& params) { return ((*Adapter()).*fn)(params); }), thread);
     }

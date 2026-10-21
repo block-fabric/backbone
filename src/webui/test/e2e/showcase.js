@@ -165,6 +165,9 @@
     ['wallets', ''],
     ['sidechains', ''],
     ['staking', ''],
+    // The DEX of the chains that have one (doc/unified-app.md §22): Swap, and every pool.
+    ['trade', ''],
+    ['trade', 'pools'],
     ['explorer', ''],
     ['settings', ''],
     ...(HUB ? [['hivemind:markets', ''], ['hivemind:voting', ''], ['bitassets:assets', ''], ['layers:my-assets', '']] : []),
@@ -287,7 +290,8 @@
       await sleep(8000);
       dismissToasts();
       await sleep(2000);
-      await measured('idle', page, page === 'home' ? seconds : short);
+      // A page measured on two of its tabs (Trade: Swap and Pools) is named by both.
+      await measured('idle', tab ? `${page}:${tab}` : page, page === 'home' ? seconds : short);
     }
     // What one change of the page costs (S.tickTest): a word of the status bar changed once a second on a page left
     // alone, the rest still: the cost of a frame of this window, its size and its way of drawing.

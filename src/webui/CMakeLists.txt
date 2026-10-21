@@ -84,6 +84,7 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   rpcpolicy.cpp
   confirm.cpp
   chainadapter.cpp
+  chaindex.cpp
   console.cpp
   dialog.cpp
   guard.cpp

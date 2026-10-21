@@ -20,6 +20,7 @@
   import Assets from '../pages/Assets.svelte';
   import Names from '../pages/Names.svelte';
   import Markets from '../pages/Markets.svelte';
+  import Trade from '../pages/Trade.svelte';
   import { nav, PAGES } from '../lib/nav.svelte';
   import { wallets, walletsEnabled } from '../lib/state.svelte';
 
@@ -60,6 +61,8 @@
     <Markets />
   {:else if (page.wallet && noWallet) || (!walletsOn && nav.page === 'wallets')}
     <NoWallet {page} />
+  {:else if nav.page === 'trade'}
+    <Trade />
   {:else if nav.page === 'send'}
     <Send />
   {:else if nav.page === 'receive'}

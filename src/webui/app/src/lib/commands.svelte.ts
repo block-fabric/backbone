@@ -76,6 +76,8 @@ export function pageAvailable(id: PageId): boolean {
   // stake when the one selected does not); the others while the selection has one.
   const needs = CHAIN_PAGES[id];
   if (needs === 'staking') return chainsWith('staking').length > 0;
+  // Trade stays while a chain with a DEX is on, whatever the selection (its page says which chains have one).
+  if (id === 'trade') return chainsWith('dex').length > 0;
   if (needs) return selectedWith(needs).length > 0;
   return true;
 }

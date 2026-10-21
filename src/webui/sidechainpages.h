@@ -79,6 +79,11 @@ public:
 
     /** pack.call: one request of the pages of a sidechain {kind: "rpc"|"host", method, params, wallet?}. Throws HostError. */
     UniValue Call(const std::string& stem, const UniValue& request) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /**
+     * The same for the app's own pages (chain.*: never a pack's), with rows of the app's own shown in the question after
+     * the chain's name ({label, value, kind}: what the app checked, as a swap's route quoted again).
+     */
+    UniValue Call(const std::string& stem, const UniValue& request, const UniValue& app_rows) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /** pack.info: whether its pack is built in, and whether its daemon speaks the same (else: shown read-only, "update needed"). */
     UniValue Info(const std::string& stem) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /** The packs built in (/packs/index.json): [{stem, name, hostApi, commit, brand}]. */
@@ -86,7 +91,7 @@ public:
     /** The mark of a sidechain for the dialogs: its pack's icon as a data: URL ("" without one). */
     static std::string Logo(const std::string& stem);
     /** A question of a daemon (remotehost.h DialogJson) as the app's dialog asks it; the chain and its mark added. */
-    static Window::ConfirmDialog Question(const UniValue& description, const std::string& chain, const std::string& network, const std::string& logo);
+    static Window::ConfirmDialog Question(const UniValue& description, const std::string& chain, const std::string& network, const std::string& logo, const UniValue& app_rows = NullUniValue);
     /** Stop following the daemons (the app stops). */
     void Stop() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
@@ -94,7 +99,7 @@ public:
     static constexpr int MAX_TRIES{3};
 
 private:
-    UniValue Daemon(const std::string& stem, const UniValue& request) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    UniValue Daemon(const std::string& stem, const UniValue& request, const UniValue& app_rows = NullUniValue) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     UniValue Local(const std::string& stem, const std::string& method, const UniValue& params) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     UniValue Overlay(UniValue info) const;
     //! Tokens of the files the user chose for this sidechain that the request names (fresh ones: each is used once).

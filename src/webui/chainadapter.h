@@ -48,6 +48,23 @@ public:
         bool shielded{false};
         //! Its pages the host shows inside its own (in the module's frame) where no host view is reasonable.
         std::vector<std::string> embed;
+        /**
+         * What its DEX does, for the app's Trade page (doc/unified-app.md §22): only with `dex`. Every DEX quotes a pair,
+         * swaps in a pool, adds and removes liquidity of constant-product pools at 0.30 %, and lists its pools and the
+         * wallet's shares; beyond that:
+         */
+        struct Dex {
+            //! Routes through several pools (quoteroute, swaproute: Layers' DEX).
+            bool route{false};
+            //! Time-weighted average prices of a pool (getpooltwap): the pool's chart.
+            bool twap{false};
+            //! Pool kinds (curves, fee tiers, amplification, weights): offered when its node says they apply.
+            bool curves{false};
+            //! Limit orders and an order book (phase B): none yet.
+            bool orders{false};
+            //! 24-hour prices and volumes of every pair (phase C): none yet.
+            bool stats{false};
+        } dex_features{};
     };
     static const std::vector<Capabilities>& Table();
     static const Capabilities* Find(std::string_view stem);
@@ -103,6 +120,9 @@ public:
         std::function<UniValue(const std::string& stem, const std::string& method, const UniValue& params, const std::string& wallet)> rpc;
         //! A request of the chain's host over RPC, its questions asked in the trusted dialog (SidechainPages::Call). Throws HostError.
         std::function<UniValue(const std::string& stem, const UniValue& request)> call;
+        //! The same, with rows of the app's own shown in the dialog after the chain's name (what the app checked: a
+        //! swap's route quoted again). Unset: `call` (the rows are not shown).
+        std::function<UniValue(const std::string& stem, const UniValue& request, const UniValue& app_rows)> call_rows;
         //! Its node runs and answers.
         std::function<bool(const std::string& stem)> running;
         //! Its name (the catalog), and the name of this app's own chain and coin.
@@ -167,6 +187,47 @@ public:
     //! A logo as a page may show it: a data: URL of PNG or JPEG in base64, bounded; anything else is not one.
     static bool IsLogoUrl(const std::string& url);
 
+    // ---- The DEX (doc/unified-app.md §22): reads of the chain's own pages' policy, spends built here ----
+
+    //! The id of an asset as the app names it: 64 lower-case hex digits, the coin of the chain all zeros. "" when not one.
+    static std::string AssetIdOf(const UniValue& value);
+    //! Whether an id is the chain's own coin (all zeros).
+    static bool IsCoinId(const std::string& id);
+    //! A pool of a node's listpools as a page shows it, checked and bounded (null when not one): {pool, a, b, reserveA,
+    //! reserveB, price, shares, volumeA, volumeB, swaps, created, abandoned, curve, fee, amp, weightA, legacy}. A pool
+    //! whose node says no kind is a constant-product pool at 0.30 %.
+    static UniValue PoolRow(const UniValue& node_row);
+    //! The slippage as the RPCs take it, from basis points (1 to 5000): "0.5" for 50.
+    static std::string SlippageText(int bps);
+    //! The least to receive: `units` less `bps` basis points, rounded down, never below 1.
+    static int64_t LessSlippage(int64_t units, int bps);
+    //! A pool kind as the wizard gives it: why it is not one (fee tiers, amplification, weights), "" when it is.
+    static std::string WhyNotPoolKind(const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a);
+    //! The requests of the DEX (the same as the chain's own pages would make): assets by "0x" and their hash.
+    static UniValue SwapRequest(const std::string& wallet, const std::vector<std::string>& path, const std::string& amount, int slippage_bps, const std::string& min_out);
+    static UniValue AddLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps, std::optional<bool> sets_price);
+    static UniValue RemoveLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& b, const std::string& percent, int slippage_bps);
+    static UniValue CreatePoolRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a, int slippage_bps);
+
+    /** chain.dex.info {stem} → {stem, features, active, maxHops, curvesActive, feeTiers, curves, amp, weights}. */
+    UniValue DexInfo(const UniValue& params) const;
+    /** chain.dex.pools {stem, asset?} → {stem, height, blockSeconds, pools: [PoolRow]} (at most 200). */
+    UniValue DexPools(const UniValue& params) const;
+    /** chain.dex.quote {stem, in, out, amount, maxHops?} → {amountIn, amountOut, routes: [{path, labels, amountOut, hops}], priceImpact, ...}. */
+    UniValue DexQuote(const UniValue& params) const;
+    /** chain.dex.chart {stem, pool} → {points: [{t, price}], spot, assetA, assetB} from its time-weighted averages (24 at most). */
+    UniValue DexChart(const UniValue& params) const;
+    /** chain.dex.positions {stem, wallet?} → {positions: [{pool, a, b, shares, percent, valueA, valueB}]}: the wallet's shares. */
+    UniValue DexPositions(const UniValue& params) const;
+    /** chain.dex.swap {stem, wallet?, in, out, amount, path, slippage (bps), minOut}: quoted again here, the route checked, then the chain's question. */
+    UniValue DexSwap(const UniValue& params) const;
+    /** chain.dex.addLiquidity {stem, wallet?, a, b, amountA, amountB?, slippage?, setsPrice?}. */
+    UniValue DexAddLiquidity(const UniValue& params) const;
+    /** chain.dex.removeLiquidity {stem, wallet?, pool, percent, slippage?}: only shares the wallet holds. */
+    UniValue DexRemoveLiquidity(const UniValue& params) const;
+    /** chain.dex.createPool {stem, wallet?, a, b, amountA, amountB, curve, fee, amp?, weightA?}. */
+    UniValue DexCreatePool(const UniValue& params) const;
+
     //! The error a wrong address is refused with (RPC_INVALID_ADDRESS_OR_KEY).
     static constexpr int WRONG_ADDRESS{-5};
 
@@ -175,6 +236,16 @@ private:
     std::string Wallet(const std::string& stem, const UniValue& params) const;
     //! A read of the chain's own pages' policy, through its host over RPC: never a question.
     UniValue PageRead(const std::string& stem, const std::string& method, const UniValue& params, const std::string& wallet) const;
+    //! A call with the app's own rows in its question (call_rows), else `call`.
+    UniValue CallWithRows(const std::string& stem, const UniValue& request, const UniValue& rows) const;
+    //! The DEX of a chain: its capabilities (refused without one).
+    const Capabilities& DexCaps(const UniValue& params, std::string& stem) const;
+    //! An asset of a chain by its id: {label, decimals} (the coin: its ticker, 8). Throws HostError when it has none such.
+    std::pair<std::string, int> AssetOn(const std::string& stem, const std::string& id) const;
+    //! What the wallet holds of an asset (or the coin), in units of its decimals.
+    int64_t HeldUnits(const std::string& stem, const std::string& wallet, const std::string& id, int decimals) const;
+    //! The pools of an asset (listpools by it), as PoolRows.
+    UniValue PoolsOf(const std::string& stem, const std::string& id) const;
     //! The checks of an address against the chain it is sent on and every other chain this app runs.
     UniValue CheckAddress(const std::string& stem, const std::string& address, bool shielded) const;
 

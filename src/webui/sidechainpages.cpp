@@ -143,7 +143,7 @@ std::string SidechainPages::Logo(const std::string& stem)
     return dialog::IsImageDataUrl(url) ? url : std::string{};
 }
 
-Window::ConfirmDialog SidechainPages::Question(const UniValue& d, const std::string& chain, const std::string& network, const std::string& logo)
+Window::ConfirmDialog SidechainPages::Question(const UniValue& d, const std::string& chain, const std::string& network, const std::string& logo, const UniValue& app_rows)
 {
     Window::ConfirmDialog dialog;
     dialog.title = Str(d, "title");
@@ -157,6 +157,11 @@ Window::ConfirmDialog SidechainPages::Question(const UniValue& d, const std::str
     dialog.error = Str(d, "error");
     // The chain, in the app's words, first: where it happens, before what (the dialog shows it above the title too).
     dialog.rows.push_back({"Chain", chain, dialog::Row::Kind::TEXT});
+    // What the app itself checked (its own pages' spends, never a daemon's words), before the chain's own rows.
+    for (size_t i{0}; app_rows.isArray() && i < app_rows.size() && i < 16; ++i) {
+        const UniValue& r{app_rows[i]};
+        if (r.isObject()) dialog.rows.push_back({Str(r, "label"), Str(r, "value"), RowKind(Str(r, "kind"))});
+    }
     if (const UniValue& rows{Param(d, "rows")}; rows.isArray()) {
         for (const UniValue& r : rows.getValues()) {
             if (!r.isObject()) continue;
@@ -172,6 +177,11 @@ Window::ConfirmDialog SidechainPages::Question(const UniValue& d, const std::str
 
 UniValue SidechainPages::Call(const std::string& stem, const UniValue& request)
 {
+    return Call(stem, request, NullUniValue);
+}
+
+UniValue SidechainPages::Call(const std::string& stem, const UniValue& request, const UniValue& app_rows)
+{
     if (!request.isObject()) throw HostError(BRIDGE_INVALID_REQUEST, "request: {kind, method, params, wallet?}");
     const std::string kind{Str(request, "kind")};
     const std::string method{Str(request, "method")};
@@ -186,7 +196,7 @@ UniValue SidechainPages::Call(const std::string& stem, const UniValue& request)
     clean.pushKV("params", params.isNull() ? UniValue{kind == "rpc" ? UniValue::VARR : UniValue::VOBJ} : params);
     if (Param(request, "wallet").isStr()) clean.pushKV("wallet", Param(request, "wallet").get_str());
     Follow(stem);
-    if (kind == "rpc") return Daemon(stem, clean);
+    if (kind == "rpc") return Daemon(stem, clean, app_rows);
     switch (RouteOf(method)) {
     case Route::REFUSE:
         throw HostError(BRIDGE_METHOD_NOT_FOUND, strprintf("%s is not offered to the pages of a sidechain in the %s app", method, CLIENT_NAME));
@@ -195,7 +205,7 @@ UniValue SidechainPages::Call(const std::string& stem, const UniValue& request)
     case Route::HUB:
         return m_hooks.hub(method, clean.find_value("params"));
     case Route::DAEMON:
-        return Daemon(stem, clean);
+        return Daemon(stem, clean, app_rows);
     }
     return UniValue{};
 }
@@ -228,7 +238,7 @@ UniValue SidechainPages::FileTokens(const std::string& stem, const UniValue& req
     return tokens;
 }
 
-UniValue SidechainPages::Daemon(const std::string& stem, const UniValue& request)
+UniValue SidechainPages::Daemon(const std::string& stem, const UniValue& request, const UniValue& app_rows)
 {
     if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
     const auto call{[&](const std::string& token, std::string passphrase) {
@@ -265,7 +275,7 @@ UniValue SidechainPages::Daemon(const std::string& stem, const UniValue& request
         const UniValue& description{answer.find_value("confirm")};
         const std::string token{Str(description, "token")};
         if (token.size() != 64 || !IsHex(token)) throw HostError(strprintf("The %s node asked a question without its token", name));
-        Window::ConfirmDialog dialog{Question(description, name, network, Logo(stem))};
+        Window::ConfirmDialog dialog{Question(description, name, network, Logo(stem), app_rows)};
         if (!error.empty()) dialog.error = error;
         dialog::Answer said{m_hooks.ask(dialog)};
         if (!said.accepted) throw HostError(BRIDGE_CANCELLED, strprintf("%s: declined.", dialog.title));

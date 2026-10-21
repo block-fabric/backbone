@@ -100,6 +100,16 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
           --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
       )
       set_tests_properties(webui_e2e_unified PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+      # The Trade page (doc/unified-app.md §22): Layers with its DEX's rules (a layersd whose pages' policy reads its DEX:
+      # branch unified-dex of layers): pools made, a swap through two pools asked with its route, liquidity in and out.
+      add_test(NAME webui_e2e_dex
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_dex.py
+          --app $<TARGET_FILE:chains-app>
+          --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+          --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-dex
+          --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+      )
+      set_tests_properties(webui_e2e_dex PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
       # The pages of the sidechains in the app (doc/unified-app.md §13): Layers and Thunder, their spends through the
       # trusted dialog. Needs thunderd too: -DWEBUI_E2E_THUNDER_BINDIR=<thunder build>/bin.
       set(WEBUI_E2E_THUNDER_BINDIR "" CACHE PATH "Folder with thunderd, for the end-to-end test of the pages of the sidechains")

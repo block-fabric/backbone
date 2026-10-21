@@ -131,6 +131,8 @@ export const prefs = $state({
   chainGroupsFolded: [] as string[],
   /** The chain whose staking the Staking page showed last (its tab, pages/Staking.svelte); '' for the first. */
   stakingChain: '',
+  /** The slippage of the Trade page's swaps, in basis points (1 to 5000; 50: 0.5 %). */
+  dexSlippage: 50,
   /** Every page of each sidechain in its group of the sidebar (Settings → Interface; for debugging, off by default). */
   sidebarAllPages: false,
   loaded: false,
@@ -387,6 +389,7 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (raw.chainWallets !== undefined) prefs.chainWallets = cleanChainViews(raw.chainWallets, WALLET_NAME);
   if (raw.chain !== undefined) prefs.chain = cleanChainId(raw.chain);
   if (raw.chainGroupsFolded !== undefined) prefs.chainGroupsFolded = cleanChainGroups(raw.chainGroupsFolded);
+  if (typeof raw.dexSlippage === 'number' && Number.isInteger(raw.dexSlippage) && raw.dexSlippage >= 1 && raw.dexSlippage <= 5000) prefs.dexSlippage = raw.dexSlippage;
   if (raw.stakingChain !== undefined) prefs.stakingChain = cleanChainId(raw.stakingChain) === 'all' ? '' : cleanChainId(raw.stakingChain);
   prefs.loaded = true;
 }

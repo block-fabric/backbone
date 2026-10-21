@@ -80,6 +80,7 @@ export const AREAS: readonly Area[] = [
       { page: 'overview' },
       { page: 'send' },
       { page: 'receive' },
+      { page: 'trade' },
       { page: 'transactions', label: 'History' },
       { page: 'assets' },
       { page: 'wallets' },
@@ -192,7 +193,8 @@ export const CHAIN_GROUP_PAGES: readonly PageId[] = ['assets', 'staking', 'names
 
 /** The dashboard's sidebar: every page (after Home), in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
-  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets', 'advanced'] },
+  // Trade (the DEX, doc/unified-app.md §22) after Receive: an action on one chain's coins, while a chain with a DEX is on.
+  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'trade', 'transactions', 'wallets', 'advanced'] },
   // What concerns the chain before the tools: moving coins (every sidechain at once), staking (while a chain that stakes is
   // on), mining, the explorer; then one group per sidechain with what is its own (components/SidebarChainGroups.svelte,
   // doc/unified-app.md §20.1).

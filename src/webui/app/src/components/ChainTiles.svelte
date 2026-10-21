@@ -12,9 +12,10 @@
   import { balanceOf, chainEntries, chainState, refreshSummary, setSelectedChain, type ChainEntry } from '../lib/chains.svelte';
   import { wallets } from '../lib/state.svelte';
 
-  let { value, label, kind }: { value: string | null; label: string; kind: 'send' | 'receive' } = $props();
+  // only: the chains offered (Trade: those with a DEX); every chain else.
+  let { value, label, kind, only = null }: { value: string | null; label: string; kind: 'send' | 'receive' | 'trade'; only?: string[] | null } = $props();
 
-  const entries = $derived(chainEntries());
+  const entries = $derived(only ? chainEntries().filter((e) => only.includes(e.id)) : chainEntries());
   const own = $derived(wallets.current !== null ? wallets.balances[wallets.current] : undefined);
 
   $effect(() => {
@@ -39,18 +40,18 @@
   const focusable = $derived(value ?? entries.find((e) => e.host || e.running)?.id);
 </script>
 
-{#if entries.length > 1}
+{#if entries.length > 1 || (kind === 'trade' && entries.length)}
   <div class="chain-step" data-chain-tiles={kind}>
     <div class="label-row">
       <span class="label" id="chain-tiles-{kind}">{t(label)}</span>
-      {#if !value}<span class="need" data-chain-needed>{kind === 'send' ? t('Pick the chain your coins are on.') : t('Pick the chain to be paid on.')}</span>{/if}
+      {#if !value}<span class="need" data-chain-needed>{kind === 'send' ? t('Pick the chain your coins are on.') : kind === 'trade' ? t('Pick the chain to trade on: each chain has its own pools.') : t('Pick the chain to be paid on.')}</span>{/if}
     </div>
     <div class="tiles" role="radiogroup" aria-labelledby="chain-tiles-{kind}" aria-required="true">
       {#each entries as e, i (e.id)}
         {@const s = chainState.summaries[e.id]}
         {@const b = balanceOf(s)}
         {@const on = value === e.id}
-        {@const empty = kind === 'send' && (e.host ? own !== undefined && own.trusted === 0n : !!b.available && !/[1-9]/.test(b.available))}
+        {@const empty = kind !== 'receive' && (e.host ? own !== undefined && own.trusted === 0n : !!b.available && !/[1-9]/.test(b.available))}
         <button
           type="button"
           role="radio"

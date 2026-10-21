@@ -573,6 +573,11 @@ sidechain by hand, downloads from the app (phase 4).
 | 35 | **Coin control** (§20.7: `inputs` of a deposit, of a withdrawal; `chain.coins`) | Outpoints only (`txid` 64 hex, `vout` 0..2^32-1, 1–500, none twice); the host checks each is an unspent coin of the wallet that pays (Chains' `listunspent` for a deposit, the sidechain's through its pages' policy for a withdrawal) **before anything is asked**; the node checks again (own, unspent, unlocked, mature, holding coins) and adds no other coin; the trusted dialog says "Paid with only the coins you chose", what they hold and each coin with its amount | walletapi_tests `deposit_paid_with_chosen_coins`, chainadapter_tests `coin_control_only_coins_of_the_wallet`, feature_drivechain_wallet, feature_sidechain, run_integrated |
 | 36 | **Searches and decodings** (`chain.search`, `explorer.outputs`) | Reads only: a query is classified by its characters (height, 64-hex hash, address) before any call; a sidechain is read with the app's user's methods (`getblockhash`, `getblockheader`) or through its pages' policy (`getrawtransaction`, its wallet's `gettransaction`, a read that asks refused); `explorer.outputs` parses scripts the page already has (at most 500, no node read) | chainadapter_tests, run_integrated |
 | 37 | **A place given to a chain's explorer** (`search:<q>` handed to a module's frame) | The tab is checked by the app (`[A-Za-z0-9_]{1,120}` after `search:`) before it is sent to the frame, and taken once: it is not searched again on another chain | modules.test.ts, run_integrated |
+| 38 | **Host-built swaps** (§22, `chain.dex.swap`: the app's Trade page makes the request, not the chain's pages) | Built in C++ from typed fields only: assets **by their hash** (`"0x"<hash>`, the chain's coin all zeros; never a ticker that may look alike), the amount as text parsed exactly with the decimals of what is paid (no sign, exponent or float; more decimals refused, never rounded), only what the wallet holds (its coin by `getbalance`'s count, an asset by `listmyassets`), the slippage in basis points 1 to 5000, the least to receive as text exact with the decimals of what comes. Then the host **quotes again** (the chain's `quoteroute`, else `quoteswap`) and the swap goes only if the very route the user saw (its assets in order, 2 to 5, none twice, from what is paid to what comes) is one the pools offer now and gives, less the slippage, at least what the user accepted ("The price moved… Quote again" otherwise, nothing asked). The request then takes the §13 path unchanged | chainadapter_tests `dex_swap_quoted_again_its_route_checked_and_shown`, dex.test.ts, run_dex |
+| 39 | **Slippage bounds** | Enforced by the chain, not the page: the request carries `min_out` (the least the user accepted), the chain's RPC refuses to sign for less should its pools have moved since (`swapasset`, `swaproute`: "The pool moved… Quote it again"), and its rules clear an order that would give less as a refund (Layers' batch clearing: what goes in comes back). A one-pool swap keeps the chain's own bound on the price impact (`max_impact`, 10 %) | rpc_describeconfirmation_layers.py (Layers), chainadapter_tests |
+| 40 | **Route verification in the trusted dialog** | The question shows, after the chain's name and before the chain's own rows, what **the app** checked, as rows of the app's own (`SidechainPages::Call` with `app_rows`, never a daemon's words, at most 16): *Checked by Chains*, the route in words ("GOLD → CHN → SILV (2 pools)"), each pool by its pair, kind, fee tier and id, what is paid, the quote made again just now, the least received with the slippage, the price impact. Then Layers' own describer says the route again from the request itself (its assets by label **and** hash, `swaproute` "Swap through pools") with `amount_in` and `min_out`: two sources that must agree, the token bound to that request | chainadapter_tests, sidechainpages_tests, rpc_describeconfirmation_layers.py, run_dex (both routes in the dialog) |
+| 41 | **Host-built liquidity and new pools** (`chain.dex.addLiquidity`, `removeLiquidity`, `createPool`) | Assets by hash, both amounts exact with their decimals and not more than held; liquidity out only of a pool whose shares the wallet holds (its own `listmyassets`), a percentage above 0 and at most 100 with two decimals; `sets_price` said (into a pool someone provides to it is false: refused by the chain if the amounts would set its price; a new pool true); a pool's kind checked (a curve, a fee tier of four, A 1 to 10 000, a weight of twelve) and any kind but constant product at 0.30 % **only once the chain's node says its pool kinds apply** (`getdexinfo`), else refused before anything is asked | chainadapter_tests `dex_liquidity_in_and_out_and_new_pools`, dex.test.ts, run_dex |
+| 42 | **New reads of the DEX** (`chain.dex.info`, `pools`, `quote`, `chart`, `positions`) | Reads of the chain's own pages' policy only (`getdexinfo`, `listpools`, `quoteroute`, `quoteswap`, `getpooltwap`, `getasset`, `listmyassets`; Layers' policy gained the three reads of its DEX, branch `unified-dex`), an answer that asks refused, not asked; bounded (200 pools, 5 routes, 24 chart points, 8 assets' pools per quote), every field checked (ids 64 hex, amounts plain decimals, a kind one of three, a fee one of four tiers); an older node whose policy lacks `quoteroute` gets pair quotes, never a guess; packs cannot call `chain.*` (§13.5 #26). Every amount of the page through `ModuleAmount` (masked); prices of the market are not amounts of the wallet and stay shown | chainadapter_tests `dex_reads_pools_info_quote_chart_positions`, dex.test.ts |
 
 ### 13.6 Coverage per chain
 
@@ -1710,3 +1715,139 @@ numbers and their chart.
 | Staking: summaries of every chain, the bond, unbond and staking switch behind "Bond, unbond, turn on…" | The chain's whole staking page under the title, a tab beside it for each chain that stakes |
 | The explorer's main page: a table of the newest blocks of every chain and one of the waiting transactions | A strip of boxes for each chain, a block opening under the strips |
 | Transactions with every chain: a separate list of 500 rows, no search, no filters | The app's own Transactions page over every chain, a Chain column, its search, filters, sorting, CSV and details |
+
+## 22. Trade: the DEX as one page of the app (2026-10-21, branch `unified-dex`)
+
+User: "a first-class DEX page in the unified wallet, in addition to the per-chain pages", working across every chain
+with a DEX (Layers; Flush, the renamed Starbase on eCash, later; BitAssets' pools) and following the global selector.
+
+### 22.1 Where it is (proposed and done: the Wallet section)
+
+```
+Sidebar (Advanced)               Trade                   [ Swap | Pools | Positions | Orders | Markets ]
+  Home                           Trade on  [● Layers 39.80 CHN · 2 assets] [● BitAssets …]   ← tiles: chains with a DEX
+  WALLET  Overview               ┌ You pay  [100      ] (GOLD ▾) ┐ ┌ Route ───────────────────────────────┐
+          Send · Receive         │          ⇅                     │ │ GOLD → CHN → SILV                     │
+          Trade        ← here    │ You receive ≈ 490.3 (SILV ▾)   │ │ ● GOLD / CHN  Constant product 0.30 % │
+          Transactions           │ Rate · least received · impact │ │ ● CHN / SILV  Constant product 0.30 % │
+          Manage wallets         │ Slippage [0.1][0.5][1][other]  │ │ Pools 2 · impact 0.9 % · fees 0.60 %  │
+  CHAIN   …                      │ [Swap…] You confirm next.      │ │ Other routes …                        │
+Simple: Features → Swap          └────────────────────────────────┘ └───────────────────────────────────────┘
+```
+
+- **The Wallet section, after Receive**, not a new MARKETS category: Trade acts on the user's coins on one chain as Send
+  and Receive do; a section of one entry would be a box for a lone line (§20.3), and "Markets" is already Hivemind's
+  word (its prediction markets). In the sidebar and the workspace's Wallet area only while a chain with a DEX is on (as
+  Staking); the palette has it. **Simple mode**: "Swap" in its Features (with Staking: at most three, §20.1), the page
+  is a simplified swap only.
+- Each chain's own Trade page stays (its group in the sidebar, Assets → Trade): the complete set of what its DEX does
+  (auctions, oracles); the app's page is the common part over every chain.
+
+### 22.2 What each tab shows
+
+| Tab | One chain selected | All | A chain without a DEX |
+|---|---|---|---|
+| **Swap** | its form (tiles in step with the selector) | the tiles ask which chain (each chain has its own pools) | "Thunder has no DEX", the chains that have one a click away |
+| **Pools** | its pools: pair (logos), curve, fee tier, liquidity ≈ in its coin, volume since made, APR estimate, your share; a row opens the pool's page; *Create a pool* | every chain's, a Chain column | the same |
+| **Pool page** | price (time-weighted averages, inverted at a click), what it holds, trades, fee, APR est., made in block, its id; your share; Add liquidity / Remove | (its chain) | — |
+| **Create a pool** | a wizard: pair · kind (curve, fee tier, A, weights) · amounts (they set the first price) · review | asks the chain | — |
+| **Positions** | the wallet's liquidity: pool, range ("Full range" for constant-product shares), share, worth, fees ("in what the shares are worth"), Manage, Collect (for concentrated positions, disabled) | every chain's | — |
+| **Orders** | phase B, laid out: the order book, *Place a limit order* (Buy/Sell, price, amount, good until), your open orders; nothing can be sent | — | — |
+| **Markets** | every pair: price, 24 h change and volume (phase C: a dash and a line saying so), liquidity, trades, fee; search by ticker or hash; sort by column | every chain's, a Chain column | — |
+
+- **Swap**: what is paid and what comes, each with its logo and ticker (a list of what the chain's pools trade, with the
+  wallet's balance of each, searchable); the chain's own quote a moment after typing, again every 15 s while shown; the
+  route hop by hop (each pool's kind and fee tier, what comes out of it), the price impact (the route's price against
+  the pools' prices before it, fees included; a warning from 3 %, a word from 10 %), the rate, the least received at the
+  slippage (0.1, 0.5, 1 % or typed, remembered: `prefs.dexSlippage`, checked when read back), other routes to choose.
+  More than held: still quoted (to see the price), not sent. Simple mode: the same swap, the route in one line
+  ("Through CHN"), the default slippage, no route panel.
+- **Estimates said as such**: liquidity (what a pool holds valued at the pools' prices in the chain's coin, "≈"), and the
+  APR (its volumes since made times its fee, over what it holds, scaled to a year by the chain's own pace of blocks:
+  "APR, est."; a pool younger than a day, or with no price in the coin: "–"). Amounts themselves are exact text.
+
+### 22.3 The adapter: `chain.dex.*`
+
+Capabilities (`ChainAdapter::Table()`, `dexFeatures` of `chain.capabilities`), never guessed from what a node answers;
+what applies *now* is said by the chain's node (`chain.dex.info` from its `getdexinfo`):
+
+| Chain | pair, liquidity | route | twap | curves (pool kinds) | orders (phase B) | stats (phase C) |
+|---|---|---|---|---|---|---|
+| Layers | ✓ | ✓ (from its DEX's height) | ✓ | when its node says they apply (dex-curves) | | |
+| BitAssets | ✓ | | | | | |
+| Flush (eCash, later) | — its row comes with its catalog entry on the `ecash` branch | | | | | |
+
+| `chain.dex.*` | Reads (the chain's own pages' policy) | Writes (its question in the trusted dialog) |
+|---|---|---|
+| `info` | `getdexinfo` | — |
+| `pools {asset?}` | `listpools` (200), `getblockcount` + two headers (its pace of blocks) | — |
+| `quote {in, out, amount, maxHops}` | `getasset` (decimals), `quoteroute` (≤ 5 routes), else `quoteswap`; each hop's pool from `listpools` of its asset (kind, fee, reserves: the impact) | — |
+| `chart {pool}` | `getpooltwap` over 24 windows ending now: the average of each of 24 equal parts of what the pool keeps | — |
+| `positions` | `listmyassets` `liquidity` | — |
+| `swap {in, out, amount, path, slippage, minOut}` | the checks of §13.5 #38, `quote` again | `swapasset [in, amount, out, slippage, null, min_out]` (one pool) or `swaproute [path, amount, slippage, min_out]` |
+| `addLiquidity {a, b, amountA, amountB?, slippage?, setsPrice?}` | held amounts, the pool's words | `addliquidity [a, amount_a, b, amount_b, slippage, sets_price]` |
+| `removeLiquidity {pool, percent}` | the wallet's shares of that pool | `removeliquidity [a, b, percent, slippage]` |
+| `createPool {a, b, amountA, amountB, curve, fee, amp?, weightA?}` | the kind checked; `getdexinfo` for any kind but constant product 0.30 % | constant product 0.30 %: `addliquidity … sets_price=true` (every chain); another kind: `createpool [a, amount_a, b, amount_b, {curve, fee, amp\|weight_a}, slippage]` |
+
+- **Layers** (branch `unified-dex` of `layers`, from `ux3`): its pages' policy reads `getdexinfo`, `quoteroute`,
+  `getpooltwap`; `swaproute` is confirmed, its question says the route in words first (each asset by label and hash),
+  then `amount_in` and `min_out` (`rpc_describeconfirmation_layers.py`). Its pack is unchanged (pinned at `ux3`).
+- **The pool kinds** (`dex-curves` of `layers`, being written): the wizard and the adapter are made to its structures
+  (`CreatePool`: curve 0/1/2 constant product, stable, weighted; fees of millionths, tiers 100/500/3000/10000;
+  amplification 1 to 10 000; weights 2…98 %), `listpools` rows read with `curve`, `fee`, `amp`, `weight_a` when present
+  (none: constant product 0.30 %), `getdexinfo`'s `curves_active` (or `pool_kinds_active`). **To align when it lands**:
+  the name and arguments of its RPC that makes a pool of a kind (`createpool` here), the fields of `listpools` and
+  `getdexinfo`, and `swappools` (a route by pool ids) for routes through pools of other kinds.
+
+### 22.4 Light (§20.6)
+
+Only the chain the tab shows, only what the tab needs, only while the window is seen (`lib/dex.svelte.ts` `poll`:
+`document.hidden` stops it, `visibilitychange` resumes): Swap its chain's pools every 20 s and a quote every 15 s while
+an amount is typed; Pools and Markets the pools of the chains shown every 20 s; Positions every 30 s; a pool's page its
+chart every minute. An answer that did not change is left in place (nothing drawn again); no per-tick recomputation (the
+estimates are derived from the pools' answer); the chart is one still SVG path. The hub-scale check measures Trade
+(Swap and Pools) among its pages: at the hub's state, window and way of drawing (virtual display, software GL), % of one
+core, the app and its web process: Trade idle 0.7, Trade → Pools idle 0.7, Trade live 5.5 (budgets 5 and 25; the other
+pages as §21.3: Home 1.1 idle, 7.7 live). Every page of the check passes.
+
+### 22.5 Security
+
+Rows #38–#42 of §13.5: host-built swaps from typed fields, quoted again and their route checked before anything is asked;
+slippage bounds enforced by the chain (min_out at signing, refunds at clearing); the route the app checked shown in the
+trusted dialog before the chain's own rows (which say it again from the request); liquidity and new pools checked the
+same way; the new reads bounded, of the chain's own policy, never asking. The §13 path is unchanged: the chain's own
+describer, the trusted dialog naming the chain first with its mark, the one-time token bound to the request.
+
+### 22.6 Tests
+
+- **Host** (`test_chains-app`, `chainadapter_tests`): `dex_capabilities_and_pure_parts` (the table, asset ids, slippage
+  text, the least received, pool kinds, pool rows), `dex_reads_pools_info_quote_chart_positions` (info with and without
+  pool kinds, pools checked, a quote's route with each pool's kind and its impact, decimals refused before the node is
+  asked, an older node: pair quotes, the chart of 24 parts, the wallet's shares, a read that asks refused),
+  `dex_swap_quoted_again_its_route_checked_and_shown` (swaproute and swapasset requests exactly, the app's rows, the price
+  moved, a route not offered, an asset twice, more than held, a slippage out of bounds, a chain of one-pool swaps),
+  `dex_liquidity_in_and_out_and_new_pools`; `sidechainpages_tests` `the_apps_own_rows_after_the_chain_before_the_daemons`
+  (after the chain's name, before the daemon's rows, at most 16; a pack's request has none).
+- **Layers** (`rpc_describeconfirmation_layers.py`, DEX from block 0): a route quoted through the pages' policy, its
+  question "Swap through pools" with the route in words and each asset by label and hash, run with its token.
+- **Pages** (vitest `dex.test.ts`, 18): exact amounts (least received, the second amount of liquidity, a share out),
+  the estimates, the index searched and sorted, where Trade is (Wallet, Simple's Swap, only with a DEX), Swap (tiles of
+  DEX chains, the quote, the route, other routes, slippage, the swap sent with exactly what was shown), more than held,
+  privacy mode, All and a chain without a DEX, only the chain shown read, Simple mode, the pools, a pool's page with its
+  chart, liquidity in and out, the wizard with and without pool kinds, positions over every chain, orders, markets.
+  `layouts.test.ts`: Trade among the pages reached while a chain has it.
+- **End to end** (`run_dex.py` + `dex.js`, Layers with its DEX from block 1): a pool made with the wizard (its question
+  "On Layers" with the app's rows), a second one, a swap GOLD → CHN → SILV through both (the route shown, asked with the
+  route the app checked and Layers' own, cleared in a block, at least what was shown received), liquidity in at the
+  pool's price and half of it out from the pool's page, positions, the market index, orders, Simple's swap. `run_startup.py`.
+- **Cost**: `run_showcase.py --scale hub` with Trade (Swap, Pools) among the pages measured.
+
+### 22.7 Open
+
+- **Pool kinds**: the RPC names of `dex-curves` (§22.3); concentrated liquidity (a range, in or out, fees to collect):
+  the Positions columns are there, the data comes with the chains.
+- **Orders** (phase B) and **24-hour figures** (phase C): laid out, wired when a chain's node offers them (`orders`,
+  `stats` features).
+- **Flush** (Starbase renamed, on eCash): its row of the table with its catalog entry on the `ecash` branch.
+- **BitAssets** is mapped (pair quotes, one-pool swaps, liquidity) and unit-tested, not driven end to end here.
+- A pool's figures follow its chain at the pace of the page's reads (20 s): just after a spend they are the block's before.

@@ -181,6 +181,39 @@ BOOST_AUTO_TEST_CASE(question_shown_then_exactly_that_call_runs)
     BOOST_CHECK_EQUAL(host[1][1].get_str(), TOKEN);
 }
 
+BOOST_AUTO_TEST_CASE(the_apps_own_rows_after_the_chain_before_the_daemons)
+{
+    // What the app checked (a swap's route quoted again, doc/unified-app.md §22): its rows after the chain's name, before
+    // the daemon's own; at most 16; the same request runs with its token.
+    Daemon d;
+    d.answers = {Confirm(), Result("t2")};
+    d.said = {Yes()};
+    SidechainPages pages{d.Hooks()};
+    UniValue rows{UniValue::VARR};
+    rows.push_back(Json(R"({"label":"Checked by Chains","value":"","kind":"heading"})"));
+    rows.push_back(Json(R"j({"label":"Route","value":"GOLD → CHN → SILV (2 pools)","kind":"text"})j"));
+    for (int i{0}; i < 20; ++i) rows.push_back(Json(R"({"label":"More","value":"x"})"));
+    const UniValue result{pages.Call("layers", SEND, rows)};
+    pages.Stop();
+    BOOST_CHECK_EQUAL(result.find_value("txid").get_str(), "t2");
+    BOOST_REQUIRE_EQUAL(d.asked.size(), 1U);
+    const auto& q{d.asked[0]};
+    BOOST_CHECK_EQUAL(q.rows[0].label, "Chain");
+    BOOST_CHECK_EQUAL(q.rows[1].label, "Checked by Chains");
+    BOOST_CHECK(q.rows[1].kind == dialog::Row::Kind::HEADING);
+    BOOST_CHECK_EQUAL(q.rows[2].value, "GOLD → CHN → SILV (2 pools)");
+    BOOST_CHECK_EQUAL(q.rows[17].label, "Wallet");
+    BOOST_CHECK_EQUAL(q.rows.size(), 1U + 16U + 3U);
+    // A pack's request has no rows of the app's: the daemon's only.
+    Daemon e;
+    e.answers = {Confirm(), Result("t3")};
+    e.said = {Yes()};
+    SidechainPages other{e.Hooks()};
+    other.Call("layers", SEND);
+    other.Stop();
+    BOOST_CHECK_EQUAL(e.asked[0].rows[1].label, "Wallet");
+}
+
 BOOST_AUTO_TEST_CASE(declined_runs_nothing)
 {
     Daemon d;

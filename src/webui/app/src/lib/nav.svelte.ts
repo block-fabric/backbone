@@ -27,6 +27,7 @@ export type PageId =
   | 'assets'
   | 'names'
   | 'markets'
+  | 'trade'
   | 'sidechain';
 
 export interface PageInfo {
@@ -84,6 +85,9 @@ export const PAGES: Record<PageId, PageInfo> = {
   assets: { id: 'assets', title: 'Assets', icon: 'coins', summary: 'The assets of every chain that has them, and their markets', simpleSummary: 'Your tokens', parity: [], wallet: false, ready: true },
   names: { id: 'names', title: 'Names', icon: 'book', summary: 'Your names on the chains that keep names', parity: [], ready: true },
   markets: { id: 'markets', title: 'Markets', icon: 'dashboard', summary: 'Prediction markets on the chains that have them', parity: [], ready: true },
+  // The DEX of every chain that has one (doc/unified-app.md §22): Swap, Pools, Positions, Orders, the market index; in
+  // Simple mode a simple Swap only. In the Wallet section: it acts on the user's coins on one chain, as Send does.
+  trade: { id: 'trade', title: 'Trade', simpleTitle: 'Swap', icon: 'swap', summary: 'Swap assets, provide liquidity to pools and follow the markets of the chains with a DEX', simpleSummary: 'Trade one asset for another', parity: [], wallet: true, ready: true },
   home: { id: 'home', title: 'Home', icon: 'home', summary: 'Live cards of the wallet, the chain, the sidechains and the node', simpleSummary: 'Your balance at a glance', parity: [], ready: true },
 };
 

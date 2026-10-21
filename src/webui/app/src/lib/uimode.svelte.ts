@@ -74,7 +74,8 @@ export const SIMPLE_END: readonly PageId[] = ['settings'];
  * own (Move coins is its); Staking while a sidechain that stakes is on (the sidechains' own pages are their groups).
  */
 export function simpleFeatures(): PageId[] {
-  return chainsWith('staking').length ? ['staking'] : [];
+  // Swap (the Trade page's simple form) while a chain with a DEX is on; Staking while one that stakes is.
+  return [...(chainsWith('dex').length ? (['trade'] as PageId[]) : []), ...(chainsWith('staking').length ? (['staking'] as PageId[]) : [])];
 }
 
 /** The pages of Simple mode's navigation, in their order. */
