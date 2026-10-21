@@ -5,12 +5,12 @@
     {
       "stem": "layers",
       "repo": "layers",
-      "commit": "09ef50a6056f99ef586ab86d42d1cac61dc682cb"
+      "commit": "f532ed16832cf96cb99b3ecddd35b98ff78601fa"
     },
     {
       "stem": "fastblocks",
       "repo": "fastblocks",
-      "commit": "5639a4a399cb4a1333d1cc66d62021bf097f9af3"
+      "commit": "09480adaad4deb202c68596a832605c3b30879a7"
     },
     {
       "stem": "thunder",
@@ -25,7 +25,7 @@
     {
       "stem": "bitassets",
       "repo": "bitassets",
-      "commit": "94822753e5d86463cfeb47997ad9b675506379e7"
+      "commit": "93657babd093d56e0840f7ae75f4a218da637f0b"
     },
     {
       "stem": "zside",
@@ -35,7 +35,7 @@
     {
       "stem": "hivemind",
       "repo": "hivemind",
-      "commit": "59360473cc3c926588d6a7dc41d2d4b817ca1e01"
+      "commit": "60986426ebc911c5c0525f713eb7be7cd7a792ed"
     }
   ]
 }
