@@ -313,6 +313,14 @@ def main():
     # Not the app's own files of the setup (its log, its script, its home): the data directory whole (LevelDB keeps its
     # recent writes in files named *.log).
     shutil.copytree(state, base, symlinks=True, ignore=lambda folder, names: [n for n in names if Path(folder) == state and n in ("setup.log", "run.log", "showcase.js", "home", "runtime")])
+    # Maximized: the size of the virtual display, as the app keeps it (a virtual display has no window manager to
+    # maximize a window).
+    if args.maximize and not args.real_display:
+        width, height = (int(x) for x in args.screen.split("x"))
+        config_file = base / "chains-app.json"
+        config = json.loads(config_file.read_text()) if config_file.exists() else {}
+        config["window"] = {"width": width, "height": height, "maximized": False}
+        config_file.write_text(json.dumps(config))
     measures = {}
     matrix = [m for m in args.shots_matrix.split(",") if m]
     app, datadir = start(base, "run", {"perf": args.perf, "perfSeconds": args.perf_seconds, "matrix": matrix, "pages": [p for p in args.pages.split(",") if p], "busy": args.busy, "maximize": args.maximize})

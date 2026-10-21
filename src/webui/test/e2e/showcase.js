@@ -118,6 +118,14 @@
     await waitFor('the wallet', () => T().wallets.current !== null, 60000);
     if (T().wallets.current !== 'demo') T().savePrefs({ lastWallet: 'demo' });
     for (const stem of SIDE) await waitFor(`${stem} running`, async () => (await chainOf(stem))?.ready, 300000);
+    // A state made hours ago has an old tip: the node would say it is catching up (its dialog over every picture). A
+    // block now (on this run's copy of the state) makes it up to date again.
+    const tipTime = (await rpc('getblockheader', [await rpc('getbestblockhash')])).time;
+    if (Date.now() / 1000 - tipTime > 1800) {
+      await rpc('generatetoaddress', [1, await rpc('getnewaddress', [], 'demo')]);
+      await waitFor('up to date', () => T().node.tip && !T().node.tip.ibd, 60000).catch(() => undefined);
+      await sleep(2000);
+    }
     T().savePrefs({ theme: 'midnight', layout: 'dashboard', chain: 'all' });
     if (S.maximize) await host('window.toggleMaximize').catch(() => undefined);
     await sleep(3000);
