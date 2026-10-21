@@ -478,8 +478,11 @@ class EcashGrpcTest(BitcoinTestFramework):
         code, message, _ = self.grpc.call(V + 'GetWithdrawalBundleProposals', {})
         assert_equal((code, message), (INVALID_ARGUMENT, 'Missing field in message `cusf.mainchain.v1.GetTwoWayPegDataRequest`: `sidechain_id`'))
         # A slot never active: the enforcer's database has no entry (pending_m6ids().get()): INTERNAL.
-        code, _, _ = self.grpc.call(V + 'GetWithdrawalBundleProposals', {'sidechain_id': u32(3)})
+        # Its text is sneed's MissingValue (the database's path, the key in hex), as the lab compared byte for byte.
+        code, message, _ = self.grpc.call(V + 'GetWithdrawalBundleProposals', {'sidechain_id': u32(3)})
         assert_equal(code, INTERNAL)
+        db_path = os.path.join(self.node.chain_path, 'blocks', 'drivechain')
+        assert_equal(message, f'Missing value from db `active_sidechain_number_to_pending_m6ids` at `{db_path}` (key: 03)')
         # The wallet: an inactive sidechain, an empty address, no value (wallet/grpc.rs:259-308).
         deposit = {'sidechain_id': u32(3), 'address': {'value': 'x'}, 'value_sats': u32(1000), 'fee_sats': u32(1000)}
         code, message, _ = self.grpc.call(W + 'CreateDepositTransaction', deposit)

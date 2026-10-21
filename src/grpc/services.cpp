@@ -1089,8 +1089,12 @@ void ServicesImpl::RegisterValidator(Server& server)
         Message resp{ctx.New("cusf.mainchain.v1.GetWithdrawalBundleProposalsResponse")};
         LOCK(::cs_main);
         const drivechain::Slot* s{ctx.Chainman().ActiveChainstate().m_scdb.GetSlot(*slot)};
-        // The enforcer's pending_m6ids().get() of a slot never active: a database error, INTERNAL.
-        if (!s) return Fail(w, {Code::INTERNAL, strprintf("Missing value from database `active_sidechain_number_to_pending_m6ids` for sidechain %u", *slot)});
+        // The enforcer's pending_m6ids().get() of a slot never active: a database error, INTERNAL, in the words of
+        // sneed's db::error::Get::MissingValue (the database's path, here our drivechain database's; the key in hex).
+        if (!s) {
+            return Fail(w, {Code::INTERNAL, strprintf("Missing value from db `active_sidechain_number_to_pending_m6ids` at `%s` (key: %02x)",
+                                                      fs::PathToString(ctx.Chainman().m_options.datadir / "blocks" / "drivechain"), *slot)});
+        }
         for (const drivechain::Bundle& b : s->bundles) {
             Message& item{resp.Add("proposals")};
             SetHex(item, "m6id", HexStr(b.hash));
