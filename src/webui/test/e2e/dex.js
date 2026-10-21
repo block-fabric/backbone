@@ -71,7 +71,7 @@
     await check('Layers\' DEX in the table: routes, prices over time', lc.dex && lc.dexFeatures && lc.dexFeatures.route && lc.dexFeatures.twap && !lc.dexFeatures.orders, JSON.stringify(lc.dexFeatures));
     const info = await host('chain.dex.info', { stem: 'layers' });
     await check('its node says the DEX\'s rules apply, routes of up to 4 pools', info.active && info.features.route && info.maxHops === 4, JSON.stringify(info));
-    await check('no pool kinds yet: constant product at 0.30 % only', !info.curvesActive && info.curves.length === 1 && info.feeTiers[0] === 3000, JSON.stringify(info));
+    await check('its pool kinds apply: three curves, four fee tiers, pools named by id', info.curvesActive && info.curves.length === 3 && info.feeTiers.length === 4 && info.features.byId, JSON.stringify(info));
 
     // Coins into Layers (Chains' own question), then two assets (Layers' own questions, as its pages make them).
     await desktop({ yes: true });
@@ -106,8 +106,13 @@
     await shot('dex-create-pool-pair');
     $('[data-pool-next]').click();
     await waitFor('the kind step', () => $('[data-create-pool="kind"]'), 10000);
-    await check('the other kinds shown, not offered, until Layers\' pool kinds apply', $('[data-curve="stable"]').disabled && $('[data-curve="weighted"]').disabled && $('[data-fee-tier="500"]').disabled && !$('[data-fee-tier="3000"]').disabled && !!$('[data-curves-off]'));
+    await check('every kind offered: three curves, four fee tiers', !$('[data-curve="stable"]').disabled && !$('[data-curve="weighted"]').disabled && !$('[data-fee-tier="500"]').disabled && !$('[data-curves-off]'));
+    $('[data-curve="stable"]').click();
+    (await waitFor('the amplification', () => $('[data-pool-amp]'), 5000));
     await shot('dex-create-pool-kind');
+    $('[data-curve="constant-product"]').click();
+    $('[data-fee-tier="3000"]').click();
+    await sleep(200);
     $('[data-pool-next]').click();
     await waitFor('the amounts step', () => $('[data-pool-amount="a"]'), 10000);
     type($('[data-pool-amount="a"]'), '10000');
@@ -121,15 +126,16 @@
     $('[data-pool-go]').click();
     await inWindow('dex-dialog-create-pool', true);
     let q = (await asked()).at(-1);
-    await check('the new pool asked "On Layers": the chain first, what the app checked, Layers\' own rows', (await asked()).length === before + 1 && q.chain === 'Layers' && q.rows[0].label === 'Chain' && q.rows.some((r) => r.label === 'Checked by Chains') && q.rows.some((r) => r.label === 'New pool' && r.value === 'constant product · 0.30 %') && q.title === 'Add liquidity', JSON.stringify(q));
+    await check('the new pool asked "On Layers": the chain first, what the app checked, Layers\' own rows', (await asked()).length === before + 1 && q.chain === 'Layers' && q.rows[0].label === 'Chain' && q.rows.some((r) => r.label === 'Checked by Chains') && q.rows.some((r) => r.label === 'New pool' && /^constant product · 0\.30 %\n[0-9a-f]{64}$/.test(r.value)) && q.title === 'Create a pool', JSON.stringify(q));
     await bmm(1);
-    // A second pool (CHN and SILV), straight through the host (the same path the wizard takes).
+    // A second pool (CHN and SILV) of another kind than the default (constant product at 1 %), straight through the host
+    // (the same path the wizard takes): a route through it can only be named by its pools' ids.
     await desktop({ yes: true });
-    await host('chain.dex.createPool', { stem: 'layers', a: silv.id, b: COIN, amountA: '50000', amountB: '20', curve: 'constant-product', fee: 3000 });
+    await host('chain.dex.createPool', { stem: 'layers', a: silv.id, b: COIN, amountA: '50000', amountB: '20', curve: 'constant-product', fee: 10000 });
     await bmm(2);
     go('trade', 'pools');
     await waitFor('both pools listed', () => $$('[data-pool-row]').length === 2, 60000);
-    await check('each pool with its curve and fee tier, its liquidity about in CHN', $$('[data-pool-row]').every((r) => r.querySelector('[data-pool-curve="constant-product"]') && /0\.30 %/.test(r.querySelector('[data-pool-fee]').textContent)) && /40\.00/.test($('[data-pools-list]').textContent), $('[data-pools-list]').textContent.slice(0, 300));
+    await check('each pool with its curve and fee tier, its liquidity about in CHN', $$('[data-pool-row]').every((r) => r.querySelector('[data-pool-curve="constant-product"]')) && $$('[data-pool-fee="3000"]').length === 1 && $$('[data-pool-fee="10000"]').length === 1 && /40\.00/.test($('[data-pools-list]').textContent), $('[data-pools-list]').textContent.slice(0, 300));
     await waitFor('the wallet\'s share of each pool', () => $$('[data-pool-row]').every((r) => /%\s*$/.test(r.lastElementChild.textContent.trim())), 60000);
     await shot('dex-pools');
 
@@ -142,7 +148,7 @@
     type($('[data-swap-amount]'), '100');
     await waitFor('the quote and its route', () => $('[data-route-hops="2"]') && $('[data-swap-least]'), 30000);
     const path = $('[data-route-path]').textContent.replace(/\s+/g, ' ');
-    await check('the route through both pools, each its kind and fee', /GOLD.*CHN.*SILV/.test(path) && $$('[data-hop-curve="constant-product"]').length === 2 && $$('[data-hop-fee="3000"]').length === 2, path);
+    await check('the route through both pools, each its kind and fee', /GOLD.*CHN.*SILV/.test(path) && $$('[data-hop-curve="constant-product"]').length === 2 && $$('[data-hop-fee="3000"]').length === 1 && $$('[data-hop-fee="10000"]').length === 1, path);
     const least = $('[data-swap-least]').textContent.replace(/[^0-9.]/g, '');
     const impact = $('[data-swap-impact]').textContent;
     await check('a price impact and the least received at 0.5 %', /%/.test(impact) && Number(least) > 0, `${impact} ${least}`);
@@ -157,8 +163,10 @@
     q = (await asked()).at(-1);
     const row = (label) => q.rows.find((r) => r.label === label)?.value ?? '';
     await check('asked "On Layers", the chain first, its mark', q.chain === 'Layers' && q.chainLogo === true && q.rows[0].label === 'Chain', JSON.stringify(q));
-    await check('the route the app checked, in words: the pools, what is paid, quoted again, the least', q.rows.some((r) => r.label === 'Checked by Chains') && row('Route') === 'GOLD → CHN → SILV (2 pools)' && /^GOLD \/ CHN · constant product · 0\.30 %/.test(row('Pool 1')) && row('You pay') === '100.00 GOLD' && row('You receive at least').startsWith(`${least} SILV`), JSON.stringify(q.rows));
-    await check('then Layers\' own question: a swap through pools, its route by label and hash, its amounts', q.title === 'Swap through pools' && q.rows.filter((r) => r.label === 'Route').length === 2 && q.rows.some((r) => r.label === 'Asset 1' && r.value.includes(gold.id)) && q.rows.some((r) => r.label === 'min_out'), JSON.stringify(q.rows));
+    await check('the route the app checked, in words: the pools, what is paid, quoted again, the least', q.rows.some((r) => r.label === 'Checked by Chains') && row('Route') === 'GOLD → CHN → SILV (2 pools)' && /^GOLD \/ CHN · constant product · 0\.30 %\n[0-9a-f]{64}$/.test(row('Pool 1')) && /^CHN \/ SILV · constant product · 1\.00 %\n[0-9a-f]{64}$/.test(row('Pool 2')) && row('You pay') === '100.00 GOLD' && row('You receive at least').startsWith(`${least} SILV`), JSON.stringify(q.rows));
+    const pool1 = row('Pool 1').split('\n')[1];
+    const pool2 = row('Pool 2').split('\n')[1];
+    await check('then Layers\' own question: by the very pools\' ids (swappools), each resolved, its amounts', q.title === 'Trade through pools' && q.rows.filter((r) => r.label === 'Pool 1' && r.value.includes(pool1.slice(0, 8))).length === 2 && q.rows.filter((r) => r.label === 'Pool 2' && r.value.includes(pool2.slice(0, 8))).length === 2 && q.rows.some((r) => r.label === 'min_out'), JSON.stringify(q.rows));
     await bmm(1);
     await waitFor('the SILV of the swap in the wallet', async () => Number((await held('SILV')).balance) >= silvBefore + Number(least), 60000);
     await check('the swap cleared in a block, at least what was shown', true);

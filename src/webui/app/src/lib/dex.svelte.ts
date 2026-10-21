@@ -23,6 +23,8 @@ export interface DexFeatures {
   route: boolean;
   twap: boolean;
   curves: boolean;
+  /** Spends name pools by their ids (with the pool kinds). */
+  byId?: boolean;
   orders: boolean;
   stats: boolean;
 }
@@ -95,6 +97,10 @@ export interface Route {
   hops: Hop[];
   priceImpact: string | null;
   fees: number;
+  /** Each hop's pool, by its id (what the swap names). */
+  pools: string[];
+  /** Every pool of the route is its pair's of the default kind. */
+  defaultPools: boolean;
 }
 
 export interface Quote {
@@ -144,9 +150,9 @@ export const dexHost = {
     request<Quote>('host', 'chain.dex.quote', { stem, in: inId, out: outId, amount, ...(maxHops ? { maxHops } : {}) }),
   chart: (stem: string, pool: string) => request<Chart>('host', 'chain.dex.chart', { stem, pool }),
   positions: (stem: string, wallet?: string) => request<{ stem: string; wallet: string; positions: Position[] }>('host', 'chain.dex.positions', s(stem, wallet)),
-  swap: (p: { stem: string; wallet?: string; in: string; out: string; amount: string; path: string[]; slippage: number; minOut: string }) =>
+  swap: (p: { stem: string; wallet?: string; in: string; out: string; amount: string; path: string[]; pools: string[]; slippage: number; minOut: string }) =>
     request<{ txid?: string; quote: string; minOut: string }>('host', 'chain.dex.swap', { ...p }),
-  addLiquidity: (p: { stem: string; wallet?: string; a: string; b: string; amountA: string; amountB?: string; slippage?: number; setsPrice?: boolean }) =>
+  addLiquidity: (p: { stem: string; wallet?: string; pool: string; a: string; b: string; amountA: string; amountB?: string; slippage?: number; setsPrice?: boolean }) =>
     request<{ txid?: string }>('host', 'chain.dex.addLiquidity', { ...p }),
   removeLiquidity: (p: { stem: string; wallet?: string; pool: string; percent: string; slippage?: number }) => request<{ txid?: string }>('host', 'chain.dex.removeLiquidity', { ...p }),
   createPool: (p: { stem: string; wallet?: string; a: string; b: string; amountA: string; amountB: string; curve: Curve; fee: number; amp?: number; weightA?: number; slippage?: number }) =>

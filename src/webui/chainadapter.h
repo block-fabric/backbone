@@ -207,7 +207,13 @@ public:
     static UniValue SwapRequest(const std::string& wallet, const std::vector<std::string>& path, const std::string& amount, int slippage_bps, const std::string& min_out);
     static UniValue AddLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps, std::optional<bool> sets_price);
     static UniValue RemoveLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& b, const std::string& percent, int slippage_bps);
-    static UniValue CreatePoolRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a, int slippage_bps);
+    static UniValue CreatePoolRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a, int slippage_bps, bool by_kind);
+    //! By the pools' ids (the chain's pool kinds): exactly the pools shown, whatever else the pair has.
+    static UniValue SwapPoolsRequest(const std::string& wallet, const std::string& asset_in, const std::vector<std::string>& pools, const std::string& amount, int slippage_bps, const std::string& min_out);
+    static UniValue AddPoolLiquidityRequest(const std::string& wallet, const std::string& pool, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps);
+    static UniValue RemovePoolLiquidityRequest(const std::string& wallet, const std::string& pool, const std::string& percent, int slippage_bps);
+    //! A fee tier in percent as the chain's createpool takes it: "0.3" for 3000 millionths.
+    static std::string FeePercentText(int64_t millionths);
 
     /** chain.dex.info {stem} → {stem, features, active, maxHops, curvesActive, feeTiers, curves, amp, weights}. */
     UniValue DexInfo(const UniValue& params) const;
@@ -244,8 +250,15 @@ private:
     std::pair<std::string, int> AssetOn(const std::string& stem, const std::string& id) const;
     //! What the wallet holds of an asset (or the coin), in units of its decimals.
     int64_t HeldUnits(const std::string& stem, const std::string& wallet, const std::string& id, int decimals) const;
-    //! The pools of an asset (listpools by it), as PoolRows.
-    UniValue PoolsOf(const std::string& stem, const std::string& id) const;
+    //! The pools of an asset (listpools by it, every page), as PoolRows, at most `most`.
+    UniValue PoolsOf(const std::string& stem, const std::string& id, size_t most = 20000) const;
+    //! A pool by its id, exactly (getpool by id, else the one row of that id among the pools of `first`), turned so that
+    //! `first` is its asset a; null when not found or not one the app shows.
+    UniValue PoolById(const std::string& stem, const std::string& pool, const std::string& first) const;
+    //! Every pool of a pair (of every kind).
+    std::vector<UniValue> PairPools(const std::string& stem, const std::string& a, const std::string& b) const;
+    //! Whether the chain's spends name pools by their ids now (its pool kinds apply).
+    bool ById(const std::string& stem) const;
     //! The checks of an address against the chain it is sent on and every other chain this app runs.
     UniValue CheckAddress(const std::string& stem, const std::string& address, bool shielded) const;
 

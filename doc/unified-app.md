@@ -578,6 +578,9 @@ sidechain by hand, downloads from the app (phase 4).
 | 40 | **Route verification in the trusted dialog** | The question shows, after the chain's name and before the chain's own rows, what **the app** checked, as rows of the app's own (`SidechainPages::Call` with `app_rows`, never a daemon's words, at most 16): *Checked by Chains*, the route in words ("GOLD → CHN → SILV (2 pools)"), each pool by its pair, kind, fee tier and id, what is paid, the quote made again just now, the least received with the slippage, the price impact. Then Layers' own describer says the route again from the request itself (its assets by label **and** hash, `swaproute` "Swap through pools") with `amount_in` and `min_out`: two sources that must agree, the token bound to that request | chainadapter_tests, sidechainpages_tests, rpc_describeconfirmation_layers.py, run_dex (both routes in the dialog) |
 | 41 | **Host-built liquidity and new pools** (`chain.dex.addLiquidity`, `removeLiquidity`, `createPool`) | Assets by hash, both amounts exact with their decimals and not more than held; liquidity out only of a pool whose shares the wallet holds (its own `listmyassets`), a percentage above 0 and at most 100 with two decimals; `sets_price` said (into a pool someone provides to it is false: refused by the chain if the amounts would set its price; a new pool true); a pool's kind checked (a curve, a fee tier of four, A 1 to 10 000, a weight of twelve) and any kind but constant product at 0.30 % **only once the chain's node says its pool kinds apply** (`getdexinfo`), else refused before anything is asked | chainadapter_tests `dex_liquidity_in_and_out_and_new_pools`, dex.test.ts, run_dex |
 | 42 | **New reads of the DEX** (`chain.dex.info`, `pools`, `quote`, `chart`, `positions`) | Reads of the chain's own pages' policy only (`getdexinfo`, `listpools`, `quoteroute`, `quoteswap`, `getpooltwap`, `getasset`, `listmyassets`; Layers' policy gained the three reads of its DEX, branch `unified-dex`), an answer that asks refused, not asked; bounded (200 pools, 5 routes, 24 chart points, 8 assets' pools per quote), every field checked (ids 64 hex, amounts plain decimals, a kind one of three, a fee one of four tiers); an older node whose policy lacks `quoteroute` gets pair quotes, never a guess; packs cannot call `chain.*` (§13.5 #26). Every amount of the page through `ModuleAmount` (masked); prices of the market are not amounts of the wallet and stay shown | chainadapter_tests `dex_reads_pools_info_quote_chart_positions`, dex.test.ts |
+| 43 | **Found by review (MEDIUM): an unknown fee tier shown as 0.30 %** (a pool whose node gave its fee in percent, or a fee of no tier, was read as the default) | The fee as the node says it, exactly: `fee_millionths`, else `fee` in percent parsed exactly; a node of before the pool kinds (no `curve`, no `fee`) is constant product at 0.30 % by its rules. A fee that is not one of the four tiers, or a kind with no fee: the pool is not shown at all, so never claimed in a question | chainadapter_tests `dex_capabilities_and_pure_parts` (0.25 %, 2500, 7, 0 refused), `dex_reads_pools_info_quote_chart_positions` |
+| 44 | **Found by review (MEDIUM): a question that names one pool while the chain acts on the pair's** (with pool kinds a pair has a pool of each kind; removeliquidity, addliquidity, swapasset and swaproute name the assets, so the pool of the default kind) | Every spend names its pools **by id** where the chain takes ids (its pool kinds apply: `getdexinfo`), and the request binds those ids: `swappools [asset, amount, [pools], slippage, min_out]`, `addpoolliquidity [pool, {asset: amount}, slippage]`, `removepoolliquidity [pool, percent, null, slippage]`, `createpool … {curve, fee, amp\|weight_a}`; Layers' own describers resolve each pool by its id in the same question. On a chain without ids, a spend goes by the assets only when what they name is the pool shown: a swap only through pools of the default kind; liquidity in or out only when the pair has one pool and the wallet shares of one; else refused before anything is asked | chainadapter_tests `dex_swap_quoted_again_its_route_checked_and_shown`, `dex_liquidity_in_and_out_and_new_pools` (a second pool of the pair: refused by assets, sent by id), rpc_describeconfirmation_layers.py (swappools), run_dex |
+| 45 | **Found by review (MEDIUM): pools found by "last match"** (the first page of a pair's pools, the last row of the pair taken) | A pool is confirmed **by its id** (`getpool <id>`, else every page of `listpools` of an asset of it, the one row of that id: two of one id, none), its assets those of the hop or of the pair asked; the client sends the ids it showed (a swap: each hop's pool; liquidity: the pool) and the route must match the chain's fresh quote in its assets **and** its pools; the question shows each pool by pair, kind, fee tier and id; a pair quote (`quoteswap`) is shown only on the pair's one pool of the default kind. A new pool: its id as the chain will make it (`previewpool`), refused when one of that kind already has providers | chainadapter_tests, sidechainpages_tests, run_dex (the dialog's pools by id, the app's and Layers') |
 
 ### 13.6 Coverage per chain
 
@@ -1784,20 +1787,20 @@ what applies *now* is said by the chain's node (`chain.dex.info` from its `getde
 | `quote {in, out, amount, maxHops}` | `getasset` (decimals), `quoteroute` (≤ 5 routes), else `quoteswap`; each hop's pool from `listpools` of its asset (kind, fee, reserves: the impact) | — |
 | `chart {pool}` | `getpooltwap` over 24 windows ending now: the average of each of 24 equal parts of what the pool keeps | — |
 | `positions` | `listmyassets` `liquidity` | — |
-| `swap {in, out, amount, path, slippage, minOut}` | the checks of §13.5 #38, `quote` again | `swapasset [in, amount, out, slippage, null, min_out]` (one pool) or `swaproute [path, amount, slippage, min_out]` |
-| `addLiquidity {a, b, amountA, amountB?, slippage?, setsPrice?}` | held amounts, the pool's words | `addliquidity [a, amount_a, b, amount_b, slippage, sets_price]` |
-| `removeLiquidity {pool, percent}` | the wallet's shares of that pool | `removeliquidity [a, b, percent, slippage]` |
-| `createPool {a, b, amountA, amountB, curve, fee, amp?, weightA?}` | the kind checked; `getdexinfo` for any kind but constant product 0.30 % | constant product 0.30 %: `addliquidity … sets_price=true` (every chain); another kind: `createpool [a, amount_a, b, amount_b, {curve, fee, amp\|weight_a}, slippage]` |
+| `swap {in, out, amount, path, pools, slippage, minOut}` | the checks of §13.5 #38, `quote` again (its assets and pools), each pool by id | by id: `swappools [in, amount, [pools], slippage, min_out]`; by assets (only pools of the default kind): `swapasset` / `swaproute` |
+| `addLiquidity {pool, a, b, amountA, amountB?, slippage?, setsPrice?}` | held amounts, the pool by its id | by id: `addpoolliquidity [pool, {a: amount, b: amount}, slippage]`; by assets (the pair's one pool): `addliquidity` |
+| `removeLiquidity {pool, percent}` | the wallet's shares of that pool, the pool by its id | by id: `removepoolliquidity [pool, percent, null, slippage]`; by assets (one pool, one position of the pair): `removeliquidity` |
+| `createPool {a, b, amountA, amountB, curve, fee, amp?, weightA?}` | the kind checked; `previewpool` (the new pool's id) | with pool kinds: `createpool [a, amount_a, b, amount_b, {curve, fee, amp\|weight_a}, slippage]`; without: constant product 0.30 % by `addliquidity … sets_price=true` |
 
-- **Layers** (branch `unified-dex` of `layers`, from `ux3`): its pages' policy reads `getdexinfo`, `quoteroute`,
-  `getpooltwap`; `swaproute` is confirmed, its question says the route in words first (each asset by label and hash),
-  then `amount_in` and `min_out` (`rpc_describeconfirmation_layers.py`). Its pack is unchanged (pinned at `ux3`).
-- **The pool kinds** (`dex-curves` of `layers`, being written): the wizard and the adapter are made to its structures
-  (`CreatePool`: curve 0/1/2 constant product, stable, weighted; fees of millionths, tiers 100/500/3000/10000;
-  amplification 1 to 10 000; weights 2…98 %), `listpools` rows read with `curve`, `fee`, `amp`, `weight_a` when present
-  (none: constant product 0.30 %), `getdexinfo`'s `curves_active` (or `pool_kinds_active`). **To align when it lands**:
-  the name and arguments of its RPC that makes a pool of a kind (`createpool` here), the fields of `listpools` and
-  `getdexinfo`, and `swappools` (a route by pool ids) for routes through pools of other kinds.
+- **Layers** (branch `unified-dex` of `layers`: `ux3`, then `dex-curves` at f951a9370f merged): its pages' policy reads
+  `getdexinfo`, `quoteroute`, `getpooltwap`, `getpool` (by id), `previewpool`; its questions resolve every asset (by id;
+  the coin as `CHN`) and every pool (by id) they show (`rpc_describeconfirmation_layers.py`: a route by its assets and by
+  its pools' ids). Its pack is unchanged (pinned at `ux3`).
+- **Pools by id** (the pool kinds of `dex-curves`): every spend names its pools by id once the chain's pool kinds apply
+  (`features.byId`): `swappools`, `addpoolliquidity`, `removepoolliquidity`, `createpool {curve, fee (percent), amp |
+  weight_a}`; before (or on BitAssets), by the assets only where they name the very pool shown (§13.5 #44). Pools are
+  read with `curve`, `fee_millionths` (else `fee` in percent), `amp`, `weight_a`, `default_kind`; one of no tier is not
+  shown (§13.5 #43). Requests name the coin `CHN`, assets `0x<hash>`.
 
 ### 22.4 Light (§20.6)
 
@@ -1844,7 +1847,7 @@ describer, the trusted dialog naming the chain first with its mark, the one-time
 
 ### 22.7 Open
 
-- **Pool kinds**: the RPC names of `dex-curves` (§22.3); concentrated liquidity (a range, in or out, fees to collect):
+- **Pool kinds**: aligned to `dex-curves` at f951a9370f (§22.3); later changes of its RPCs to follow; concentrated liquidity (a range, in or out, fees to collect):
   the Positions columns are there, the data comes with the chains.
 - **Orders** (phase B) and **24-hour figures** (phase C): laid out, wired when a chain's node offers them (`orders`,
   `stats` features).

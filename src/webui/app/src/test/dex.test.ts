@@ -271,7 +271,7 @@ describe('Swap', () => {
     expect(prefs.dexSlippage).toBe(100);
     await fireEvent.click(document.querySelector('[data-swap-go]')!);
     await waitFor(() => expect(ofMethod('chain.dex.swap').length).toBe(1));
-    expect(P(ofMethod('chain.dex.swap')[0])).toMatchObject({ stem: 'layers', in: GOLD, out: SILV, amount: '10.00', path: [GOLD, COIN_ID, SILV], slippage: 100, minOut: '12.2221' });
+    expect(P(ofMethod('chain.dex.swap')[0])).toMatchObject({ stem: 'layers', in: GOLD, out: SILV, amount: '10.00', path: [GOLD, COIN_ID, SILV], pools: [P1, P2], slippage: 100, minOut: '12.2221' });
     await waitFor(() => expect(document.querySelector('[data-swap-done]')).not.toBeNull());
   });
 
@@ -347,7 +347,7 @@ describe('Pools, a pool, liquidity, a new pool', () => {
     await waitFor(() => expect((document.querySelector('[data-liq-amount-b]') as HTMLInputElement).value).toBe('0.20000000'));
     await fireEvent.click(document.querySelector('[data-liq-add]')!);
     await waitFor(() => expect(ofMethod('chain.dex.addLiquidity').length).toBe(1));
-    expect(P(ofMethod('chain.dex.addLiquidity')[0])).toMatchObject({ stem: 'layers', a: GOLD, b: COIN_ID, amountA: '100', amountB: '0.20000000', setsPrice: false });
+    expect(P(ofMethod('chain.dex.addLiquidity')[0])).toMatchObject({ stem: 'layers', pool: P1, a: GOLD, b: COIN_ID, amountA: '100', amountB: '0.20000000', setsPrice: false });
     await fireEvent.click(document.querySelector('[data-liq-tab="remove"]')!);
     await fireEvent.click(document.querySelector('[data-liq-pct="50"]')!);
     await waitFor(() => expect(document.querySelector('[data-liquidity="remove"]')?.textContent).toContain('125.00'));

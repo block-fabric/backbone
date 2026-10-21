@@ -57,7 +57,7 @@
     try {
       const r =
         what === 'add'
-          ? await dexHost.addLiquidity({ stem, wallet: chainWallet(stem), a: pool.a.id, b: pool.b.id, amountA: amountA.trim(), amountB: amountB.trim(), setsPrice: !open })
+          ? await dexHost.addLiquidity({ stem, wallet: chainWallet(stem), pool: pool.pool, a: pool.a.id, b: pool.b.id, amountA: amountA.trim(), amountB: amountB.trim(), setsPrice: !open })
           : await dexHost.removeLiquidity({ stem, wallet: chainWallet(stem), pool: pool.pool, percent: percent.trim() });
       done = what === 'add' ? t('Liquidity added on %1.', name) : t('Liquidity taken out on %1.', name);
       toast('success', done, r.txid ? t('Transaction %1…', r.txid.slice(0, 16)) : '');

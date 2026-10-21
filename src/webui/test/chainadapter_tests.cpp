@@ -40,6 +40,7 @@ const std::string SILV(64, '5');
 const std::string COINID(64, '0');
 const std::string POOL1(64, '7');
 const std::string POOL2(64, '8');
+const std::string POOL3(64, '9');
 
 /** Nodes of a few chains: what each answers, and every call seen. */
 struct Nodes {
@@ -66,6 +67,8 @@ struct Nodes {
     bool nonmempool{false};
     //! The node's pages' policy offers Layers' route reads (an older node: "does not call").
     bool routes_offered{true};
+    //! A second pool of GOLD and CHN (stable, 0.01 %): the pair alone no longer says which.
+    bool second_pool{false};
     //! The node says its pool kinds apply (dex-curves).
     bool curves_active{false};
     //! What the chain's host gives for a logo.
@@ -98,12 +101,27 @@ struct Nodes {
         } else if (method == "listpools") {
             const std::string gold_chn{R"({"pool":")" + POOL1 + R"(","asset_a":"GOLD","asset_b":"CHN","asset_a_id":")" + ASSET + R"(","asset_b_id":")" + COINID + R"(","reserve_a":10000.00,"reserve_b":20.00000000,"price":0.002,"shares":447213,"volume_a":500.00,"volume_b":1.00000000,"swaps":7,"created":12,"abandoned":false})"};
             const std::string chn_gold{R"({"pool":")" + POOL1 + R"(","asset_a":"CHN","asset_b":"GOLD","asset_a_id":")" + COINID + R"(","asset_b_id":")" + ASSET + R"(","reserve_a":20.00000000,"reserve_b":10000.00,"price":500,"shares":447213,"volume_a":1.00000000,"volume_b":500.00,"swaps":7,"created":12,"abandoned":false})"};
-            const std::string chn_silv{R"({"pool":")" + POOL2 + R"(","asset_a":"CHN","asset_b":"SILV","asset_a_id":")" + COINID + R"(","asset_b_id":")" + SILV + R"(","reserve_a":20.00000000,"reserve_b":5000.0000,"price":250,"shares":10000,"volume_a":0,"volume_b":0,"swaps":0,"created":15,"abandoned":false,"curve":"stable","fee":500,"amp":100})"};
-            const std::string silv_chn{R"({"pool":")" + POOL2 + R"(","asset_a":"SILV","asset_b":"CHN","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":5000.0000,"reserve_b":20.00000000,"shares":10000,"curve":2,"fee":7,"weight_a":80})"};
-            if (p[0].isNull()) result = Json("[" + gold_chn + "," + silv_chn + R"(,{"pool":"nothex"}])");
-            else if (p[0].get_str() == "0x" + ASSET) result = Json("[" + gold_chn + "]");
-            else if (p[0].get_str() == "0x" + COINID) result = Json("[" + chn_gold + "," + chn_silv + "]");
+            const std::string chn_silv{R"({"pool":")" + POOL2 + R"(","asset_a":"CHN","asset_b":"SILV","asset_a_id":")" + COINID + R"(","asset_b_id":")" + SILV + R"(","reserve_a":20.00000000,"reserve_b":5000.0000,"price":250,"shares":10000,"volume_a":0,"volume_b":0,"swaps":0,"created":15,"abandoned":false,"curve":"stable","fee":0.05,"fee_millionths":500,"amp":100,"default_kind":false})"};
+            const std::string silv_chn{R"({"pool":")" + POOL2 + R"(","asset_a":"SILV","asset_b":"CHN","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":5000.0000,"reserve_b":20.00000000,"shares":10000,"curve":"stable","fee":0.05,"fee_millionths":500,"amp":100,"default_kind":false})"};
+            // A pool whose fee is no tier: never shown (as another fee, or at all).
+            const std::string odd{R"({"pool":")" + std::string(64, '6') + R"(","asset_a":"GOLD","asset_b":"CHN","asset_a_id":")" + ASSET + R"(","asset_b_id":")" + COINID + R"(","reserve_a":1.00,"reserve_b":1,"curve":"constant_product","fee":0.25,"fee_millionths":2500})"};
+            const std::string gold_chn2{R"({"pool":")" + POOL3 + R"(","asset_a":"GOLD","asset_b":"CHN","asset_a_id":")" + ASSET + R"(","asset_b_id":")" + COINID + R"(","reserve_a":50.00,"reserve_b":1,"curve":"stable","fee":0.01,"fee_millionths":100,"amp":50,"default_kind":false})"};
+            const std::string more{second_pool ? "," + gold_chn2 : std::string{}};
+            if (p.size() > 2 && p[2].isNum() && p[2].getInt<int>() > 0) result = UniValue{UniValue::VARR};
+            else if (p[0].isNull()) result = Json("[" + gold_chn + "," + silv_chn + "," + odd + R"(,{"pool":"nothex"}])");
+            else if (p[0].get_str() == "0x" + ASSET) result = Json("[" + gold_chn + "," + odd + more + "]");
+            else if (p[0].get_str() == "CHN") result = Json("[" + chn_gold + "," + chn_silv + "]");
             else result = Json("[" + silv_chn + "]");
+        } else if (method == "getpool") {
+            // By id (a node with pool kinds); an older one takes two assets only.
+            if (p.size() != 1 || !curves_active) throw std::runtime_error{"Missing required argument asset_b"};
+            const std::string id{p[0].get_str()};
+            if (id == POOL1) result = Json(R"({"pool":")" + POOL1 + R"(","asset_a":"GOLD","asset_b":"CHN","asset_a_id":")" + ASSET + R"(","asset_b_id":")" + COINID + R"(","reserve_a":10000.00,"reserve_b":20.00000000,"shares":447213,"curve":"constant_product","fee":0.3,"fee_millionths":3000,"default_kind":true})");
+            else if (id == POOL2) result = Json(R"({"pool":")" + POOL2 + R"(","asset_a":"SILV","asset_b":"CHN","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":5000.0000,"reserve_b":20.00000000,"shares":10000,"curve":"stable","fee":0.05,"fee_millionths":500,"amp":100,"default_kind":false})");
+            else if (id == POOL3) result = Json(R"({"pool":")" + POOL3 + R"(","asset_a":"GOLD","asset_b":"CHN","asset_a_id":")" + ASSET + R"(","asset_b_id":")" + COINID + R"(","reserve_a":50.00,"reserve_b":1,"curve":"stable","fee":0.01,"fee_millionths":100,"amp":50,"default_kind":false})");
+            else throw std::runtime_error{"No such pool"};
+        } else if (method == "previewpool") {
+            result = Json(R"({"pool":")" + std::string(64, '4') + R"(","exists":false,"open":false,"shares":1000})");
         } else if (method == "getdexinfo") {
             if (!routes_offered) throw std::runtime_error{"The interface does not call getdexinfo (use the console)"};
             result = Json(curves_active ? R"({"active":true,"max_route_hops":4,"curves_active":true})" : R"({"active":true,"max_route_hops":4})");
@@ -112,13 +130,13 @@ struct Nodes {
             if (p[0].get_str() == "0x" + ASSET && p[2].get_str() == "0x" + SILV) {
                 result = Json(R"({"amount_in":10.00,"amount_out":12.3456,"path":["GOLD","CHN","SILV"],"routes":[{"path":["GOLD","CHN","SILV"],"path_ids":[")" + ASSET + R"(",")" + COINID + R"(",")" + SILV +
                               R"("],"amount_out":12.3456,"hops":[{"pool":")" + POOL1 + R"(","amount_out":0.01990000},{"pool":")" + POOL2 + R"(","amount_out":12.3456}]}]})");
-            } else if (p[0].get_str() == "0x" + ASSET && p[2].get_str() == "0x" + COINID) {
+            } else if (p[0].get_str() == "0x" + ASSET && p[2].get_str() == "CHN") {
                 result = Json(R"({"amount_out":0.01990000,"routes":[{"path":["GOLD","CHN"],"path_ids":[")" + ASSET + R"(",")" + COINID + R"("],"amount_out":0.01990000,"hops":[{"pool":")" + POOL1 + R"(","amount_out":0.01990000}]}]})");
             } else {
                 result = Json(R"({"amount_out":0,"routes":[]})");
             }
         } else if (method == "quoteswap") {
-            if (p[0].get_str() == "0x" + ASSET && p[2].get_str() == "0x" + COINID) result = Json(R"({"amount_in":10.00,"amount_out":0.01990000,"price_impact":0.3988,"fee":0.03})");
+            if (p[0].get_str() == "0x" + ASSET && p[2].get_str() == "CHN") result = Json(R"({"amount_in":10.00,"amount_out":0.01990000,"price_impact":0.3988,"fee":0.03})");
             else throw std::runtime_error{"There is no pool of these assets"};
         } else if (method == "getpooltwap") {
             if (p[0].get_str() != POOL1) throw std::runtime_error{"The pool has no observations yet: a block has to change it under the DEX's rules first"};
@@ -712,11 +730,21 @@ BOOST_AUTO_TEST_CASE(dex_capabilities_and_pure_parts)
     BOOST_CHECK_EQUAL(legacy.find_value("fee").getInt<int>(), 3000);
     BOOST_CHECK(legacy.find_value("legacy").isTrue());
     BOOST_CHECK_EQUAL(legacy.find_value("reserveA").get_str(), "10000.00");
-    const UniValue weighted{ChainAdapter::PoolRow(Json(R"({"pool":")" + POOL2 + R"(","asset_a":"SILV","asset_b":"CHN","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":1,"reserve_b":2,"curve":2,"fee":10000,"weight_a":80})"))};
+    const UniValue weighted{ChainAdapter::PoolRow(Json(R"({"pool":")" + POOL2 + R"(","asset_a":"SILV","asset_b":"CHN","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":1,"reserve_b":2,"curve":2,"fee_millionths":10000,"weight_a":80})"))};
     BOOST_CHECK_EQUAL(weighted.find_value("curve").get_str(), "weighted");
     BOOST_CHECK_EQUAL(weighted.find_value("weightA").getInt<int>(), 80);
     BOOST_CHECK(weighted.find_value("legacy").isFalse());
     BOOST_CHECK(ChainAdapter::PoolRow(Json(R"({"pool":")" + POOL2 + R"(","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":1,"reserve_b":2,"curve":"orderbook"})")).isNull());
+    // The fee as the node says it: in percent exactly (0.05: 500), in millionths; one that is no tier, or a kind
+    // without a fee: not a pool shown (never shown as 0.30 %).
+    BOOST_CHECK_EQUAL(ChainAdapter::PoolRow(Json(R"({"pool":")" + POOL2 + R"(","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":1,"reserve_b":2,"curve":"stable","fee":0.05,"amp":9})")).find_value("fee").getInt<int>(), 500);
+    for (const char* bad : {R"("fee":0.25)", R"("fee_millionths":2500)", R"("fee":7)", R"("fee_millionths":0)"}) {
+        BOOST_CHECK_MESSAGE(ChainAdapter::PoolRow(Json(R"({"pool":")" + POOL2 + R"(","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":1,"reserve_b":2,"curve":"constant_product",)" + std::string{bad} + "}")).isNull(), bad);
+    }
+    BOOST_CHECK(ChainAdapter::PoolRow(Json(R"({"pool":")" + POOL2 + R"(","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":1,"reserve_b":2,"curve":"stable"})")).isNull());
+    BOOST_CHECK_EQUAL(ChainAdapter::FeePercentText(3000), "0.3");
+    BOOST_CHECK_EQUAL(ChainAdapter::FeePercentText(100), "0.01");
+    BOOST_CHECK_EQUAL(ChainAdapter::FeePercentText(10000), "1");
     BOOST_CHECK(ChainAdapter::PoolRow(Json(R"({"pool":")" + POOL2 + R"(","asset_a_id":")" + SILV + R"(","asset_b_id":")" + SILV + R"(","reserve_a":1,"reserve_b":2})")).isNull());
     BOOST_CHECK(ChainAdapter::PoolRow(Json(R"({"pool":")" + POOL2 + R"(","asset_a_id":")" + SILV + R"(","asset_b_id":")" + COINID + R"(","reserve_a":-1,"reserve_b":2})")).isNull());
 }
@@ -745,8 +773,9 @@ BOOST_AUTO_TEST_CASE(dex_reads_pools_info_quote_chart_positions)
     const UniValue pools{adapter.DexPools(P(R"({"stem":"layers"})"))};
     BOOST_CHECK_EQUAL(pools.find_value("pools").size(), 2u);
     BOOST_CHECK_EQUAL(pools.find_value("height").getInt<int>(), 42);
-    BOOST_CHECK_EQUAL(pools.find_value("pools")[1].find_value("curve").get_str(), "weighted");
-    BOOST_CHECK_EQUAL(pools.find_value("pools")[1].find_value("fee").getInt<int>(), 3000); // not a tier: the default
+    BOOST_CHECK_EQUAL(pools.find_value("pools")[1].find_value("curve").get_str(), "stable");
+    BOOST_CHECK_EQUAL(pools.find_value("pools")[1].find_value("fee").getInt<int>(), 500);
+    for (const UniValue& r : pools.find_value("pools").getValues()) BOOST_CHECK(r.find_value("pool").get_str() != std::string(64, '6')); // its fee no tier
     BOOST_CHECK_EQUAL(adapter.DexPools(P(R"({"stem":"layers","asset":"0x)" + ASSET + R"("})")).find_value("pools").size(), 1u);
     BOOST_CHECK_EQUAL(Code([&] { adapter.DexPools(P(R"({"stem":"layers","asset":"GOLD"})")); }), BRIDGE_INVALID_REQUEST);
 
@@ -807,38 +836,48 @@ BOOST_AUTO_TEST_CASE(dex_reads_pools_info_quote_chart_positions)
 BOOST_AUTO_TEST_CASE(dex_swap_quoted_again_its_route_checked_and_shown)
 {
     Nodes nodes;
+    nodes.curves_active = true;
     ChainAdapter adapter{nodes.Hooks()};
     const auto swap{[&](const std::string& extra) {
         return adapter.DexSwap(P(R"({"stem":"layers","in":")" + ASSET + R"(","out":")" + SILV + R"(","amount":"10","slippage":50,"minOut":"12.2",)" + extra + "}"));
     }};
-    const std::string route{R"("path":[")" + ASSET + R"(",")" + COINID + R"(",")" + SILV + R"("])"};
+    const std::string path{R"("path":[")" + ASSET + R"(",")" + COINID + R"(",")" + SILV + R"("])"};
+    const std::string route{path + R"(,"pools":[")" + POOL1 + R"(",")" + POOL2 + R"("])"};
     const UniValue done{swap(route)};
     BOOST_CHECK_EQUAL(done.find_value("txid").get_str(), TXID);
     BOOST_REQUIRE_EQUAL(nodes.calls.size(), 1u);
+    // By the pools' ids: exactly the pools shown, whatever else each pair has.
     const UniValue req{Inner(nodes.calls[0].second)};
-    BOOST_CHECK_EQUAL(req.find_value("method").get_str(), "swaproute");
-    BOOST_CHECK_EQUAL(req.find_value("params")[0][0].get_str(), "0x" + ASSET);
-    BOOST_CHECK_EQUAL(req.find_value("params")[0][1].get_str(), "0x" + COINID);
+    BOOST_CHECK_EQUAL(req.find_value("method").get_str(), "swappools");
+    BOOST_CHECK_EQUAL(req.find_value("params")[0].get_str(), "0x" + ASSET);
     BOOST_CHECK_EQUAL(req.find_value("params")[1].get_str(), "10.00");
-    BOOST_CHECK_EQUAL(req.find_value("params")[2].getValStr(), "0.5");
-    BOOST_CHECK_EQUAL(req.find_value("params")[3].get_str(), "12.2000");
+    BOOST_CHECK_EQUAL(req.find_value("params")[2][0].get_str(), POOL1);
+    BOOST_CHECK_EQUAL(req.find_value("params")[2][1].get_str(), POOL2);
+    BOOST_CHECK_EQUAL(req.find_value("params")[3].getValStr(), "0.5");
+    BOOST_CHECK_EQUAL(req.find_value("params")[4].get_str(), "12.2000");
     BOOST_CHECK_EQUAL(req.find_value("wallet").get_str(), "main");
-    // What the app checked, in the question before the chain's rows.
+    // What the app checked, in the question before the chain's rows: each pool by its id, kind and fee.
     const UniValue rows{nodes.app_rows[0]};
     BOOST_CHECK_EQUAL(rows[0].find_value("label").get_str(), "Checked by Backbone");
     BOOST_CHECK_EQUAL(rows[0].find_value("kind").get_str(), "heading");
     BOOST_CHECK_EQUAL(RowValue(rows, "Route"), "GOLD → CHN → SILV (2 pools)");
-    BOOST_CHECK(RowValue(rows, "Pool 2").starts_with("CHN / SILV · stable (A 100) · 0.05 %"));
+    BOOST_CHECK_EQUAL(RowValue(rows, "Pool 1"), "GOLD / CHN · constant product · 0.30 %\n" + POOL1);
+    BOOST_CHECK_EQUAL(RowValue(rows, "Pool 2"), "CHN / SILV · stable (A 100) · 0.05 %\n" + POOL2);
     BOOST_CHECK_EQUAL(RowValue(rows, "You pay"), "10.00 GOLD");
     BOOST_CHECK_EQUAL(RowValue(rows, "Quoted again just now"), "12.3456 SILV");
     BOOST_CHECK_EQUAL(RowValue(rows, "You receive at least"), "12.2000 SILV (slippage 0.50 %)");
 
     // The price moved: the route now gives less (less the slippage) than what was accepted: refused, nothing asked.
     BOOST_CHECK(Message([&] { adapter.DexSwap(P(R"({"stem":"layers","in":")" + ASSET + R"(","out":")" + SILV + R"(","amount":"10","slippage":50,"minOut":"12.3",)" + route + "}")); }).starts_with("The price moved"));
+    // Another pool of a pair than the route's (the same assets): not this route; pools that are not one a hop, twice, none.
+    BOOST_CHECK(Message([&] { swap(path + R"(,"pools":[")" + POOL3 + R"(",")" + POOL2 + R"("])"); }).find("no longer offer") != std::string::npos);
+    BOOST_CHECK_EQUAL(Code([&] { swap(path + R"(,"pools":[")" + POOL1 + R"("])"); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Code([&] { swap(path + R"(,"pools":[")" + POOL1 + R"(",")" + POOL1 + R"("])"); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Code([&] { swap(path); }), BRIDGE_INVALID_REQUEST);
     // A route the pools do not offer (the pool of the two does not exist), an asset twice, ends that are not the swap's.
-    BOOST_CHECK(Message([&] { swap(R"("path":[")" + ASSET + R"(",")" + SILV + R"("])"); }).find("no longer offer") != std::string::npos);
-    BOOST_CHECK_EQUAL(Code([&] { swap(R"("path":[")" + ASSET + R"(",")" + COINID + R"(",")" + ASSET + R"(",")" + SILV + R"("])"); }), BRIDGE_INVALID_REQUEST);
-    BOOST_CHECK_EQUAL(Code([&] { swap(R"("path":[")" + COINID + R"(",")" + SILV + R"("])"); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK(Message([&] { swap(R"("path":[")" + ASSET + R"(",")" + SILV + R"("],"pools":[")" + POOL1 + R"("])"); }).find("no longer offer") != std::string::npos);
+    BOOST_CHECK_EQUAL(Code([&] { swap(R"("path":[")" + ASSET + R"(",")" + COINID + R"(",")" + ASSET + R"(",")" + SILV + R"("],"pools":[")" + POOL1 + R"(",")" + POOL2 + R"(",")" + POOL3 + R"("])"); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Code([&] { swap(R"("path":[")" + COINID + R"(",")" + SILV + R"("],"pools":[")" + POOL2 + R"("])"); }), BRIDGE_INVALID_REQUEST);
     BOOST_CHECK_EQUAL(Code([&] { swap(R"("path":"GOLD,SILV")"); }), BRIDGE_INVALID_REQUEST);
     // Amounts: more than held (250.5 GOLD), too many decimals, a slippage out of bounds, a number for the least.
     BOOST_CHECK(Message([&] { adapter.DexSwap(P(R"({"stem":"layers","in":")" + ASSET + R"(","out":")" + SILV + R"(","amount":"300","minOut":"1",)" + route + "}")); }).starts_with("More than"));
@@ -847,15 +886,25 @@ BOOST_AUTO_TEST_CASE(dex_swap_quoted_again_its_route_checked_and_shown)
     BOOST_CHECK_EQUAL(Code([&] { adapter.DexSwap(P(R"({"stem":"layers","in":")" + ASSET + R"(","out":")" + SILV + R"(","amount":"1","minOut":1,)" + route + "}")); }), BRIDGE_INVALID_REQUEST);
     BOOST_CHECK_EQUAL(nodes.calls.size(), 1u);
 
-    // In one pool: swapasset, its bound on the price impact the chain's own.
-    adapter.DexSwap(P(R"({"stem":"layers","in":")" + ASSET + R"(","out":")" + COINID + R"(","amount":"10","minOut":"0.0198","path":[")" + ASSET + R"(",")" + COINID + R"("]})"));
+    // A chain that names a swap's pools by their assets only (no pool kinds): a route through a pool of another kind
+    // cannot be named: refused, nothing asked.
+    nodes.curves_active = false;
+    BOOST_CHECK(Message([&] { swap(route); }).find("by their assets only") != std::string::npos);
+    BOOST_CHECK_EQUAL(nodes.calls.size(), 1u);
+    // In one pool of the default kind: swapasset (its assets name that pool), its bound on the price impact the chain's own;
+    // a second pool of the pair of another kind does not change which pool it is.
+    nodes.second_pool = true;
+    adapter.DexSwap(P(R"({"stem":"layers","in":")" + ASSET + R"(","out":")" + COINID + R"(","amount":"10","minOut":"0.0198","path":[")" + ASSET + R"(",")" + COINID + R"("],"pools":[")" + POOL1 + R"("]})"));
     const UniValue one{Inner(nodes.calls.back().second)};
     BOOST_CHECK_EQUAL(one.find_value("method").get_str(), "swapasset");
     BOOST_CHECK_EQUAL(one.find_value("params")[0].get_str(), "0x" + ASSET);
-    BOOST_CHECK_EQUAL(one.find_value("params")[2].get_str(), "0x" + COINID);
+    BOOST_CHECK_EQUAL(one.find_value("params")[2].get_str(), "CHN"); // the chain's coin by its own word
     BOOST_CHECK(one.find_value("params")[4].isNull());
     BOOST_CHECK_EQUAL(one.find_value("params")[5].get_str(), "0.01980000");
     BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "Route"), "GOLD → CHN (1 pool)");
+    BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "Pool"), "GOLD / CHN · constant product · 0.30 %\n" + POOL1);
+    // The pair's other pool named: not the one swapasset acts on.
+    BOOST_CHECK(Message([&] { adapter.DexSwap(P(R"({"stem":"layers","in":")" + ASSET + R"(","out":")" + COINID + R"(","amount":"10","minOut":"0.0198","path":[")" + ASSET + R"(",")" + COINID + R"("],"pools":[")" + POOL3 + R"("]})")); }).find("no longer offer") != std::string::npos);
 
     // A chain that swaps in one pool only: a route of three refused.
     nodes.up.push_back("bitassets");
@@ -866,50 +915,86 @@ BOOST_AUTO_TEST_CASE(dex_liquidity_in_and_out_and_new_pools)
 {
     Nodes nodes;
     ChainAdapter adapter{nodes.Hooks()};
-    adapter.DexAddLiquidity(P(R"({"stem":"layers","a":")" + ASSET + R"(","b":")" + COINID + R"(","amountA":"100","amountB":"0.2","setsPrice":false})"));
+    const std::string gold_chn{R"("a":")" + ASSET + R"(","b":")" + COINID + R"(")"};
+    // In, on a chain that names a pool by its assets (no pool kinds): the pair's one pool, confirmed by its id.
+    adapter.DexAddLiquidity(P(R"({"stem":"layers",)" + gold_chn + R"(,"pool":")" + POOL1 + R"(","amountA":"100","amountB":"0.2","setsPrice":false})"));
     const UniValue add{Inner(nodes.calls.back().second)};
     BOOST_CHECK_EQUAL(add.find_value("method").get_str(), "addliquidity");
     BOOST_CHECK_EQUAL(add.find_value("params")[1].get_str(), "100.00");
     BOOST_CHECK_EQUAL(add.find_value("params")[3].get_str(), "0.20000000");
     BOOST_CHECK_EQUAL(add.find_value("params")[4].getValStr(), "1");
     BOOST_CHECK(add.find_value("params")[5].isFalse());
-    BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "Pool"), "GOLD / CHN · constant product · 0.30 %");
-    // More than held (the coin: 12.34567891), the same asset twice.
-    BOOST_CHECK(Message([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers","a":")" + ASSET + R"(","b":")" + COINID + R"(","amountA":"100","amountB":"13"})")); }).starts_with("More of the second"));
-    BOOST_CHECK_EQUAL(Code([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers","a":")" + ASSET + R"(","b":")" + ASSET + R"(","amountA":"1"})")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "Pool"), "GOLD / CHN · constant product · 0.30 %\n" + POOL1);
+    // No pool named, one of other assets, one of no such id; more than held, the same asset twice.
+    size_t asked{nodes.calls.size()};
+    BOOST_CHECK_EQUAL(Code([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers",)" + gold_chn + R"(,"amountA":"100"})")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK(Message([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers",)" + gold_chn + R"(,"pool":")" + POOL2 + R"(","amountA":"100"})")); }).find("No pool of these two assets") != std::string::npos);
+    BOOST_CHECK(Message([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers",)" + gold_chn + R"(,"pool":")" + std::string(64, '3') + R"(","amountA":"100"})")); }).find("No pool of these two assets") != std::string::npos);
+    BOOST_CHECK(Message([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers",)" + gold_chn + R"(,"pool":")" + POOL1 + R"(","amountA":"100","amountB":"13"})")); }).starts_with("More of the second"));
+    BOOST_CHECK_EQUAL(Code([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers","a":")" + ASSET + R"(","b":")" + ASSET + R"(","pool":")" + POOL1 + R"(","amountA":"1"})")); }), BRIDGE_INVALID_REQUEST);
+    // A second pool of the pair: by its assets alone the chain cannot be told which: refused, either pool.
+    nodes.second_pool = true;
+    BOOST_CHECK(Message([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers",)" + gold_chn + R"(,"pool":")" + POOL1 + R"(","amountA":"100"})")); }).find("more than one pool") != std::string::npos);
+    BOOST_CHECK(Message([&] { adapter.DexAddLiquidity(P(R"({"stem":"layers",)" + gold_chn + R"(,"pool":")" + POOL3 + R"(","amountA":"10"})")); }).find("not this one") != std::string::npos);
+    BOOST_CHECK(Message([&] { adapter.DexRemoveLiquidity(P(R"({"stem":"layers","pool":")" + POOL1 + R"(","percent":"50"})")); }).find("more than one pool") != std::string::npos);
+    BOOST_CHECK_EQUAL(nodes.calls.size(), asked);
+    // With the pool kinds: by the pool's id (addpoolliquidity), the very pool shown.
+    nodes.curves_active = true;
+    adapter.DexAddLiquidity(P(R"({"stem":"layers",)" + gold_chn + R"(,"pool":")" + POOL3 + R"(","amountA":"10","amountB":"0.2"})"));
+    const UniValue byid{Inner(nodes.calls.back().second)};
+    BOOST_CHECK_EQUAL(byid.find_value("method").get_str(), "addpoolliquidity");
+    BOOST_CHECK_EQUAL(byid.find_value("params")[0].get_str(), POOL3);
+    BOOST_CHECK_EQUAL(byid.find_value("params")[1].find_value("0x" + ASSET).get_str(), "10.00");
+    BOOST_CHECK_EQUAL(byid.find_value("params")[1].find_value("CHN").get_str(), "0.20000000");
+    BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "Pool"), "GOLD / CHN · stable (A 50) · 0.01 %\n" + POOL3);
 
-    // Out: only shares the wallet holds, a percentage exact; what it gives back said.
-    const size_t asked{nodes.calls.size()};
+    // Out: only shares the wallet holds, by the pool's id; a percentage exact; what it gives back said.
     adapter.DexRemoveLiquidity(P(R"({"stem":"layers","pool":")" + POOL1 + R"(","percent":"50"})"));
     const UniValue rm{Inner(nodes.calls.back().second)};
-    BOOST_CHECK_EQUAL(rm.find_value("method").get_str(), "removeliquidity");
-    BOOST_CHECK_EQUAL(rm.find_value("params")[0].get_str(), "0x" + ASSET);
-    BOOST_CHECK_EQUAL(rm.find_value("params")[1].get_str(), "0x" + COINID);
-    BOOST_CHECK_EQUAL(rm.find_value("params")[2].getValStr(), "50.00");
+    BOOST_CHECK_EQUAL(rm.find_value("method").get_str(), "removepoolliquidity");
+    BOOST_CHECK_EQUAL(rm.find_value("params")[0].get_str(), POOL1);
+    BOOST_CHECK_EQUAL(rm.find_value("params")[1].getValStr(), "50.00");
+    BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "Pool"), "GOLD / CHN · constant product · 0.30 %\n" + POOL1);
     BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "You get about"), "125.00 GOLD and 0.25000000 CHN");
+    // Without the pool kinds and one pool of the pair: removeliquidity by its assets.
+    nodes.curves_active = false;
+    nodes.second_pool = false;
+    adapter.DexRemoveLiquidity(P(R"({"stem":"layers","pool":")" + POOL1 + R"(","percent":"25"})"));
+    const UniValue rm2{Inner(nodes.calls.back().second)};
+    BOOST_CHECK_EQUAL(rm2.find_value("method").get_str(), "removeliquidity");
+    BOOST_CHECK_EQUAL(rm2.find_value("params")[0].get_str(), "0x" + ASSET);
+    BOOST_CHECK_EQUAL(rm2.find_value("params")[1].get_str(), "CHN");
+    BOOST_CHECK_EQUAL(rm2.find_value("params")[2].getValStr(), "25.00");
+    asked = nodes.calls.size();
     BOOST_CHECK(Message([&] { adapter.DexRemoveLiquidity(P(R"({"stem":"layers","pool":")" + POOL2 + R"(","percent":"50"})")); }).find("holds no shares") != std::string::npos);
     for (const char* bad : {"0", "100.5", "33.333", "-1", "1e2"}) {
         BOOST_CHECK_MESSAGE(Code([&] { adapter.DexRemoveLiquidity(P(R"({"stem":"layers","pool":")" + POOL1 + R"(","percent":")" + bad + R"("})")); }) == BRIDGE_INVALID_REQUEST, bad);
     }
-    BOOST_CHECK_EQUAL(nodes.calls.size(), asked + 1);
+    BOOST_CHECK_EQUAL(nodes.calls.size(), asked);
 
-    // A new pool: constant product at 0.30 % is addliquidity whose amounts set the price, on every chain.
-    adapter.DexCreatePool(P(R"({"stem":"layers","a":")" + ASSET + R"(","b":")" + COINID + R"(","amountA":"10","amountB":"1","curve":"constant-product","fee":3000})"));
+    // A new pool: without the pool kinds, constant product at 0.30 % is addliquidity whose amounts set the price.
+    adapter.DexCreatePool(P(R"({"stem":"layers",)" + gold_chn + R"(,"amountA":"10","amountB":"1","curve":"constant-product","fee":3000})"));
     BOOST_CHECK_EQUAL(Inner(nodes.calls.back().second).find_value("method").get_str(), "addliquidity");
     BOOST_CHECK(Inner(nodes.calls.back().second).find_value("params")[5].isTrue());
     BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "New pool"), "constant product · 0.30 %");
     // Another kind: only once the chain's node says its pool kinds apply; a kind that is none refused before anything.
     const size_t made{nodes.calls.size()};
-    BOOST_CHECK(Message([&] { adapter.DexCreatePool(P(R"({"stem":"layers","a":")" + ASSET + R"(","b":")" + COINID + R"(","amountA":"10","amountB":"1","curve":"stable","fee":500,"amp":100})")); }).find("only, for now") != std::string::npos);
-    BOOST_CHECK_EQUAL(Code([&] { adapter.DexCreatePool(P(R"({"stem":"layers","a":")" + ASSET + R"(","b":")" + COINID + R"(","amountA":"10","amountB":"1","curve":"weighted","fee":3000,"weightA":33})")); }), BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK(Message([&] { adapter.DexCreatePool(P(R"({"stem":"layers",)" + gold_chn + R"(,"amountA":"10","amountB":"1","curve":"stable","fee":500,"amp":100})")); }).find("only, for now") != std::string::npos);
+    BOOST_CHECK_EQUAL(Code([&] { adapter.DexCreatePool(P(R"({"stem":"layers",)" + gold_chn + R"(,"amountA":"10","amountB":"1","curve":"weighted","fee":3000,"weightA":33})")); }), BRIDGE_INVALID_REQUEST);
     BOOST_CHECK_EQUAL(nodes.calls.size(), made);
+    // With them: createpool, the kind named whole (the node's names, the fee in percent); the new pool's id said.
     nodes.curves_active = true;
-    adapter.DexCreatePool(P(R"({"stem":"layers","a":")" + ASSET + R"(","b":")" + COINID + R"(","amountA":"10","amountB":"1","curve":"stable","fee":500,"amp":100})"));
+    adapter.DexCreatePool(P(R"({"stem":"layers",)" + gold_chn + R"(,"amountA":"10","amountB":"1","curve":"stable","fee":500,"amp":100})"));
     const UniValue create{Inner(nodes.calls.back().second)};
     BOOST_CHECK_EQUAL(create.find_value("method").get_str(), "createpool");
     BOOST_CHECK_EQUAL(create.find_value("params")[4].find_value("curve").get_str(), "stable");
+    BOOST_CHECK_EQUAL(create.find_value("params")[4].find_value("fee").getValStr(), "0.05");
     BOOST_CHECK_EQUAL(create.find_value("params")[4].find_value("amp").getInt<int>(), 100);
-    BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "New pool"), "stable (A 100) · 0.05 %");
+    BOOST_CHECK_EQUAL(RowValue(nodes.app_rows.back(), "New pool"), "stable (A 100) · 0.05 %\n" + std::string(64, '4'));
+    adapter.DexCreatePool(P(R"({"stem":"layers",)" + gold_chn + R"(,"amountA":"10","amountB":"1","curve":"weighted","fee":10000,"weightA":80})"));
+    BOOST_CHECK_EQUAL(Inner(nodes.calls.back().second).find_value("params")[4].find_value("curve").get_str(), "weighted");
+    BOOST_CHECK_EQUAL(Inner(nodes.calls.back().second).find_value("params")[4].find_value("weight_a").getInt<int>(), 80);
+    BOOST_CHECK_EQUAL(Inner(nodes.calls.back().second).find_value("params")[4].find_value("fee").getValStr(), "1");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

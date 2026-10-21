@@ -122,7 +122,7 @@
     error = '';
     done = null;
     try {
-      const r = await dexHost.swap({ stem, wallet: chainWallet(stem), in: payId, out: getId, amount: fresh.amountIn, path: route.path, slippage: bps, minOut: least });
+      const r = await dexHost.swap({ stem, wallet: chainWallet(stem), in: payId, out: getId, amount: fresh.amountIn, path: route.path, pools: route.hops.map((h) => h.pool), slippage: bps, minOut: least });
       done = { txid: r.txid, minOut: r.minOut, unit: getLabel };
       toast('success', t('Swap sent on %1', name), r.txid ? t('Transaction %1…', r.txid.slice(0, 16)) : '');
       amount = '';
