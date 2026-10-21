@@ -241,6 +241,11 @@ and a headers sync with eCash's four seeds reached 973,880, tip `000000000000000
   -testecashfork=288@207fffff`, both `-testpowretarget`) split at the fork height; replay, magic locktime,
   repurpose (`-testrepurposetx`), OP_NOP8, a reorg across the fork, the bip300301 rule.
 - `test/functional/wallet_ecash_replay.py`: the wallet's defaults, a timelocked coin, the split.
+- `-testecashmagic` (with `-testecash`): the message start and port of eCash's client on regtest (`eca5b134`,
+  18644), so that backboned peers with ecash-com/bitcoin on regtest and reads its block files (the lab's
+  differential tests against the enforcer; not the default, as `feature_ecash_fork.py` shares one regtest network).
+- `test/functional/feature_ecash_bmm_payout.py`: the block that pays a bundle also commits to the BMM request in the
+  mempool, whether the template builds the M6 or takes it from the mempool.
 - `test/functional/feature_ecash_safety_switch.py` and `ecash_tests/enforcer_safety_*`, `enforcer_message_limits`:
   the activation switch of our safety rules (above).
 
