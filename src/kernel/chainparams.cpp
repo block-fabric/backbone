@@ -926,6 +926,14 @@ public:
         pchMessageStart[2] = 0xc1;
         pchMessageStart[3] = 0xda;
         nDefaultPort = 29555;
+        if (opts.ecash && opts.ecash->ecash_regtest) {
+            // eCash's regtest (ecash-com/bitcoin, src/kernel/chainparams.cpp, CRegTestParams).
+            pchMessageStart[0] = 0xec;
+            pchMessageStart[1] = 0xa5;
+            pchMessageStart[2] = 0xb1;
+            pchMessageStart[3] = 0x34;
+            nDefaultPort = 18644;
+        }
         nPruneAfterHeight = opts.fastprune ? 100 : 1000;
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;
@@ -980,7 +988,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
 
-        bech32_hrp = "rchn";
+        bech32_hrp = opts.ecash && opts.ecash->ecash_regtest ? "bcrt" : "rchn";
 
         // Copied from Testnet4.
         m_headers_sync_params = HeadersSyncParams{
