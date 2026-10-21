@@ -13,8 +13,16 @@
   import { prefs } from '../lib/state.svelte';
   import type { ChartSeries as Series } from '../lib/manychains.svelte';
   import { decimate } from '../lib/chartdata';
+  import { throttled } from '../lib/throttle.svelte';
 
-  let { series, height = 210, from = undefined }: { series: Series[]; height?: number; from?: number } = $props();
+  let { series: given, height = 210, from = undefined }: { series: Series[]; height?: number; from?: number } = $props();
+  /**
+   * What it draws follows the chains at most once every CHART_MS (doc/unified-app.md §21.3): every block and payment of
+   * every chain changes a line or a figure of the legend, and the chart is the largest picture of the page.
+   */
+  const CHART_MS = 15000;
+  const shown = throttled(() => given, CHART_MS);
+  const series = $derived(shown.value);
 
   let box: HTMLDivElement | undefined = $state();
   let width = $state(480);

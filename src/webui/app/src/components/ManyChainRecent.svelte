@@ -20,6 +20,7 @@
   import { node, prefs, wallets } from '../lib/state.svelte';
   import { every } from '../lib/poll';
   import { walletApi, type TxDetails, type TxRecord } from '../lib/wallet';
+  import { throttled } from '../lib/throttle.svelte';
 
   let { chains, count = 8 }: { chains: string[]; count?: number } = $props();
 
@@ -52,7 +53,7 @@
   let now = $state(Math.floor(Date.now() / 1000));
   $effect(() => every(30000, () => (now = Math.floor(Date.now() / 1000))));
 
-  const items = $derived<ActivityItem[]>(
+  const fresh = $derived<ActivityItem[]>(
     foldActivity(
       mergeTxs([
         own.map((r) => ({ chain: HOST, name: productName(), txid: r.txid, time: r.time, category: r.type, amount: formatUnits(r.amount, 8), address: r.address, label: r.label, confirmations: r.depth, vout: r.idx, drivechain: r.drivechain ?? null })),
@@ -62,6 +63,11 @@
       HOST,
     ),
   );
+  // Shown again at most every RECENT_MS (doc/unified-app.md §21.3): a busy network changes the list with each payment
+  // of any chain, and the ages of its rows with it.
+  const RECENT_MS = 5000;
+  const shownItems = throttled(() => fresh, RECENT_MS);
+  const items = $derived(shownItems.value);
 
   let open = $state<ManyChainTx | null>(null);
   let dialogOpen = $state(false);

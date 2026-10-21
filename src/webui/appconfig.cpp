@@ -4,7 +4,10 @@
 
 #include <webui/appconfig.h>
 
+#include <common/args.h>
+
 #include <logging.h>
+#include <tinyformat.h>
 #include <util/fs_helpers.h>
 
 #include <cstdio>
@@ -12,6 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #ifdef WIN32
@@ -235,6 +239,35 @@ void AppConfig::ResetPrefs(const std::string& network)
     LOCK(m_mutex);
     m_root = ObjectWith(m_root, KEY_PREFS, ObjectWithout(m_root.find_value(KEY_PREFS), network));
     Save();
+}
+
+bool SoftwareGl()
+{
+    const auto on{[](const char* name) {
+        const char* v{std::getenv(name)};
+        return v && (std::string_view{v} == "1" || std::string_view{v} == "true");
+    }};
+    const char* driver{std::getenv("GALLIUM_DRIVER")};
+    return on("LIBGL_ALWAYS_SOFTWARE") || (driver && (std::string_view{driver} == "llvmpipe" || std::string_view{driver} == "softpipe"));
+}
+
+std::string ApplyRendering(const ArgsManager& args)
+{
+#if defined(__linux__)
+    const std::string mode{args.GetArg("-webuicompositing", "auto")};
+    std::string done;
+    const auto set{[&](const char* name, const char* value) {
+        if (std::getenv(name)) return; // the user's own
+        setenv(name, value, /*overwrite=*/0);
+        done += strprintf("%s%s=%s", done.empty() ? "" : " ", name, value);
+    }};
+    if (mode == "off" || (mode == "auto" && SoftwareGl())) set("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    if (SoftwareGl()) set("LP_NUM_THREADS", "4");
+    return done;
+#else
+    (void)args;
+    return {};
+#endif
 }
 
 } // namespace webui

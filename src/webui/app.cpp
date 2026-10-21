@@ -148,6 +148,7 @@ void SetupUIArgs(ArgsManager& argsman)
     argsman.AddArg("-resetguisettings", "Reset all settings changed in the GUI", ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-splash", strprintf("Show splash screen on startup (default: %u)", DEFAULT_SPLASHSCREEN), ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-webuidevtools", "Enable the web inspector and the context menu of the web view (default: 0)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-webuicompositing=<auto|on|off>", "How the window is drawn: on, WebKit composites its layers with OpenGL; off, it paints them with the processor; auto, off when OpenGL is emulated by the processor (LIBGL_ALWAYS_SOFTWARE, llvmpipe: WSLg, a virtual machine), where every frame of OpenGL costs every core (default: auto)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-webuiconfig=<file>", "File of the app settings (default: chains-app.json in the configuration folder of the user)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-sidechainbindir=<dir>", "Folder with the programs of sidechains this app runs (<name>d), searched before the folder of the app (can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::NETWORK_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-sidechainportbase=<port>", "Ports of the sidechains this app runs: RPC <port>+2i, peers <port>+2i+1 (default: the default ports of each sidechain)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
@@ -235,8 +236,7 @@ UniValue App::Info()
             const char* v{std::getenv(name)};
             return v && (std::string_view{v} == "1" || std::string_view{v} == "true");
         }};
-        const char* driver{std::getenv("GALLIUM_DRIVER")};
-        info.pushKV("softwareRendering", env_on("LIBGL_ALWAYS_SOFTWARE") || (driver && (std::string_view{driver} == "llvmpipe" || std::string_view{driver} == "softpipe")) || env_on("WEBKIT_DISABLE_COMPOSITING_MODE"));
+        info.pushKV("softwareRendering", SoftwareGl() || env_on("WEBKIT_DISABLE_COMPOSITING_MODE"));
     }
 #if defined(__linux__)
     info.pushKV("platform", "linux");

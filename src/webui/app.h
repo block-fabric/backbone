@@ -49,6 +49,7 @@ class ConfirmedRpc;
 /** The options of the app on top of the ones of the node (the GUI options of chains-qt, and the debug ones of chains-app). */
 void SetupUIArgs(ArgsManager& args);
 
+
 /**
  * chains-app: the node, in this process, with its interface in a web view.
  *

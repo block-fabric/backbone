@@ -12,6 +12,8 @@
 #include <optional>
 #include <string>
 
+class ArgsManager;
+
 namespace webui {
 
 /**
@@ -89,6 +91,19 @@ private:
     mutable Mutex m_mutex;
     UniValue m_root GUARDED_BY(m_mutex){UniValue::VOBJ};
 };
+
+/** Whether OpenGL is emulated by the processor (LIBGL_ALWAYS_SOFTWARE, GALLIUM_DRIVER llvmpipe or softpipe: WSLg, a VM). */
+bool SoftwareGl();
+
+/**
+ * How the window is drawn (-webuicompositing, doc/unified-app.md §21.3), set in the environment before the web view and
+ * its processes start: with OpenGL emulated by the processor, WebKit's compositing with OpenGL draws each frame of the
+ * window with llvmpipe on every core (on the hub's 3440 x 1380 window about 0.4 s of processor time a frame, 39 % of a
+ * core for one word changed each second); painted by the processor without it, 0.03 s. Under "auto" (the default) then
+ * WEBKIT_DISABLE_COMPOSITING_MODE=1, and llvmpipe on 4 threads (LP_NUM_THREADS) for what still uses it; what the user
+ * set in the environment is kept. Returns what it set, for the log ("" when nothing). Before any other thread runs.
+ */
+std::string ApplyRendering(const ArgsManager& args);
 
 } // namespace webui
 

@@ -320,8 +320,10 @@
   const ribbon = $derived.by((): RibbonBlock[] => {
     void extrasVersion;
     void detailsVersion;
-    // The boxes: the first RIBBON_MAX blocks of the list (all 50 000 would be too many to draw).
-    return blocks.slice(0, RIBBON_MAX).map(withDetails).map((b) => {
+    // The boxes: those detailed so far and a step more, up to RIBBON_MAX; more as the strip scrolls towards its end
+    // (moreDetails). Every block of the list (the hub lists all 9 000) as a box was a thousand boxes laid out again and
+    // made again at each block, for the twenty in view (doc/unified-app.md §21).
+    return blocks.slice(0, Math.min(RIBBON_MAX, detailed + 2 * RIBBON_STEP)).map(withDetails).map((b) => {
       const x = extras.get(b.hash);
       return { height: b.height, hash: b.hash, time: b.time, nTx: b.nTx, weight: b.weight ?? null, subsidy: x?.subsidy ?? null, fees: x?.fees ?? null, feeRate: x?.feeRate ?? null, tag: x ? x.tag : null, bmm: bmmAt[b.height] ?? [] };
     });

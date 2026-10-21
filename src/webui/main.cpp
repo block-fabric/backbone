@@ -12,6 +12,7 @@
 #include <common/license_info.h>
 #include <common/system.h>
 #include <init.h>
+#include <logging.h>
 #include <interfaces/init.h>
 #include <noui.h>
 #include <node/interface_ui.h>
@@ -22,6 +23,7 @@
 #include <util/translation.h>
 #include <util/syserror.h>
 #include <webui/app.h>
+#include <webui/appconfig.h>
 #include <webui/i18n.h>
 
 #ifndef WIN32
@@ -103,6 +105,11 @@ MAIN_FUNCTION
         }
         tfm::format(std::cout, "%s", usage);
         return EXIT_SUCCESS;
+    }
+
+    // Before the web view and its processes: how the window is drawn (software OpenGL: painted by the processor).
+    if (const std::string rendering{webui::ApplyRendering(gArgs)}; !rendering.empty()) {
+        LogInfo("webui: OpenGL is emulated by the processor: the window painted without it (%s)", rendering);
     }
 
     try {

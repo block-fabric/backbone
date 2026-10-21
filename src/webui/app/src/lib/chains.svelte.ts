@@ -427,7 +427,10 @@ export function sidechainTxs(stem: string, name: string, rows: ChainTxRow[]): Ma
 
 /** Newest first, every chain together. */
 export function mergeTxs(lists: ManyChainTx[][]): ManyChainTx[] {
-  return lists.flat().sort((a, b) => b.time - a.time || a.chain.localeCompare(b.chain) || a.txid.localeCompare(b.txid));
+  // Ids compared as they are (ASCII): the order of the locale (ICU) for each of the many ties of a long history (blocks
+  // of the same second) took most of the sort (doc/unified-app.md §21.3).
+  const ord = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  return lists.flat().sort((a, b) => b.time - a.time || ord(a.chain, b.chain) || ord(a.txid, b.txid));
 }
 
 // ---- Summaries, asked while shown ----

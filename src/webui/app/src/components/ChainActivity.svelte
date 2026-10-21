@@ -53,17 +53,34 @@
     return () => clearInterval(timer);
   });
 
-  // The app's own, in the same rows (every chain together).
+  /** The rows shown: the newest of every chain together. */
+  const SHOWN = 500;
+  // The app's own, in the same rows (every chain together): only the newest that can be shown (a wallet of 28 000
+  // records made into rows at each block was most of the page's work, doc/unified-app.md §21.3), a few more for the rows
+  // of no value left out.
   const own = $derived<ManyChainTx[]>(
     chain === ALL
-      ? current.records.map((r) => ({ chain: HOST, name: productName(), txid: r.txid, time: r.time, category: r.type, amount: formatUnits(r.amount, 8), address: r.address, label: r.label, confirmations: r.depth, vout: r.idx, drivechain: r.drivechain ?? null }))
+      ? [...current.records]
+          .sort((a, b) => b.time - a.time)
+          .slice(0, SHOWN + 200)
+          .map((r) => ({ chain: HOST, name: productName(), txid: r.txid, time: r.time, category: r.type, amount: formatUnits(r.amount, 8), address: r.address, label: r.label, confirmations: r.depth, vout: r.idx, drivechain: r.drivechain ?? null }))
       : [],
   );
   const rows = $derived(
     mergeTxs([own, ...stems.map((s) => lists[s] ?? [])])
       .filter((r) => !isEmptyRow(r, HOST))
-      .slice(0, 500),
+      .slice(0, SHOWN),
   );
+  /** Each row's own key: a new transaction is one row more at the top, not every row written again (keyed by place). */
+  const keyed = $derived.by(() => {
+    const seen = new Map<string, number>();
+    return rows.map((r) => {
+      const base = `${r.chain}:${r.txid}:${r.vout}:${r.category}:${r.address ?? ''}`;
+      const n = seen.get(base) ?? 0;
+      seen.set(base, n + 1);
+      return { r, key: n ? `${base}#${n}` : base };
+    });
+  });
 
   function show(r: ManyChainTx) {
     open = r;
@@ -83,7 +100,7 @@
       <tr><th>{t('Chain')}</th><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Label')}</th><th class="num">{t('Amount')}</th><th class="num">{t('Confirmations')}</th></tr>
     </thead>
     <tbody>
-      {#each rows as r, i (i)}
+      {#each keyed as { r, key } (key)}
         <tr data-chain-tx={r.chain} data-txid={r.txid} onclick={() => show(r)} class="tx-row">
           <td><ChainBadge id={r.chain} name={r.name} small /></td>
           <td>{formatTime(r.time)}</td>

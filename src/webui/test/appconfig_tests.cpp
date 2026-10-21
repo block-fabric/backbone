@@ -7,7 +7,12 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <cstdlib>
 #include <fstream>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 BOOST_FIXTURE_TEST_SUITE(webui_appconfig_tests, BasicTestingSetup)
 
@@ -122,5 +127,55 @@ BOOST_AUTO_TEST_CASE(move_legacy)
     kept.Load();
     BOOST_CHECK(!kept.DataDir());
 }
+
+#if defined(__linux__)
+BOOST_AUTO_TEST_CASE(software_gl_paints_without_compositing)
+{
+    // doc/unified-app.md §21.3: OpenGL emulated by the processor (WSLg) — the window is painted without WebKit's GL
+    // compositing, llvmpipe on 4 threads; what the user set is kept; -webuicompositing=on keeps the compositing.
+    const char* names[]{"LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "WEBKIT_DISABLE_COMPOSITING_MODE", "LP_NUM_THREADS"};
+    std::vector<std::pair<std::string, std::optional<std::string>>> saved;
+    for (const char* n : names) {
+        const char* v{std::getenv(n)};
+        saved.emplace_back(n, v ? std::optional<std::string>{v} : std::nullopt);
+        unsetenv(n);
+    }
+    ArgsManager args;
+    args.AddArg("-webuicompositing=<auto|on|off>", "", ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
+    std::string error;
+    const auto parse{[&](std::vector<const char*> argv) {
+        argv.insert(argv.begin(), "chains-app");
+        BOOST_REQUIRE(args.ParseParameters(argv.size(), argv.data(), error));
+    }};
+    parse({});
+    BOOST_CHECK(!webui::SoftwareGl());
+    BOOST_CHECK_EQUAL(webui::ApplyRendering(args), "");
+    BOOST_CHECK(!std::getenv("WEBKIT_DISABLE_COMPOSITING_MODE"));
+
+    setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
+    BOOST_CHECK(webui::SoftwareGl());
+    BOOST_CHECK_EQUAL(webui::ApplyRendering(args), "WEBKIT_DISABLE_COMPOSITING_MODE=1 LP_NUM_THREADS=4");
+    BOOST_CHECK_EQUAL(std::string{std::getenv("WEBKIT_DISABLE_COMPOSITING_MODE")}, "1");
+    // Set already (by the user, or above): kept, and said so by saying nothing.
+    setenv("LP_NUM_THREADS", "8", 1);
+    BOOST_CHECK_EQUAL(webui::ApplyRendering(args), "");
+    BOOST_CHECK_EQUAL(std::string{std::getenv("LP_NUM_THREADS")}, "8");
+
+    unsetenv("WEBKIT_DISABLE_COMPOSITING_MODE");
+    parse({"-webuicompositing=on"});
+    BOOST_CHECK_EQUAL(webui::ApplyRendering(args), "");
+    BOOST_CHECK(!std::getenv("WEBKIT_DISABLE_COMPOSITING_MODE"));
+    unsetenv("LIBGL_ALWAYS_SOFTWARE");
+    setenv("GALLIUM_DRIVER", "llvmpipe", 1);
+    BOOST_CHECK(webui::SoftwareGl());
+    parse({"-webuicompositing=off"});
+    BOOST_CHECK_EQUAL(webui::ApplyRendering(args), "WEBKIT_DISABLE_COMPOSITING_MODE=1");
+
+    for (const auto& [n, v] : saved) {
+        if (v) setenv(n.c_str(), v->c_str(), 1);
+        else unsetenv(n.c_str());
+    }
+}
+#endif
 
 BOOST_AUTO_TEST_SUITE_END()
