@@ -42,10 +42,14 @@ HASH_ID_1, HASH_ID_2 = bytes(range(32)), bytes(range(20))
 
 def free_port():
     """A free port for the gRPC server, from those of p2p_port(0) on, 49000-49999 (not 49x54, 4966x) on this machine."""
+    # Not the node's own ports (p2p_port(0) is free until the node starts: the gRPC server would then lose the bind
+    # to the P2P listener, and the client talk to the P2P port -- "Socket closed", about one run in three).
+    from test_framework.util import PORT_RANGE, rpc_port
+    taken = {f(n) for f in (p2p_port, rpc_port, lambda n: p2p_port(n) + 2 * PORT_RANGE) for n in range(12)}
     start = 49000 + p2p_port(0) % 1000
     for i in range(1000):
         port = 49000 + (start - 49000 + i) % 1000
-        if port % 100 == 54 or 49660 <= port <= 49669:
+        if port % 100 == 54 or 49660 <= port <= 49669 or port in taken:
             continue
         with socket.socket() as s:
             try:
