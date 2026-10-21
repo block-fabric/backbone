@@ -12,7 +12,9 @@
   const chainOf = async (stem) => (await host('sidechains.list')).chains.find((c) => c.stem === stem);
   const heightOf = (stem) => host('sidechains.rpc', { stem, method: 'getblockcount' });
   const summary = (stem) => host('chain.summary', { stem });
-  const SIDE = ['layers', 'thunder', 'bitassets', 'hivemind'];
+  // The sidechains turned on: the four of the showcase, or the hub's three (--scale hub: Layers, BitAssets, Hivemind).
+  const SIDE = S.sidechains && S.sidechains.length ? S.sidechains : ['layers', 'thunder', 'bitassets', 'hivemind'];
+  const HUB = S.scale === 'hub';
   const SLOTS = { layers: 7, thunder: 2, bitassets: 4, hivemind: 9 };
   const NAMES = { layers: 'Layers', thunder: 'Thunder', bitassets: 'BitAssets', hivemind: 'Hivemind' };
   async function bmm(stem, count) {
@@ -38,7 +40,7 @@
     for (const stem of SIDE) await rpc('createsidechainproposal', [SLOTS[stem], NAMES[stem], 'showcase']);
     await rpc('generatetoaddress', [25, mining]);
     const active = (await rpc('listactivesidechains')).map((s) => s.slot);
-    await check('four sidechains active', SIDE.every((s) => active.includes(SLOTS[s])), JSON.stringify(active));
+    await check(`${SIDE.length} sidechains active`, SIDE.every((s) => active.includes(SLOTS[s])), JSON.stringify(active));
     for (const stem of SIDE) await host('sidechains.enable', { stem, wallet: 'separate' });
     for (const stem of SIDE) await waitFor(`${stem} running`, async () => (await chainOf(stem)).ready, 240000);
     for (const stem of SIDE) await bmm(stem, 2);
@@ -55,7 +57,8 @@
 
     // Coins into each sidechain, each the chain's own question (answered yes here).
     await desktop({ always: true });
-    const amounts = { layers: '20', thunder: '10', bitassets: '6', hivemind: '15' };
+    // At the hub's scale: enough for thousands of payments, 100 assets with logos and 90 markets.
+    const amounts = HUB ? { layers: '60', bitassets: '40', hivemind: '400' } : { layers: '20', thunder: '10', bitassets: '6', hivemind: '15' };
     for (const stem of SIDE) {
       const d = await host('chain.deposit', { stem, amount: amounts[stem] });
       await check(`a deposit into ${stem}`, /^[0-9a-f]{64}$/.test(d.txid || ''), JSON.stringify(d));
@@ -73,10 +76,12 @@
     await confirmed('bitassets', 'registerasset', ['SILV', 5000, 0], { authorizedOnly: true });
     await bmm('layers', 1);
     await bmm('bitassets', 1);
-    // A payment on Thunder, one on Layers.
-    const tAddr = (await host('chain.receive', { stem: 'thunder', label: 'Savings' })).address;
-    await host('chain.send', { stem: 'thunder', address: tAddr, amount: '1.5' });
-    await bmm('thunder', 1);
+    // A payment on Thunder.
+    if (SIDE.includes('thunder')) {
+      const tAddr = (await host('chain.receive', { stem: 'thunder', label: 'Savings' })).address;
+      await host('chain.send', { stem: 'thunder', address: tAddr, amount: '1.5' });
+      await bmm('thunder', 1);
+    }
     // A market on Hivemind, traded (by its own CLI, as its pages would).
     await log('CHECKPOINT hivemind trade 0');
     await waitFor('the trades on Hivemind', async () => ((await host('chain.positions', { stem: 'hivemind' })).positions || []).length >= 1, 600000);
@@ -86,6 +91,19 @@
     await bmm('layers', 1);
     await desktop({ always: false });
     await desktop({ clear: true });
+    if (HUB) {
+      // The hub's sizes (hubscale.py, made by the runner through each node's RPC): 25 000 transactions in Chains'
+      // wallet, thousands in the sidechains', 98 assets with 54 logos, 90 markets. The page waits on a quiet page.
+      go('settings');
+      await log('CHECKPOINT hubscale 0');
+      // The runner labels an address "hubscale-done" when it is done (whatever it could make).
+      await waitFor("the hub's history in Chains' wallet", async () => Object.keys(await rpc('getaddressesbylabel', ['hubscale-done'], 'demo')).length > 0, 3600000);
+      const made = (await rpc('getwalletinfo', [], 'demo')).txcount;
+      await check("the hub's history in Chains' wallet", made >= 25000 * (S.hubScale || 1), `${made} transactions`);
+      go('home');
+      await check('setup done', true);
+      return;
+    }
     // A wallet with a long history, as the hub's (about 20 000 records): 40 payments of 500 outputs from the friend to
     // 500 addresses of demo, some labelled.
     const addresses = [];
@@ -127,11 +145,15 @@
       await sleep(2000);
     }
     T().savePrefs({ theme: 'midnight', layout: 'dashboard', chain: 'all' });
+    // As the hub has it (its chains-app.json): Catppuccin Mocha, the text two steps larger, every block in the
+    // explorer, ten a page, coin control on.
+    if (HUB) T().savePrefs({ theme: 'mocha', fontAdjust: 2, explorerCount: 0, explorerPageSize: 10, coinControl: true });
     if (S.maximize) await host('window.toggleMaximize').catch(() => undefined);
     await sleep(3000);
   }
 
-  // The pages measured idle, in order: Home first (the budget), then each page of the app.
+  // The pages measured idle, in order: Home first (the budget), then each page of the app; with --scale hub also the
+  // sidechains' own pages the hub shows most (a group's item of the sidebar: "<stem>:<page>").
   const PAGES = [
     ['home', ''],
     ['overview', ''],
@@ -140,15 +162,85 @@
     ['transactions', ''],
     ['wallets', ''],
     ['sidechains', ''],
+    ['staking', ''],
     ['explorer', ''],
     ['settings', ''],
+    ...(HUB ? [['hivemind:markets', ''], ['hivemind:voting', ''], ['bitassets:assets', ''], ['layers:my-assets', '']] : []),
   ];
+
+  // What changes in the page while it is measured (S.probe): the changes of the document by the part of the page they are
+  // in (each is a style, a layout and a frame drawn), and how late the page's timers run (its main thread busy).
+  function region(node) {
+    let el = node && node.nodeType === 1 ? node : node && node.parentElement;
+    const parts = [];
+    for (let depth = 0; el && el !== document.body && depth < 14; depth++, el = el.parentElement) {
+      const data = [...el.attributes].find((a) => a.name.startsWith('data-') && a.name !== 'data-theme');
+      const cls = typeof el.className === 'string' ? el.className.split(/\s+/).filter((c) => c && !c.startsWith('svelte-'))[0] : '';
+      if (data || el.id || ['ASIDE', 'MAIN', 'FOOTER', 'HEADER', 'NAV', 'SECTION', 'TABLE'].includes(el.tagName)) {
+        parts.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${cls ? '.' + cls : ''}${data ? `[${data.name}]` : ''}`);
+        if (parts.length >= 2) break;
+      }
+    }
+    return parts.reverse().join(' > ') || '(body)';
+  }
+  function startProbe() {
+    const counts = new Map();
+    let total = 0;
+    const observer = new MutationObserver((records) => {
+      const what = (n) => (n && n.nodeType === 1 ? `${n.tagName.toLowerCase()}${typeof n.className === 'string' && n.className ? '.' + n.className.split(/\s+/).filter((c) => c && !c.startsWith('svelte-'))[0] : ''}` : n && n.nodeType === 3 ? '#text' : '?');
+      for (const r of records) {
+        total++;
+        let detail = what(r.target);
+        if (r.type === 'attributes') detail += `@${r.attributeName}`;
+        if (r.type === 'childList') detail += ` +${[...r.addedNodes].map(what).join(',')} -${[...r.removedNodes].map(what).join(',')}`;
+        const key = `${r.type}: ${region(r.target)} :: ${detail}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+    let late = 0;
+    let ticks = 0;
+    let last = performance.now();
+    const timer = setInterval(() => {
+      const now = performance.now();
+      late += Math.max(0, now - last - 100);
+      ticks++;
+      last = now;
+    }, 100);
+    return () => {
+      observer.disconnect();
+      clearInterval(timer);
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+      return { mutations: total, lateMs: Math.round(late), ticks, top };
+    };
+  }
+  async function measured(kind, name, seconds) {
+    const stop = S.probe ? startProbe() : null;
+    await log(`CHECKPOINT ${kind} ${name} ${seconds}`);
+    await sleep(1000 * (seconds + 3));
+    if (stop) await log(`PROBE ${kind}:${name} ${JSON.stringify(stop())}`);
+  }
+
+  /** Show a page: one of the app's, or a sidechain's own (its item in its group of the sidebar). */
+  async function show(page, tab = '') {
+    const own = /^([a-z0-9]+):([a-z0-9-]+)$/.exec(page);
+    if (!own) {
+      go(page, tab);
+      return;
+    }
+    T().savePrefs({ chain: 'all' });
+    go('home');
+    await sleep(300);
+    const item = $(`[data-chain-item="${own[1]}:${own[2]}"]`);
+    if (item) item.click();
+    else await log(`no item ${page} in the sidebar`);
+  }
 
   async function perf() {
     const seconds = S.perfSeconds || 60;
+    const short = Math.min(seconds, 30);
     // The first minute after the start, as it is: the sidechains' pages loading, the nodes catching up.
-    await log(`CHECKPOINT idle startup 45`);
-    await sleep(48000);
+    await measured('idle', 'startup', 45);
     if (S.busy) {
       go('home');
       await sleep(5000);
@@ -180,21 +272,45 @@
         }
         return n;
       })();
-      await log(`CHECKPOINT idle catchup-home ${Math.min(seconds, 30)}`);
-      await sleep(1000 * (Math.min(seconds, 30) + 4));
+      await log(`CHECKPOINT idle catchup-home ${short}`);
+      await sleep(1000 * (short + 4));
       stop2 = true;
       await log(`catchup: ${await catchup} blocks`);
       await sleep(5000);
     }
     const pages = S.pages && S.pages.length ? PAGES.filter(([p]) => S.pages.includes(p)) : PAGES;
     for (const [page, tab] of pages) {
-      go(page, tab);
+      await show(page, tab);
       // Let the page load what it shows, then nothing happens: what it costs now is what it costs idle.
       await sleep(8000);
       dismissToasts();
       await sleep(2000);
-      await log(`CHECKPOINT idle ${page} ${page === 'home' ? seconds : Math.min(seconds, 30)}`);
-      await sleep(1000 * ((page === 'home' ? seconds : Math.min(seconds, 30)) + 3));
+      await measured('idle', page, page === 'home' ? seconds : short);
+    }
+    // What one change of the page costs (S.tickTest): a word of the status bar changed once a second on a page left
+    // alone, the rest still: the cost of a frame of this window, its size and its way of drawing.
+    if (S.tickTest) {
+      go('home');
+      await sleep(8000);
+      dismissToasts();
+      const bar = $('footer.statusbar') || document.body;
+      const tick = document.createElement('span');
+      tick.id = 'perf-tick';
+      tick.textContent = '0';
+      bar.appendChild(tick);
+      let n = 0;
+      const timer = setInterval(() => (tick.textContent = String(++n % 10)), 1000);
+      await measured('idle', 'tick-1s', 30);
+      clearInterval(timer);
+      tick.remove();
+    }
+    // As on the hub (--steady): a block of Chains a minute, each sidechain merged-mined in it, a payment on a sidechain
+    // every few seconds (the runner makes them, while it measures), on each page asked.
+    for (const page of S.steady || []) {
+      await show(page);
+      await sleep(8000);
+      dismissToasts();
+      await measured('steady', page, S.steadySeconds || 180);
     }
     await check('measured', true);
   }

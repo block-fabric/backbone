@@ -145,6 +145,27 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
               --perf --perf-seconds 60 --pages home --budget 5
           )
           set_tests_properties(webui_e2e_idle_cost PROPERTIES TIMEOUT 3600 RUN_SERIAL TRUE)
+          # At the hub's scale (doc/unified-app.md §21.3): Chains' wallet of 25 000 transactions, 98 assets with 54 logos,
+          # 90 markets; Layers, BitAssets and Hivemind on; the hub's window (3440 x 1380), look and way of drawing
+          # (WSLg: software GL with WebKit's DMA-BUF renderer). Idle on each page under 5 % of one core; Home, Overview,
+          # Transactions and Hivemind's Markets while the network lives as the hub's (a block of Chains a minute, each
+          # sidechain merged-mined in it, a payment on a sidechain every 3 s) under 25 %. The state is made once (about
+          # 25 minutes) and kept in e2e-hub-state.
+          add_test(NAME webui_e2e_hub_cost
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_showcase.py
+              --app $<TARGET_FILE:chains-app>
+              --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+              ${extra_bindirs}
+              --scale hub
+              --state ${CMAKE_CURRENT_BINARY_DIR}/e2e-hub-state
+              --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-hub
+              --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots-hub
+              --screen 3440x1440 --window 3440x1380 --env WEBKIT_DISABLE_DMABUF_RENDERER=
+              --perf --perf-seconds 30 --pages home,overview,transactions,sidechains,explorer,hivemind:markets,bitassets:assets
+              --steady home,overview,transactions,hivemind:markets --steady-seconds 90
+              --budget 5 --page-budget 5 --steady-budget 25
+          )
+          set_tests_properties(webui_e2e_hub_cost PROPERTIES TIMEOUT 7200 RUN_SERIAL TRUE)
         endif()
       endif()
       # The supervisor's unit tests with a real layersd wired to a real chainsd.
