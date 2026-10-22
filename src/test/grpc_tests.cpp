@@ -978,6 +978,28 @@ BOOST_AUTO_TEST_CASE(slow_reader_bounded)
         for (size_t at{0}; (at = c.in.find(std::string(40, 'b'), at)) != std::string::npos; at += 40) ++events;
         BOOST_CHECK_EQUAL(events, 100U);
     }
+    {
+        // HTTP/2: a client that opens no window and pings all the time, reading every PING ACK: the ACKs are no progress
+        // on its replies: the stream is reset, or the connection closed, within the windows of 1 s.
+        RawClient c{to};
+        H2Bytes client{{{NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 0}}};
+        client.Request("/cusf.mainchain.v1.ValidatorService/SubscribeEvents", Envelope(""));
+        BOOST_REQUIRE(c.Send(client.Out()));
+        const std::string ping{std::string{"\0\0\x08\x06\0\0\0\0\0", 9} + std::string(8, 'p')};
+        const auto start{NodeClock::now()};
+        bool reset{false};
+        while (!c.closed && !reset && NodeClock::now() - start < 6s) {
+            if (!c.Send(ping)) break;
+            c.ReadFor(20ms);
+            const std::vector<uint8_t> types{FrameTypes(c.in)};
+            reset = std::find(types.begin(), types.end(), NGHTTP2_RST_STREAM) != types.end();
+        }
+        BOOST_CHECK(reset || c.closed);
+        const double took{Seconds(NodeClock::now() - start)};
+        BOOST_CHECK_MESSAGE(took < 4, "pinging zero-window client ended after " << took << " s");
+        const std::vector<uint8_t> types{FrameTypes(c.in)};
+        BOOST_CHECK(std::find(types.begin(), types.end(), NGHTTP2_PING) != types.end()); // the PINGs were answered
+    }
     server.Stop();
 }
 
