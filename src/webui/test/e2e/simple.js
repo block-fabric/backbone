@@ -87,7 +87,7 @@
         await waitFor('the coins on their way', () => text('.move').includes('are on their way to'), 20000);
         await rpc('generatetoaddress', [1, mining]);
         const after = await rpc('listsidechaindeposits', [2]);
-        await check('the deposit of Move coins is on the chain', after.length === before + 1 && after.some((d) => d.destination === depositAddress), JSON.stringify(after.slice(-1)));
+        await check('the deposit of Move coins is on the chain, with the address alone in it', after.length === before + 1 && after.some((d) => d.destination === 'tTHUNDERdemoAddress'), JSON.stringify(after.slice(-1)));
         await shot(`simple-move-done-${theme}`);
         buttonByText('Move more coins').click();
       } else {

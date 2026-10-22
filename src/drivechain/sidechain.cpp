@@ -403,12 +403,16 @@ std::string FormatDepositAddress(const DepositAddress& deposit_address)
 
 DepositAddressKind ParseDepositAddress(const std::string& text, DepositAddress& deposit_address)
 {
-    // s, digits, an underscore, anything, an underscore, six characters.
+    // s, digits and an underscore start a deposit address: what follows is anything, an underscore and the
+    // six characters of the checksum. Text that starts so but is not that (no checksum, one cut short or
+    // made longer) is a deposit address mistyped, not a destination: written as it is, no sidechain would
+    // credit it.
     const size_t first{text.find('_')};
     const size_t last{text.rfind('_')};
-    if (text.size() < 10 || text[0] != 's' || first == std::string::npos || first < 2 || last <= first + 1 || last + 7 != text.size()) return DepositAddressKind::PLAIN;
+    if (text.size() < 3 || text[0] != 's' || first == std::string::npos || first < 2) return DepositAddressKind::PLAIN;
     const std::string digits{text.substr(1, first - 1)};
     if (!std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; })) return DepositAddressKind::PLAIN;
+    if (last <= first + 1 || last + 7 != text.size()) return DepositAddressKind::INVALID;
     const auto slot{ToIntegral<SidechainId>(digits)};
     if (!slot || text.substr(last + 1) != DepositChecksum(text.substr(0, last + 1))) return DepositAddressKind::INVALID;
     deposit_address.slot = *slot;

@@ -144,11 +144,23 @@ class DrivechainTest(BitcoinTestFramework):
         assert_raises_rpc_error(-5, "is for the sidechain in slot 1, not for the one in slot 2", node.createsidechaindeposit, 2, deposit_address, 1)
         assert_raises_rpc_error(-5, "not valid: check it for typing errors", node.createsidechaindeposit, SLOT, deposit_address[:-1] + "0", 1)
         assert_raises_rpc_error(-5, "not valid: check it for typing errors", node.createsidechaindeposit, SLOT, deposit_address.replace("erin", "eric"), 1)
+        # Started as one but cut short, without its checksum, or with a longer one: mistyped too, not a destination.
+        for mistyped in ("s1_erin", "s1_erin_", "s1_erin_b91ea", "s1_erin_b91ea9ff"):
+            assert_raises_rpc_error(-5, "not valid: check it for typing errors", node.createsidechaindeposit, SLOT, mistyped, 1)
+        # Nor can one carry the destination of a withdrawal's change.
+        assert_raises_rpc_error(-8, "Invalid destination", node.createsidechaindeposit, SLOT, "s1_D_cb5718", 1)
+        assert_equal(node.getrawmempool(), [])
 
-        first = node.createsidechaindeposit(SLOT, "alice", 5)
+        # A deposit address of a sidechain of LayerTwo's (base58: Thunder, BitNames, ...) and one of a chain made from the
+        # template (an address of its own): the deposit writes the address alone, which each credits (Thunder nothing else).
+        layertwo, template = "4XrMw8bmnhchFspSyP4XRUuB5vaR", "rchn1qne4dtvnal6mql3kusvxq74vk9mcj4u2gks3txn"
+        first = node.createsidechaindeposit(SLOT, "s1_4XrMw8bmnhchFspSyP4XRUuB5vaR_b4f1fa", 5)
         assert_equal(first["total"], 5)
         # A second deposit before the first one confirms spends the escrow output the first one creates.
-        second = node.createsidechaindeposit(SLOT, "bob", 2)
+        second = node.createsidechaindeposit(SLOT, "s1_rchn1qne4dtvnal6mql3kusvxq74vk9mcj4u2gks3txn_7cddb9", 2)
+        for txid, address in ((first["txid"], layertwo), (second["txid"], template)):
+            vout = node.getrawtransaction(txid, True)["vout"]
+            assert_equal([o["scriptPubKey"]["hex"] for o in vout].count("6a" + f"{len(address):02x}" + address.encode().hex()), 1)
         assert_equal(second["total"], 7)
         assert_equal(set(node.getrawmempool()), {first["txid"], second["txid"]})
         spent = node.getrawtransaction(second["txid"], True)["vin"]
@@ -160,7 +172,7 @@ class DrivechainTest(BitcoinTestFramework):
         assert_equal(escrow["txid"], second["txid"])
         assert_equal(escrow["amount"], 7)
         deposits = node.listsidechaindeposits(SLOT)
-        assert_equal([d["destination"] for d in deposits], ["alice", "bob"])
+        assert_equal([d["destination"] for d in deposits], [layertwo, template])
         assert_equal([d["amount"] for d in deposits], [5, 2])
         assert_equal([d["total"] for d in deposits], [5, 7])
         assert_equal([d["txid"] for d in deposits], [first["txid"], second["txid"]])
@@ -301,7 +313,7 @@ class DrivechainTest(BitcoinTestFramework):
         assert node.getblockstats(block["hash"])["totalfee"] >= fee
 
         deposits = node.listsidechaindeposits(SLOT)
-        assert_equal([d["destination"] for d in deposits], ["alice", "bob", "carol", "D"])
+        assert_equal([d["destination"] for d in deposits], ["4XrMw8bmnhchFspSyP4XRUuB5vaR", "rchn1qne4dtvnal6mql3kusvxq74vk9mcj4u2gks3txn", "carol", "D"])
         assert_equal(deposits[-1]["amount"], 0)
         assert_equal(deposits[-1]["total"], escrow["amount"])
         self.check_in_sync()

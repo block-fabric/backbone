@@ -227,6 +227,10 @@ struct Deposit {
  *
  * The checksum is the first six hexadecimal digits of the SHA-256 hash of what
  * comes before it, the last underscore included.
+ *
+ * A deposit made to one writes the address it carries, not the deposit address:
+ * every sidechain credits that address, while some credit nobody for the whole
+ * form (Thunder: the coins would be lost).
  */
 struct DepositAddress {
     SidechainId slot{0};
@@ -237,7 +241,7 @@ enum class DepositAddressKind {
     //! Not in the format of a deposit address: a destination as it is.
     PLAIN,
     VALID,
-    //! In the format, but for the checksum or the slot number.
+    //! Starts as one does (s<digits>_), but is not one: the checksum, the slot number or the form is wrong.
     INVALID,
 };
 

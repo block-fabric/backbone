@@ -49,7 +49,7 @@ one helper, which checks three things for **every** block:
 | `replacement` | A sidechain is replaced in its slot by a proposal acked long enough. |
 | `replacement_fails_pending_bundles` | The bundles of a replaced sidechain fail, so its software refunds them. |
 | `deposits` | Deposits move the treasury (ctip) forward and are reported with their destination. |
-| `deposit_address_format` | Deposit addresses format and parse back, and bad ones are refused. |
+| `deposit_address_format` | Deposit addresses format and parse back (those of Thunder, BitNames and the template each to its address alone, what a deposit writes), and bad ones are refused, among them any text that starts as one (s<slot>_) but is not one. |
 | `treasury_is_never_dust` | A withdrawal may leave the treasury small or empty, and is still relayed. |
 | `escrow_inputs_of_two_sidechains` | One transaction cannot spend two treasuries. |
 | `withdrawals` | A bundle with enough score can be paid by exactly the transaction it commits to. |

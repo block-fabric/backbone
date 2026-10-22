@@ -35,6 +35,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace drivechain;
@@ -1118,10 +1119,29 @@ BOOST_AUTO_TEST_CASE(deposit_address_format)
     // A slot number that does not fit is no slot.
     BOOST_CHECK(ParseDepositAddress("s99999999999_alice_7ec2cc", parsed) == DepositAddressKind::INVALID);
 
+    // What starts as one (s<digits>_) but is not one is mistyped: no checksum, one cut short or made longer, no address.
+    for (const std::string mistyped : {"s3_", "s3_alice", "s3__7ec2cc", "s3_alice_7ec2c", "s3_alice_7ec2ccc", "s9_4XrMw8bmnhchFspSyP4XRUuB5vaR",
+                                       "s9_4XrMw8bmnhchFspSyP4XRUuB5vaR_", "s9_4XrMw8bmnhchFspSyP4XRUuB5vaR_6b26791f"}) {
+        BOOST_CHECK_MESSAGE(ParseDepositAddress(mistyped, parsed) == DepositAddressKind::INVALID, mistyped);
+    }
     // What does not have the form is a destination as it is.
-    for (const std::string plain : {"", "alice", "s3", "s3_alice", "s3__7ec2cc", "s_alice_7ec2cc", "sx_alice_7ec2cc", "S3_alice_7ec2cc",
-                                    "s3_alice_7ec2c", "s3_alice_7ec2ccc", "rchn1qne4dtvnal6mql3kusvxq74vk9mcj4u2gks3txn"}) {
+    for (const std::string plain : {"", "alice", "s3", "s_alice_7ec2cc", "sx_alice_7ec2cc", "S3_alice_7ec2cc",
+                                    "rchn1qne4dtvnal6mql3kusvxq74vk9mcj4u2gks3txn", "4XrMw8bmnhchFspSyP4XRUuB5vaR"}) {
         BOOST_CHECK_MESSAGE(ParseDepositAddress(plain, parsed) == DepositAddressKind::PLAIN, plain);
+    }
+
+    // The forms the wallets of the sidechains give (format_for_deposit of LayerTwo's chains, getdepositaddress of the
+    // template's), each taken apart into the address alone, which is what a deposit writes.
+    const std::vector<std::tuple<std::string, SidechainId, std::string>> families{
+        {"s9_4XrMw8bmnhchFspSyP4XRUuB5vaR_6b2679", 9, "4XrMw8bmnhchFspSyP4XRUuB5vaR"},                                   // Thunder
+        {"s2_3H7DLUWyDtVQVB4Pt2ydyW9ytDTN_7450b0", 2, "3H7DLUWyDtVQVB4Pt2ydyW9ytDTN"},                                   // BitNames
+        {"s99_rchn1qne4dtvnal6mql3kusvxq74vk9mcj4u2gks3txn_eb9e9d", 99, "rchn1qne4dtvnal6mql3kusvxq74vk9mcj4u2gks3txn"}, // the template
+    };
+    for (const auto& [text, slot, address] : families) {
+        BOOST_CHECK_MESSAGE(ParseDepositAddress(text, parsed) == DepositAddressKind::VALID, text);
+        BOOST_CHECK_EQUAL(parsed.slot, slot);
+        BOOST_CHECK_EQUAL(parsed.address, address);
+        BOOST_CHECK_EQUAL(FormatDepositAddress(parsed), text);
     }
 }
 

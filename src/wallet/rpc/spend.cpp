@@ -418,7 +418,9 @@ RPCMethod createsidechaindeposit()
         HELP_REQUIRING_PASSPHRASE,
         {
             {"slot", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sidechain slot number"},
-            {"destination", RPCArg::Type::STR, RPCArg::Optional::NO, "The deposit address that the wallet of the sidechain gives (s<slot>_<address>_<checksum>), which is checked; or any other text the sidechain understands, which is not"},
+            {"destination", RPCArg::Type::STR, RPCArg::Optional::NO, "The deposit address that the wallet of the sidechain gives (s<slot>_<address>_<checksum>), which is checked and of which\n"
+             "the deposit writes the address alone, which every sidechain credits; or the address alone, or any other text the sidechain\n"
+             "understands, which is written as it is, unchecked"},
             {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The amount in " + CURRENCY_UNIT + " to deposit"},
             {"replaces", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The txid of a deposit of this wallet to the same sidechain that was dropped (see \"sidechain_deposit_dropped\" in\n"
              "gettransaction), which this one makes again: it spends the coins of the wallet that one spent, so that only one of the two can ever be mined"},
@@ -443,7 +445,9 @@ RPCMethod createsidechaindeposit()
         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid destination: it must have 1 to %u bytes and cannot be \"%s\"", drivechain::MAX_DEPOSIT_DESTINATION_SIZE, drivechain::WITHDRAWAL_RETURN_DEST));
     }
     // A deposit address says which sidechain it is for; one for another sidechain, or one that was mistyped, is refused.
+    // The deposit writes the address it carries: what every sidechain credits (some would credit nobody for the whole form).
     drivechain::DepositAddress deposit_address;
+    std::string credited{destination};
     switch (drivechain::ParseDepositAddress(destination, deposit_address)) {
     case drivechain::DepositAddressKind::PLAIN: break;
     case drivechain::DepositAddressKind::INVALID:
@@ -452,6 +456,8 @@ RPCMethod createsidechaindeposit()
         if (deposit_address.slot != static_cast<uint32_t>(slot)) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("This deposit address is for the sidechain in slot %u, not for the one in slot %d", deposit_address.slot, slot));
         }
+        if (deposit_address.address == drivechain::WITHDRAWAL_RETURN_DEST) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid destination: it cannot be \"%s\"", drivechain::WITHDRAWAL_RETURN_DEST));
+        credited = deposit_address.address;
         break;
     }
     const CAmount amount{AmountFromValue(request.params[2])};
@@ -475,7 +481,7 @@ RPCMethod createsidechaindeposit()
     }
     std::vector<CRecipient> recipients{
         {CNoDestination{escrow_script}, escrow.amount + amount, /*fSubtractFeeFromAmount=*/false},
-        {CNoDestination{drivechain::DestinationScript(destination)}, 0, /*fSubtractFeeFromAmount=*/false},
+        {CNoDestination{drivechain::DestinationScript(credited)}, 0, /*fSubtractFeeFromAmount=*/false},
     };
     // Made again in place of a deposit that was dropped: with at least one of the coins of the wallet
     // that one spent (or the escrow output it spent), so that the two conflict and the deposit is
