@@ -8,6 +8,12 @@
 //            each balance the one noted.
 //   migrate  a wallet of before with coins: the offer opens by itself; a phrase made, the coins moved by a payment to
 //            yourself, the old wallet's keys as they were.
+//   nopass   a phrase WITHOUT a password (the user's choice, §23.11): said plainly in the guide, nothing asked after the words;
+//            every wallet of the phrase kept open; a deposit and payments asked without a password; zSide on with its own
+//            wallet, its notice and its own backup (written over the second time: the chooser asked); a password added (then
+//            asked, every wallet locked), and removed again (open again).
+// The first run also has merged mining with its main wallet locked (§23.12): said plainly; a mining wallet made from the
+// phrase, topped up, paying the daemon's own bids while the main wallet stays locked.
 // The runner answers "CHECKPOINT <what> <stem> <rest>" (merged mining, the checks of the words) and says it is done by
 // turning the node's network back on (the page turns it off first). Pictures in Midnight.
 (async () => {
@@ -77,8 +83,9 @@
   const chainsTrusted = async (wallet) => (await rpc('getbalances', [], wallet)).mine.trusted;
 
   /** The first start's guide up to its phrase: the words read, a wrong word said, then right; the passphrase. */
-  async function makePhrase(prefix) {
-    for (let i = 0; i < 4; i++) await desktop({ show: true });
+  async function makePhrase(prefix, protect = true) {
+    // Each question in the app's own window: the words, a wrong check, the right one, and the password when one is chosen.
+    for (let i = 0; i < (protect ? 4 : 3); i++) await desktop({ show: true });
     $('[data-action="make-phrase"]').click();
     await nextDialog('Your backup phrase');
     const words = await words12();
@@ -98,8 +105,10 @@
     await check(`${prefix}: a wrong word said at its field`, Array.isArray(said) && said.length >= 1 && said.every((e) => /look at your paper/.test(e)), JSON.stringify(said));
     await dialogShot(`${prefix}-dialog-check-wrong`);
     await answerDialog(Object.fromEntries(ids.map((id) => [id, words[Number(id.slice(5)) - 1]])));
-    await nextDialog('A passphrase for your wallet');
-    await answerDialog({ passphrase: PASS, repeat: PASS });
+    if (protect) {
+      await nextDialog('A password for your wallet');
+      await answerDialog({ passphrase: PASS, repeat: PASS });
+    }
     return words;
   }
 
@@ -140,7 +149,14 @@
       $('.pick[data-stem="layers"] input').click();
       $('.pick[data-stem="thunder"] input').click();
       await sleep(200);
+      // zSide: its own wallet, its private funds not covered by the phrase: said on its card (doc §23.13).
+      const zNote = $('.pick[data-stem="zside"] [data-zside-note]');
+      await check('the picker says zSide\'s private funds are not covered by the backup phrase', !!zNote && /not covered by your backup phrase/.test(zNote.textContent) && !$('.pick[data-stem="layers"] [data-zside-note]'), zNote && zNote.textContent);
       await shot('seed-firstrun-5-sidechains');
+      if (zNote) {
+        zNote.closest('.pick').scrollIntoView({ block: 'center' });
+        await shot('seed-firstrun-5b-zside');
+      }
       next();
       await waitFor('the storage step', () => wizardStep('firstrun') === 'storage');
       next();
@@ -250,7 +266,7 @@
       await desktop({ show: true });
       await desktop({ show: true });
       $('[data-action="seed-show"]').click();
-      await nextDialog('Your wallet passphrase');
+      await nextDialog('Your wallet password');
       await answerDialog({ 'passphrase-legacy': NEW_PASS });
       await nextDialog('Your backup phrase');
       const shown = await words12();
@@ -259,6 +275,65 @@
       await sleep(2600);
       await inDialog(`window.__e2eAnswered = true; document.getElementById('dialog-accept').click(); true`);
       await waitFor('the window gone', async () => (await dialogWindow('kind')) === 'none', 20000);
+
+      // Merged mining while the main wallet is locked (it has a password, doc §23.12): said plainly, then a mining wallet of
+      // its own (from the phrase) pays the daemon's own bids, the main wallet staying locked.
+      T().go('settings', 'wallet');
+      await waitFor('the merged mining panel', () => $('[data-mining-settings]'), 30000);
+      await checkpoint('setbmm', 'layers', 'on');
+      await rpc('generatetoaddress', [1, mining]);
+      await waitFor('merged mining said unable: the main wallet is locked', () => $('[data-mining-problem="locked"]'), 120000);
+      await check('merged mining with the main wallet locked: said plainly, with the way out', /has a password and is locked/.test($('[data-mining-problem]').textContent) && /separate mining wallet/.test($('[data-mining-problem]').textContent), $('[data-mining-problem]').textContent);
+      $('[data-mining-settings]').scrollIntoView({ block: 'start' });
+      await shot('seed-mining-1-locked');
+      const listed0 = await host('sidechains.list');
+      const pidBefore = listed0.chains.find((c) => c.stem === 'layers').pid;
+      // The phrase locked (it stays unlocked a while after it is made): its password is asked to make the mining wallet.
+      await host('seed.lock');
+      before = (await asked()).length;
+      await desktop({ yes: true, passphrase: NEW_PASS });
+      $('[data-action="mining-create"]').click();
+      await waitFor('the mining wallet made', () => $('[data-mining-paying="mining"]'), 120000);
+      const st2 = await seedStatus();
+      await check('the mining wallet: made from the phrase (its password asked once), paying the bids', st2.mining && st2.mining.wallet === 'mining' && st2.mining.from === 'phrase' && st2.mining.on && (await asked()).slice(before).length === 1, JSON.stringify({ mining: st2.mining, asked: (await asked()).slice(before).map((q) => q.title) }));
+      // Its daemons start again to pay from it (-mainchainrpcwallet).
+      await waitFor('Layers started again to pay from the mining wallet', async () => {
+        const l = (await host('sidechains.list')).chains.find((c) => c.stem === 'layers');
+        return l.pid && l.pid !== pidBefore && l.ready;
+      }, 180000);
+      await checkpoint('setbmm', 'layers', 'on');
+      await rpc('generatetoaddress', [1, mining]);
+      await waitFor('said empty', () => $('[data-mining-problem="empty"]'), 120000);
+      $('[data-mining-settings]').scrollIntoView({ block: 'start' });
+      await shot('seed-mining-2-empty');
+      // Topped up from the main wallet: a payment, its password asked in the app's window.
+      $('[data-action="mining-topup"]').click();
+      await waitFor('the amount', () => $('[data-mining-amount]'), 10000);
+      const topAmount = $('[data-mining-amount]');
+      topAmount.value = '0.05';
+      topAmount.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(300);
+      before = (await asked()).length;
+      await desktop({ yes: true, passphrase: NEW_PASS });
+      $('[data-action="mining-topup-send"]').click();
+      await waitFor('topped up', async () => (await asked()).length > before, 60000);
+      const top = (await asked())[before];
+      await check('the top-up: a payment from the main wallet, its password asked', top && top.passphrase, JSON.stringify(top));
+      // Sent (the question answered, the payment committed): then a block.
+      await waitFor('the top-up seen by the mining wallet', async () => {
+        const b = (await rpc('getbalances', [], 'mining')).mine;
+        return b.untrusted_pending + b.trusted > 0;
+      }, 60000);
+      await rpc('generatetoaddress', [1, mining]);
+      await waitFor('its balance shown', () => /0\.0[45]/.test(($('[data-mining-balance]') || {}).textContent || ''), 60000);
+      $('[data-mining-settings]').scrollIntoView({ block: 'start' });
+      await shot('seed-mining-3-funded');
+      // The daemon's own bids, paid by the mining wallet while the main wallet stays locked (the runner checks both).
+      await checkpoint('minebmm', 'layers', '3');
+      await waitFor('no problem said any more', () => !$('[data-mining-problem]'), 60000);
+      $('[data-mining-settings]').scrollIntoView({ block: 'start' });
+      await shot('seed-mining-4-paying');
+      await checkpoint('setbmm', 'layers', 'off');
 
       // Everything in blocks, then the balances noted for the restore.
       await rpc('generatetoaddress', [1, mining]);
@@ -297,7 +372,7 @@
       const kept = await inDialog(`document.getElementById('dialog-field-words').value`);
       await check('restore: the words given back to be corrected, the wrong one said', /Word 5/.test(error) && kept === typo.join(' '), `${error} | ${kept}`);
       await answerDialog({ words: S.words.join(' ') });
-      await nextDialog('A passphrase for your wallet');
+      await nextDialog('A password for your wallet');
       await answerDialog({ passphrase: 'another one 123', repeat: 'another one 123' });
       await waitFor('the phrase back', () => $('[data-made]'), 60000);
       await shot('seed-restore-1-made');
@@ -317,6 +392,9 @@
       await keysReady(['chains', 'layers', 'thunder']);
       await sleep(2000);
       await shot('seed-restore-3-done');
+      // The restored wallets hold the accounts the words give with this version's labels ("sidechain/account/v1"), checked
+      // by the runner apart from the app's code.
+      await checkpoint('addresses', 'all', 'restore');
       $('[data-action="done"]').click();
       await waitFor('the app\'s pages on the restored wallet', () => T().wallets.current === 'main', 30000);
       const got = {};
@@ -373,6 +451,137 @@
       await check('the wallet of before: its keys exactly as they were', (await keysOf('main')) === oldKeys);
       const st2 = await seedStatus();
       await check('the offer is not made again', !st2.offer, JSON.stringify(st2));
+    } else if (S.phase === 'nopass') {
+      // Layers (slot 7) active, mined to no wallet: the first start has none.
+      await rpc('generatetodescriptor', [110, 'raw(51)']);
+      await rpc('createsidechainproposal', [7, 'Layers', 'Assets on a fast chain']);
+      await rpc('generatetodescriptor', [25, 'raw(51)']);
+      window.__chainsSeed.autoOpened = false;
+      window.__chainsSeed.autoOpen = true;
+      await waitFor('the first start\'s guide, by itself', () => $('[data-wizard="firstrun"]'), 30000);
+      next();
+      await waitFor('your wallet', () => wizardStep('firstrun') === 'wallet');
+      next();
+      await waitFor('the backup phrase step', () => wizardStep('firstrun') === 'backup');
+      // No password: said plainly before anything is made (doc §23.11).
+      await check('a password is the default, recommended', $('[data-password-choice]')?.dataset.passwordChoice === 'password' && /recommended/.test($('[data-password-choice]').textContent));
+      $('[data-protect="none"]').click();
+      await waitFor('the warning', () => $('[data-no-password-warning]'), 5000);
+      await check('without a password: anyone with access to this computer can spend, said before anything is made', /anyone with access to this computer can spend your coins/.test($('[data-no-password-warning]').textContent));
+      await shot('seed-nopass-1-choice');
+      const words = await makePhrase('seed-nopass', false);
+      await waitFor('the phrase made', () => $('[data-made]'), 60000);
+      await checkpoint('words', 'all', words.join(' '), false);
+      await keysReady(['chains']);
+      const st0 = await seedStatus();
+      await check('the phrase without a password: nothing asked after the words', st0.password === false && st0.exists, JSON.stringify(st0));
+      next();
+      await waitFor('the network step', () => wizardStep('firstrun') === 'network');
+      next();
+      await waitFor('the sidechains step', () => wizardStep('firstrun') === 'sidechains');
+      $('.pick[data-stem="layers"] input').click();
+      if (S.zside) $('.pick[data-stem="zside"] input').click();
+      next();
+      await waitFor('the storage step', () => wizardStep('firstrun') === 'storage');
+      next();
+      await waitFor('the last step', () => wizardStep('firstrun') === 'sync');
+      const unlocks = (await asked()).length;
+      $('[data-action="finish"]').click();
+      await waitFor('turned on', () => wizardStep('firstrun') === 'done', 180000);
+      await keysReady(['layers']);
+      await check('the sidechains turned on: nothing asked', (await asked()).length === unlocks);
+      if (S.zside) {
+        await waitFor('zSide\'s backup offered at the end of the guide', () => $('[data-zside-note] [data-action="zside-backup"]'), 240000);
+        await shot('seed-nopass-2-done-zside');
+      }
+      $('[data-action="done"]').click();
+      // The runner: every chain's account from the words, the wallets' passphrases made from the seed (the app's own too),
+      // and every wallet of the phrase kept open.
+      await checkpoint('addresses', 'all', 'nopass');
+      await checkpoint('protection', 'all', 'open');
+
+      // Coins: a deposit and payments asked without a password.
+      await rpc('createwallet', ['demo']);
+      const mining = await rpc('getnewaddress', ['Mining'], 'demo');
+      await rpc('generatetoaddress', [110, mining]);
+      await waitFor('the app\'s pages on the phrase\'s wallet', () => T().wallets.current === 'main');
+      await rpc('sendtoaddress', [await rpc('getnewaddress', ['From mining'], 'main'), 50], 'demo');
+      await rpc('generatetoaddress', [1, mining]);
+      let before = (await asked()).length;
+      await desktop({ yes: true });
+      await host('chain.deposit', { stem: 'layers', amount: '10' });
+      let q = (await asked())[before];
+      await check('a deposit without a password: asked, no password field', q && !q.passphrase, JSON.stringify(q));
+      await rpc('generatetoaddress', [1, mining]);
+      await bmm('layers', 2);
+      await waitFor('the deposit credited', async () => Number(await balanceOf('layers')) >= 9.99, 180000);
+      const back = await host('chain.receive', { stem: 'layers' });
+      before = (await asked()).length;
+      await desktop({ yes: true });
+      await host('chain.send', { stem: 'layers', address: back.address, amount: '1' });
+      q = (await asked())[before];
+      await check('a payment on Layers without a password: asked "On Layers", no password field', q && q.chain === 'Layers' && !q.passphrase, JSON.stringify(q));
+      await bmm('layers', 1);
+      // Settings → Wallet: said plainly; the phrase shown with a question first, no password typed.
+      T().go('settings', 'wallet');
+      await waitFor('the backup phrase panel', () => $('[data-seed-settings] [data-password="none"]'), 30000);
+      await check('Settings says: no password, anyone with access to this computer can spend', /Anyone with access to this computer can spend/.test($('[data-password="none"]').textContent));
+      await waitFor('the status bar says it too', () => $('[data-no-password]'), 10000);
+      await shot('seed-nopass-3-settings');
+      await desktop({ show: true });
+      await desktop({ show: true });
+      $('[data-action="seed-show"]').click();
+      await nextDialog('Show your backup phrase');
+      await answerDialog({});
+      await nextDialog('Your backup phrase');
+      const shown = await words12();
+      await check('the phrase shown again without a password: a question first, then the same words', JSON.stringify(shown) === JSON.stringify(words));
+      await sleep(2600);
+      await inDialog(`window.__e2eAnswered = true; document.getElementById('dialog-accept').click(); true`);
+      await waitFor('the window gone', async () => (await dialogWindow('kind')) === 'none', 20000);
+
+      if (S.zside) {
+        // zSide's own wallet: said apart in Settings, and backed up from there (a file of the app's own chooser, given to
+        // zSide's node by a token: -webuichooser); the same file again is written over (the chooser asked to replace it).
+        await waitFor('zSide said apart', () => $('[data-seed-settings] [data-zside-note] [data-action="zside-backup"]'), 120000);
+        await check('Settings: zSide\'s private funds not covered by the phrase, its own backup offered', /not covered by your backup phrase/.test($('[data-seed-settings] [data-zside-note]').textContent));
+        for (const round of [1, 2]) {
+          await host('test.fileAnswer', { path: S.zsideBackup });
+          $('[data-seed-settings] [data-action="zside-backup"]').click();
+          await checkpoint('backupfile', 'zside', `${round} ${S.zsideBackup}`);
+        }
+      }
+
+      // A password added: asked in the app's window; then every wallet locked, and a payment asks it.
+      await desktop({ show: true });
+      $('[data-action="seed-add-password"]').click();
+      await nextDialog('Add a password');
+      await dialogShot('seed-nopass-dialog-add-password');
+      await answerDialog({ passphrase: PASS, repeat: PASS });
+      await waitFor('a password now', () => $('[data-seed-settings] [data-password="on"]'), 60000);
+      await shot('seed-nopass-4-password-added');
+      await checkpoint('protection', 'all', 'locked');
+      before = (await asked()).length;
+      await desktop({ yes: true, passphrase: PASS });
+      await host('chain.send', { stem: 'layers', address: back.address, amount: '0.5' });
+      q = (await asked())[before];
+      await check('with a password added, a payment on Layers asks it', q && q.passphrase, JSON.stringify(q));
+      await bmm('layers', 1);
+      // Removed again: its consequences said, its box ticked, the password typed; every wallet open again.
+      await desktop({ show: true });
+      $('[data-action="seed-remove-password"]').click();
+      await nextDialog('Remove the password');
+      const told = await inDialog(`document.getElementById('dialog-message') ? document.getElementById('dialog-message').textContent : document.body.innerText`);
+      await check('removing the password says what it means', /anyone who can use this computer/i.test(String(told)), String(told).slice(0, 200));
+      await dialogShot('seed-nopass-dialog-remove-password');
+      await answerDialog({ old: PASS }, true);
+      await waitFor('no password again', () => $('[data-seed-settings] [data-password="none"]'), 60000);
+      await checkpoint('protection', 'all', 'open');
+      before = (await asked()).length;
+      await desktop({ yes: true });
+      await host('chain.send', { stem: 'layers', address: back.address, amount: '0.25' });
+      q = (await asked())[before];
+      await check('the password removed: a payment asked without one again', q && !q.passphrase, JSON.stringify(q));
     }
   } catch (e) {
     await finish(e);
