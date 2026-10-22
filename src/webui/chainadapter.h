@@ -106,7 +106,8 @@ public:
     static UniValue CommitSendRequest(const std::string& wallet, const std::string& token);
     static UniValue ConfirmedRequest(const std::string& wallet, const std::string& method, const UniValue& params);
     static UniValue AssetSendRequest(const std::string& wallet, const std::string& address, const std::string& asset_id, const std::string& amount);
-    static UniValue ShieldedSendRequest(const std::string& wallet, const std::string& address, const std::string& amount, const std::string& memo);
+    //! sendshielded [{address: amount}, memo, fee]: the fee given (the chain's estimate), so that its question shows what is paid.
+    static UniValue ShieldedSendRequest(const std::string& wallet, const std::string& address, const std::string& amount, const std::string& memo, const std::string& fee);
     static UniValue WithdrawRequest(const std::string& wallet, const std::string& mainchain_address, const std::string& amount, const std::string& fee, const UniValue& inputs = UniValue{});
 
     //! Coins a spend names as its only inputs (coin control): [{txid, vout}], 1 to 500, each a txid of 64 lower-case hex
@@ -170,6 +171,13 @@ public:
     UniValue Send(const UniValue& params) const;
     /** {stem, wallet, address (of this app's chain), amount, fee?, inputs?}: inputs only coins of that wallet (checked here). */
     UniValue Withdraw(const UniValue& params) const;
+    /**
+     * {stem (a chain with a shielded account: zSide), wallet?, direction: "shield" | "unshield", amount}: coins moved between
+     * the wallet's own transparent coins and its shielded account (the chain's shieldcoins, unshieldcoins: to the wallet's
+     * own addresses only), its own question in the trusted dialog.
+     */
+    UniValue Shield(const UniValue& params) const;
+    static UniValue ShieldRequest(const std::string& wallet, bool shield, const std::string& amount, const std::string& fee = {});
     /** {stem, wallet (the sidechain's, credited), amount, inputs?}: paid by this app's wallet (with only the coins named,
      *  checked by the deposit hook against that wallet), asked in Chains' own dialog. */
     UniValue Deposit(const UniValue& params) const;
@@ -194,6 +202,11 @@ public:
     UniValue Block(const UniValue& params) const;
     //! What a search text is: "height", "hash", "address" or "" (nothing a node is asked about).
     static std::string QueryKind(const std::string& q);
+    //! Whether a search text may be a name (BitNames): a name, a subname (blog.core), its domain (core.x) or a number
+    //! (#1739-0029); never digits alone (a height). The chain's own getname says whether it is one.
+    static bool IsNameText(const std::string& q);
+    //! The name a search text asks for: a domain of the names' own top level (core.x) is the name core.
+    static std::string NameOf(const std::string& q);
 
     /** {stem (a chain of assets), asset (64 hex)} → {asset, hash, mime, url} (a data: URL of PNG or JPEG bytes) or null. */
     UniValue AssetLogo(const UniValue& params) const;
@@ -272,6 +285,8 @@ private:
     std::vector<UniValue> PairPools(const std::string& stem, const std::string& a, const std::string& b) const;
     //! Whether the chain's spends name pools by their ids now (its pool kinds apply).
     bool ById(const std::string& stem) const;
+    //! The fee of a payment out of a shielded account as the chain's own estimate says it (estimateshieldedfee).
+    std::string ShieldedFee(const std::string& stem, const std::string& wallet, const std::string& address, const std::string& amount) const;
     //! The checks of an address against the chain it is sent on and every other chain this app runs.
     UniValue CheckAddress(const std::string& stem, const std::string& address, bool shielded) const;
 

@@ -124,9 +124,9 @@ std::vector<std::string> ChainAdapter::MethodsUsed(std::string_view stem)
         if (caps->dex_features.curves) add({"getdexinfo", "previewpool", "swappools", "addpoolliquidity", "removepoolliquidity", "createpool"});
     }
     if (caps->staking) add({"getposinfo", "getstakinginfo", "getvalidators", "listbonds"});
-    if (caps->names) add({"listmynames"});
+    if (caps->names) add({"listmynames", "getname"});
     if (caps->markets) add({"listmarkets", "getwalletpositions"});
-    if (caps->shielded) add({"getshieldedbalance", "getshieldedaddress", "sendshielded"});
+    if (caps->shielded) add({"getshieldedbalance", "getshieldedaddress", "estimateshieldedfee", "sendshielded", "shieldcoins", "unshieldcoins"});
     std::ranges::sort(m);
     m.erase(std::unique(m.begin(), m.end()), m.end());
     return m;
@@ -281,6 +281,10 @@ UniValue ChainAdapter::TransactionRows(const UniValue& listed, size_t max)
     for (size_t n{listed.size()}; n > 0 && out.size() < max; --n) {
         const UniValue& t{listed[n - 1]};
         if (!t.isObject() || !IsHex64(Str(t, "txid")) || !Param(t, "amount").isNum()) continue;
+        // A block's reward that pays nothing (a block of stake, or one merged mined, with no fees: its maker's output of no
+        // value, one a block): it says nothing to people and would bury every payment (a validator makes one a slot).
+        const std::string category{Str(t, "category")};
+        if ((category == "generate" || category == "immature" || category == "orphan") && ParseUnits(AmountText(Param(t, "amount")), COIN_DECIMALS) == int64_t{0}) continue;
         UniValue row{UniValue::VOBJ};
         row.pushKV("txid", Str(t, "txid"));
         row.pushKV("vout", Param(t, "vout").isNum() ? Param(t, "vout").getInt<int>() : 0);
@@ -379,14 +383,27 @@ UniValue ChainAdapter::AssetSendRequest(const std::string& wallet, const std::st
     return ConfirmedRequest(wallet, "sendasset", Array({UniValue{address}, UniValue{"0x" + asset_id}, UniValue{amount}}));
 }
 
-UniValue ChainAdapter::ShieldedSendRequest(const std::string& wallet, const std::string& address, const std::string& amount, const std::string& memo)
+UniValue ChainAdapter::ShieldedSendRequest(const std::string& wallet, const std::string& address, const std::string& amount, const std::string& memo, const std::string& fee)
 {
     UniValue amounts{UniValue::VOBJ};
     amounts.pushKV(address, amount);
     UniValue args{UniValue::VARR};
     args.push_back(std::move(amounts));
-    if (!memo.empty()) args.push_back(memo);
+    // The fee given, as the chain's own estimate said it (its question shows what is paid: zSide's audit 7 E-ZS3).
+    args.push_back(memo);
+    args.push_back(fee);
     return ConfirmedRequest(wallet, "sendshielded", args);
+}
+
+std::string ChainAdapter::ShieldedFee(const std::string& stem, const std::string& wallet, const std::string& address, const std::string& amount) const
+{
+    UniValue amounts{UniValue::VOBJ};
+    amounts.pushKV(address, amount);
+    const UniValue estimate{PageRead(stem, "estimateshieldedfee", Array({amounts, UniValue{false}}), wallet)};
+    const std::string fee{AmountText(estimate.find_value("fee"))};
+    const auto units{ParseUnits(fee, COIN_DECIMALS)};
+    if (!units || !MoneyRange(*units)) throw HostError(strprintf("%s gave no fee for this payment", m_hooks.name(stem)));
+    return FormatUnits(*units, COIN_DECIMALS);
 }
 
 UniValue ChainAdapter::WithdrawRequest(const std::string& wallet, const std::string& mainchain_address, const std::string& amount, const std::string& fee, const UniValue& inputs)
@@ -634,6 +651,23 @@ UniValue ChainAdapter::Summary(const UniValue& params) const
                 UniValue sh{UniValue::VOBJ};
                 for (const char* key : {"available", "spendable", "pending"}) sh.pushKV(key, AmountText(s.find_value(key)));
                 out.pushKV("shielded", std::move(sh));
+            });
+        }
+        // The names of the wallet (BitNames): how many it holds, how many reservations wait to be registered.
+        if (caps.names) {
+            section("names", [&] {
+                const UniValue list{PageRead(stem, "listmynames", UniValue{UniValue::VARR}, wallet)};
+                int names{0};
+                int reservations{0};
+                for (size_t i{0}; list.isArray() && i < list.size() && i < 10000; ++i) {
+                    const std::string kind{Str(list[i], "kind")};
+                    if (kind == "name") ++names;
+                    else if (kind == "reservation") ++reservations;
+                }
+                UniValue n{UniValue::VOBJ};
+                n.pushKV("count", names);
+                n.pushKV("reservations", reservations);
+                out.pushKV("names", std::move(n));
             });
         }
         // Withdrawals this wallet made that the mainchain has not paid yet (their refund address is the wallet's).
@@ -910,7 +944,8 @@ UniValue ChainAdapter::Send(const UniValue& params) const
         if (shielded) {
             const std::string memo{Str(params, "memo")};
             if (memo.size() > 512) throw HostError(BRIDGE_INVALID_REQUEST, "The memo: at most 512 bytes");
-            result = m_hooks.call(stem, ShieldedSendRequest(wallet, address, FormatUnits(*sats, COIN_DECIMALS), memo));
+            const std::string coins{FormatUnits(*sats, COIN_DECIMALS)};
+            result = m_hooks.call(stem, ShieldedSendRequest(wallet, address, coins, memo, ShieldedFee(stem, wallet, address, coins)));
         } else {
             // Made, not signed, by the chain's wallet; its question (destinations, amounts, fee, change) is its own.
             const UniValue prepared{m_hooks.call(stem, PrepareSendRequest(wallet, address, *sats, Param(params, "subtractFee").isTrue()))};
@@ -941,6 +976,51 @@ UniValue ChainAdapter::Send(const UniValue& params) const
     else if (IsHex64(Str(result, "txid"))) out.pushKV("txid", Str(result, "txid"));
     out.pushKV("result", Bounded(result));
     return out;
+}
+
+UniValue ChainAdapter::Shield(const UniValue& params) const
+{
+    std::string stem;
+    const Capabilities& caps{Caps(params, stem)};
+    if (!caps.shielded) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("%s has no shielded account", m_hooks.name(stem)));
+    const std::string wallet{Wallet(stem, params)};
+    const std::string direction{Str(params, "direction")};
+    if (direction != "shield" && direction != "unshield") throw HostError(BRIDGE_INVALID_REQUEST, "direction: shield or unshield");
+    const auto amount{ParseUnits(util::TrimString(Str(params, "amount")), COIN_DECIMALS)};
+    if (!amount || *amount <= 0 || !MoneyRange(*amount)) throw HostError(BRIDGE_INVALID_REQUEST, "The amount: a positive number with at most 8 decimals");
+    // Between the wallet's own two accounts: to its own shielded address (shieldcoins), or to a new transparent address of
+    // its own (unshieldcoins, its fee given as the chain's estimate for such an address says); the chain's own question
+    // says which, in the trusted dialog.
+    const std::string coins{FormatUnits(*amount, COIN_DECIMALS)};
+    std::string fee;
+    if (direction == "unshield") {
+        UniValue p{UniValue::VOBJ};
+        p.pushKV("wallet", wallet);
+        p.pushKV("label", "");
+        UniValue request{UniValue::VOBJ};
+        request.pushKV("kind", "host");
+        request.pushKV("method", "wallet.newAddress");
+        request.pushKV("params", std::move(p));
+        const UniValue own{m_hooks.call(stem, request)};
+        if (!own.isStr() || own.get_str().empty()) throw HostError(strprintf("%s gave no address of the wallet", m_hooks.name(stem)));
+        fee = ShieldedFee(stem, wallet, own.get_str(), coins);
+    }
+    const UniValue result{m_hooks.call(stem, ShieldRequest(wallet, direction == "shield", coins, fee))};
+    UniValue out{UniValue::VOBJ};
+    out.pushKV("stem", stem);
+    out.pushKV("wallet", wallet);
+    if (result.isStr() && IsHex64(result.get_str())) out.pushKV("txid", result.get_str());
+    else if (IsHex64(Str(result, "txid"))) out.pushKV("txid", Str(result, "txid"));
+    out.pushKV("result", Bounded(result));
+    return out;
+}
+
+UniValue ChainAdapter::ShieldRequest(const std::string& wallet, bool shield, const std::string& amount, const std::string& fee)
+{
+    // shieldcoins [amount]: to the wallet's own shielded address. unshieldcoins [amount, null (a new address of the wallet),
+    // false, fee].
+    if (shield) return ConfirmedRequest(wallet, "shieldcoins", Array({UniValue{amount}}));
+    return ConfirmedRequest(wallet, "unshieldcoins", Array({UniValue{amount}, UniValue{}, UniValue{false}, UniValue{fee}}));
 }
 
 UniValue ChainAdapter::Withdraw(const UniValue& params) const
@@ -1225,6 +1305,35 @@ std::string ChainAdapter::QueryKind(const std::string& q)
     return {};
 }
 
+bool ChainAdapter::IsNameText(const std::string& q)
+{
+    if (q.empty() || q.size() > 120) return false;
+    // A number (#1739-0029).
+    if (q.size() == 10 && q[0] == '#' && q[5] == '-') {
+        return std::all_of(q.begin() + 1, q.begin() + 5, [](char c) { return c >= '0' && c <= '9'; }) && std::all_of(q.begin() + 6, q.end(), [](char c) { return c >= '0' && c <= '9'; });
+    }
+    // A name or a subname (blog.core), its domain (core.x) too: lower-case letters, digits, - and _, labels joined by dots;
+    // not digits alone (a height).
+    if (std::all_of(q.begin(), q.end(), [](char c) { return c >= '0' && c <= '9'; })) return false;
+    size_t label{0};
+    for (const char c : q) {
+        if (c == '.') {
+            if (label == 0) return false;
+            label = 0;
+            continue;
+        }
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) return false;
+        if (++label > 63) return false;
+    }
+    return label > 0;
+}
+
+std::string ChainAdapter::NameOf(const std::string& q)
+{
+    // A domain of the names' own top level (.x) is the name it ends with.
+    return q.size() > 2 && q.ends_with(".x") ? q.substr(0, q.size() - 2) : q;
+}
+
 UniValue ChainAdapter::Block(const UniValue& params) const
 {
     std::string stem;
@@ -1263,7 +1372,7 @@ UniValue ChainAdapter::Block(const UniValue& params) const
 UniValue ChainAdapter::Search(const UniValue& params) const
 {
     std::string stem;
-    Caps(params, stem);
+    const Capabilities& caps{Caps(params, stem)};
     if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
     const std::string q{util::TrimString(Str(params, "q"))};
     const std::string kind{QueryKind(q)};
@@ -1326,7 +1435,28 @@ UniValue ChainAdapter::Search(const UniValue& params) const
                 });
             }
         }
-    } else if (kind == "address") {
+    }
+    // A name of a chain that keeps names (BitNames): its owner and its number, by the chain's own getname.
+    if (caps.names && IsNameText(q)) {
+        attempt([&] {
+            const std::string text{NameOf(q)};
+            const UniValue n{PageRead(stem, "getname", Array({UniValue{text}}), "")};
+            if (!IsHex64(Str(n, "namehash"))) return;
+            UniValue r{UniValue::VOBJ};
+            r.pushKV("kind", "name");
+            r.pushKV("namehash", Str(n, "namehash"));
+            r.pushKV("name", Line(Str(n, "name").empty() ? text : Str(n, "name"), 120));
+            r.pushKV("seq", Line(Str(n, "seq"), 16));
+            if (Param(n, "registered").isNum()) r.pushKV("height", Param(n, "registered").getInt<int64_t>());
+            const std::string owner{Str(Param(n, "owner"), "address")};
+            r.pushKV("owner", Line(owner, 120));
+            bool mine{false};
+            if (!owner.empty()) attempt([&] { mine = PageRead(stem, "getaddressinfo", Array({UniValue{owner}}), Wallet(stem, params)).find_value("ismine").isTrue(); });
+            r.pushKV("mine", mine);
+            results.push_back(std::move(r));
+        });
+    }
+    if (kind == "address") {
         attempt([&] {
             const UniValue v{PageRead(stem, "validateaddress", Array({UniValue{q}}), "")};
             if (!Param(v, "isvalid").isTrue()) return;

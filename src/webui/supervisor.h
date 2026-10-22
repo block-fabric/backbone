@@ -138,6 +138,20 @@ public:
     bool AnyEnabled() const;
     std::string WalletMode(const std::string& stem) const;
 
+    /** The validator key file this app makes for a chain that stakes (doc/unified-app.md §24.2): in its network's data. */
+    fs::path ValidatorKeyFile(const std::string& stem) const;
+    /** Whether its daemon is started with a validator key this app made (its setting, and the file there). */
+    bool HasValidatorKey(const std::string& stem) const;
+    /**
+     * A validator key of this computer for a chain that stakes (FastBlocks, Layers; decision 4 of doc §12): a secp256k1
+     * secret of 32 random bytes, never made from the backup phrase and never copied, written once, owner-only, in its
+     * network's data folder; its daemon is started with it (-validatorkeyfile), and again if it runs. The producer's share
+     * of the fees goes to an address of the chain's wallet (-validatorpayout: from the phrase, so it comes back with it),
+     * asked of its node as soon as its wallet is there. A key made before is kept and used again. Returns its public key
+     * (x-only, hex). Throws std::runtime_error.
+     */
+    std::string MakeValidatorKey(const std::string& stem);
+
     /** Enable a sidechain and start its daemon (waits for the start, a few seconds at most). Throws std::runtime_error. */
     void Enable(const std::string& stem, const std::optional<std::string>& wallet_mode = std::nullopt);
     /** Disable it: its daemon is asked to stop (SIGTERM, then SIGKILL after stop_timeout); its data and keys stay. */
@@ -229,6 +243,8 @@ private:
         bool want_start{false};
         bool rpc_ready{false};
         bool wallet_checked{false};
+        //! Its validator key has no payout address of its wallet yet (EnsureValidatorPayout).
+        bool payout_wanted{false};
         int restarts{0};
         //! The wallet it was started to pay merged mining from (-mainchainrpcwallet; "" none named).
         std::string bmm_wallet;
@@ -242,6 +258,9 @@ private:
     UniValue Settings(const std::string& stem) const;
     UniValue Setting(const std::string& stem, const std::string& key) const;
     void SetSetting(const std::string& stem, const std::string& key, const UniValue& value);
+    //! The address of its wallet the producer's share of fees goes to, asked of its node once (a running node with a
+    //! validator key and no payout yet): true when it was set now (its daemon is then started again with it).
+    bool EnsureValidatorPayout(const std::string& stem);
     void EnsureThread() EXCLUSIVE_LOCKS_REQUIRED(m_mutex);
     void Loop();
     //! Start a daemon (the thread of the supervisor only). An error is put in proc.

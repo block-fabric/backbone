@@ -2407,8 +2407,21 @@ void App::RegisterSidechainMethods(Bridge& b)
         std::optional<std::string> wallet;
         if (Param(params, "wallet").isStr()) wallet = Param(params, "wallet").get_str();
         EnsureRpcServer();
+        // Staking chosen in its wizard: a validator key of this computer before it starts (never from the phrase).
+        const SidechainSupervisor::Spec* spec{SidechainSupervisor::FindSpec(stem)};
+        if (Param(params, "stake").isTrue() && spec && spec->staking) s->MakeValidatorKey(stem);
         s->Enable(stem, wallet);
         return UniValue{true};
+    }), Bridge::Thread::LONG);
+    // A validator key of this computer for a chain that stakes (doc/unified-app.md §24.2): made here, never from the backup
+    // phrase; its node starts again with it. One made before is kept.
+    b.RegisterHost("sidechains.validatorKey", guarded([this, stem_of](const UniValue& params) {
+        const std::string stem{stem_of(params)};
+        const auto s{Supervisor()};
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("pubkey", s->MakeValidatorKey(stem));
+        out.pushKV("file", fs::PathToString(s->ValidatorKeyFile(stem)));
+        return out;
     }), Bridge::Thread::LONG);
     b.RegisterHost("sidechains.disable", guarded([this, stem_of](const UniValue& params) {
         Supervisor()->Disable(stem_of(params));
@@ -2511,6 +2524,7 @@ void App::RegisterSidechainMethods(Bridge& b)
              {"chain.validate", &ChainAdapter::Validate, Bridge::Thread::WORKER},
              {"chain.send", &ChainAdapter::Send, Bridge::Thread::LONG},
              {"chain.withdraw", &ChainAdapter::Withdraw, Bridge::Thread::LONG},
+             {"chain.shield", &ChainAdapter::Shield, Bridge::Thread::LONG},
              {"chain.deposit", &ChainAdapter::Deposit, Bridge::Thread::LONG},
              {"chain.staking", &ChainAdapter::Staking, Bridge::Thread::WORKER},
              {"chain.peg", &ChainAdapter::Peg, Bridge::Thread::WORKER},

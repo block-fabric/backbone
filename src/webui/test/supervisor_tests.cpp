@@ -204,6 +204,81 @@ BOOST_AUTO_TEST_CASE(zside_keeps_its_own_wallet)
     BOOST_CHECK_EQUAL(s.WalletMode("zside"), "separate");
 }
 
+BOOST_AUTO_TEST_CASE(validator_key_made_on_this_computer)
+{
+    // A chain that stakes gets a validator key made by the app on this computer (doc §24.2, decision 4 of §12): random, never
+    // from the phrase, owner-only in its network's data folder; its daemon started with it, and its payout once known.
+    Memory memory;
+    const fs::path base{m_args.GetDataDirBase()};
+    SidechainSupervisor s{Regtest(base), memory.Load(), memory.Store()};
+    const auto key_arg{[](const std::vector<std::string>& args) { return std::any_of(args.begin(), args.end(), [](const std::string& a) { return a.starts_with("-validatorkeyfile="); }); }};
+    BOOST_CHECK(!s.HasValidatorKey("fastblocks"));
+    BOOST_CHECK(!key_arg(s.DaemonArgs("fastblocks")));
+    // Not for a chain that does not stake.
+    BOOST_CHECK_THROW(s.MakeValidatorKey("thunder"), std::runtime_error);
+    BOOST_CHECK_THROW(s.MakeValidatorKey("nope"), std::runtime_error);
+    const std::string pubkey{s.MakeValidatorKey("fastblocks")};
+    BOOST_CHECK_EQUAL(pubkey.size(), 64U);
+    const fs::path file{s.ValidatorKeyFile("fastblocks")};
+    BOOST_CHECK(file == base / "chains" / "sidechains" / "fastblocks" / "data" / "regtest" / "validator.key");
+    BOOST_CHECK(s.HasValidatorKey("fastblocks"));
+    std::string text;
+    {
+        std::ifstream in{file.std_path()};
+        std::getline(in, text);
+    }
+    BOOST_CHECK_EQUAL(text.size(), 64U);
+    BOOST_CHECK(text.find_first_not_of("0123456789abcdef") == std::string::npos);
+#ifndef WIN32
+    struct stat st;
+    BOOST_REQUIRE(stat(fs::PathToString(file).c_str(), &st) == 0);
+    BOOST_CHECK_EQUAL(st.st_mode & 0777, 0600U);
+#endif
+    const auto args{s.DaemonArgs("fastblocks")};
+    BOOST_CHECK(Has(args, "-validatorkeyfile=" + fs::PathToString(file)));
+    // No payout yet (its wallet was not asked: its node does not run): none passed.
+    BOOST_CHECK(!std::any_of(args.begin(), args.end(), [](const std::string& a) { return a.starts_with("-validatorpayout="); }));
+    // Made again: the same key, never a new one (its bonds and its protection file go with it).
+    BOOST_CHECK_EQUAL(s.MakeValidatorKey("fastblocks"), pubkey);
+    {
+        std::ifstream in{file.std_path()};
+        std::string again;
+        std::getline(in, again);
+        BOOST_CHECK_EQUAL(again, text);
+    }
+    // Each machine its own: another data folder, another key.
+    Memory other_memory;
+    SidechainSupervisor other{Regtest(base / "other"), other_memory.Load(), other_memory.Store()};
+    BOOST_CHECK(other.MakeValidatorKey("fastblocks") != pubkey);
+    // A payout address set (by its node's wallet): passed; one that is not plain text is not.
+    UniValue chains{memory.value.find_value("chains")};
+    UniValue fb{chains.find_value("fastblocks")};
+    fb.pushKV("validatorPayout", "rsc1qpayout");
+    UniValue next{UniValue::VOBJ};
+    next.pushKV("fastblocks", fb);
+    memory.value = UniValue{UniValue::VOBJ};
+    memory.value.pushKV("chains", next);
+    BOOST_CHECK(Has(s.DaemonArgs("fastblocks"), "-validatorpayout=rsc1qpayout"));
+    memory.value = UniValue{UniValue::VOBJ};
+    UniValue bad{UniValue::VOBJ};
+    bad.pushKV("validator", true);
+    bad.pushKV("validatorPayout", "rsc1q -walletnotify=x");
+    UniValue next2{UniValue::VOBJ};
+    next2.pushKV("fastblocks", bad);
+    memory.value.pushKV("chains", next2);
+    for (const auto& a : s.DaemonArgs("fastblocks")) BOOST_CHECK(!a.starts_with("-validatorpayout="));
+    // The list says so (Settings, the enable wizard).
+    bool listed{false};
+    const UniValue list{s.List()};
+    for (const UniValue& e : list.getValues()) {
+        if (e.find_value("stem").get_str() == "fastblocks") listed = e.find_value("validatorKey").isTrue();
+    }
+    BOOST_CHECK(listed);
+    // The key file removed by hand: no longer passed.
+    fs::remove(file);
+    BOOST_CHECK(!key_arg(s.DaemonArgs("fastblocks")));
+}
+
 BOOST_AUTO_TEST_CASE(rpcauth_line)
 {
     // As share/rpcauth/rpcauth.py makes it: HMAC-SHA256 of the password keyed with the salt (hex text).

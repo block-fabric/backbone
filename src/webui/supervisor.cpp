@@ -8,6 +8,8 @@
 
 #include <common/secretfile.h>
 #include <crypto/hmac_sha256.h>
+#include <key.h>
+#include <pubkey.h>
 #include <logging.h>
 #include <random.h>
 #include <support/cleanse.h>
@@ -190,6 +192,31 @@ std::string Tail(const fs::path& path, size_t bytes = 600)
     file.seekg(std::max<std::streamoff>(0, size - static_cast<std::streamoff>(bytes)));
     std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     return std::string{util::TrimStringView(text)};
+}
+
+//! An address as a node writes it (letters and digits): what may go on a command line.
+bool IsPlainAddress(const std::string& text)
+{
+    return !text.empty() && text.size() <= 120 && std::all_of(text.begin(), text.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); });
+}
+
+//! The public key (x-only, hex) of the first key of a validator key file, "" when it has none this app can read.
+std::string ValidatorPubkey(const fs::path& file)
+{
+    std::ifstream in{file.std_path()};
+    std::string line;
+    while (std::getline(in, line)) {
+        std::string text{util::TrimString(line)};
+        memory_cleanse(line.data(), line.size());
+        if (text.empty() || text[0] == '#') continue;
+        auto secret{TryParseHex<uint8_t>(text)};
+        memory_cleanse(text.data(), text.size());
+        CKey key;
+        if (secret && secret->size() == 32) key.Set(secret->begin(), secret->end(), /*fCompressedIn=*/true);
+        if (secret) memory_cleanse(secret->data(), secret->size());
+        return key.IsValid() ? HexStr(XOnlyPubKey{key.GetPubKey()}) : std::string{};
+    }
+    return {};
 }
 
 UniValue Without(const UniValue& object, const std::string& key)
@@ -534,6 +561,12 @@ std::vector<std::string> SidechainSupervisor::DaemonArgs(const std::string& stem
     // The wallet of this app's node that pays its merged mining bids (the mining wallet, else the phrase's): named, so that
     // a second wallet of the node (one of before, a mining one) does not leave it without one.
     if (const std::string bmm{BmmWallet(stem)}; !bmm.empty()) args.push_back("-mainchainrpcwallet=" + bmm);
+    // A validator of a chain that stakes, with the key this app made on this computer (never from the phrase), its share of
+    // the fees to an address of its wallet.
+    if (HasValidatorKey(stem)) {
+        args.push_back("-validatorkeyfile=" + fs::PathToString(ValidatorKeyFile(stem)));
+        if (const UniValue payout{Setting(stem, "validatorPayout")}; payout.isStr() && IsPlainAddress(payout.get_str())) args.push_back("-validatorpayout=" + payout.get_str());
+    }
     // A background node: modest caches.
     args.emplace_back("-dbcache=100");
     args.emplace_back("-maxmempool=100");
@@ -553,6 +586,71 @@ bool SidechainSupervisor::AnyEnabled() const
         if (Enabled(s.stem)) return true;
     }
     return false;
+}
+
+fs::path SidechainSupervisor::ValidatorKeyFile(const std::string& stem) const
+{
+    return NetDataDir(stem) / "validator.key";
+}
+
+bool SidechainSupervisor::HasValidatorKey(const std::string& stem) const
+{
+    const Spec* spec{FindSpec(stem)};
+    return spec && spec->staking && Setting(stem, "validator").isTrue() && Exists(ValidatorKeyFile(stem));
+}
+
+std::string SidechainSupervisor::MakeValidatorKey(const std::string& stem)
+{
+    const Spec* spec{FindSpec(stem)};
+    if (!spec) throw Error(strprintf("There is no sidechain %s.", stem));
+    if (!spec->staking) throw Error(strprintf("%s does not stake: it has no validators.", spec->name));
+    const fs::path file{ValidatorKeyFile(stem)};
+    std::string pubkey;
+    if (Exists(file)) {
+        // Made before (by this app, on this computer): kept, never made anew (its bonds and its protection file go with it).
+        pubkey = ValidatorPubkey(file);
+        if (pubkey.empty()) throw Error(strprintf("The validator key file %s is not one this app can read: move it away to make a new key.", fs::PathToString(file)));
+    } else {
+        std::error_code ec;
+        std::filesystem::create_directories(file.parent_path(), ec);
+        if (ec) throw Error(strprintf("The folder of %s (%s) could not be made: %s", spec->name, fs::PathToString(file.parent_path()), ec.message()));
+        CKey key;
+        key.MakeNewKey(/*fCompressed=*/true);
+        std::string text{HexStr(std::span{UCharCast(key.begin()), key.size()}) + "\n"};
+        const auto written{common::WriteSecretFile(file, text)};
+        memory_cleanse(text.data(), text.size());
+        if (!written) throw Error(strprintf("The validator key could not be written (%s).", util::ErrorString(written).original));
+        pubkey = HexStr(XOnlyPubKey{key.GetPubKey()});
+        LogInfo("webui: a validator key of %s made on this computer: %s (%s)", stem, pubkey, fs::PathToString(file));
+    }
+    SetSetting(stem, "validator", UniValue{true});
+    // Its payout asked of its node now if it runs with its wallet (else once its wallet is there), then it starts again
+    // with the key.
+    if (!EnsureValidatorPayout(stem)) Restart(stem);
+    return pubkey;
+}
+
+bool SidechainSupervisor::EnsureValidatorPayout(const std::string& stem)
+{
+    if (!HasValidatorKey(stem)) return false;
+    if (const UniValue payout{Setting(stem, "validatorPayout")}; payout.isStr() && !payout.get_str().empty()) return false;
+    if (!GetStatus(stem).rpc_ready) return false;
+    try {
+        const std::string wallet{ChainAdapter::PickWallet(Rpc(stem, "listwallets"), {}, m_options.seed_wallet ? m_options.seed_wallet(stem).value_or("") : std::string{})};
+        if (wallet.empty()) return false;
+        UniValue p{UniValue::VARR};
+        p.push_back("validator payout");
+        p.push_back("bech32");
+        const UniValue address{Rpc(stem, "getnewaddress", p, wallet)};
+        if (!address.isStr() || !IsPlainAddress(address.get_str())) return false;
+        SetSetting(stem, "validatorPayout", address);
+        LogInfo("webui: the producer's share of the fees of %s goes to %s, of its wallet %s", stem, address.get_str(), wallet);
+    } catch (const std::exception& e) {
+        LogInfo("webui: no payout address of %s yet: %s", stem, e.what());
+        return false;
+    }
+    Restart(stem);
+    return true;
 }
 
 std::string SidechainSupervisor::WalletMode(const std::string& stem) const
@@ -819,6 +917,10 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
     proc.state = State::STARTING;
     proc.rpc_ready = false;
     proc.wallet_checked = false;
+    {
+        const UniValue payout{Setting(stem, "validatorPayout")};
+        proc.payout_wanted = HasValidatorKey(stem) && !(payout.isStr() && !payout.get_str().empty());
+    }
     proc.error.clear();
     proc.started = std::chrono::steady_clock::now();
     proc.next_ping = proc.started + 300ms;
@@ -874,9 +976,10 @@ void SidechainSupervisor::Loop()
                 Spawn(stem, proc);
                 changed.push_back(stem);
             }
-            if (proc.pid > 0 && proc.state != State::STOPPING && now >= proc.next_ping && (!proc.rpc_ready || !proc.wallet_checked)) {
+            if (proc.pid > 0 && proc.state != State::STOPPING && now >= proc.next_ping && (!proc.rpc_ready || !proc.wallet_checked || proc.payout_wanted)) {
                 ping.push_back(stem);
-                proc.next_ping = now + 1s;
+                // A payout asked of its wallet: not as often (its wallet may wait for the phrase's keys).
+                proc.next_ping = now + (proc.rpc_ready && proc.wallet_checked ? 5s : 1s);
             }
         }
         if (m_quit && std::all_of(m_procs.begin(), m_procs.end(), [](const auto& p) { return p.second.pid == 0; })) break;
@@ -967,6 +1070,23 @@ void SidechainSupervisor::Loop()
                     LOCK(m_mutex);
                     auto it{m_procs.find(stem)};
                     if (it != m_procs.end() && done) it->second.wallet_checked = true;
+                }
+                // A validator whose share of the fees has no address of its wallet yet (its key made before its wallet was
+                // there): asked now that the wallet is, and the node started again with it.
+                bool payout_pending{false};
+                {
+                    LOCK(m_mutex);
+                    auto it{m_procs.find(stem)};
+                    payout_pending = it != m_procs.end() && it->second.payout_wanted && it->second.wallet_checked;
+                }
+                if (payout_pending) {
+                    const bool set{EnsureValidatorPayout(stem)};
+                    const UniValue payout{Setting(stem, "validatorPayout")};
+                    if (set || (payout.isStr() && !payout.get_str().empty()) || !HasValidatorKey(stem)) {
+                        LOCK(m_mutex);
+                        auto it{m_procs.find(stem)};
+                        if (it != m_procs.end()) it->second.payout_wanted = false;
+                    }
                 }
                 if (now_ready || check_wallet) Changed(stem);
             }
@@ -1256,6 +1376,8 @@ UniValue SidechainSupervisor::List() const
         entry.pushKV("staking", s.staking);
         // Whether its wallet may come from the backup phrase (zSide: never, its private funds need its own backup).
         entry.pushKV("phraseKeys", s.phrase_keys);
+        // A validator key this app made on this computer (doc §24.2): the daemon runs with it.
+        if (s.staking) entry.pushKV("validatorKey", HasValidatorKey(s.stem));
         entry.pushKV("enabled", Enabled(s.stem));
         entry.pushKV("state", StateName(status.state));
         entry.pushKV("pid", status.pid);

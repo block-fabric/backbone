@@ -57,7 +57,7 @@ struct Nodes {
     std::vector<UniValue> app_rows;
     //! The addresses valid on each chain ("chains": the app's own), and those of a wallet of each.
     std::map<std::string, std::vector<std::string>> valid{{"chains", {"rchn1qmainaddress0"}}, {"layers", {"rsc1qlayersaddr0", "rsc1qthunderown0", "rsc1qlayersown00"}}, {"thunder", {"rsc1qlayersaddr0", "rsc1qthunderown0", "rsc1qlayersown00"}}};
-    std::map<std::string, std::vector<std::string>> mine{{"chains", {}}, {"layers", {"rsc1qlayersown00"}}, {"thunder", {"rsc1qthunderown0"}}};
+    std::map<std::string, std::vector<std::string>> mine{{"chains", {}}, {"layers", {"rsc1qlayersown00"}}, {"thunder", {"rsc1qthunderown0"}}, {"bitnames", {"rsc1qbnowner00"}}};
     std::vector<std::string> up{"layers", "thunder"};
     //! What a read through the host answers instead (a question: never asked).
     bool read_asks{false};
@@ -160,6 +160,15 @@ struct Nodes {
                           R"({"txid":")" + std::string(64, 'f') + R"(","vout":0,"amount":3,"confirmations":9,"spendable":false}])");
         } else if (method == "bitassets.logo") {
             result = Json(logo);
+        } else if (method == "getname") {
+            if (stem != "bitnames" || (p[0].get_str() != "alice" && p[0].get_str() != "#0001-0001")) throw std::runtime_error{"No such name is registered"};
+            result = Json(R"({"namehash":")" + std::string(64, 'a') + R"(","name":"alice","seq":"0001-0001","registered":12,"owner":{"txid":")" + TXID + R"(","vout":0,"address":"rsc1qbnowner00"}})");
+        } else if (method == "listmynames") {
+            result = Json(R"([{"kind":"name","name":"alice","namehash":")" + std::string(64, 'a') + R"(","seq":"0001-0001","address":"rsc1qbnowner00","txid":")" + TXID + R"(","vout":0},{"kind":"reservation","address":"rsc1qbnowner00","txid":")" + TXID + R"(","vout":1},{"kind":"odd"}])");
+        } else if (method == "estimateshieldedfee") {
+            result = Json(R"({"fee":0.00012345,"notes":1,"total":1})");
+        } else if (method == "getshieldedbalance") {
+            result = Json(R"({"available":3.00000000,"spendable":2.50000000,"pending":0.5,"notes":2})");
         } else if (method == "getstakinginfo") {
             result = Json(R"({"validator":true,"enabled":true,"keys":[{"pubkey":"ab","inset":true,"stake":5}]})");
         } else {
@@ -187,7 +196,10 @@ struct Nodes {
             if (method == "getmainchaininfo") return Json(R"({"slot":7,"connected":true,"state":"ok","height":300})");
             if (method == "getdepositaddress") return Json(R"({"depositaddress":"s7_rsc1qlayersown00_abcdef","address":"rsc1qlayersown00","slot":7})");
             if (method == "listtransactions") {
-                return Json(R"([{"txid":")" + TXID + R"(","category":"receive","amount":20.00000000,"time":100,"confirmations":3},{"txid":"nothex","amount":1},{"txid":")" + std::string(64, 'd') + R"(","category":"send","amount":-1.50000001,"fee":-0.00000141,"time":200,"confirmations":0}])");
+                // A block of stake's reward that paid nothing (its maker's output of no value): never a row; one that paid fees is.
+                return Json(R"([{"txid":")" + TXID + R"(","category":"receive","amount":20.00000000,"time":100,"confirmations":3},{"txid":"nothex","amount":1},)"
+                            R"({"txid":")" + std::string(64, '3') + R"(","category":"generate","amount":0.00000000,"vout":1,"label":"validator payout","time":150,"confirmations":5},)"
+                            R"({"txid":")" + std::string(64, 'd') + R"(","category":"send","amount":-1.50000001,"fee":-0.00000141,"time":200,"confirmations":0}])");
             }
             return UniValue{};
         };
@@ -482,6 +494,65 @@ BOOST_AUTO_TEST_CASE(a_read_that_asks_is_refused_not_asked)
     const UniValue s{adapter.Summary(P(R"({"stem":"layers"})"))};
     BOOST_CHECK(s.find_value("errors").find_value("assets").isStr());
     BOOST_CHECK(nodes.calls.empty());
+}
+
+BOOST_AUTO_TEST_CASE(names_found_and_held_and_private_coins_moved)
+{
+    // What a search text may be as a name (BitNames): its text, a subname, its domain, its number; never digits alone.
+    for (const char* q : {"alice", "blog.core", "core.x", "#1739-0029", "a-b_c", "x1"}) BOOST_CHECK_MESSAGE(ChainAdapter::IsNameText(q), q);
+    for (const char* q : {"12345", "Alice", "a..b", ".a", "a.", "a b", "#1739-002", "<img>", ""}) BOOST_CHECK_MESSAGE(!ChainAdapter::IsNameText(q), q);
+    BOOST_CHECK(!ChainAdapter::IsNameText(std::string(64, 'a')));
+    BOOST_CHECK(ChainAdapter::IsNameText(std::string(63, 'a')));
+    BOOST_CHECK_EQUAL(ChainAdapter::NameOf("core.x"), "core");
+    BOOST_CHECK_EQUAL(ChainAdapter::NameOf("alice"), "alice");
+
+    Nodes nodes;
+    nodes.up = {"layers", "thunder", "bitnames", "zside"};
+    ChainAdapter a{nodes.Hooks()};
+    // A name found on BitNames by the chain's own getname: its number, its owner, the wallet's.
+    const UniValue found{a.Search(P(R"({"stem":"bitnames","q":"alice"})")).find_value("results")};
+    BOOST_REQUIRE_EQUAL(found.size(), 1U);
+    BOOST_CHECK_EQUAL(found[0].find_value("kind").get_str(), "name");
+    BOOST_CHECK_EQUAL(found[0].find_value("name").get_str(), "alice");
+    BOOST_CHECK_EQUAL(found[0].find_value("seq").get_str(), "0001-0001");
+    BOOST_CHECK_EQUAL(found[0].find_value("owner").get_str(), "rsc1qbnowner00");
+    BOOST_CHECK(found[0].find_value("mine").isTrue());
+    BOOST_CHECK_EQUAL(a.Search(P(R"({"stem":"bitnames","q":"alice.x"})")).find_value("results").size(), 1U);
+    // Not a name there: nothing; a chain without names is not asked.
+    BOOST_CHECK(a.Search(P(R"({"stem":"bitnames","q":"bob"})")).find_value("results").empty());
+    nodes.rpcs.clear();
+    BOOST_CHECK(a.Search(P(R"({"stem":"layers","q":"alice"})")).find_value("results").empty());
+    BOOST_CHECK(std::none_of(nodes.rpcs.begin(), nodes.rpcs.end(), [](const auto& r) { return r.method == "webuihost" && r.params[0].find_value("method").get_str() == "getname"; }));
+    // Held: the names of the wallet and its reservations, on Home.
+    const UniValue held{a.Summary(P(R"({"stem":"bitnames"})")).find_value("names")};
+    BOOST_CHECK_EQUAL(held.find_value("count").getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(held.find_value("reservations").getInt<int>(), 1);
+    BOOST_CHECK(a.Summary(P(R"({"stem":"layers"})")).find_value("names").isNull());
+    // zSide: its private coins beside its coins, and coins moved between the two, its own question.
+    const UniValue z{a.Summary(P(R"({"stem":"zside"})"))};
+    BOOST_CHECK_EQUAL(z.find_value("shielded").find_value("spendable").get_str(), "2.50000000");
+    nodes.calls.clear();
+    a.Shield(P(R"({"stem":"zside","direction":"shield","amount":"1.5"})"));
+    a.Shield(P(R"({"stem":"zside","direction":"unshield","amount":"0.25"})"));
+    BOOST_REQUIRE_EQUAL(nodes.calls.size(), 3U);
+    BOOST_CHECK_EQUAL(nodes.calls[0].second.write(), R"({"kind":"host","method":"rpc.confirmed","params":{"method":"shieldcoins","params":["1.50000000"],"wallet":"main"}})");
+    // Unshielded to a new address of the wallet, its fee the chain's estimate for one (its question shows what is paid).
+    BOOST_CHECK_EQUAL(nodes.calls[1].second.find_value("method").get_str(), "wallet.newAddress");
+    BOOST_CHECK_EQUAL(nodes.calls[2].second.write(), R"({"kind":"host","method":"rpc.confirmed","params":{"method":"unshieldcoins","params":["0.25000000",null,false,"0.00012345"],"wallet":"main"}})");
+    // A private payment: its fee given as the chain estimates it, the memo with it.
+    nodes.calls.clear();
+    a.Send(P(R"({"stem":"zside","address":"zs1qprivateaddress0000","amount":"0.5","shielded":true,"memo":"For the coffee"})"));
+    BOOST_REQUIRE_EQUAL(nodes.calls.size(), 1U);
+    BOOST_CHECK_EQUAL(nodes.calls[0].second.write(), R"({"kind":"host","method":"rpc.confirmed","params":{"method":"sendshielded","params":[{"zs1qprivateaddress0000":"0.50000000"},"For the coffee","0.00012345"],"wallet":"main"}})");
+    // Refused before anything is asked: a chain without a shielded account, another direction, an amount not exact.
+    for (const char* bad : {R"({"stem":"layers","direction":"shield","amount":"1"})", R"({"stem":"zside","direction":"sideways","amount":"1"})", R"({"stem":"zside","direction":"shield","amount":"1e3"})",
+                            R"({"stem":"zside","direction":"shield","amount":"-1"})", R"({"stem":"zside","direction":"shield","amount":"0.000000001"})", R"({"stem":"zside","direction":"shield","amount":"0"})"}) {
+        BOOST_CHECK_MESSAGE(Code([&] { a.Shield(P(bad)); }) == BRIDGE_INVALID_REQUEST, bad);
+    }
+    BOOST_CHECK_EQUAL(nodes.calls.size(), 1U);
+    // What the app uses there is in each daemon's whitelist for this app's user.
+    const auto used{[](const char* stem, const char* m) { const auto v{ChainAdapter::MethodsUsed(stem)}; return std::ranges::find(v, m) != v.end(); }};
+    BOOST_CHECK(used("zside", "shieldcoins") && used("zside", "unshieldcoins") && used("bitnames", "getname") && !used("layers", "getname"));
 }
 
 BOOST_AUTO_TEST_CASE(a_coin_send_prepared_then_asked)
