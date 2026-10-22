@@ -113,6 +113,14 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
 
     grpcsrv::Options options;
     options.threads = std::max<int>(1, args.GetIntArg("-grpcthreads", DEFAULT_GRPC_THREADS));
+    // Slow clients (slowloris): a request must be all in within 15 s of its first byte however slowly it trickles;
+    // a connection with no running call idle 30 s is closed (GOAWAY first over HTTP/2; a server stream such as
+    // SubscribeEvents is a running call); 16 connections per address beyond this machine, 256 in all.
+    options.max_connections = 256;
+    options.max_connections_per_ip = 16;
+    options.per_ip_exempt = {LookupSubNet("127.0.0.0/8"), LookupSubNet("::1/128")};
+    options.request_timeout_seconds = 15;
+    options.idle_timeout_seconds = 30;
     options.allowed_origins = args.GetArgs("-grpcallowedorigin");
     for (const std::string& h : args.GetArgs("-grpcallowedhost")) options.allowed_hosts.push_back(ToLower(h));
     g_server = std::make_unique<grpcsrv::Server>(*g_pool, options);

@@ -16,6 +16,7 @@ import json
 import os
 import socket
 import subprocess
+import time
 from decimal import Decimal
 
 from test_framework.address import address_to_scriptpubkey
@@ -41,7 +42,7 @@ HASH_ID_1, HASH_ID_2 = bytes(range(32)), bytes(range(20))
 
 
 def free_port():
-    """A free port for the gRPC server, from those of p2p_port(0) on, 49000-49999 (not 49x54, 4966x) on this machine."""
+    """A free port for the gRPC server, from those of p2p_port(0) on, 49000-49999 (not 49x54, 4966x, 497xx) on this machine."""
     # Not the node's own ports (p2p_port(0) is free until the node starts: the gRPC server would then lose the bind
     # to the P2P listener, and the client talk to the P2P port -- "Socket closed", about one run in three).
     from test_framework.util import PORT_RANGE, rpc_port
@@ -49,7 +50,7 @@ def free_port():
     start = 49000 + p2p_port(0) % 1000
     for i in range(1000):
         port = 49000 + (start - 49000 + i) % 1000
-        if port % 100 == 54 or 49660 <= port <= 49669 or port in taken:
+        if port % 100 == 54 or 49660 <= port <= 49669 or 49700 <= port <= 49799 or port in taken:
             continue
         with socket.socket() as s:
             try:
@@ -134,6 +135,7 @@ class EcashGrpcTest(BitcoinTestFramework):
         self.test_reorg()
         self.test_connect_protocol()
         self.test_errors()
+        self.test_slow_clients()
         self.test_security()
         self.test_stop()
 
@@ -564,6 +566,49 @@ class EcashGrpcTest(BitcoinTestFramework):
         self.nodes[0].assert_start_raises_init_error(self.base_args + ['-grpcbind=0.0.0.0'],
                                                      'Error: -grpcbind=0.0.0.0:%d is not a loopback address: that needs -grpcallowip and -grpcauth' % self.grpc_port)
         self.start_node(0, self.extra_args[0])
+
+    def closed_after(self, sock, trickle=b''):
+        """Seconds until the server closes the connection, sending a byte of `trickle` each second meanwhile; and what it sent."""
+        start = time.monotonic()
+        received = b''
+        sock.settimeout(1)
+        while time.monotonic() - start < 60:
+            if trickle:
+                try:
+                    sock.send(trickle[:1])
+                except OSError:
+                    break
+                trickle = trickle[1:]
+            try:
+                data = sock.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            if not data:
+                break
+            received += data
+        return time.monotonic() - start, received
+
+    def test_slow_clients(self):
+        self.log.info('Slow clients: a request not all in 15 s after its first byte is cut, though bytes keep coming')
+        with socket.create_connection(('127.0.0.1', self.grpc_port)) as sock:
+            head = b'POST /' + V.encode() + b'GetChainTip HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Pad: ' + b'a' * 100
+            took, received = self.closed_after(sock, head)
+            assert 14 <= took < 20, took
+            assert_equal(received, b'')
+
+        self.log.info('A connection with no call, idle 30 s, gets a GOAWAY and is closed; the server still serves')
+        with socket.create_connection(('127.0.0.1', self.grpc_port)) as sock:
+            sock.sendall(b'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n' + bytes(3) + b'\x04' + bytes(5))
+            took, received = self.closed_after(sock)
+            assert 29 <= took < 35, took
+            types = []
+            while len(received) >= 9:
+                types.append(received[3])
+                received = received[9 + int.from_bytes(received[:3], 'big'):]
+            assert 0x7 in types, types  # GOAWAY
+        self.anonymous.unary(V + 'GetChainTip')
 
     def test_stop(self):
         self.log.info('Stop: the node shuts down (grpc.rs:476-490)')

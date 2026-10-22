@@ -9,13 +9,17 @@
 #include <grpc/descriptors.h>
 #include <grpc/protobuf.h>
 #include <grpc/server.h>
+#include <netbase.h>
 #include <test/util/setup_common.h>
+#include <util/sock.h>
 #include <util/strencodings.h>
+#include <util/time.h>
 
 #include <nghttp2/nghttp2.h>
 
 #include <boost/test/unit_test.hpp>
 
+#include <chrono>
 #include <map>
 #include <thread>
 
@@ -487,6 +491,240 @@ BOOST_AUTO_TEST_CASE(limits)
         grpcsrv::Connection c2{server};
         BOOST_CHECK(!c2.Receive(MakeUCharSpan(std::string(2000 + (64 << 10), 'z'))));
     }
+}
+
+BOOST_AUTO_TEST_CASE(connection_states)
+{
+    // What the connection's loop times: a request being read (Receiving: the request deadline) and a call running
+    // (Busy: never idle); over HTTP/2 each stream from its own first bytes (OldestRequest).
+    grpcsrv::Server server{Pool()};
+    std::shared_ptr<grpcsrv::Writer> running;
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "SubscribeEvents", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) { running = w; }));
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "GetChainTip", [](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        w->Write(New("cusf.mainchain.v1.GetChainTipResponse"));
+        w->Finish({});
+    }));
+    {
+        grpcsrv::Connection c{server};
+        BOOST_CHECK(!c.Receiving() && !c.Busy());
+        const std::string body{Envelope("{}")};
+        const std::string request{strprintf("POST /cusf.mainchain.v1.ValidatorService/SubscribeEvents HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/connect+json\r\nContent-Length: %u\r\n\r\n", body.size()) + body};
+        BOOST_CHECK(c.Receive(MakeUCharSpan(request.substr(0, 20))));
+        BOOST_CHECK(c.Receiving() && !c.Busy());
+        BOOST_CHECK(!c.OldestRequest());
+        BOOST_CHECK(c.Receive(MakeUCharSpan(request.substr(20, request.size() - 22))));
+        BOOST_CHECK(c.Receiving() && !c.Busy());
+        BOOST_CHECK(c.Receive(MakeUCharSpan(request.substr(request.size() - 2))));
+        BOOST_CHECK(!c.Receiving() && c.Busy());
+        BOOST_REQUIRE(running);
+        running->Finish({});
+        c.Poll();
+        BOOST_CHECK(!c.Receiving() && !c.Busy());
+        running.reset();
+    }
+    {
+        H2Client client{server};
+        client.Pump(2);
+        BOOST_CHECK(!client.connection.Receiving() && !client.connection.Busy());
+        // A stream whose headers came, not its body.
+        const std::vector<std::pair<std::string, std::string>> headers{
+            {":method", "POST"}, {":scheme", "http"}, {":authority", "127.0.0.1:50051"}, {":path", "/cusf.mainchain.v1.ValidatorService/SubscribeEvents"}, {"content-type", "application/grpc"}, {"te", "trailers"}};
+        std::vector<nghttp2_nv> nvs;
+        for (const auto& [n, v] : headers) nvs.push_back({reinterpret_cast<uint8_t*>(const_cast<char*>(n.data())), reinterpret_cast<uint8_t*>(const_cast<char*>(v.data())), n.size(), v.size(), NGHTTP2_NV_FLAG_NONE});
+        const int32_t slow{nghttp2_submit_headers(client.session, NGHTTP2_FLAG_NONE, -1, nullptr, nvs.data(), nvs.size(), nullptr)};
+        BOOST_REQUIRE(slow > 0);
+        client.Pump(2);
+        BOOST_CHECK(client.connection.Receiving() && !client.connection.Busy());
+        const auto oldest{client.connection.OldestRequest()};
+        BOOST_REQUIRE(oldest);
+        // Other streams come and go: the slow one is still the oldest, timed from its own start.
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        const int32_t quick{client.Call("/cusf.mainchain.v1.ValidatorService/GetChainTip", Envelope(""))};
+        client.Pump(4);
+        BOOST_CHECK_EQUAL(client.responses[quick].headers.at("grpc-status"), "0");
+        BOOST_CHECK(client.connection.OldestRequest() == oldest);
+        // Its body: the call runs.
+        client.bodies[slow] = Envelope("");
+        nghttp2_data_provider provider;
+        provider.source.ptr = &client;
+        provider.read_callback = [](nghttp2_session*, int32_t id, uint8_t* buf, size_t length, uint32_t* flags, nghttp2_data_source* source, void*) -> ssize_t {
+            auto& self{*static_cast<H2Client*>(source->ptr)};
+            const std::string& body{self.bodies[id]};
+            size_t& done{self.sent[id]};
+            const size_t n{std::min(length, body.size() - done)};
+            std::memcpy(buf, body.data() + done, n);
+            done += n;
+            if (done == body.size()) *flags |= NGHTTP2_DATA_FLAG_EOF;
+            return static_cast<ssize_t>(n);
+        };
+        BOOST_REQUIRE_EQUAL(nghttp2_submit_data(client.session, NGHTTP2_FLAG_END_STREAM, slow, &provider), 0);
+        client.Pump(2);
+        BOOST_CHECK(!client.connection.Receiving() && client.connection.Busy());
+        BOOST_CHECK(!client.connection.OldestRequest());
+        BOOST_REQUIRE(running);
+        running->Finish({});
+        client.Pump(2);
+        BOOST_CHECK(!client.connection.Busy());
+        // Before an idle close: a GOAWAY.
+        client.connection.Goodbye();
+        const std::string out{client.connection.TakeOutput()};
+        BOOST_REQUIRE(out.size() >= 9);
+        BOOST_CHECK_EQUAL(uint8_t(out[3]), NGHTTP2_GOAWAY);
+    }
+}
+
+namespace {
+using namespace std::chrono_literals;
+
+/** A real client socket of the server, read and written by the test. */
+struct RawClient {
+    std::unique_ptr<Sock> sock;
+    std::string in;
+    bool closed{false};
+
+    explicit RawClient(const CService& to) : sock{ConnectDirectly(to, /*manual_connection=*/true)} { BOOST_REQUIRE(sock); }
+
+    /** Send (false once the server closed the connection). */
+    bool Send(std::string_view data)
+    {
+        while (!data.empty()) {
+            const ssize_t n{sock->Send(data.data(), data.size(), MSG_NOSIGNAL)};
+            if (n <= 0) return false;
+            data.remove_prefix(static_cast<size_t>(n));
+        }
+        return true;
+    }
+
+    /** Read what comes for up to `wait`; @return true once the server closed the connection. */
+    bool ReadFor(std::chrono::milliseconds wait)
+    {
+        const auto end{NodeClock::now() + wait};
+        while (!closed && NodeClock::now() < end) {
+            Sock::Event occurred{0};
+            if (!sock->Wait(10ms, Sock::RecvEvent, &occurred)) return closed = true;
+            if (!(occurred & Sock::RecvEvent)) continue;
+            char buf[4096];
+            const ssize_t n{sock->Recv(buf, sizeof(buf), 0)};
+            if (n <= 0) return closed = true;
+            in.append(buf, static_cast<size_t>(n));
+        }
+        return closed;
+    }
+};
+
+double Seconds(NodeClock::duration d) { return std::chrono::duration<double>(d).count(); }
+
+/** The types of the HTTP/2 frames in bytes the server sent. */
+std::vector<uint8_t> FrameTypes(std::string_view in)
+{
+    std::vector<uint8_t> types;
+    while (in.size() >= 9) {
+        const size_t len{(size_t{uint8_t(in[0])} << 16) | (size_t{uint8_t(in[1])} << 8) | uint8_t(in[2])};
+        types.push_back(uint8_t(in[3]));
+        if (in.size() < 9 + len) break;
+        in.remove_prefix(9 + len);
+    }
+    return types;
+}
+} // namespace
+
+BOOST_AUTO_TEST_CASE(slow_clients)
+{
+    grpcsrv::Options options;
+    options.request_timeout_seconds = 1;
+    options.idle_timeout_seconds = 2;
+    options.max_connections_per_ip = 2;
+    options.threads = 1;
+    grpcsrv::Server server{Pool(), options};
+    // A call that runs longer than both timeouts.
+    BOOST_REQUIRE(server.Register("cusf.crypto.v1.CryptoService", "Ripemd160", [](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        std::this_thread::sleep_for(3s);
+        Message resp{New("cusf.crypto.v1.Ripemd160Response")};
+        SetWrapped(resp, "digest", "00");
+        w->Write(resp);
+        w->Finish({});
+    }));
+    std::string error;
+    BOOST_REQUIRE_MESSAGE(server.Start({*Assert(Lookup("127.0.0.1", 0, /*fAllowLookup=*/false))}, {}, error), error);
+    const CService to{server.Bound().at(0)};
+
+    {
+        // A request trickling in (a byte every 100 ms, never done) is cut 1 s after its first byte, though bytes keep coming.
+        RawClient c{to};
+        const std::string head{"POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Pad: " + std::string(200, 'a')};
+        const auto start{NodeClock::now()};
+        for (const char ch : head) {
+            if (!c.Send(std::string_view{&ch, 1}) || c.ReadFor(100ms)) break;
+        }
+        BOOST_CHECK(c.closed || c.ReadFor(1s));
+        const double took{Seconds(NodeClock::now() - start)};
+        BOOST_CHECK_MESSAGE(took >= 0.9 && took < 3, "slow request closed after " << took << " s");
+        BOOST_CHECK(c.in.empty());
+    }
+    {
+        // HTTP/2 idle with no call: a GOAWAY, then closed, after 2 s.
+        RawClient c{to};
+        const auto start{NodeClock::now()};
+        BOOST_REQUIRE(c.Send(std::string{"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"} + std::string{"\0\0\0\4\0\0\0\0\0", 9}));
+        BOOST_CHECK(!c.ReadFor(1500ms));
+        BOOST_CHECK(c.ReadFor(3s));
+        const double took{Seconds(NodeClock::now() - start)};
+        BOOST_CHECK_MESSAGE(took >= 1.9 && took < 4, "idle connection closed after " << took << " s");
+        const std::vector<uint8_t> types{FrameTypes(c.in)};
+        BOOST_CHECK(!types.empty() && types.front() == NGHTTP2_SETTINGS);
+        BOOST_CHECK(std::find(types.begin(), types.end(), NGHTTP2_GOAWAY) != types.end());
+    }
+    {
+        // A running call (3 s) is never cut by either timeout; idle after it, the connection is closed.
+        RawClient c{to};
+        BOOST_REQUIRE(c.Send("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}"));
+        const auto start{NodeClock::now()};
+        while (c.in.find("\r\n\r\n") == std::string::npos && !c.ReadFor(100ms) && NodeClock::now() - start < 5s) {}
+        BOOST_CHECK_MESSAGE(c.in.starts_with("HTTP/1.1 200"), c.in);
+        BOOST_CHECK_GE(Seconds(NodeClock::now() - start), 2.9);
+        const auto replied{NodeClock::now()};
+        BOOST_CHECK(c.ReadFor(3500ms));
+        const double idle{Seconds(NodeClock::now() - replied)};
+        BOOST_CHECK_MESSAGE(idle >= 1.5 && idle < 3.5, "closed " << idle << " s after the reply");
+    }
+    // The connections above are over (their threads count them out).
+    std::this_thread::sleep_for(300ms);
+    {
+        // Two connections an address: the third is closed at once; once one ends, another is let in.
+        RawClient a{to}, b{to};
+        BOOST_CHECK(!a.ReadFor(300ms));
+        BOOST_CHECK(!b.ReadFor(10ms));
+        RawClient refused{to};
+        BOOST_CHECK(refused.ReadFor(500ms));
+        a.sock.reset();
+        std::this_thread::sleep_for(300ms);
+        RawClient again{to};
+        BOOST_CHECK(!again.ReadFor(500ms));
+    }
+    server.Stop();
+
+    // The loopback addresses exempted (as the node does): not bounded by address.
+    options.per_ip_exempt = {LookupSubNet("127.0.0.0/8")};
+    grpcsrv::Server exempt{Pool(), options};
+    BOOST_REQUIRE_MESSAGE(exempt.Start({*Assert(Lookup("127.0.0.1", 0, /*fAllowLookup=*/false))}, {}, error), error);
+    {
+        RawClient a{exempt.Bound().at(0)}, b{exempt.Bound().at(0)}, c{exempt.Bound().at(0)};
+        BOOST_CHECK(!c.ReadFor(500ms));
+    }
+    exempt.Stop();
+
+    // And the total.
+    grpcsrv::Options total_options;
+    total_options.max_connections = 2;
+    grpcsrv::Server total{Pool(), total_options};
+    BOOST_REQUIRE_MESSAGE(total.Start({*Assert(Lookup("127.0.0.1", 0, /*fAllowLookup=*/false))}, {}, error), error);
+    {
+        RawClient a{total.Bound().at(0)}, b{total.Bound().at(0)};
+        BOOST_CHECK(!a.ReadFor(300ms));
+        RawClient c{total.Bound().at(0)};
+        BOOST_CHECK(c.ReadFor(500ms));
+    }
+    total.Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()
