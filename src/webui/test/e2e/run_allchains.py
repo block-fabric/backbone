@@ -60,10 +60,39 @@ def bmm_all(chains_cli, programs, datadir, rpc_port, ports, stems, count, failur
                     break
                 except (RuntimeError, subprocess.TimeoutExpired, KeyError, TypeError) as e:
                     if attempt:
-                        print(f"  bmm {stem}: no block this round ({str(e).splitlines()[0]})", flush=True)
+                        print(f"  bmm {stem}: no merged mined block this round ({str(e).splitlines()[0]})", flush=True)
+                    elif "bad-pos" in str(e) or "error code: -1" in str(e):
+                        break
                     else:
                         time.sleep(5)
+        # A chain whose blocks are made by stake (FastBlocks, Layers once validators are bonded) takes no merged mined block
+        # but when it stalls: its anchors are its own merged mining's tickets (setbmm), committed in the next block.
+        staking = {}
+        for stem in stems:
+            if stem in made:
+                continue
+            side = [f"-datadir={datadir}/sidechains/{stem}/data", "-regtest", f"-rpcport={ports[stem]}"]
+            try:
+                pos = cli(programs[stem], side + ["getposinfo"])
+                if pos.get("lastposslot", -1) < 0 or pos.get("stalled"):
+                    continue
+                if not cli(programs[stem], side + ["getbmminfo"]).get("mining"):
+                    address = cli(programs[stem], side + ["-rpcwallet=main", "getnewaddress"])
+                    cli(programs[stem], side + ["setbmm", "true", address, "true", "0.001"])
+                    print(f"  {stem}: blocks of stake, its anchors by its own merged mining (setbmm)", flush=True)
+                staking[stem] = (side, pos.get("anchors", 0))
+            except (RuntimeError, subprocess.TimeoutExpired, KeyError, TypeError, AttributeError):
+                pass
+        if staking:
+            until = time.time() + 30
+            while time.time() < until and not cli(chains_cli, chains + ["getrawmempool"]):
+                time.sleep(0.5)
         cli(chains_cli, chains + ["generatetoaddress", "1", mining])
+        for stem, (side, before) in staking.items():
+            until = time.time() + 60
+            while time.time() < until and cli(programs[stem], side + ["getposinfo"]).get("anchors", 0) <= before:
+                time.sleep(0.5)
+            print(f"  bmm {stem}: anchors {before} -> {cli(programs[stem], side + ['getposinfo']).get('anchors', 0)}", flush=True)
         until = time.time() + 60
         waiting = dict(made)
         while waiting and time.time() < until:
