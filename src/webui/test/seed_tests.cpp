@@ -193,6 +193,43 @@ BOOST_AUTO_TEST_CASE(bip39_reading_typed_phrases)
     BOOST_CHECK(!bip39::ExtraOk(std::string(257, 'a')));
 }
 
+BOOST_AUTO_TEST_CASE(bip85_child_phrases_for_drop_in_chains)
+{
+    // BIP85's test vectors (its BIP39 application): the master key of the BIP, a phrase of 12, 18 and 24 words at index 0.
+    const CExtKey master{DecodeExtKey("xprv9s21ZrQH143K2LBWUUQRFXhucrQqBpKdRRxNVq2zBqsx8HVqFk2uYo8kmbaLLHRdqtQpUm98uKfu3vca1LqdGhUtyoFnCNkfmXRyPXLjbKb")};
+    BOOST_REQUIRE(master.key.IsValid());
+    const auto phrase{[&](uint32_t words, uint32_t index) {
+        const SecureString joined{bip39::Join(seed::Bip85Phrase(master, words, index))};
+        return std::string{joined.begin(), joined.end()};
+    }};
+    BOOST_CHECK_EQUAL(phrase(12, 0), "girl mad pet galaxy egg matter matrix prison refuse sense ordinary nose");
+    BOOST_CHECK_EQUAL(phrase(18, 0), "near account window bike charge season chef number sketch tomorrow excuse sniff circle vital hockey outdoor supply token");
+    BOOST_CHECK_EQUAL(phrase(24, 0), "puppy ocean match cereal symbol another shed magic wrap hammer bulb intact gadget divorce twin tonight reason outdoor destroy simple truth cigar social volcano");
+    // Another index, another phrase; a count BIP39 does not have: none.
+    BOOST_CHECK(phrase(12, 1) != phrase(12, 0));
+    BOOST_CHECK(seed::Bip85Phrase(master, 13, 0).empty());
+    // One index per chain and network, never the same for two (and hardened by the derivation).
+    const uint32_t thunder{seed::DropinPhraseIndex("thunder", "betanet")};
+    BOOST_CHECK(thunder < 0x80000000U);
+    BOOST_CHECK(thunder != seed::DropinPhraseIndex("bitnames", "betanet"));
+    BOOST_CHECK(thunder != seed::DropinPhraseIndex("thunder", "regtest"));
+    // The drop-in layer's own vectors (core/doc/app.md §3): master "abandon ×11 about", no extra word.
+    const CExtKey about{seed::Master(SeedOf(ABOUT, ""))};
+    struct Vector { std::string_view stem, network; uint32_t index; std::string_view phrase, fingerprint; };
+    for (const Vector& v : {
+             Vector{"thunder", "betanet", 1875996695, "skull fragile group drastic stumble bridge pledge end flip girl minor animal", "1de17b5ba7143bfe"},
+             Vector{"thunder", "regtest", 1199653290, "bless weekend until panic travel tank escape you caught chunk project village", "209bc9789feb3ffb"},
+             Vector{"bitnames", "betanet", 1487479324, "laptop kitchen pilot rookie crawl settle awful scissors cupboard lumber virtual slab", "d6912a9b06cf44f7"},
+             Vector{"bitnames", "regtest", 756939817, "toast rebuild airport excite load category oil decrease riot ripple simple begin", "28f49c28f4cfb73e"},
+         }) {
+        BOOST_CHECK_EQUAL(seed::DropinPhraseIndex(v.stem, v.network), v.index);
+        const bip39::Words words{seed::Bip85Phrase(about, 12, v.index)};
+        const SecureString joined{bip39::Join(words)};
+        BOOST_CHECK_EQUAL(std::string(joined.begin(), joined.end()), v.phrase);
+        BOOST_CHECK_EQUAL(seed::DropinFingerprint(words), v.fingerprint);
+    }
+}
+
 BOOST_AUTO_TEST_CASE(scrypt_rfc7914)
 {
     const auto run{[](std::string_view p, std::string_view s, uint64_t n, uint32_t r, uint32_t q) {

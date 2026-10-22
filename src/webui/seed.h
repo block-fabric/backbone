@@ -101,6 +101,27 @@ std::vector<std::string> AccountPublic(const Bytes& seed, uint32_t coin, uint32_
  */
 SecureString WalletPassphrase(const Bytes& seed, std::string_view stem, std::string_view genesis_hex);
 
+/**
+ * A phrase of its own for a chain whose wallet is a BIP39 phrase itself (the drop-in clients of LayerTwo's chains on
+ * Backbone: set_seed_from_mnemonic; doc/unified-app.md §25.7, groundwork): BIP85's BIP39 application, the child phrase of
+ * `words` English words (12, 18 or 24) at `index` of a master key, path m/83696968'/39'/0'/<words>'/<index>', its entropy
+ * the first 16, 24 or 32 bytes of HMAC-SHA512(key "bip-entropy-from-k", the derived private key). Any BIP85 tool makes the
+ * same phrase from the backup phrase and the index; the child phrase reveals nothing of the master (a hardened path).
+ */
+bip39::Words Bip85Phrase(const CExtKey& master, uint32_t words, uint32_t index);
+//! What the index of a drop-in chain's own phrase is made from (DropinPhraseIndex): product-neutral, versioned; the same
+//! as the drop-in layer's (backbone-*-app core/doc/app.md §3).
+inline constexpr std::string_view DROPIN_PHRASE_TAG{"sidechain/dropin/v1"};
+/** The BIP85 index of a drop-in chain's phrase: BE32(SHA-256("sidechain/dropin/v1" 0x00 stem 0x00 network)[0..4]) with the
+ *  top bit cleared: one per chain and network (a drop-in's chain starts with no genesis to name). `stem` the catalog's id,
+ *  `network` the drop-in's own network name (betanet, regtest, ...). */
+uint32_t DropinPhraseIndex(std::string_view stem, std::string_view network);
+//! What a drop-in node says of its seed (getwalletphraseinfo's fingerprint) is made from (DropinFingerprint).
+inline constexpr std::string_view DROPIN_FINGERPRINT_TAG{"sidechain/dropin/fingerprint/v1"};
+/** The fingerprint of a drop-in's phrase: hex of SHA-256("sidechain/dropin/fingerprint/v1" 0x00 its BIP39 seed)[0..8],
+ *  the seed with no extra word. The same as the node's: the chain is covered by the one phrase; another: its own. */
+std::string DropinFingerprint(const bip39::Words& phrase);
+
 /** What seed.dat keeps: the entropy (the words come back from it) and the 64-byte seed (the extra word in it). */
 struct Secret {
     Bytes entropy;

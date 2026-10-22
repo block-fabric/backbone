@@ -27,13 +27,13 @@
   async function shot(name) {
     $$('.toast button[aria-label="Dismiss"]').forEach((b) => b.click());
     if (T().toasts) T().toasts.list.splice(0);
-    // The notices of the mining wallet (the runner mines a block every few seconds) kept out of the pictures.
-    const hide = document.createElement('style');
-    hide.textContent = '.toasts { visibility: hidden !important; }';
-    document.head.appendChild(hide);
+    // The notices of the mining wallet (the runner mines a block every few seconds) kept out of the pictures (by the
+    // element's style: the page's policy refuses a <style> added).
+    const stack = $('.toasts');
+    if (stack) stack.style.setProperty('visibility', 'hidden', 'important');
     await sleep(500);
     await snapshot(name);
-    hide.remove();
+    if (stack) stack.style.removeProperty('visibility');
   }
   /** A picture in Midnight, then the same in a light theme. */
   async function shots(name, settle = 1200) {
@@ -541,13 +541,38 @@
     // 10. A sidechain turned off and on again: its group, its tile and its line go, then come back.
     await step('turned off and on again', async () => {
       if (!has('thunder')) return;
-      await host('sidechains.disable', { stem: 'thunder' });
+      // Off from Settings → Sidechains: its card's switch, the page's question ("Its node stops. Its data and its keys
+      // stay"), answered.
+      go('settings', 'sidechains');
+      await waitFor('Thunder\'s card', () => $('.card[data-stem="thunder"] input[type="checkbox"]'), 30000);
+      $('.card[data-stem="thunder"] input[type="checkbox"]').click();
+      await waitFor('the question to turn it off', () => $('dialog[open]') && /Turn Thunder off/.test($('dialog[open]').textContent), 20000);
+      await shot('allchains-disable-thunder-question');
+      await answerPage('Turn off');
       await waitFor('Thunder off', async () => (await chainOf('thunder')).pid === 0, 120000);
+      await check('Thunder off: its data stays', (await chainOf('thunder')).hasData === true);
       go('home');
       await waitFor('Thunder gone from Home and the sidebar', () => !$('[data-chains-overview="home"] [data-chain-card="thunder"]') && !$('[data-chain-group="thunder"]'), 30000);
       await check('a chain turned off leaves Home and the sidebar', true);
-      await host('sidechains.enable', { stem: 'thunder', wallet: 'separate' });
+      // On again through its wizard, its own wallet as before (its card's switch off and free again first: the page
+      // waits for the node to stop before it says so).
+      go('settings', 'sidechains');
+      const box = () => $('.card[data-stem="thunder"] input[type="checkbox"]');
+      await waitFor('Thunder\'s card, off', () => box() && !box().checked && !box().disabled, 60000);
+      box().click();
+      const wizard = () => $('[data-wizard="enable"]');
+      await waitFor('the enable wizard of Thunder', () => wizard() && wizard().dataset.step === 'about', 20000);
+      for (let i = 0; i < 8 && wizard() && wizard().dataset.step !== 'review'; i++) {
+        $('[data-action="next"]').click();
+        await sleep(400);
+      }
+      await waitFor('its review', () => wizard().dataset.step === 'review', 10000);
+      await shot('allchains-enable-thunder-review');
+      $('[data-action="turn-on"]').click();
+      await waitFor('Thunder turned on', () => wizard() && wizard().dataset.step === 'done', 60000);
+      $$('[data-wizard="enable"] ~ * button, dialog[open] button').find((b) => b.textContent.trim() === 'Close')?.click();
       await waitFor('Thunder on again', async () => (await chainOf('thunder')).ready, 120000);
+      go('home');
       await waitFor('Thunder back on Home and in the sidebar', () => $('[data-chains-overview="home"] [data-chain-card="thunder"]') && $('[data-chain-group="thunder"]'), 60000);
       await check('turned on again: back on Home and in the sidebar', true);
     });

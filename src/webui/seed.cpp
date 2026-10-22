@@ -8,6 +8,7 @@
 #include <crypto/common.h>
 #include <crypto/chacha20poly1305.h>
 #include <crypto/hmac_sha256.h>
+#include <crypto/hmac_sha512.h>
 #include <crypto/sha256.h>
 #include <key.h>
 #include <pubkey.h>
@@ -201,6 +202,54 @@ SecureString WalletPassphrase(const Bytes& seed, std::string_view stem, std::str
     memory_cleanse(hex.data(), hex.size());
     memory_cleanse(mac, sizeof(mac));
     return out;
+}
+
+bip39::Words Bip85Phrase(const CExtKey& master, uint32_t words, uint32_t index)
+{
+    if (words != 12 && words != 18 && words != 24) return {};
+    static constexpr uint32_t HARD{0x80000000U};
+    CExtKey key{master};
+    for (const uint32_t step : {83696968U, 39U, 0U, words, index & 0x7fffffffU}) {
+        CExtKey child;
+        if (!key.Derive(child, step | HARD)) return {};
+        key = child;
+    }
+    static constexpr std::string_view HMAC_KEY{"bip-entropy-from-k"};
+    unsigned char out[CHMAC_SHA512::OUTPUT_SIZE];
+    CHMAC_SHA512(reinterpret_cast<const unsigned char*>(HMAC_KEY.data()), HMAC_KEY.size())
+        .Write(UCharCast(key.key.begin()), key.key.size())
+        .Finalize(out);
+    const Bytes entropy(out, out + words * 4 / 3);
+    memory_cleanse(out, sizeof(out));
+    return bip39::FromEntropy(entropy);
+}
+
+uint32_t DropinPhraseIndex(std::string_view stem, std::string_view network)
+{
+    const unsigned char zero{0};
+    unsigned char hash[CSHA256::OUTPUT_SIZE];
+    CSHA256()
+        .Write(reinterpret_cast<const unsigned char*>(DROPIN_PHRASE_TAG.data()), DROPIN_PHRASE_TAG.size())
+        .Write(&zero, 1)
+        .Write(reinterpret_cast<const unsigned char*>(stem.data()), stem.size())
+        .Write(&zero, 1)
+        .Write(reinterpret_cast<const unsigned char*>(network.data()), network.size())
+        .Finalize(hash);
+    return ReadBE32(hash) & 0x7fffffffU;
+}
+
+std::string DropinFingerprint(const bip39::Words& phrase)
+{
+    Bytes seed{bip39::Seed(phrase, "")};
+    const unsigned char zero{0};
+    unsigned char hash[CSHA256::OUTPUT_SIZE];
+    CSHA256()
+        .Write(reinterpret_cast<const unsigned char*>(DROPIN_FINGERPRINT_TAG.data()), DROPIN_FINGERPRINT_TAG.size())
+        .Write(&zero, 1)
+        .Write(seed.data(), seed.size())
+        .Finalize(hash);
+    memory_cleanse(seed.data(), seed.size());
+    return HexStr(std::span{hash, 8});
 }
 
 CExtKey Master(const Bytes& seed)

@@ -2110,12 +2110,17 @@ Added with §25 (2026-10-22), the clean path for the Backbone suite's drop-in ch
 8. **A second kind of chain in the catalog** (`Spec::kind` template | dropin, its program's name, its family's slot and
    ports): the drop-ins exist on eCash networks only (`ecash`, `ecashbeta`, `ecashtest`, and regtest with `-ecashregtest`),
    so their rows are in the `ecash` family's catalog alone; Chains' networks keep the template chains.
-9. **The supervisor's arguments and health for a drop-in**: their CLI flags, `--mainchain-grpc-url` to the app's own gRPC,
-   their RPC address; `getblockcount` for health; `stop` by RPC (their private API) then SIGTERM.
+9. **The supervisor's arguments and health for a drop-in**: their CLI flags and the app's (§25.7 item 3), the mainchain
+   flag the manifest's `mainchainUrlFlag` to the app's own gRPC; `appserverproof` before anything is sent; `getblockcount`
+   for health; `stop` by the cookie user then SIGTERM (`--bt-app-exit-with-stdin`: a node never outlives the app).
 10. **Backbone's gRPC started late** (as `AppStartServersLate` for RPC) when the first drop-in is turned on, its wallet the
     one that pays merged mining.
-11. **The RPC users of a drop-in** (§25.7 item 3) and its pack's host over RPC (item 4), from the drop-in's `app` branch.
-12. **Keys from the phrase** for a drop-in (§25.7 item 7: a BIP85 mnemonic per chain), in `SeedKeeper`.
+11. **The RPC users of a drop-in** (§25.7 item 3: the `--bt-app-*` flags, the cookie) and its pack (item 4), from the
+    drop-in's `app` branch (core d0c531d, backbone-thunder a747c25, backbone-bitnames e52014e; zSide, BitAssets and Hivemind
+    next).
+12. **Keys from the phrase** for a drop-in (§25.7 item 7: the BIP85 child of the phrase, `setwalletphrase` by the cookie user,
+    the fingerprint checked; another seed kept, its own backup said), in `SeedKeeper`, on `seed::Bip85Phrase`,
+    `DropinPhraseIndex`, `DropinFingerprint`.
 
 ### 23.9 End-to-end run and the test set (2026-10-21)
 
@@ -2545,10 +2550,11 @@ which Move coins' coin control sends), plus this round's fixes:
 
 | Chain | Branch, commit | Fixes | Pack pinned |
 |---|---|---|---|
-| FastBlocks | `allchains` bb4c7078f5 (main + its `ux3`) | unbonding time at the mainchain's pace; no key: "Make a validator key" in the app | ✓ |
+| FastBlocks | `allchains` e616ff8cfa (main + its `ux3`; the daemon of bb4c7078f5) | unbonding time at the mainchain's pace; no key: "Make a validator key" in the app; the staking income a table at the page's width | ✓ |
 | Thunder | `allchains` 5f698d6a25 (main + template `ux3`) | — | ✓ |
-| BitNames | `allchains` f79f189289 (main + template `ux3`) | the directory opens `name:<name>` | ✓ |
+| BitNames | `allchains` 49e06a02a2 (main + template `ux3`; the daemon of f79f189289) | the directory opens `name:<name>`; "1 name registered" | ✓ |
 | zSide | `allchains` 28b3e6da8f (main + template `ux3`) | shieldcoins' own question | ✓ |
+| Layers | `allchains` 86bfa44d20 (its `ux3` pin f532ed1683; pages only, its daemon stays `unified-dex` b29139ef7b) | the staking income a table at the page's width | ✓ |
 
 Their daemons are built into **`~/skydoge/tools/unified-bin.next`** (with COMMITS.txt and SHA256SUMS.txt): fastblocksd,
 thunderd, bitnamesd (new: unified-bin had none), zsided and their CLIs. Layers, BitAssets and Hivemind stay those of
@@ -2582,13 +2588,18 @@ unified app on Backbone needs from a drop-in, for that agent and the port (§23.
 2. **The mainchain's gRPC**: Backbone's own `-grpc` (cusf.mainchain.v1), started late like the RPC server (§1.4) when the
    first drop-in is turned on, on 127.0.0.1; its wallet (`-grpcwallet`) the one that pays merged mining (§23.12). Their
    `mine` asks it for a BMM bid; the app (or the drop-in's own app layer) calls it as `setbmm` does for a template chain.
-3. **RPC and its users**: their JSON-RPC 2.0 has no authentication. The app needs, as with a template daemon (§13.5 #11,
-   #59), a user of its own limited to what it uses: proposed `--bt-rpc-auth=<user>:<salt>$<hmac>` and
-   `--bt-rpc-whitelist=<user>:<methods>` (the app's user) and a cookie file (the full user, for the wallet setup). Until
-   then a drop-in's wallet is spendable by any local process, as with their own app (said in the doc and the UI).
-4. **The pack's host over RPC**: `webuihost`, `webuievents`, `describeconfirmation`, `webuichosenfile` at hostApi 1 (§13.1:
-   one-time tokens bound to request, question and wallet, 5 minutes), so that the same `SidechainPages`, trusted dialog and
-   packs (`chains-pack://<stem>/`) serve them. Their questions are their own describers (option B).
+3. **RPC and its users** (settled by the drop-in layer, `backbone-<chain>-app` `core/doc/app.md` §4, core d0c531d): a
+   second JSON-RPC server for the app, `--bt-app-rpc-port <p> --bt-app-rpcauth <pack user> --bt-app-rpcwhitelist <pack
+   user>:<pack.json's rpc.protocol + reads + confirmed + host> --bt-app-rpcwhitelistdefault=0 --bt-app-chooser <pack user>
+   --bt-app-exit-with-stdin`, the mainchain flag named by the manifest's `mainchainUrlFlag`; the supervisor's own user is
+   the cookie `<datadir>/backbone-app.cookie` (`getwalletphraseinfo`, `setwalletphrase`, `stop`), the node checked by
+   `appserverproof` before anything is sent to it. As with a template daemon (§13.5 #11, #59), the pages' user may call
+   nothing outside its pack.json, never `setwalletphrase` or `stop`.
+4. **The pack** (`cmake --build build-app --target <stem>-app-pack` → `build-app/pack/<stem>/pack.json`, `dropin: true`,
+   `hostApi: 1`, `rpc {protocol, reads, confirmed, host}`; its `rpc.host` without `dropin.seed.restore`: a phrase is typed only
+   in the app's own window): the host over RPC as ours (`webuihost`, `webuievents`, `describeconfirmation`,
+   `webuichosenfile`, §13.1's one-time tokens), so that the same `SidechainPages`, trusted dialog and packs
+   (`chains-pack://<stem>/`) serve them; their questions their own describers (option B).
 5. **The app's own pages** (`ChainAdapter`) read the kit's surface: `getblockcount`, `getbestblockhash`, `getblockhash`,
    `getblockheader` (time, nTx), `getblock` (verbosity 1), `getmainchaininfo`, `listwallets` (one: `main`), `getbalances`
    (`mine.trusted`, `untrusted_pending`, `immature`), `listtransactions`, `getdepositaddress`, `validateaddress`,
@@ -2598,21 +2609,24 @@ unified app on Backbone needs from a drop-in, for that agent and the port (§23.
    `getshieldedbalance`, …) or as its own capabilities row says.
 6. **Deposits**: their deposit addresses are `s<slot>_<base58>_<checksum>` (format_deposit_address): Backbone's
    `createsidechaindeposit` must take that form for those slots (the app's own payment, Chains' own question, §13.3).
-7. **Keys from the backup phrase**: their wallets are BIP39 mnemonics (`set_seed_from_mnemonic`; Thunder's keys at
-   m/43'/1899'/0'/9'/0'/i over ristretto255, BitNames' BIP32-Ed25519). Proposed: a mnemonic of its own per chain derived
-   from the phrase by **BIP85** (`m/83696968'/39'/0'/12'/I'`, 12 English words; `I` = BE32(SHA-256("sidechain/mnemonic/v1"
-   0x00 stem 0x00 network))[0..4] & 0x7fffffff: per chain and network, a standard any BIP85 tool re-derives), given once to
-   its node by its full user right after its wallet is made (never over the app's user, never logged), checked against the
-   node's first address before anything is paid to it. Their wallet files are not encrypted: the password of §23.11 does not
-   protect them (said, as zSide's own wallet is). Their shielded keys (thunder-orchard) come from the same mnemonic, so zSide
-   on Backbone could be from the phrase too. The drop-in agent decides; the app's side is `SeedKeeper` (a third kind of chain
-   key besides the template's descriptors and zSide's own wallet).
+7. **Keys from the backup phrase** (settled, `core/doc/app.md` §3): their wallets are BIP39 phrases
+   (`set_seed_from_mnemonic`; Thunder's keys at m/43'/1899'/0'/9'/0'/i over ristretto255, BitNames' BIP32-Ed25519). Each
+   chain's phrase is the user's one phrase's **BIP85** child (`m/83696968'/39'/0'/12'/I'`, 12 English words; `I` =
+   BE32(SHA-256("sidechain/dropin/v1" 0x00 stem 0x00 network)[0..4]) & 0x7fffffff, `stem` the catalog's id, `network` the
+   drop-in's own: a standard any BIP85 tool re-derives), given by the supervisor's cookie user with `setwalletphrase` when
+   the node has no seed; its `getwalletphraseinfo` fingerprint (hex of SHA-256("sidechain/dropin/fingerprint/v1" 0x00 the
+   phrase's BIP39 seed)[0..8]) says whether a seed already there is that one; another seed is kept (never replaced) and the
+   chain has a backup phrase of its own, said as zSide's is. Their wallet files are not encrypted: the password of §23.11 does
+   not protect them (said). **Groundwork in this branch**: `seed::Bip85Phrase` (BIP85's BIP39 application, BIP85's own
+   vectors), `seed::DropinPhraseIndex` and `seed::DropinFingerprint` (the drop-in layer's four vectors: Thunder and BitNames,
+   betanet and regtest), unused by the Chains suite.
 
 ### 25.8 Tests
 
 - **Host** (`test_chains-app`): supervisor_tests `validator_key_made_on_this_computer` (made 0600 in the network's folder,
   passed, kept when made again, one per computer, a payout passed only as plain text, the list says it, not for a chain that
-  does not stake); chainadapter_tests `names_found_and_held_and_private_coins_moved` (names as search texts, a name found
+  does not stake); seed_tests `bip85_child_phrases_for_drop_in_chains` (BIP85's vectors, 12, 18 and 24 words; an index per
+  chain and network; the drop-in layer's index, phrase and fingerprint vectors); chainadapter_tests `names_found_and_held_and_private_coins_moved` (names as search texts, a name found
   with its owner and number, not asked of a chain without names, names and reservations held; shield and unshield with the
   fee of the chain's estimate, a private payment's fee and memo, refusals before anything is asked; the methods in the
   whitelist), a reward of no value not a row.
@@ -2627,7 +2641,68 @@ unified app on Backbone needs from a drop-in, for that agent and the port (§23.
 
 ### 25.9 End-to-end run and the test set
 
-RESULTS_PLACEHOLDER
+`run_allchains.py --app build_app/bin/chains-app --sidechain-bindir ~/skydoge/tools/unified-bin.next --sidechain-bindir
+~/skydoge/tools/unified-bin --tmp … --shots …` (ctest `webui_e2e_allchains`): **59 checks**, the runner's own besides (each
+validator's node arguments and key file), every node stopped at the end:
+
+1. Seven slots proposed and active (a proposal a block: more blocks of acks than for one); six turned on by the host,
+   FastBlocks through its wizard with "Make this computer a validator" (its staking step, its review: "This computer, with a
+   key made here"); its node runs with `-validatorkeyfile` (0600, in `…/fastblocks/data/regtest/`) and its payout.
+2. A deposit into each (FastBlocks' from the Move coins panel, Chains' own question in the app's window), every one
+   credited; the guide step by step moves 3 into zSide (every chain offered), followed until credited.
+3. On each of the seven, a payment from Send (its tile, the address checked, the question "On <chain>" with the chain
+   first; FastBlocks' and BitNames' answered in the app's own window) and an address of its wallet from Receive.
+4. FastBlocks: no offer (it has its key), 5 bonded to its key from the wallet (its question "Bond coins", the key whole),
+   the wallet's bond listed; Layers: the offer, the page's question, its node started again with a key of this computer
+   (checked by the runner), the offer gone. Merged mining anchors FastBlocks once its blocks are by stake (§25.2).
+5. BitNames: alice reserved and registered (its own questions), "1 name" on Home; the palette (Ctrl+K) finds "alice — a
+   name on BitNames · #… · yours" and opens its directory at it (its first visit); the explorer's search finds it.
+6. zSide: 10 shielded ("Yourself: shield", zSide's own question), 2.5 paid privately with a memo to its own private
+   address (the fee of its estimate in the question), 1 unshielded; a private address from Receive; Home's *Private*.
+7. Hivemind: a market traded by its CLI, the position read. A withdrawal started from each of the seven, each "on its way".
+8. Home (one Balances card, eight rows), its chart (eight lines), Overview, the explorer's eight strips (a block of
+   FastBlocks, BitNames, zSide and Thunder opened under them), Transactions with the Chain column (each chain's payment found
+   by its id), the sidebar's groups (BitNames' five pages, zSide's), the selector in the catalog's order; each chain's own
+   Home; Thunder turned off from its card in Settings → Sidechains (the page's question; its data kept; gone from Home and
+   the sidebar) and on again through its wizard (back).
+
+**Found by it** (fixed here): zSide's private payments refused (no fee given, §25.4); the palette's name opened BitNames'
+Home (a new frame did not hear its page, §25.3); a chain's Home chart showed the previous chain's line, or every chain, for up
+to 15 s after another was picked (the throttle of §21.3 now follows a change of the chains shown at once: `throttled`'s
+scope); FastBlocks' blocks of stake buried Transactions in rows of no value; a validator's payout said "Coins in from
+Chains"; Send's private coins stale ("More than the wallet holds") until the page was left (now read while shown); the
+validator's fee share sent to the key's own address (now `-validatorpayout`); "1 names registered" (BitNames); FastBlocks' and
+Layers' staking income stacked with no column words at the Staking page's width.
+
+**The test set on `unified-allchains`** (2026-10-22, after merging `unified-main` at 2e085d54d2): `test_chains-app` 163 cases with
+the real daemons (`CHAINS_TEST_SIDECHAIN_BINDIR` the unified-bin) no error; vitest 59 files / 536 tests; `svelte-check` 602
+files 0/0; `i18n.mjs --check`; `run_allchains.py` 60/60; `run_seed.py` 56/56 (first 21 with FastBlocks and BitNames from the
+phrase: their accounts 368603874 and 1270392304 checked by `seedref.py`, their wallets' passphrases their own; restore 5,
+the same five accounts again; migrate 12; nopass 18 with zSide's own backup); `run_integrated.py` 66/66 (one earlier run
+waited in vain for Layers' coin-chosen withdrawal question, not seen again); `run_dex.py` 23/23; `run_startup.py` 5/5. The
+sidechains: FastBlocks vitest 54 files / 463 and svelte-check, `feature_sidechain.py`, `rpc_describeconfirmation(_fastblocks).py`;
+BitNames vitest (26 of its pages) and svelte-check, `feature_sidechain.py`, `rpc_describeconfirmation(_bitnames).py`;
+Thunder `feature_sidechain.py`, `rpc_describeconfirmation.py`; zSide `local_tests`, `rpc_describeconfirmation(_zside).py`.
+
+**The hub-scale cost with all seven on** (`run_showcase.py --scale hub --sidechains
+layers,fastblocks,thunder,bitnames,bitassets,zside,hivemind`, ctest `webui_e2e_hub_cost_allchains`: §21.3's state with
+FastBlocks, Thunder, BitNames and zSide added, 300, 300, 200 and 200 payments; §21.3's window, theme and software painting):
+**idle** 0.7–3.4 % of one core on every page (budget 5): the first 45 s 3.2, Home 1.7, Overview 1.4–2.7, Send 0.7,
+Transactions 0.7, Sidechains 1.1, Staking 3.3, Explorer 1.9; the seven nodes together 1.2–2.4 % besides. **Live** (a block
+of Chains a minute with the seven merged-mined in it, a payment on a sidechain every 3 s): Home 9.8–10.7, Transactions 8.7,
+Overview 19.9 (budget 25). Overview is the heaviest, as with three chains (10.4, §21.3), now with eight rows, two tables of
+16 rows and the latest list changing with every block and payment of eight chains: `--probe` counts about 500 changes of
+its document in 90 s, the same as Home's, but each on a larger page (its web process 13 %, Home's 5). Its tables of blocks
+and waiting transactions held back as the latest list is (5 s) changed nothing measurable (the chains' reads already come
+together) and was left out.
+
+Pictures in `~/skydoge/media/unified-app/allchains/` (Midnight, and a light theme where a page's look matters): the enable
+wizard's validator step and review, Move coins and its guide, each chain's Send, Receive and Home, the trusted dialogs (a
+deposit into FastBlocks, payments on FastBlocks and BitNames, a bond, zSide's shielding, private payment and unshielding),
+the Staking page (FastBlocks', Layers' offer, its question, Layers a validator), BitNames' name held, found by the palette and
+the explorer, opened in its directory, zSide's form (shield, private payment, unshield) and private Receive; every chain at
+once: Home, its chart, Overview and its lists, the explorer's strips and a block of each new chain, Transactions, the
+sidebar's groups, the selector, Sidechains; Thunder's question to turn it off and its wizard's review to turn it on again.
 
 ### 25.10 Open
 
