@@ -55,6 +55,9 @@ public:
         int ram_mb{300};
         //! Whether it can stake (FastBlocks, Layers): an option of its wizard.
         bool staking{false};
+        //! Whether its wallet may get its keys from the backup phrase (doc §23). zSide: never for now (its shielded keys are
+        //! not made from the phrase, so its private funds would not be brought back by it): always a wallet of its own.
+        bool phrase_keys{true};
     };
     static const std::vector<Spec>& Catalog();
     static const Spec* FindSpec(std::string_view stem);
@@ -89,6 +92,12 @@ public:
         //! name, or "" while its keys are not made yet (then no wallet of its own is made); nothing: as before (a wallet
         //! of its own, "main", made when it has none).
         std::function<std::optional<std::string>(const std::string& stem)> seed_wallet;
+        //! The wallet of this app's node that pays a daemon's merged mining bids (-mainchainrpcwallet): the mining wallet
+        //! when one is set, else the phrase's wallet; "" as before (the node's only wallet). Doc §23.12.
+        std::function<std::string(const std::string& stem)> bmm_wallet;
+        //! The methods of a sidechain's own (its pack's reads, confirmed methods and host methods, the app's pages' use of
+        //! it), added to AppRpcMethods in its daemon's -rpcwhitelist for this app's user.
+        std::function<std::vector<std::string>(const std::string& stem)> chain_methods;
     };
     using LoadFn = std::function<UniValue()>;
     using StoreFn = std::function<void(const UniValue&)>;
@@ -133,6 +142,10 @@ public:
     void Enable(const std::string& stem, const std::optional<std::string>& wallet_mode = std::nullopt);
     /** Disable it: its daemon is asked to stop (SIGTERM, then SIGKILL after stop_timeout); its data and keys stay. */
     void Disable(const std::string& stem);
+    /** Start a running daemon again (its arguments made anew). */
+    void Restart(const std::string& stem);
+    /** Start again each running daemon that pays merged mining from another wallet than Options::bmm_wallet says now. */
+    void RefreshBmmWallets();
     /** Start the daemons of the sidechains enabled (when the node of the app is ready). */
     void StartEnabled();
     /** Stop every daemon, all at once, and wait for them (at most stop_timeout); then the thread ends. */
@@ -173,12 +186,19 @@ public:
     static bool IsReadOnlyMethod(std::string_view method);
     /**
      * The RPC user this app is at each daemon (an -rpcauth of this run, its password in memory only), and the only
-     * methods it may call there (-rpcwhitelist): reads of the supervisor and the overview, wallet setup, and the host of
-     * the pages over RPC (webuihost, which keeps the pages' own policy and asks for every spend, describeconfirmation,
-     * webuievents, webuichosenfile). Never a spend directly (doc/unified-app.md §13).
+     * methods it may call there (-rpcwhitelist). The daemon runs a host method or an RPC method of the pages (webuihost,
+     * describeconfirmation) only when this user may call what it exercises (remotehost.cpp HostPrivileges, CheckRpcCaller),
+     * so the whitelist names exactly what the pages and the app's own pages use there (doc/unified-app.md §13.5 #59):
+     * AppRpcMethods for every sidechain (the kit's reads, the privileges of its host methods, its confirmed methods, the
+     * Peg page's mainchain reads), then each chain's own (AppRpcMethodsFor). Never a key read out, never a wallet's
+     * passphrase set or changed, never an import (the wallet setup of the phrase goes as the daemon's own user, SetupRpc).
+     * The daemon gives files only to this user (-webuichooser).
      */
     static constexpr std::string_view APP_RPC_USER{"chains-app"};
     static const std::vector<std::string>& AppRpcMethods();
+    std::vector<std::string> AppRpcMethodsFor(const std::string& stem) const;
+    /** The wallet that pays a daemon's merged mining now (Options::bmm_wallet), "" for none named. */
+    std::string BmmWallet(const std::string& stem) const;
     /** The methods the daemons may call on the node of this app (its -rpcwhitelist for the sidechains' user). */
     static const std::vector<std::string>& MainchainRpcMethods();
 
@@ -210,6 +230,8 @@ private:
         bool rpc_ready{false};
         bool wallet_checked{false};
         int restarts{0};
+        //! The wallet it was started to pay merged mining from (-mainchainrpcwallet; "" none named).
+        std::string bmm_wallet;
         std::chrono::steady_clock::time_point started{};
         std::chrono::steady_clock::time_point next_try{};
         std::chrono::steady_clock::time_point stop_deadline{};

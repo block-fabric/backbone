@@ -29,7 +29,8 @@ namespace webui {
 
 /**
  * The single seed of the unified app (doc/unified-app.md §4.1, §23): the backup phrase made or restored in the host's own
- * dialogs, kept in <network datadir>/seed.dat encrypted with the wallet passphrase, and each chain's wallet made from it:
+ * dialogs, kept in <network datadir>/seed.dat encrypted with the user's password (or, by their choice, without one: §23.11),
+ * and each chain's wallet made from it:
  * the app's own chain (account 0, its in-process node) and each sidechain whose wallet is the phrase's (its daemon gets a
  * blank encrypted wallet and the descriptors of its own account, nothing else).
  *
@@ -82,6 +83,9 @@ public:
         std::function<void(const UniValue&)> store;
         //! Something changed (the page is told: event "seed").
         std::function<void()> changed;
+        //! The wallet that pays merged mining's bids changed (the phrase's wallet of the app's chain made, the mining wallet
+        //! turned on or off): the supervisor starts again the daemons that pay from another one (-mainchainrpcwallet).
+        std::function<void()> paying_changed;
         //! How long the phrase stays unlocked for the keys of the chains that wait for them.
         std::chrono::seconds session{std::chrono::minutes{10}};
         //! The longest an import (its rescan) may take on a sidechain's node.
@@ -104,11 +108,13 @@ public:
      * phrase or its own, made, waiting for its keys, being made, read again (with progress), or the error. Never a word.
      */
     UniValue Status();
-    /** seed.create {words: 12|24, extraWord}: the phrase made, shown, checked and encrypted in the host's dialogs; the
-     *  app's wallet made from it, and each sidechain's that waits. {cancelled: true} when the user stopped. */
+    /** seed.create {words: 12|24, extraWord, password}: the phrase made, shown, checked and (password, the default)
+     *  encrypted with a password asked in the host's dialogs; the app's wallet made from it, and each sidechain's that
+     *  waits. {cancelled: true} when the user stopped. Without a password (password: false) nothing is asked after the
+     *  check but the extra word (when chosen): seed.dat and every wallet are then open to anyone using this computer. */
     UniValue Create(const UniValue& params);
-    /** seed.restore: the phrase typed in the host's dialog (its words checked), encrypted; every chain's wallet made from
-     *  it and read again from about when it was made. */
+    /** seed.restore {password}: the phrase typed in the host's dialog (its words checked), with a password or not; every
+     *  chain's wallet made from it and read again from about when it was made. */
     UniValue Restore(const UniValue& params);
     /** seed.unlock {stems?}: the passphrase asked; the phrase unlocked for a while for the keys of those chains (and of any
      *  that waits). */
@@ -123,6 +129,44 @@ public:
      * on neither. The sidechains' wallets keep their passphrases (made from the seed, seed::WalletPassphrase).
      */
     UniValue ChangePassphrase();
+    /**
+     * seed.addPassword (a phrase without one): a password asked twice; the app's own wallet's passphrase changed from the one
+     * made from the seed to it, then seed.dat written with it (or neither); every wallet of the phrase locked. The
+     * sidechains' wallets keep their own passphrases (made from the seed): the app gives them when the password is typed.
+     */
+    UniValue AddPassword();
+    /**
+     * seed.removePassword: asked with its consequences said plainly (anyone with this computer can spend) and the password;
+     * the app's wallet's passphrase changed to the one made from the seed, seed.dat written without one (or neither); every
+     * wallet of the phrase then kept open by the app.
+     */
+    UniValue RemovePassword();
+    /** Whether the phrase has a password (true when there is no phrase: nothing to open without one). */
+    bool HasPassword() const;
+    /**
+     * The app's node is ready: without a password, the app's wallet of the phrase is kept open (as an unencrypted one would
+     * be), in the background.
+     */
+    void NodeReady();
+    /** For the app's own spends (WalletApi): without a password, its wallet of the phrase opened now; true when it was. */
+    bool OpenWithoutPassword(const std::string& wallet);
+    /**
+     * For a spend on a sidechain (SidechainPages): without a password, that chain's wallet of the phrase's passphrase (made
+     * from the seed), sent with the question so none is asked; nothing otherwise (or for another wallet of that chain).
+     */
+    SecureString PassphraseWithout(const std::string& stem, const std::string& wallet);
+
+    /**
+     * mining.create: a wallet of the app's chain that pays merged mining's bids, so the main wallet can stay locked
+     * (doc §23.12). From the phrase (its account 1 of the app's chain, without a password: a hot wallet holding a little,
+     * brought back by the phrase) or, without a phrase, with keys of its own. Reused when it was made before.
+     */
+    UniValue MiningCreate();
+    /** mining.stop: bids paid from the main wallet again; the mining wallet stays, with its coins. */
+    UniValue MiningStop();
+    /** The mining wallet's name when it pays the bids ("" when the main wallet does), and its record. */
+    std::string MiningWallet();
+    UniValue MiningRecord();
     /**
      * What is sent to a sidechain's node for a passphrase the user typed in the trusted dialog (SidechainPages): the user's
      * own phrase passphrase (it opens seed.dat) is never sent; that chain's wallet passphrase made from the seed is sent
@@ -186,6 +230,17 @@ private:
     void StartJob(const std::string& id) EXCLUSIVE_LOCKS_REQUIRED(m_mutex);
     void RunJob(const std::string& id, seed::Secret secret, SecureString passphrase, int64_t timestamp);
     void ExpireLoop();
+    /** Without a password: the wallet of the phrase on a chain kept open (walletpassphrase with its passphrase, for good). */
+    void KeepOpen(const std::string& id);
+    void KeepOpenLater(const std::string& id) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** The passphrase of a chain's wallet of the phrase, made from the seed (the app's own: an empty stem). */
+    static SecureString ChainWalletPassphrase(const seed::Secret& secret, const std::string& id, const std::string& genesis);
+    /** Ask the extra word alone (a phrase made without a password, with an extra word). Nothing when declined. */
+    std::optional<SecureString> AskExtraWord();
+    /** The genesis of the app's own chain (its block 0). */
+    std::string AppGenesis() const;
+    std::optional<UniValue> RecordValue(const std::string& key) const;
+    void SetValue(const std::string& key, const UniValue& value);
     void Wipe() EXCLUSIVE_LOCKS_REQUIRED(m_mutex);
     void Changed();
     /** The time the chains are read again from: a new phrase from when it was made, a restored one from its birthday (0: all). */
@@ -201,6 +256,8 @@ private:
     std::vector<std::thread> m_finished GUARDED_BY(m_mutex);
     std::thread m_expiry;
     bool m_stopping GUARDED_BY(m_mutex){false};
+    //! The chains whose wallet of the phrase is to be kept open (no password): done by the expiry thread, one at a time.
+    std::set<std::string> m_keep_open GUARDED_BY(m_mutex);
     //! A dialog of the phrase is open (one flow at a time: create, restore, show, change).
     std::atomic<bool> m_busy{false};
 };

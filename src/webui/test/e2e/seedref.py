@@ -5,8 +5,9 @@
 """A reference of the single seed of the unified app (doc/unified-app.md §23), apart from the app's own code.
 
 BIP39 (the seed of a phrase: PBKDF2-HMAC-SHA512, 2048 rounds, salt "mnemonic" + the extra word), BIP32 (hardened
-derivation, the extended keys in base58), the account of each chain (A = 0 for the app's own chain; a sidechain's from
-SHA-256 of "chains/account" 0x00 stem 0x00 genesis), and BIP86's output key of an address. Pure Python, no package: the
+derivation, the extended keys in base58), the account of each chain (A = 0 for the app's own chain, 1 for its mining
+wallet; a sidechain's from SHA-256 of "sidechain/account/v1" 0x00 stem 0x00 genesis, never below 1024), the passphrase of
+a wallet made from the seed, and BIP86's output key of an address. Pure Python, no package: the
 end-to-end runner checks with it that every chain's addresses come from the phrase the user wrote down, and the unit
 tests' vectors of our paths were made with it (`seedref.py vectors`).
 """
@@ -18,7 +19,11 @@ import sys
 P = 2**256 - 2**32 - 977
 N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 G = (0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798, 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8)
-ACCOUNT_TAG = b"chains/account"
+ACCOUNT_TAG = b"sidechain/account/v1"
+WALLET_PASSPHRASE_LABEL = b"wallet/passphrase/v1"
+# The accounts of the app's own chain are below this (0 its wallet, 1 its mining wallet): never a sidechain's.
+APP_ACCOUNTS = 1024
+MINING_ACCOUNT = 1
 B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 XPRV = {"main": bytes.fromhex("0488ade4"), "test": bytes.fromhex("04358394")}
 XPUB = {"main": bytes.fromhex("0488b21e"), "test": bytes.fromhex("043587cf")}
@@ -108,12 +113,13 @@ def account(stem, genesis):
         return 0
     digest = hashlib.sha256(ACCOUNT_TAG + b"\0" + stem.encode() + b"\0" + genesis.lower().encode()).digest()
     a = int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
-    return a or 1
+    return a + APP_ACCOUNTS if a < APP_ACCOUNTS else a
 
 
 def wallet_passphrase(seed, stem, genesis):
-    """The passphrase of a sidechain's wallet made from the seed (the user's own never reaches a sidechain's node)."""
-    return hmac.new(seed, b"unified-wallet/passphrase/1\0" + stem.encode() + b"\0" + genesis.lower().encode(), hashlib.sha256).hexdigest()
+    """The passphrase of a wallet made from the seed: a sidechain's (its stem; the user's own never reaches a sidechain's
+    node), or the app's own wallet without a password (stem "", its chain's genesis)."""
+    return hmac.new(seed, WALLET_PASSPHRASE_LABEL + b"\0" + stem.encode() + b"\0" + genesis.lower().encode(), hashlib.sha256).hexdigest()
 
 
 def tagged(tag, data):
@@ -159,6 +165,13 @@ def vectors():
         print(stem, "regtest account", a, xpub(k, "test"), "first output key", taproot_output_key(path(k, 0, 0)))
     k = path(m, 86 + 2**31, 1 + 2**31, 2**31)
     print("chains test account 0", xpub(k, "test"), "first output key", taproot_output_key(path(k, 0, 0)))
+    k = path(m, 86 + 2**31, 1 + 2**31, MINING_ACCOUNT + 2**31)
+    print("chains test mining account 1", xpub(k, "test"), "first output key", taproot_output_key(path(k, 0, 0)))
+    seed = bip39_seed(words)
+    print("layers wallet passphrase", wallet_passphrase(seed, "layers", regtest_genesis))
+    print("chains wallet passphrase (no password)", wallet_passphrase(seed, "", regtest_genesis))
+    for stem in ("bitassets", "bitnames", "zside", "hivemind", "fastblocks", "flush"):
+        print(stem, "regtest account", account(stem, regtest_genesis))
 
 
 if __name__ == "__main__":

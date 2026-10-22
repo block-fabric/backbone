@@ -212,7 +212,7 @@ const std::vector<SidechainSupervisor::Spec>& SidechainSupervisor::Catalog()
         {"thunder", "Thunder", "Very large blocks, for many small payments at a low fee.", 2, 7, 10, 600, false},
         {"bitnames", "BitNames", "Names you own, like a web address for your keys and your data.", 3, 9, 2, 300, false},
         {"bitassets", "BitAssets", "Issue your own tokens and trade them.", 4, 3, 2, 300, false},
-        {"zside", "zSide", "Private payments: amounts and addresses hidden.", 6, 4, 3, 500, false},
+        {"zside", "zSide", "Private payments: amounts and addresses hidden.", 6, 4, 3, 500, false, /*phrase_keys=*/false},
         {"hivemind", "Hivemind", "Prediction markets: trade on what will happen.", 9, 8, 2, 400, false},
     };
     return catalog;
@@ -259,21 +259,63 @@ bool SidechainSupervisor::IsReadOnlyMethod(std::string_view method)
 
 const std::vector<std::string>& SidechainSupervisor::AppRpcMethods()
 {
+    // Every sidechain (the kit at hostApi 1, sidechain-template main 6fc20b4c9f): least privilege, what is used and no more.
     static const std::vector<std::string> methods{[] {
         std::vector<std::string> m{
-            // The supervisor: is it up, its wallet; the overview (IsReadOnlyMethod adds the reads of phase 1).
-            "getblockcount", "listwallets", "listwalletdir", "loadwallet", "createwallet", "stop",
+            // The supervisor (is it up, its wallets) and the app's own reads of it (Overview, the adapter's summaries).
+            "getblockcount", "listwallets", "listwalletdir", "loadwallet", "createwallet", "stop", "getconnectioncount", "getbalance", "listtransactions",
             // The host of the pages over RPC (remotehost.h of the sidechain).
             "webuihost", "webuievents", "describeconfirmation", "webuichosenfile",
+            // The pages' reads: the kit's policy for a sidechain (its rpcpolicy.cpp), each checked by name by the daemon.
+            "getbestblockhash", "getblock", "getblockchaininfo", "getblockhash", "getblockstats", "getblockheader", "getmempoolentry", "getmempoolinfo",
+            "getmininginfo", "getnetworkhashps", "getnetworkinfo", "getpeerinfo", "getrawmempool", "getrawtransaction", "gettxout", "gettxspendingprevout",
+            "help", "listbanned", "uptime", "getbmminfo", "getdepositaddress", "getmainchaininfo", "getpeginfo", "getwithdrawalbundle", "listwithdrawals",
+            "syncmainchain", "createpsbt", "decodepsbt", "deriveaddresses", "finalizepsbt", "getdescriptorinfo", "scantxoutset", "utxoupdatepsbt",
+            "validateaddress", "verifymessage", "getaddressinfo", "getbalances", "getnewaddress", "getwalletinfo", "listunspent", "walletlock",
+            // What the kit's host methods exercise (remotehost.cpp HostPrivileges): payments and fee bumps (each asked in the
+            // app's trusted dialog first), PSBTs, the address book, coins, wallets, merged mining, peers.
+            "send", "walletcreatefundedpsbt", "bumpfee", "psbtbumpfee", "gettransaction", "setlabel", "lockunspent", "estimatesmartfee",
+            "listreceivedbyaddress", "abandontransaction", "walletprocesspsbt", "sendrawtransaction", "backupwallet", "restorewallet",
+            "exportwatchonlywallet", "encryptwallet", "unloadwallet", "migratewallet", "enumeratesigners", "walletdisplayaddress", "setbmm",
+            "requestbmmblock", "disconnectnode", "setban",
+            // The kit's confirmed methods (confirm.cpp: rpc.confirmed asks in the trusted dialog first).
+            "signmessage", "createwithdrawal", "refundwithdrawal",
+            // Named, having no privilege of their own: the Peg page's view of the mainchain connection and its reads there,
+            // each forwarded method checked by name too (SidechainApi::MainchainMethods).
+            "peg.call", "peg.connection", "getdrivechaininfo", "getsidechain", "getsidechainevents", "listactivesidechains", "listsidechaindeposits",
+            "listwithdrawalbundles",
+            // Not: walletpassphrase, walletpassphrasechange, importdescriptors (the phrase's wallet setup goes as the daemon's
+            // own user, SetupRpc), any key read out (dumpprivkey, listdescriptors), createsidechaindeposit (a deposit is this
+            // app's own payment, peg.deposit never reaches the daemon: SidechainPages::RouteOf).
         };
-        for (const char* r : {"getblockchaininfo", "getbestblockhash", "getblockhash", "getblockheader", "getblock", "getmainchaininfo", "getbmminfo",
-                              "getnetworkinfo", "getconnectioncount", "getmempoolinfo", "getpeerinfo", "getwalletinfo", "getbalances", "getbalance",
-                              "listtransactions", "uptime", "getdepositaddress"}) {
-            m.emplace_back(r);
-        }
+        std::ranges::sort(m);
+        m.erase(std::unique(m.begin(), m.end()), m.end());
         return m;
     }()};
     return methods;
+}
+
+std::vector<std::string> SidechainSupervisor::AppRpcMethodsFor(const std::string& stem) const
+{
+    std::vector<std::string> m{AppRpcMethods()};
+    if (m_options.chain_methods) {
+        for (const std::string& name : m_options.chain_methods(stem)) {
+            // A name of a method only (a whitelist is "user:a,b,c").
+            if (name.empty() || name.size() > 64 || name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._") != std::string::npos) continue;
+            m.push_back(name);
+        }
+    }
+    std::ranges::sort(m);
+    m.erase(std::unique(m.begin(), m.end()), m.end());
+    return m;
+}
+
+std::string SidechainSupervisor::BmmWallet(const std::string& stem) const
+{
+    std::string wallet{m_options.bmm_wallet ? m_options.bmm_wallet(stem) : std::string{}};
+    // A name for the path of the RPC request: the plain ones only.
+    if (wallet.size() > 64 || wallet.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != std::string::npos) return {};
+    return wallet;
 }
 
 const std::vector<std::string>& SidechainSupervisor::MainchainRpcMethods()
@@ -473,10 +515,13 @@ std::vector<std::string> SidechainSupervisor::DaemonArgs(const std::string& stem
     // (-rpcwhitelistdefault=0: a whitelist for one user does not empty the others').
     args.emplace_back("-server=1");
     args.push_back("-rpcauth=" + m_app_rpcauth);
+    const std::vector<std::string> allowed{AppRpcMethodsFor(stem)};
     std::string whitelist{strprintf("-rpcwhitelist=%s:", APP_RPC_USER)};
-    for (size_t i{0}; i < AppRpcMethods().size(); ++i) whitelist += (i ? "," : "") + AppRpcMethods()[i];
+    for (size_t i{0}; i < allowed.size(); ++i) whitelist += (i ? "," : "") + allowed[i];
     args.push_back(std::move(whitelist));
     args.emplace_back("-rpcwhitelistdefault=0");
+    // Files the user chose are given (webuichosenfile) only to this app's user: its own chooser.
+    args.push_back(strprintf("-webuichooser=%s", APP_RPC_USER));
     args.push_back(strprintf("-rpcport=%d", RpcPort(stem)));
     args.push_back(strprintf("-port=%d", P2pPort(stem)));
     // Its log is its debug.log; what it writes to the console (an error before the log opens) goes to LogFile.
@@ -486,6 +531,9 @@ std::vector<std::string> SidechainSupervisor::DaemonArgs(const std::string& stem
     args.push_back(strprintf("-mainchainrpcport=%d", m_options.mainchain_rpc_port));
     args.push_back("-mainchainrpcuser=" + m_options.mainchain_rpc_user);
     args.push_back("-mainchainrpcpasswordfile=" + fs::PathToString(PasswordFile(stem)));
+    // The wallet of this app's node that pays its merged mining bids (the mining wallet, else the phrase's): named, so that
+    // a second wallet of the node (one of before, a mining one) does not leave it without one.
+    if (const std::string bmm{BmmWallet(stem)}; !bmm.empty()) args.push_back("-mainchainrpcwallet=" + bmm);
     // A background node: modest caches.
     args.emplace_back("-dbcache=100");
     args.emplace_back("-maxmempool=100");
@@ -509,6 +557,8 @@ bool SidechainSupervisor::AnyEnabled() const
 
 std::string SidechainSupervisor::WalletMode(const std::string& stem) const
 {
+    // zSide: always its own wallet (its shielded keys are not made from the phrase).
+    if (const Spec* spec{FindSpec(stem)}; spec && !spec->phrase_keys) return "separate";
     const UniValue mode{Setting(stem, "wallet")};
     return mode.isStr() && mode.get_str() == "separate" ? "separate" : "shared";
 }
@@ -554,7 +604,7 @@ void SidechainSupervisor::Enable(const std::string& stem, const std::optional<st
     if (!FindBinary(stem)) {
         throw Error(strprintf("The program of %s (%sd) is not on this computer: it is looked for next to this app and in the folder set for it.", spec->name, stem));
     }
-    if (wallet_mode) SetSetting(stem, "wallet", UniValue{*wallet_mode == "separate" ? "separate" : "shared"});
+    if (wallet_mode) SetSetting(stem, "wallet", UniValue{*wallet_mode == "separate" || !spec->phrase_keys ? "separate" : "shared"});
     SetSetting(stem, "enabled", UniValue{true});
     WAIT_LOCK(m_mutex, lock);
     if (m_quit) throw Error("The app is stopping.");
@@ -593,6 +643,33 @@ void SidechainSupervisor::Disable(const std::string& stem)
         proc.error.clear();
     }
     m_cv.notify_all();
+}
+
+void SidechainSupervisor::Restart(const std::string& stem)
+{
+    LOCK(m_mutex);
+    const auto it{m_procs.find(stem)};
+    if (it == m_procs.end() || !it->second.pid || it->second.state == State::STOPPING) return;
+    // Asked to stop, still wanted: the loop starts it again once it is gone (StopAll still ends it for good).
+    LogInfo("webui: starting the %s node again (pid %d)", stem, it->second.pid);
+    Signal(it->second, SIGTERM);
+    it->second.state = State::STOPPING;
+    it->second.stop_deadline = std::chrono::steady_clock::now() + m_options.stop_timeout;
+    m_cv.notify_all();
+}
+
+void SidechainSupervisor::RefreshBmmWallets()
+{
+    std::vector<std::pair<std::string, std::string>> running;
+    {
+        LOCK(m_mutex);
+        for (const auto& [stem, proc] : m_procs) {
+            if (proc.pid && proc.state != State::STOPPING && proc.want_start) running.emplace_back(stem, proc.bmm_wallet);
+        }
+    }
+    for (const auto& [stem, started] : running) {
+        if (BmmWallet(stem) != started) Restart(stem);
+    }
 }
 
 void SidechainSupervisor::StartEnabled()
@@ -674,6 +751,7 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
     if (!written) return fail(strprintf("The key of its connection to Chains could not be written (%s).", util::ErrorString(written).original));
 
     std::vector<std::string> argv{fs::PathToString(*binary)};
+    const std::string bmm_wallet{BmmWallet(stem)};
     for (auto& a : DaemonArgs(stem)) argv.push_back(std::move(a));
     const int log_fd{open(fs::PathToString(LogFile(stem)).c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600)};
     if (log_fd >= 0) {
@@ -737,6 +815,7 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
         return fail(strprintf("%s could not be run.", fs::PathToString(*binary)));
     }
     proc.pid = pid;
+    proc.bmm_wallet = bmm_wallet;
     proc.state = State::STARTING;
     proc.rpc_ready = false;
     proc.wallet_checked = false;
@@ -1175,6 +1254,8 @@ UniValue SidechainSupervisor::List() const
         entry.pushKV("diskGB", s.disk_gb);
         entry.pushKV("ramMB", s.ram_mb);
         entry.pushKV("staking", s.staking);
+        // Whether its wallet may come from the backup phrase (zSide: never, its private funds need its own backup).
+        entry.pushKV("phraseKeys", s.phrase_keys);
         entry.pushKV("enabled", Enabled(s.stem));
         entry.pushKV("state", StateName(status.state));
         entry.pushKV("pid", status.pid);

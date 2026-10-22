@@ -108,6 +108,30 @@ const std::vector<ChainAdapter::Capabilities>& ChainAdapter::Table()
     return table;
 }
 
+std::vector<std::string> ChainAdapter::MethodsUsed(std::string_view stem)
+{
+    const Capabilities* caps{Find(stem)};
+    if (!caps) return {};
+    std::vector<std::string> m;
+    const auto add{[&](std::initializer_list<const char*> names) {
+        for (const char* n : names) m.emplace_back(n);
+    }};
+    if (caps->assets) add({"listmyassets", "getasset", "sendasset", "bitassets.logo"});
+    if (caps->dex) {
+        add({"listpools", "getpool", "quoteswap", "swapasset", "addliquidity", "removeliquidity", "listmyassets", "getasset"});
+        if (caps->dex_features.route) add({"quoteroute", "swaproute"});
+        if (caps->dex_features.twap) add({"getpooltwap"});
+        if (caps->dex_features.curves) add({"getdexinfo", "previewpool", "swappools", "addpoolliquidity", "removepoolliquidity", "createpool"});
+    }
+    if (caps->staking) add({"getposinfo", "getstakinginfo", "getvalidators", "listbonds"});
+    if (caps->names) add({"listmynames"});
+    if (caps->markets) add({"listmarkets", "getwalletpositions"});
+    if (caps->shielded) add({"getshieldedbalance", "getshieldedaddress", "sendshielded"});
+    std::ranges::sort(m);
+    m.erase(std::unique(m.begin(), m.end()), m.end());
+    return m;
+}
+
 const ChainAdapter::Capabilities* ChainAdapter::Find(std::string_view stem)
 {
     for (const Capabilities& c : Table()) {
@@ -786,6 +810,31 @@ UniValue ChainAdapter::WalletBackup(const UniValue& params) const
     backup.pushKV("method", "wallet.backup");
     backup.pushKV("params", std::move(p));
     return m_hooks.call(stem, backup);
+}
+
+UniValue ChainAdapter::WalletRestore(const UniValue& params) const
+{
+    std::string stem;
+    Caps(params, stem);
+    const std::string name{WalletName(params)};
+    // The app's own chooser (a file to read, given to that node only by a token), then the node restores it.
+    UniValue choose{UniValue::VOBJ};
+    choose.pushKV("save", false);
+    choose.pushKV("title", strprintf("Restore a backup of a %s wallet", m_hooks.name(stem)));
+    UniValue request{UniValue::VOBJ};
+    request.pushKV("kind", "host");
+    request.pushKV("method", "file.choose");
+    request.pushKV("params", std::move(choose));
+    const UniValue chosen{m_hooks.call(stem, request)};
+    if (!chosen.isStr()) return UniValue{};
+    UniValue p{UniValue::VOBJ};
+    p.pushKV("name", name);
+    p.pushKV("file", chosen.get_str());
+    UniValue restore{UniValue::VOBJ};
+    restore.pushKV("kind", "host");
+    restore.pushKV("method", "wallets.restore");
+    restore.pushKV("params", std::move(p));
+    return m_hooks.call(stem, restore);
 }
 
 UniValue ChainAdapter::Receive(const UniValue& params) const

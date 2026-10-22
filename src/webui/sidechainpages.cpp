@@ -9,6 +9,7 @@
 #include <logging.h>
 #include <support/cleanse.h>
 #include <tinyformat.h>
+#include <util/fs.h>
 #include <util/strencodings.h>
 #include <util/threadnames.h>
 #include <webui/assets.h>
@@ -16,6 +17,7 @@
 #include <webui/supervisor.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <set>
 #include <string_view>
 
@@ -83,7 +85,7 @@ SidechainPages::Route SidechainPages::RouteOf(const std::string& method)
     static const std::set<std::string> refused{"app.quit", "app.restart", "app.updateLanguage", "app.quitGuard", "app.help", "app.about", "tray.state",
                                                "node.paths", "node.setNetworkActive", "options.get", "options.set", "options.apply", "options.cancel",
                                                "options.reset", "options.chooseFile", "options.chooseProgram", "options.validProxy"};
-    static const std::vector<std::string_view> refused_prefixes{"intro.", "test.", "sidechainNodes.", "sidechains.", "pack.", "modules.", "chain.", "seed."};
+    static const std::vector<std::string_view> refused_prefixes{"intro.", "test.", "sidechainNodes.", "sidechains.", "pack.", "modules.", "chain.", "seed.", "mining."};
     // What the app answers for the frame (it has no window, no settings, no files of its own).
     // Checked here first: links only (app.open of a URL, which asks for one not the app's own), notices named after the
     // chain, files only those chosen for this chain's pages.
@@ -132,6 +134,24 @@ UniValue SidechainPages::Packs()
     UniValue list;
     if (!asset || !list.read(AssetText(*asset)) || !list.isArray()) return UniValue{UniValue::VARR};
     return list;
+}
+
+std::vector<std::string> SidechainPages::PackMethods(const std::string& stem)
+{
+    std::vector<std::string> out;
+    const UniValue packs{Packs()};
+    for (const UniValue& p : packs.getValues()) {
+        if (Str(p, "stem") != stem) continue;
+        const UniValue& rpc{Param(p, "rpc")};
+        for (const char* group : {"reads", "confirmed", "host"}) {
+            const UniValue& names{Param(rpc, group)};
+            if (!names.isArray()) continue;
+            for (const UniValue& n : names.getValues()) {
+                if (n.isStr()) out.push_back(n.get_str());
+            }
+        }
+    }
+    return out;
 }
 
 std::string SidechainPages::Logo(const std::string& stem)
@@ -214,21 +234,24 @@ UniValue SidechainPages::FileTokens(const std::string& stem, const UniValue& req
 {
     std::set<std::string> named;
     Strings(request.find_value("params"), named);
-    std::vector<std::pair<std::string, bool>> files;
+    std::vector<std::pair<std::string, Chosen>> files;
     {
         LOCK(m_mutex);
         auto& chosen{m_chosen[stem]};
         const auto now{std::chrono::steady_clock::now()};
-        std::erase_if(chosen, [&](const auto& e) { return now - e.second.second > CHOSEN_FILE_TIME; });
+        std::erase_if(chosen, [&](const auto& e) { return now - e.second.when > CHOSEN_FILE_TIME; });
         for (const auto& [path, how] : chosen) {
-            if (named.contains(path)) files.emplace_back(path, how.first);
+            if (named.contains(path)) files.emplace_back(path, how);
         }
     }
     UniValue tokens{UniValue::VARR};
-    for (const auto& [path, write] : files) {
+    for (const auto& [path, how] : files) {
         UniValue args{UniValue::VARR};
         args.push_back(path);
-        args.push_back(write);
+        args.push_back(how.write);
+        // A file there already is written over only when the user said so in the chooser (its own question, a save over
+        // a file); the daemon takes it for a wallet backup only.
+        args.push_back(how.write && how.overwrite);
         try {
             tokens.push_back(m_hooks.rpc(stem, "webuichosenfile", args, 30s));
         } catch (const std::runtime_error& e) {
@@ -280,13 +303,20 @@ UniValue SidechainPages::Daemon(const std::string& stem, const UniValue& request
         // The wallet of the backup phrase (doc §23): the user types their own wallet passphrase, as on the app's own chain.
         const std::string phrase{m_hooks.phrase_wallet ? m_hooks.phrase_wallet(stem) : std::string{}};
         const UniValue& asked_wallet{request.find_value("wallet")};
-        if (dialog.passphrase && !phrase.empty() && (!asked_wallet.isStr() || asked_wallet.get_str().empty() || asked_wallet.get_str() == phrase)) {
-            dialog.passphrase_label = "Your wallet passphrase";
+        const bool phrase_wallet{!phrase.empty() && (!asked_wallet.isStr() || asked_wallet.get_str().empty() || asked_wallet.get_str() == phrase)};
+        // Without a password (doc §23.11): its passphrase made from the seed goes with the answer, nothing is typed.
+        SecureString without;
+        if (dialog.passphrase && phrase_wallet && m_hooks.passphrase_without) without = m_hooks.passphrase_without(stem, phrase);
+        if (!without.empty()) {
+            dialog.passphrase = false;
+            dialog.passphrase_label.clear();
+        } else if (dialog.passphrase && phrase_wallet) {
+            dialog.passphrase_label = "Your wallet password";
         }
         dialog::Answer said{m_hooks.ask(dialog)};
         if (!said.accepted) throw HostError(BRIDGE_CANCELLED, strprintf("%s: declined.", dialog.title));
-        // The user's own phrase passphrase is never sent to the node: that chain's wallet passphrase made from the seed is.
-        const SecureString sent{dialog.passphrase && m_hooks.passphrase ? m_hooks.passphrase(stem, said.passphrase) : said.passphrase};
+        // The user's own phrase password is never sent to the node: that chain's wallet passphrase made from the seed is.
+        const SecureString sent{!without.empty() ? without : dialog.passphrase && m_hooks.passphrase ? m_hooks.passphrase(stem, said.passphrase) : said.passphrase};
         std::string passphrase{sent.begin(), sent.end()};
         try {
             // Exactly the request that was described, with its token: the daemon runs it only if it is that one.
@@ -420,8 +450,11 @@ UniValue SidechainPages::Local(const std::string& stem, const std::string& metho
         const UniValue chosen{m_hooks.hub("file.choose", params)};
         if (chosen.isStr()) {
             const bool write{Param(params, "save").isTrue()};
+            // A save onto a file there already: the chooser of the desktop asked whether to replace it, and the user said yes.
+            std::error_code ec;
+            const bool existed{write && std::filesystem::exists(fs::PathFromString(chosen.get_str()), ec)};
             LOCK(m_mutex);
-            m_chosen[stem][chosen.get_str()] = {write, std::chrono::steady_clock::now()};
+            m_chosen[stem][chosen.get_str()] = {write, existed, std::chrono::steady_clock::now()};
         }
         return chosen;
     }
@@ -434,7 +467,7 @@ UniValue SidechainPages::Local(const std::string& stem, const std::string& metho
             LOCK(m_mutex);
             const auto& files{m_chosen[stem]};
             const auto it{files.find(path.get_str())};
-            chosen = it != files.end() && (!write || it->second.first) && std::chrono::steady_clock::now() - it->second.second <= CHOSEN_FILE_TIME;
+            chosen = it != files.end() && (!write || it->second.write) && std::chrono::steady_clock::now() - it->second.when <= CHOSEN_FILE_TIME;
         }
         if (!chosen) throw HostError(BRIDGE_INVALID_REQUEST, write ? "Only a file chosen by the user for these pages can be written" : "Only a file chosen by the user for these pages can be read");
         return m_hooks.hub(method, params);

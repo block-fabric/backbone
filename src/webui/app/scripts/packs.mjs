@@ -16,10 +16,6 @@ const arg = (name) => {
   if (at < 0 || !args[at + 1]) throw new Error(`packs: ${name} <value> is needed`);
   return args[at + 1];
 };
-const config = JSON.parse(readFileSync(arg('--config'), 'utf8'));
-const repos = resolve(arg('--repos'));
-const out = resolve(arg('--out'));
-const work = resolve(arg('--work'));
 
 const own = JSON.parse(readFileSync(join(APP, 'package.json'), 'utf8'));
 const kit = (pkg) => JSON.stringify({ dependencies: pkg.dependencies ?? {}, devDependencies: pkg.devDependencies ?? {} });
@@ -33,11 +29,63 @@ export function withShim(html) {
   return `${html.slice(0, at)}<script src="/packs/shim.js"></script>\n    ${html.slice(at)}`;
 }
 
+/**
+ * The body of a C++ function (its braces counted past strings, characters and comments), its comments left out, or '' when
+ * not there.
+ */
+function functionBody(source, signature) {
+  const at = source.indexOf(signature);
+  if (at < 0) return '';
+  const open = source.indexOf('{', at + signature.length);
+  if (open < 0) return '';
+  let depth = 0;
+  let body = '';
+  for (let i = open; i < source.length; i++) {
+    const c = source[i];
+    if (c === '"' || c === "'") {
+      const from = i;
+      for (i++; i < source.length && source[i] !== c; i++) if (source[i] === '\\') i++;
+      body += source.slice(from, i + 1);
+    } else if (c === '/' && source[i + 1] === '/') {
+      while (i < source.length && source[i] !== '\n') i++;
+      body += '\n';
+    } else if (c === '/' && source[i + 1] === '*') {
+      i = source.indexOf('*/', i + 2);
+      if (i < 0) return '';
+      i++;
+      body += ' ';
+    } else {
+      body += c;
+      if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) return body;
+    }
+  }
+  return '';
+}
+
+/**
+ * What a sidechain's pages use of its daemon beyond the kit's, read from its src/webui/local.cpp at the pinned commit (the
+ * pack's manifest, doc/unified-app.md §13.5 #59): its reads (RpcMethods), its confirmed methods (ConfirmedRpcMethods) and its
+ * host methods (RegisterHost: names of a sidechain's own, "<stem>.<what>"). The app names them in that daemon's
+ * -rpcwhitelist for its own user, which the daemon checks before running any of them for the pages.
+ */
+export function chainMethods(source, stems) {
+  const names = (text, pattern) => [...new Set([...text.matchAll(pattern)].map((m) => m[1]))].sort();
+  const reads = names(functionBody(source, 'RpcMethods()'), /\{"([a-z][a-z0-9]*)",\s*(?:Bridge::Thread::)?(?:WORKER|LONG|UI|MAIN)\s*\}/g);
+  const confirmed = names(functionBody(source, 'ConfirmedRpcMethods()'), /\{"([a-z][a-z0-9]*)",\s*\{/g);
+  const host = names(functionBody(source, 'RegisterHost('), /"([a-z][a-z0-9]*(?:\.[a-zA-Z0-9]+)+)"/g).filter((n) => stems.includes(n.split('.')[0]));
+  return { reads: reads.filter((n) => !confirmed.includes(n)), confirmed, host };
+}
+
 function run(cmd, argv, cwd, input) {
   return execFileSync(cmd, argv, { cwd, input, stdio: input === undefined ? ['ignore', 'pipe', 'inherit'] : ['pipe', 'pipe', 'inherit'], maxBuffer: 512 * 1024 * 1024 });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const config = JSON.parse(readFileSync(arg('--config'), 'utf8'));
+  const repos = resolve(arg('--repos'));
+  const out = resolve(arg('--out'));
+  const work = resolve(arg('--work'));
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   const index = [];
@@ -68,7 +116,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (pack.stem !== p.stem) throw new Error(`packs: ${p.repo} at ${p.commit.slice(0, 10)} is ${pack.stem}, not ${p.stem}`);
     if (pack.hostApi !== config.hostApi) throw new Error(`packs: ${p.stem} speaks hostApi ${pack.hostApi}, this app ${config.hostApi}: bump it`);
     writeFileSync(join(dest, 'index.html'), withShim(readFileSync(join(dest, 'index.html'), 'utf8')));
-    index.push({ stem: pack.stem, name: pack.name, hostApi: pack.hostApi, commit: pack.commit, brand: pack.brand, coin: pack.coin });
+    // What its pages use of its daemon (its own methods, beyond the kit's), from its local.cpp at the same commit.
+    let rpc = { reads: [], confirmed: [], host: [] };
+    try {
+      const local = run('git', ['-C', repo, 'show', `${p.commit}:src/webui/local.cpp`]).toString('utf8');
+      rpc = chainMethods(local, config.packs.map((q) => q.stem));
+    } catch {
+      console.log(`packs: ${p.stem} at ${p.commit.slice(0, 10)} has no src/webui/local.cpp: the kit's methods only`);
+    }
+    writeFileSync(join(dest, 'pack.json'), `${JSON.stringify({ ...pack, rpc })}\n`);
+    index.push({ stem: pack.stem, name: pack.name, hostApi: pack.hostApi, commit: pack.commit, brand: pack.brand, coin: pack.coin, rpc });
     console.log(`packs: ${pack.name} at ${p.commit.slice(0, 10)}`);
   }
   copyFileSync(join(APP, 'public/packs/shim.js'), join(out, 'shim.js'));

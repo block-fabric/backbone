@@ -1902,6 +1902,10 @@ void App::StartSidechains()
     seed_hooks.changed = [this] {
         if (m_hub) m_hub->Emit("seed", UniValue{UniValue::VOBJ}, "seed");
     };
+    // The wallet that pays merged mining's bids changed: each daemon that pays from another one is started again with it.
+    seed_hooks.paying_changed = [running_supervisor] {
+        if (const auto s{running_supervisor()}) s->RefreshBmmWallets();
+    };
     auto keeper{std::make_shared<SeedKeeper>(std::move(seed_hooks))};
     {
         LOCK(m_mutex);
@@ -1912,6 +1916,19 @@ void App::StartSidechains()
     options.seed_wallet = [weak = std::weak_ptr<SeedKeeper>{keeper}](const std::string& stem) -> std::optional<std::string> {
         const auto k{weak.lock()};
         return k ? k->WalletOf(stem) : std::nullopt;
+    };
+    // Merged mining's bids: from the mining wallet when one is set (doc §23.12), else from the phrase's wallet of this chain.
+    options.bmm_wallet = [weak = std::weak_ptr<SeedKeeper>{keeper}](const std::string&) -> std::string {
+        const auto k{weak.lock()};
+        if (!k) return {};
+        const std::string mining{k->MiningWallet()};
+        return mining.empty() ? k->MadeWallet(std::string{SeedKeeper::APP_CHAIN}) : mining;
+    };
+    // Each daemon's whitelist for this app's user: its pack's own (from the pack's manifest) and the app's pages' use of it.
+    options.chain_methods = [](const std::string& stem) {
+        std::vector<std::string> out{ChainAdapter::MethodsUsed(stem)};
+        for (const std::string& name : SidechainPages::PackMethods(stem)) out.push_back(name);
+        return out;
     };
     options.chains_datadir = m_args.GetDataDirBase();
     options.chain = m_args.GetChainType();
@@ -2013,6 +2030,10 @@ void App::StartSidechains()
         const auto k{weak.lock()};
         return k ? k->MadeWallet(stem) : std::string{};
     };
+    hooks.passphrase_without = [weak = std::weak_ptr<SeedKeeper>{keeper}](const std::string& stem, const std::string& wallet) {
+        const auto k{weak.lock()};
+        return k ? k->PassphraseWithout(stem, wallet) : SecureString{};
+    };
     auto pages{std::make_shared<SidechainPages>(std::move(hooks))};
     // The app's own pages over every chain (chain.*): reads by the supervisor, spends through the pages' host above.
     ChainAdapter::Hooks adapter_hooks;
@@ -2061,6 +2082,15 @@ void App::StartSidechains()
         m_adapter = adapter;
         m_installer = installer;
     }
+    // Without a password (doc §23.11): this chain's wallet of the phrase kept open, as an unencrypted one would be, and
+    // opened again by itself for a spend if it was locked.
+    keeper->NodeReady();
+    if (m_wallet_api) {
+        m_wallet_api->SetUnlocker([weak = std::weak_ptr<SeedKeeper>{keeper}](const std::string& wallet) {
+            const auto k{weak.lock()};
+            return k && k->OpenWithoutPassword(wallet);
+        });
+    }
     // Chains alone unless a sidechain is enabled: then (only then) the RPC server and the daemons.
     if (!supervisor->AnyEnabled()) return;
     try {
@@ -2106,10 +2136,120 @@ void App::RegisterSeedMethods(Bridge& b)
     b.RegisterHost("seed.addChain", guarded([this](const UniValue& params) { return Seed()->AddChain(ParamStr(params, "stem")); }), Bridge::Thread::LONG);
     b.RegisterHost("seed.show", guarded([this](const UniValue&) { return Seed()->Show(); }), Bridge::Thread::LONG);
     b.RegisterHost("seed.changePassphrase", guarded([this](const UniValue&) { return Seed()->ChangePassphrase(); }), Bridge::Thread::LONG);
+    b.RegisterHost("seed.addPassword", guarded([this](const UniValue&) { return Seed()->AddPassword(); }), Bridge::Thread::LONG);
+    b.RegisterHost("seed.removePassword", guarded([this](const UniValue&) { return Seed()->RemovePassword(); }), Bridge::Thread::LONG);
+    // The wallet that pays merged mining's bids (doc §23.12): the main one by default; a mining wallet of its own, as an option.
+    b.RegisterHost("mining.status", guarded([this](const UniValue&) { return MiningStatus(); }));
+    b.RegisterHost("mining.create", guarded([this](const UniValue&) { return Seed()->MiningCreate(); }), Bridge::Thread::LONG);
+    b.RegisterHost("mining.stop", guarded([this](const UniValue&) { return Seed()->MiningStop(); }), Bridge::Thread::LONG);
     b.RegisterHost("seed.dismiss", guarded([this](const UniValue& params) {
         Seed()->Dismiss(ParamStr(params, "what"));
         return UniValue{true};
     }));
+}
+
+UniValue App::MiningStatus()
+{
+    const auto keeper{Seed()};
+    interfaces::Node* node;
+    std::string shown;
+    {
+        LOCK(m_mutex);
+        if (!m_node_started || !m_node || m_phase != "ready") throw HostError(BRIDGE_NOT_READY, "The node is not running");
+        node = m_node.get();
+        shown = m_wallet_title;
+    }
+    const auto rpc{[node](const std::string& method, const std::string& wallet) {
+        return node->executeRpc(method, UniValue{UniValue::VARR}, wallet.empty() ? std::string{"/"} : WalletUri(wallet));
+    }};
+    UniValue out{UniValue::VOBJ};
+    const UniValue record{keeper->MiningRecord()};
+    const std::string mining{keeper->MiningWallet()};
+    // The main wallet: the phrase's of this chain, else the one shown (as a deposit is paid), else the only one.
+    std::string main{keeper->MadeWallet(std::string{SeedKeeper::APP_CHAIN})};
+    std::vector<std::string> loaded;
+    try {
+        const UniValue listed{rpc("listwallets", "")};
+        for (const UniValue& w : listed.getValues()) {
+            if (w.isStr()) loaded.push_back(w.get_str());
+        }
+    } catch (const UniValue&) {
+    }
+    if (main.empty()) main = !shown.empty() ? shown : loaded.size() == 1 ? loaded[0] : std::string{};
+    const std::string paying{mining.empty() ? main : mining};
+    out.pushKV("on", !mining.empty());
+    out.pushKV("main", main);
+    out.pushKV("paying", paying);
+    if (record.find_value("wallet").isStr()) {
+        UniValue m{UniValue::VOBJ};
+        const std::string name{record.find_value("wallet").get_str()};
+        m.pushKV("wallet", name);
+        m.pushKV("from", record.find_value("from"));
+        const bool is_loaded{std::ranges::find(loaded, name) != loaded.end()};
+        m.pushKV("loaded", is_loaded);
+        if (is_loaded) {
+            try {
+                const UniValue b{node->executeRpc("getbalances", UniValue{UniValue::VARR}, WalletUri(name))};
+                const UniValue counted{ChainAdapter::WalletBalances(b.find_value("mine"))};
+                m.pushKV("trusted", UniValue{UniValue::VNUM, counted.find_value("trusted").get_str()});
+                m.pushKV("pending", UniValue{UniValue::VNUM, counted.find_value("pending").get_str()});
+            } catch (const UniValue&) {
+            }
+        }
+        out.pushKV("mining", std::move(m));
+    }
+    // Whether the wallet that pays can: locked (it has a password and is not unlocked), or not there.
+    bool locked{false};
+    bool encrypted{false};
+    bool present{!paying.empty() && std::ranges::find(loaded, paying) != loaded.end()};
+    if (present) {
+        try {
+            const UniValue info{rpc("getwalletinfo", paying)};
+            const UniValue& until{info.find_value("unlocked_until")};
+            encrypted = until.isNum();
+            locked = encrypted && until.getInt<int64_t>() == 0;
+        } catch (const UniValue&) {
+            present = false;
+        }
+    }
+    out.pushKV("payingPresent", present);
+    out.pushKV("payingEncrypted", encrypted);
+    out.pushKV("payingLocked", locked);
+    // The sidechains that bid now (their merged mining on), and what each last said.
+    UniValue bidding{UniValue::VARR};
+    std::shared_ptr<SidechainSupervisor> supervisor;
+    {
+        LOCK(m_mutex);
+        supervisor = m_supervisor;
+    }
+    if (supervisor) {
+        for (const SidechainSupervisor::Spec& spec : SidechainSupervisor::Catalog()) {
+            const auto status{supervisor->GetStatus(spec.stem)};
+            if (status.state != SidechainSupervisor::State::RUNNING || !status.rpc_ready) continue;
+            try {
+                const UniValue bmm{supervisor->Rpc(spec.stem, "getbmminfo", UniValue{UniValue::VARR}, {}, std::chrono::seconds{5})};
+                if (!bmm.find_value("mining").isTrue()) continue;
+                UniValue b{UniValue::VOBJ};
+                b.pushKV("stem", spec.stem);
+                b.pushKV("name", spec.name);
+                if (bmm.find_value("error").isStr() && !bmm.find_value("error").get_str().empty()) b.pushKV("error", bmm.find_value("error"));
+                bidding.push_back(std::move(b));
+            } catch (const std::exception&) {
+            }
+        }
+    }
+    // What is wrong, in a word the page says plainly: the wallet that pays is locked (no mining wallet), or the mining
+    // wallet holds nothing.
+    std::string problem;
+    if (!bidding.empty()) {
+        if (!present) problem = "missing";
+        else if (locked) problem = mining.empty() ? "locked" : "mining-locked";
+        else if (!mining.empty() && out.find_value("mining").find_value("trusted").isNum() && out.find_value("mining").find_value("trusted").getValStr().find_first_not_of("0.") == std::string::npos) problem = "empty";
+    }
+    out.pushKV("bidding", std::move(bidding));
+    out.pushKV("problem", problem);
+    out.pushKV("phrase", keeper->Exists());
+    return out;
 }
 
 std::shared_ptr<SidechainPages> App::Pages()
@@ -2365,6 +2505,7 @@ void App::RegisterSidechainMethods(Bridge& b)
              {"chain.wallet.load", &ChainAdapter::WalletLoad, Bridge::Thread::LONG},
              {"chain.wallet.unload", &ChainAdapter::WalletUnload, Bridge::Thread::LONG},
              {"chain.wallet.backup", &ChainAdapter::WalletBackup, Bridge::Thread::LONG},
+             {"chain.wallet.restore", &ChainAdapter::WalletRestore, Bridge::Thread::LONG},
              {"chain.receive", &ChainAdapter::Receive, Bridge::Thread::LONG},
              {"chain.depositAddress", &ChainAdapter::DepositAddress, Bridge::Thread::WORKER},
              {"chain.validate", &ChainAdapter::Validate, Bridge::Thread::WORKER},

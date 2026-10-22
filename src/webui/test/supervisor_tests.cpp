@@ -107,18 +107,66 @@ BOOST_AUTO_TEST_CASE(auto_wiring_args)
     BOOST_CHECK(Has(args, "-mainchainrpcuser=chains-app-sidechains"));
     BOOST_CHECK(Has(args, "-mainchainrpcpasswordfile=" + data + "/mainchain.rpcpass"));
     BOOST_CHECK(Has(args, "-listen=0"));
-    // This app is a user of its own at the daemon, limited to the reads, the wallet setup and the host of the pages
-    // over RPC; the user's cookie keeps everything (-rpcwhitelistdefault=0).
+    // This app is a user of its own at the daemon; the user's cookie keeps everything (-rpcwhitelistdefault=0). The daemon
+    // runs what the pages ask (webuihost) only when this user may call what it exercises (remotehost.cpp HostPrivileges,
+    // CheckRpcCaller): the whitelist names what the pages use, no more (doc §13.5 #59). Files: only from this user.
     BOOST_CHECK(std::any_of(args.begin(), args.end(), [](const std::string& a) { return a.starts_with("-rpcauth=chains-app:"); }));
     BOOST_CHECK(Has(args, "-rpcwhitelistdefault=0"));
+    BOOST_CHECK(Has(args, "-webuichooser=chains-app"));
     const auto wl{std::find_if(args.begin(), args.end(), [](const std::string& a) { return a.starts_with("-rpcwhitelist=chains-app:"); })};
     BOOST_REQUIRE(wl != args.end());
-    for (const char* m : {"webuihost", "webuievents", "describeconfirmation", "webuichosenfile", "getblockcount", "getmainchaininfo"}) {
-        BOOST_CHECK_MESSAGE(wl->find(m) != std::string::npos, m);
+    const auto listed{[&](const std::string& whitelist, const std::string& m) {
+        const std::string names{"," + whitelist.substr(whitelist.find(':') + 1) + ","};
+        return names.find("," + m + ",") != std::string::npos;
+    }};
+    const std::vector<std::string>& kit{SidechainSupervisor::AppRpcMethods()};
+    BOOST_CHECK(std::is_sorted(kit.begin(), kit.end()));
+    // The host of the pages, the reads of the kit's pages, the privileges of the kit's host methods, its confirmed methods,
+    // the Peg page's mainchain view (by name).
+    for (const char* m : {"webuihost", "webuievents", "describeconfirmation", "webuichosenfile", "getblockcount", "getmainchaininfo", "getpeginfo", "getrawmempool",
+                          "send", "walletcreatefundedpsbt", "bumpfee", "psbtbumpfee", "gettransaction", "getnewaddress", "setlabel", "listunspent", "lockunspent",
+                          "estimatesmartfee", "getaddressinfo", "listreceivedbyaddress", "abandontransaction", "walletprocesspsbt", "decodepsbt", "sendrawtransaction",
+                          "backupwallet", "restorewallet", "exportwatchonlywallet", "encryptwallet", "unloadwallet", "migratewallet", "enumeratesigners",
+                          "walletdisplayaddress", "setbmm", "requestbmmblock", "disconnectnode", "setban", "signmessage", "createwithdrawal", "refundwithdrawal",
+                          "peg.call", "peg.connection", "getdrivechaininfo", "listwithdrawalbundles"}) {
+        BOOST_CHECK_MESSAGE(listed(*wl, m), m);
     }
-    for (const char* m : {"sendtoaddress", "sendmany", "createwithdrawal", "signmessage", "dumpwallet", "walletpassphrase", "importdescriptors", "setbmm", "sendasset", "swapasset", "createbond"}) {
-        const std::vector<std::string>& allowed{SidechainSupervisor::AppRpcMethods()};
-        BOOST_CHECK_MESSAGE(std::find(allowed.begin(), allowed.end(), m) == allowed.end(), m);
+    // Never: a key read out, a wallet's passphrase set or changed, an import (the phrase's setup is the daemon's own user's),
+    // sends that are not the pages' (sendtoaddress, sendmany), a deposit (the app's own), a chain's own methods for another.
+    for (const char* m : {"sendtoaddress", "sendmany", "dumpwallet", "dumpprivkey", "listdescriptors", "walletpassphrase", "walletpassphrasechange", "importdescriptors",
+                          "createsidechaindeposit", "sendasset", "swapasset", "createbond", "bitassets.logo", "zside.viewingkey.export"}) {
+        BOOST_CHECK_MESSAGE(std::find(kit.begin(), kit.end(), m) == kit.end(), m);
+        BOOST_CHECK_MESSAGE(!listed(*wl, m), m);
+    }
+    // A chain's own (its pack's manifest, the app's pages' use of it): in its daemon's whitelist only, plain names only.
+    {
+        SidechainSupervisor::Options o{Regtest(base / "own")};
+        o.chain_methods = [](const std::string& stem) {
+            return stem == "layers" ? std::vector<std::string>{"sendasset", "swapasset", "bitassets.logo", "bad,name", "a:b"} : std::vector<std::string>{};
+        };
+        SidechainSupervisor own{o, memory.Load(), memory.Store()};
+        const auto find_wl{[](const std::vector<std::string>& a) { return *std::find_if(a.begin(), a.end(), [](const std::string& x) { return x.starts_with("-rpcwhitelist=chains-app:"); }); }};
+        const std::string layers{find_wl(own.DaemonArgs("layers"))};
+        const std::string thunder{find_wl(own.DaemonArgs("thunder"))};
+        for (const char* m : {"sendasset", "swapasset", "bitassets.logo"}) {
+            BOOST_CHECK_MESSAGE(listed(layers, m), m);
+            BOOST_CHECK_MESSAGE(!listed(thunder, m), m);
+        }
+        BOOST_CHECK(layers.find("bad") == std::string::npos);
+        BOOST_CHECK(layers.find("a:b") == std::string::npos);
+    }
+    // Merged mining's bids: from the wallet the app names (the mining wallet, else the phrase's), none named without one.
+    BOOST_CHECK(std::none_of(args.begin(), args.end(), [](const std::string& a) { return a.starts_with("-mainchainrpcwallet"); }));
+    {
+        SidechainSupervisor::Options o{Regtest(base / "bmm")};
+        std::string paying{"mining"};
+        o.bmm_wallet = [&](const std::string&) { return paying; };
+        SidechainSupervisor bmm{o, memory.Load(), memory.Store()};
+        BOOST_CHECK(Has(bmm.DaemonArgs("layers"), "-mainchainrpcwallet=mining"));
+        paying = "bad/name";
+        const auto refused{bmm.DaemonArgs("layers")};
+        BOOST_CHECK(std::none_of(refused.begin(), refused.end(), [](const std::string& a) { return a.starts_with("-mainchainrpcwallet"); }));
+        BOOST_CHECK_EQUAL(bmm.BmmWallet("layers"), "");
     }
     // What the daemons may call on Chains: never a deposit, a send, a dump.
     for (const char* m : {"createsidechaindeposit", "sendtoaddress", "dumpwallet", "walletpassphrase", "signrawtransactionwithwallet", "setwithdrawalvote"}) {
@@ -136,6 +184,24 @@ BOOST_AUTO_TEST_CASE(auto_wiring_args)
     BOOST_CHECK(Has(targs, "-testnet"));
     BOOST_CHECK(std::none_of(targs.begin(), targs.end(), [](const std::string& a) { return a.starts_with("-sidechainslot"); }));
     BOOST_CHECK(s.DaemonArgs("nope").empty());
+}
+
+BOOST_AUTO_TEST_CASE(zside_keeps_its_own_wallet)
+{
+    // zSide's shielded keys are not made from the backup phrase: its wallet is always its own (doc §23.13).
+    Memory memory;
+    SidechainSupervisor s{Regtest(m_args.GetDataDirBase()), memory.Load(), memory.Store()};
+    BOOST_CHECK(!SidechainSupervisor::FindSpec("zside")->phrase_keys);
+    for (const char* stem : {"layers", "fastblocks", "thunder", "bitnames", "bitassets", "hivemind"}) BOOST_CHECK(SidechainSupervisor::FindSpec(stem)->phrase_keys);
+    BOOST_CHECK_EQUAL(s.WalletMode("zside"), "separate");
+    BOOST_CHECK_EQUAL(s.WalletMode("layers"), "shared");
+    // Even when a setting says otherwise (an older version, a hand edit).
+    UniValue chains{UniValue::VOBJ};
+    UniValue z{UniValue::VOBJ};
+    z.pushKV("wallet", "shared");
+    chains.pushKV("zside", z);
+    memory.value.pushKV("chains", chains);
+    BOOST_CHECK_EQUAL(s.WalletMode("zside"), "separate");
 }
 
 BOOST_AUTO_TEST_CASE(rpcauth_line)

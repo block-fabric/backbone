@@ -12,7 +12,12 @@
 
 #include <test/util/setup_common.h>
 
+#include <tinyformat.h>
+#include <util/fs.h>
+
 #include <boost/test/unit_test.hpp>
+
+#include <fstream>
 
 #include <string>
 #include <thread>
@@ -145,6 +150,8 @@ BOOST_AUTO_TEST_CASE(routes)
     BOOST_CHECK(SidechainPages::RouteOf("prefs.set") == Route::LOCAL);
     BOOST_CHECK(SidechainPages::RouteOf("window.minimize") == Route::LOCAL);
     BOOST_CHECK(SidechainPages::RouteOf("peg.deposit") == Route::LOCAL);
+    // The backup phrase and the mining wallet are the app's own, never a pack's to ask for.
+    for (const char* m : {"seed.status", "seed.addPassword", "seed.removePassword", "mining.status", "mining.create", "mining.stop"}) BOOST_CHECK(SidechainPages::RouteOf(m) == Route::REFUSE);
     for (const char* m : {"app.quit", "app.restart", "app.quitGuard", "tray.state", "app.help", "app.about", "options.set", "intro.choose", "test.exit", "sidechains.enable", "pack.call", "sidechainNodes.start", "node.setNetworkActive", "chain.send", "chain.withdraw", "chain.deposit", "chain.summary"}) {
         BOOST_CHECK_MESSAGE(SidechainPages::RouteOf(m) == Route::REFUSE, m);
     }
@@ -285,7 +292,84 @@ BOOST_AUTO_TEST_CASE(files_only_chosen_in_the_app)
     BOOST_REQUIRE(chosen != d.calls.end());
     BOOST_CHECK_EQUAL(chosen->params[0].get_str(), "/home/u/backup.dat");
     BOOST_CHECK(chosen->params[1].get_bool());
+    // A new file: nothing to write over, so overwrite is not given.
+    BOOST_CHECK(!chosen->params[2].get_bool());
     BOOST_CHECK_EQUAL(d.calls.back().params[3][0].get_str(), std::string(64, 'f'));
+    pages.Stop();
+}
+
+BOOST_AUTO_TEST_CASE(each_packs_own_methods_from_its_manifest)
+{
+    // The packs built in (WEBUI_SIDECHAIN_PACKS): what each one's pages use of its daemon, read from its local.cpp at the
+    // pinned commit (scripts/packs.mjs), for that daemon's whitelist of this app's user (doc §13.5 #59).
+    if (SidechainPages::Packs().empty()) {
+        BOOST_TEST_MESSAGE("no packs built in (the package Chains alone): nothing to check");
+        return;
+    }
+    const auto has{[](const std::vector<std::string>& v, const char* m) { return std::ranges::find(v, m) != v.end(); }};
+    const auto layers{SidechainPages::PackMethods("layers")};
+    for (const char* m : {"listmyassets", "sendasset", "swapasset", "bitassets.logo", "fastblocks.bond", "getstakinginfo"}) BOOST_CHECK_MESSAGE(has(layers, m), m);
+    const auto hivemind{SidechainPages::PackMethods("hivemind")};
+    for (const char* m : {"listmarkets", "getwalletpositions", "buyshares", "hivemind.store.load"}) BOOST_CHECK_MESSAGE(has(hivemind, m), m);
+    const auto zside{SidechainPages::PackMethods("zside")};
+    BOOST_CHECK(has(zside, "sendshielded"));
+    BOOST_CHECK(has(zside, "zside.viewingkey.export"));
+    // A chain's own only: not another's, and nothing for a chain without a pack.
+    BOOST_CHECK(!has(SidechainPages::PackMethods("thunder"), "sendasset"));
+    BOOST_CHECK(SidechainPages::PackMethods("nope").empty());
+}
+
+BOOST_AUTO_TEST_CASE(overwrite_only_when_the_chooser_asked_to_replace)
+{
+    // A save onto a file there already: the chooser of the desktop asked to replace it (the user said yes), so the token
+    // carries overwrite; a file to read, or a new one, never does.
+    const fs::path there{m_args.GetDataDirBase() / "backup-there.dat"};
+    {
+        std::ofstream f{there.std_path()};
+        f << "old";
+    }
+    const std::string path{fs::PathToString(there)};
+    Daemon d;
+    d.answers = {Result("b1"), Result("b2")};
+    SidechainPages pages{d.Hooks()};
+    d.chooser = {path, path};
+    pages.Call("layers", Json(strprintf(R"({"kind":"host","method":"file.choose","params":{"save":true}})")));
+    pages.Call("layers", Json(strprintf(R"({"kind":"host","method":"wallet.backup","params":{"wallet":"main","file":"%s"}})", path)));
+    auto token{std::find_if(d.calls.begin(), d.calls.end(), [](const auto& c) { return c.method == "webuichosenfile"; })};
+    BOOST_REQUIRE(token != d.calls.end());
+    BOOST_CHECK(token->params[1].get_bool());
+    BOOST_CHECK(token->params[2].get_bool());
+    // The same file chosen to be read (a restore): no overwrite.
+    d.calls.clear();
+    pages.Call("layers", Json(R"({"kind":"host","method":"file.choose","params":{}})"));
+    pages.Call("layers", Json(strprintf(R"({"kind":"host","method":"wallets.restore","params":{"name":"r","file":"%s"}})", path)));
+    token = std::find_if(d.calls.begin(), d.calls.end(), [](const auto& c) { return c.method == "webuichosenfile"; });
+    BOOST_REQUIRE(token != d.calls.end());
+    BOOST_CHECK(!token->params[1].get_bool());
+    BOOST_CHECK(!token->params[2].get_bool());
+    pages.Stop();
+}
+
+BOOST_AUTO_TEST_CASE(a_phrase_without_a_password_asks_none)
+{
+    // The wallet of the backup phrase without a password (doc §23.11): the question is asked without a passphrase field, and
+    // its passphrase made from the seed goes with the token. Another wallet of that chain is asked as before.
+    Daemon d;
+    d.answers = {Confirm(true), Result("t1"), Confirm(true), Result("t2")};
+    d.said = {Yes(), Yes("its own")};
+    auto hooks{d.Hooks()};
+    hooks.phrase_wallet = [](const std::string&) { return std::string{"main"}; };
+    hooks.passphrase_without = [](const std::string&, const std::string& wallet) { return wallet == "main" ? SecureString{"made-from-the-seed"} : SecureString{}; };
+    SidechainPages pages{hooks};
+    BOOST_CHECK_EQUAL(pages.Call("layers", SEND).find_value("txid").get_str(), "t1");
+    BOOST_REQUIRE_EQUAL(d.asked.size(), 1U);
+    BOOST_CHECK(!d.asked[0].passphrase);
+    BOOST_CHECK_EQUAL(d.calls.back().params[2].get_str(), "made-from-the-seed");
+    // A wallet of its own on that chain ("other"): its passphrase asked and sent as typed.
+    pages.Call("layers", Json(R"({"kind":"host","method":"wallet.send.commit","params":{"wallet":"other","token":"7"},"wallet":"other"})"));
+    BOOST_REQUIRE_EQUAL(d.asked.size(), 2U);
+    BOOST_CHECK(d.asked[1].passphrase);
+    BOOST_CHECK_EQUAL(d.calls.back().params[2].get_str(), "its own");
     pages.Stop();
 }
 

@@ -28,14 +28,26 @@ namespace webui::seed {
 using bip39::Bytes;
 
 //! What the account of a sidechain is made from (Account): fixed once a release has shipped with it, as every key of
-//! every sidechain account depends on it.
-inline constexpr std::string_view ACCOUNT_TAG{"chains/account"};
+//! every sidechain account depends on it. It names no product (Chains and Backbone share it: a phrase restored into either
+//! gets the same sidechain accounts) and is versioned instead. Phrases made by the test builds of 2026-10-21 (whose tag was
+//! "chains/account") derive other sidechain accounts (doc/unified-app.md §23.2).
+inline constexpr std::string_view ACCOUNT_TAG{"sidechain/account/v1"};
+//! What the passphrase of a wallet made from the seed is made from (WalletPassphrase): product-neutral and versioned too
+//! (it was "unified-wallet/passphrase/1" in those test builds).
+inline constexpr std::string_view WALLET_PASSPHRASE_LABEL{"wallet/passphrase/v1"};
+//! The accounts of the app's own chain are below this: 0 its wallet, MINING_ACCOUNT the wallet that pays merged mining's
+//! bids (doc §23.12). A sidechain's account is never one of them (Account).
+inline constexpr uint32_t APP_ACCOUNTS{1024};
+inline constexpr uint32_t MINING_ACCOUNT{1};
 //! The work of the key of seed.dat: scrypt N = 2^15, r = 8, p = 1 (32 MiB, a tenth of a second or so).
 inline constexpr uint64_t SCRYPT_N{uint64_t{1} << 15};
 inline constexpr uint32_t SCRYPT_R{8};
 inline constexpr uint32_t SCRYPT_P{1};
 //! The least passphrase that encrypts the seed (and every wallet made from it).
 inline constexpr size_t MIN_PASSPHRASE{8};
+//! seed.dat without a password (the user's choice, doc §23.11): the same file, its key from an empty passphrase with the
+//! least work the file takes. It protects nothing (anyone who can read the file has the seed) and says so.
+inline constexpr uint64_t NO_PASSWORD_N{1024};
 inline constexpr size_t MAX_PASSPHRASE{1024};
 
 /** scrypt (RFC 7914). N a power of two from 2 to 2^22, r from 1 to 32, p from 1 to 16; else nothing. */
@@ -50,9 +62,10 @@ uint32_t CoinType(bool test_chain);
 
 /**
  * The account of a chain: 0 for the app's own chain (an empty stem); for a sidechain the first four bytes (big-endian) of
- * SHA-256("chains/account" 0x00 stem 0x00 genesis), the genesis as RPC writes its hash (lower-case hex), the top bit
- * cleared (hardened); never 0. With the stem: two sidechains of one genesis (the template's regtest) get two accounts,
- * and a daemon that names another chain's genesis still gets an account of its own chain only.
+ * SHA-256("sidechain/account/v1" 0x00 stem 0x00 genesis), the genesis as RPC writes its hash (lower-case hex), the top bit
+ * cleared (hardened); below APP_ACCOUNTS (the app's own chain's: its wallet 0, its mining wallet 1) it is moved up by
+ * APP_ACCOUNTS. With the stem: two sidechains of one genesis (the template's regtest) get two accounts, and a daemon that
+ * names another chain's genesis still gets an account of its own chain only.
  */
 uint32_t Account(std::string_view stem, std::string_view genesis_hex);
 
@@ -78,10 +91,13 @@ std::vector<Descriptor> AccountDescriptors(const Bytes& seed, uint32_t coin, uin
 std::vector<std::string> AccountPublic(const Bytes& seed, uint32_t coin, uint32_t account, bool test_network);
 
 /**
- * The passphrase of a sidechain's wallet made from the seed: hex(HMAC-SHA256(seed, "unified-wallet/passphrase/1" 0x00 stem
- * 0x00 genesis)). The user's own passphrase (the one of seed.dat) is never sent to a sidechain's node: a node, its logs or
- * its RPC history never learn what protects the seed of every chain. The label names no product, so a port (Backbone)
- * keeps it; it is versioned instead. Made only while the seed is unlocked, in this process; wiped after use.
+ * The passphrase of a wallet made from the seed: hex(HMAC-SHA256(seed, "wallet/passphrase/v1" 0x00 stem 0x00 genesis)).
+ * A sidechain's wallet always has its own (its stem): the user's own passphrase (the one of seed.dat) is never sent to a
+ * sidechain's node, so a node, its logs or its RPC history never learn what protects the seed of every chain. Without a
+ * password (doc §23.11) the app's own wallet has one too (an empty stem, its chain's genesis): no protection, as the seed
+ * is read without a password, but a password can then be added and removed by changing that wallet's passphrase (Core
+ * cannot take a wallet's encryption away, and encrypting a wallet once its keys are in makes it generate keys of its own
+ * that the phrase would not bring back). Made only from the seed, in this process; wiped after use.
  */
 SecureString WalletPassphrase(const Bytes& seed, std::string_view stem, std::string_view genesis_hex);
 
@@ -93,13 +109,15 @@ struct Secret {
 
 /** The part of seed.dat that is not encrypted (bound to the secret: changing it fails the decryption). */
 struct Header {
-    int format{1};
+    int format{2};
     std::string network;
     int64_t created{0};
     //! A restored phrase: from about when the chains are read again (0: from their start).
     int64_t birthday{0};
     int words{12};
     bool extra{false};
+    //! Encrypted with the user's password; false: with an empty one (NO_PASSWORD_N), which protects nothing.
+    bool password{true};
     std::string fingerprint;
     uint64_t n{SCRYPT_N};
     uint32_t r{SCRYPT_R};
@@ -108,7 +126,10 @@ struct Header {
     std::string nonce;
 };
 
-/** The text of seed.dat (JSON) for a secret under a passphrase. */
+/**
+ * The text of seed.dat (JSON) for a secret under a passphrase. An empty passphrase is the file without a password:
+ * header.password is set from it, and its key takes the least work (NO_PASSWORD_N). Nothing on a bad header.
+ */
 std::string Encrypt(const Secret& secret, std::string_view passphrase, Header header);
 
 struct Opened {

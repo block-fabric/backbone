@@ -125,7 +125,9 @@ void RoMix(unsigned char* block, uint64_t n, uint32_t r)
 
 std::string Aad(const Header& h)
 {
-    return strprintf("chains-seed/%d\n%s\n%d\n%d\n%d\n%d\n%s\n%u\n%u\n%u\n%s\n%s", h.format, h.network, h.created, h.birthday, h.words, h.extra ? 1 : 0, h.fingerprint, h.n, h.r, h.p, h.salt, h.nonce);
+    // Product-neutral (Chains and Backbone read each other's files); the password flag bound too: a file said to have none
+    // that had one (or the other way) fails as a wrong passphrase would.
+    return strprintf("seed-file/%d\n%s\n%d\n%d\n%d\n%d\n%d\n%s\n%u\n%u\n%u\n%s\n%s", h.format, h.network, h.created, h.birthday, h.words, h.extra ? 1 : 0, h.password ? 1 : 0, h.fingerprint, h.n, h.r, h.p, h.salt, h.nonce);
 }
 
 AEADChaCha20Poly1305::Nonce96 NonceOf(std::span<const unsigned char> bytes)
@@ -176,12 +178,13 @@ uint32_t Account(std::string_view stem, std::string_view genesis_hex)
         .Write(reinterpret_cast<const unsigned char*>(genesis.data()), genesis.size())
         .Finalize(hash);
     const uint32_t a{ReadBE32(hash) & 0x7fffffffU};
-    return a == 0 ? 1 : a;
+    // Never an account of the app's own chain (its wallet, its mining wallet: below APP_ACCOUNTS).
+    return a < APP_ACCOUNTS ? a + APP_ACCOUNTS : a;
 }
 
 SecureString WalletPassphrase(const Bytes& seed, std::string_view stem, std::string_view genesis_hex)
 {
-    static constexpr std::string_view LABEL{"unified-wallet/passphrase/1"};
+    static constexpr std::string_view LABEL{WALLET_PASSPHRASE_LABEL};
     std::string genesis{genesis_hex};
     std::ranges::transform(genesis, genesis.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     const unsigned char zero{0};
@@ -279,7 +282,10 @@ std::vector<std::string> AccountPublic(const Bytes& seed, uint32_t coin, uint32_
 
 std::string Encrypt(const Secret& secret, std::string_view passphrase, Header header)
 {
-    header.format = 1;
+    header.format = 2;
+    // Without a password: an empty one, and the least work (it protects nothing, and takes no time to say so).
+    header.password = !passphrase.empty();
+    if (!header.password) header.n = NO_PASSWORD_N;
     unsigned char salt[32];
     unsigned char nonce[12];
     GetStrongRandBytes(salt);
@@ -304,12 +310,14 @@ std::string Encrypt(const Secret& secret, std::string_view passphrase, Header he
     kdf.pushKV("salt", header.salt);
     UniValue out{UniValue::VOBJ};
     out.pushKV("format", header.format);
-    out.pushKV("about", "The backup phrase of the Chains app, encrypted with the wallet passphrase (doc/unified-app.md §23). Never share this file; keep your 12 or 24 words on paper.");
+    out.pushKV("about", header.password ? "The backup phrase of this wallet, encrypted with its password (doc/unified-app.md §23). Never share this file; keep your 12 or 24 words on paper." :
+                                          "The backup phrase of this wallet, WITHOUT a password: anyone who can read this file can take the coins (doc/unified-app.md §23). Never share this file; keep your 12 or 24 words on paper.");
     out.pushKV("network", header.network);
     out.pushKV("created", header.created);
     out.pushKV("birthday", header.birthday);
     out.pushKV("words", header.words);
     out.pushKV("extra", header.extra);
+    out.pushKV("password", header.password);
     out.pushKV("fingerprint", header.fingerprint);
     out.pushKV("kdf", std::move(kdf));
     out.pushKV("cipher", "chacha20-poly1305");
@@ -328,13 +336,20 @@ std::optional<Header> ReadHeader(const std::string& text, std::string& error)
     }
     Header h;
     const UniValue kdf{Field(o, "kdf")};
-    if (!Field(o, "format").isNum() || Field(o, "format").getInt<int>() != 1) {
+    if (Field(o, "format").isNum() && Field(o, "format").getInt<int>() == 1) {
+        // The test builds of 2026-10-21: another account tag, so other sidechain accounts (doc §23.2). Its words still bring
+        // everything back.
+        error = "This backup phrase was saved by a test version of the app. Restore your words into a new data folder.";
+        return std::nullopt;
+    }
+    if (!Field(o, "format").isNum() || Field(o, "format").getInt<int>() != 2) {
         error = "The file of the backup phrase is of a version this app does not know.";
         return std::nullopt;
     }
     if (!Field(o, "network").isStr() || !Field(o, "created").isNum() || !Field(o, "words").isNum() || !Field(o, "fingerprint").isStr() || !Field(kdf, "name").isStr() ||
         Field(kdf, "name").get_str() != "scrypt" || !Field(kdf, "n").isNum() || !Field(kdf, "r").isNum() || !Field(kdf, "p").isNum() || !Field(kdf, "salt").isStr() ||
-        !Field(o, "cipher").isStr() || Field(o, "cipher").get_str() != "chacha20-poly1305" || !Field(o, "nonce").isStr() || !Field(o, "secret").isStr()) {
+        !Field(o, "cipher").isStr() || Field(o, "cipher").get_str() != "chacha20-poly1305" || !Field(o, "nonce").isStr() || !Field(o, "secret").isStr() ||
+        !Field(o, "password").isBool()) {
         error = "The file of the backup phrase is damaged.";
         return std::nullopt;
     }
@@ -343,6 +358,7 @@ std::optional<Header> ReadHeader(const std::string& text, std::string& error)
     h.birthday = Field(o, "birthday").isNum() ? Field(o, "birthday").getInt<int64_t>() : 0;
     h.words = Field(o, "words").getInt<int>();
     h.extra = Field(o, "extra").isTrue();
+    h.password = Field(o, "password").get_bool();
     h.fingerprint = Field(o, "fingerprint").get_str();
     // The work of the key within bounds: a damaged or tampered file never makes the app take gigabytes or hours.
     const int64_t n{Field(kdf, "n").getInt<int64_t>()};

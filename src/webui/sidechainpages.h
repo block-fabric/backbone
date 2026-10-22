@@ -74,8 +74,11 @@ public:
         //! user's own phrase passphrase is exchanged for that chain's wallet passphrase made from the seed; any other as
         //! typed. Unset: as typed.
         std::function<SecureString(const std::string& stem, const SecureString& typed)> passphrase;
-        //! The wallet of a chain made from the backup phrase ("" when none): its question asks "your wallet passphrase".
+        //! The wallet of a chain made from the backup phrase ("" when none): its question asks "your wallet password".
         std::function<std::string(const std::string& stem)> phrase_wallet;
+        //! A backup phrase without a password (doc §23.11): that chain's wallet of the phrase's passphrase (made from the
+        //! seed), sent with the question so none is asked; empty otherwise (SeedKeeper::PassphraseWithout).
+        std::function<SecureString(const std::string& stem, const std::string& wallet)> passphrase_without;
     };
 
     explicit SidechainPages(Hooks hooks);
@@ -92,8 +95,13 @@ public:
     UniValue Call(const std::string& stem, const UniValue& request, const UniValue& app_rows) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /** pack.info: whether its pack is built in, and whether its daemon speaks the same (else: shown read-only, "update needed"). */
     UniValue Info(const std::string& stem) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
-    /** The packs built in (/packs/index.json): [{stem, name, hostApi, commit, brand}]. */
+    /** The packs built in (/packs/index.json): [{stem, name, hostApi, commit, brand, rpc}]. */
     static UniValue Packs();
+    /**
+     * What a sidechain's pack uses of its daemon beyond the kit's (its manifest's rpc, read from the chain's local.cpp at
+     * the pinned commit by scripts/packs.mjs): its reads, its confirmed methods, its host methods. Empty without a pack.
+     */
+    static std::vector<std::string> PackMethods(const std::string& stem);
     /** The mark of a sidechain for the dialogs: its pack's icon as a data: URL ("" without one). */
     static std::string Logo(const std::string& stem);
     /** A question of a daemon (remotehost.h DialogJson) as the app's dialog asks it; the chain and its mark added. */
@@ -114,8 +122,14 @@ private:
 
     const Hooks m_hooks;
     Mutex m_mutex;
-    //! The files chosen in the app's chooser for each sidechain's pages: path → (to write, when).
-    std::map<std::string, std::map<std::string, std::pair<bool, std::chrono::steady_clock::time_point>>> m_chosen GUARDED_BY(m_mutex);
+    //! A file chosen in the app's chooser for a sidechain's pages: to write; one there already that the chooser asked to
+    //! replace (a save over a file: the chooser of the desktop asks first); when.
+    struct Chosen {
+        bool write{false};
+        bool overwrite{false};
+        std::chrono::steady_clock::time_point when;
+    };
+    std::map<std::string, std::map<std::string, Chosen>> m_chosen GUARDED_BY(m_mutex);
     std::map<std::string, std::thread> m_pumps GUARDED_BY(m_mutex);
     std::atomic<bool> m_stop{false};
 };

@@ -113,6 +113,26 @@ UniValue Cancelled()
     return out;
 }
 
+//! How long a wallet of the phrase without a password stays open: for good (Core's walletpassphrase takes at most this).
+constexpr int64_t KEEP_OPEN_SECONDS{100'000'000};
+
+//! One flow of the phrase's dialogs at a time (create, restore, show, change, add or remove the password, the mining wallet).
+class Busy
+{
+public:
+    explicit Busy(std::atomic<bool>& busy) : m_busy{busy}
+    {
+        bool expected{false};
+        if (!m_busy.compare_exchange_strong(expected, true)) throw HostError("The backup phrase is being made or shown already.");
+    }
+    ~Busy() { m_busy = false; }
+    Busy(const Busy&) = delete;
+    Busy& operator=(const Busy&) = delete;
+
+private:
+    std::atomic<bool>& m_busy;
+};
+
 } // namespace
 
 SeedKeeper::SeedKeeper(Hooks hooks) : m_hooks(std::move(hooks))
@@ -157,6 +177,14 @@ void SeedKeeper::ExpireLoop()
 {
     WAIT_LOCK(m_mutex, lock);
     while (!m_stopping) {
+        // Without a password: a wallet of the phrase to keep open (a node started again, the app started, the password removed).
+        if (!m_keep_open.empty()) {
+            const std::string id{*m_keep_open.begin()};
+            m_keep_open.erase(m_keep_open.begin());
+            REVERSE_LOCK(lock, m_mutex);
+            KeepOpen(id);
+            continue;
+        }
         if (m_session && std::chrono::steady_clock::now() >= m_session->until) {
             Wipe();
             REVERSE_LOCK(lock, m_mutex);
@@ -169,6 +197,116 @@ void SeedKeeper::ExpireLoop()
             m_cv.wait(lock);
         }
     }
+}
+
+void SeedKeeper::KeepOpenLater(const std::string& id)
+{
+    {
+        LOCK(m_mutex);
+        if (m_stopping) return;
+        m_keep_open.insert(id);
+    }
+    m_cv.notify_all();
+}
+
+SecureString SeedKeeper::ChainWalletPassphrase(const seed::Secret& secret, const std::string& id, const std::string& genesis)
+{
+    return seed::WalletPassphrase(secret.seed, id == APP_CHAIN ? std::string_view{} : std::string_view{id}, genesis);
+}
+
+std::string SeedKeeper::AppGenesis() const
+{
+    UniValue zero{UniValue::VARR};
+    zero.push_back(0);
+    const UniValue hash{m_hooks.node_rpc("getblockhash", zero, "")};
+    if (!hash.isStr() || hash.get_str().size() != 64) throw std::runtime_error("the node did not give its first block");
+    return hash.get_str();
+}
+
+bool SeedKeeper::HasPassword() const
+{
+    const auto header{FileHeader()};
+    return !header || header->password;
+}
+
+void SeedKeeper::KeepOpen(const std::string& id)
+{
+    // Without a password only: the wallet is then as open as an unencrypted one would be (its passphrase comes from a seed
+    // anyone using this computer can read); with one, wallets stay locked but for each spend.
+    if (HasPassword()) return;
+    const auto record{RecordOf(Records(), id)};
+    if (!record || !record->imported || !Running(id)) return;
+    try {
+        const UniValue info{ChainRpc(id, "getwalletinfo", UniValue{UniValue::VARR}, record->wallet, 30s)};
+        const UniValue& until{info.find_value("unlocked_until")};
+        // Unencrypted (no unlocked_until), or open for a long while already: nothing to do.
+        if (!until.isNum() || until.getInt<int64_t>() > Now() + 30 * 86400) return;
+        std::string error;
+        const auto text{ReadFile(error)};
+        if (!text) return;
+        const seed::Opened opened{seed::Decrypt(*text, "")};
+        if (!opened.secret) return;
+        UniValue p{UniValue::VARR};
+        p.push_back(Str(ChainWalletPassphrase(*opened.secret, id, record->genesis)));
+        p.push_back(KEEP_OPEN_SECONDS);
+        try {
+            ChainRpc(id, "walletpassphrase", p, record->wallet, 60s);
+        } catch (...) {
+            WipeValue(p);
+            throw;
+        }
+        WipeValue(p);
+        LogInfo("webui: the wallet %s of %s is open (the backup phrase has no password)", record->wallet, id);
+    } catch (const std::exception& e) {
+        LogWarning("webui: the wallet of %s could not be opened: %s", id, seed::Scrubbed(e.what()));
+    }
+}
+
+void SeedKeeper::NodeReady()
+{
+    if (Exists() && !HasPassword()) KeepOpenLater(std::string{APP_CHAIN});
+}
+
+bool SeedKeeper::OpenWithoutPassword(const std::string& wallet)
+{
+    if (!Exists() || HasPassword()) return false;
+    const auto record{RecordOf(Records(), std::string{APP_CHAIN})};
+    if (!record || !record->imported || record->wallet != wallet) return false;
+    KeepOpen(std::string{APP_CHAIN});
+    return true;
+}
+
+SecureString SeedKeeper::PassphraseWithout(const std::string& stem, const std::string& wallet)
+{
+    if (!Exists() || HasPassword()) return {};
+    const auto record{RecordOf(Records(), stem)};
+    if (!record || !record->imported || (!wallet.empty() && wallet != record->wallet)) return {};
+    std::string error;
+    const auto text{ReadFile(error)};
+    if (!text) return {};
+    const seed::Opened opened{seed::Decrypt(*text, "")};
+    if (!opened.secret) return {};
+    return ChainWalletPassphrase(*opened.secret, stem, record->genesis);
+}
+
+std::optional<UniValue> SeedKeeper::RecordValue(const std::string& key) const
+{
+    const UniValue records{Records()};
+    const UniValue& v{records.find_value(key)};
+    if (v.isNull()) return std::nullopt;
+    return v;
+}
+
+void SeedKeeper::SetValue(const std::string& key, const UniValue& value)
+{
+    LOCK(m_mutex);
+    UniValue records{Records()};
+    UniValue out{UniValue::VOBJ};
+    for (const std::string& k : records.getKeys()) {
+        if (k != key) out.pushKV(k, records.find_value(k));
+    }
+    if (!value.isNull()) out.pushKV(key, value);
+    if (m_hooks.store) m_hooks.store(out);
 }
 
 void SeedKeeper::Wipe()
@@ -302,7 +440,10 @@ UniValue SeedKeeper::Status()
         out.pushKV("restored", header->birthday != header->created);
         out.pushKV("fingerprint", header->fingerprint);
         out.pushKV("extraWord", header->extra);
+        // Without a password (the user's choice): every wallet of the phrase open to anyone using this computer.
+        out.pushKV("password", header->password);
     }
+    if (const auto mining{RecordValue("mining")}; mining && mining->isObject()) out.pushKV("mining", *mining);
     const UniValue records{Records()};
     struct JobState {
         std::string state, error, wallet;
@@ -382,6 +523,11 @@ UniValue SeedKeeper::Status()
         }
         c.pushKV("mode", mode);
         c.pushKV("state", state);
+        // A chain whose keys never come from the phrase (zSide: its shielded keys are not made from it): its own backup.
+        if (id != APP_CHAIN) {
+            const SidechainSupervisor::Spec* spec{SidechainSupervisor::FindSpec(id)};
+            if (spec && !spec->phrase_keys) c.pushKV("phraseKeys", false);
+        }
         chains.push_back(std::move(c));
     }
     out.pushKV("chains", std::move(chains));
@@ -392,13 +538,13 @@ std::optional<std::pair<SecureString, SecureString>> SeedKeeper::AskNewPassphras
 {
     Window::ConfirmDialog d;
     d.title = title;
-    d.message = strprintf("It encrypts your backup phrase on this computer and the wallet of each chain made from it. You type it to send "
+    d.message = strprintf("It protects your backup phrase on this computer and the wallet of each chain made from it. You type it to send "
                           "coins, and to make the keys of a sidechain you turn on.\n\nIt is not part of your backup: on another computer your "
-                          "words bring everything back, and you choose a passphrase there.");
+                          "words bring everything back, and you choose a password there.");
     d.accept = "Make my wallet";
     d.level = dialog::Level::INFO;
     d.kind = "seed-passphrase";
-    d.fields.push_back(MakeField("passphrase", dialog::Field::Kind::NEW_PASSWORD, "Passphrase", strprintf("At least %u characters. A few words you will remember are good.", seed::MIN_PASSPHRASE)));
+    d.fields.push_back(MakeField("passphrase", dialog::Field::Kind::NEW_PASSWORD, "Password", strprintf("At least %u characters. A few words you will remember are good.", seed::MIN_PASSPHRASE)));
     d.fields.push_back(MakeField("repeat", dialog::Field::Kind::PASSWORD, "Type it again", ""));
     if (extra_word) {
         d.fields.push_back(MakeField("extra", dialog::Field::Kind::SECRET, "Extra word",
@@ -428,11 +574,42 @@ std::optional<std::pair<SecureString, SecureString>> SeedKeeper::AskNewPassphras
     return std::nullopt;
 }
 
+std::optional<SecureString> SeedKeeper::AskExtraWord()
+{
+    Window::ConfirmDialog d;
+    d.title = "Your extra word";
+    d.message = "Part of your backup: without it your words bring back another, empty wallet. Write it down with them.";
+    d.accept = "Make my wallet";
+    d.level = dialog::Level::INFO;
+    d.kind = "seed-extra";
+    d.fields.push_back(MakeField("extra", dialog::Field::Kind::SECRET, "Extra word", "Letters, digits and signs of a keyboard, no accents."));
+    for (int attempt{0}; attempt < 10; ++attempt) {
+        dialog::Answer answer{m_hooks.ask(d)};
+        if (!answer.accepted) return std::nullopt;
+        SecureString extra{FieldOf(answer, "extra")};
+        d.fields[0].error.clear();
+        if (extra.empty()) {
+            d.fields[0].error = "Type the extra word, or go back and make the phrase without one.";
+        } else if (!bip39::ExtraOk(Str(extra))) {
+            d.fields[0].error = "Letters, digits and signs of a keyboard only, no accents, at most 256.";
+        } else {
+            return extra;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<std::pair<seed::Opened, SecureString>> SeedKeeper::AskOpen(const std::string& title, const std::string& message)
 {
     std::string error;
     const auto text{ReadFile(error)};
     if (!text) throw HostError(error);
+    // Without a password: opened as it is, nothing asked.
+    if (const auto header{seed::ReadHeader(*text, error)}; header && !header->password) {
+        seed::Opened opened{seed::Decrypt(*text, "")};
+        if (!opened.secret) throw HostError(opened.error);
+        return std::make_pair(std::move(opened), SecureString{});
+    }
     Window::ConfirmDialog d;
     d.title = title;
     d.message = message;
@@ -440,26 +617,27 @@ std::optional<std::pair<seed::Opened, SecureString>> SeedKeeper::AskOpen(const s
     d.level = dialog::Level::INFO;
     d.kind = "seed-unlock";
     d.passphrase = true;
-    d.passphrase_label = "Your wallet passphrase";
+    d.passphrase_label = "Your wallet password";
     for (int attempt{0}; attempt < 3; ++attempt) {
         dialog::Answer answer{m_hooks.ask(d)};
         if (!answer.accepted) return std::nullopt;
         seed::Opened opened{seed::Decrypt(*text, std::string_view{answer.passphrase.data(), answer.passphrase.size()})};
         if (opened.secret) return std::make_pair(std::move(opened), std::move(answer.passphrase));
         if (!opened.wrong_passphrase) throw HostError(opened.error);
-        d.error = "That is not the passphrase of your wallet. Try again.";
+        d.error = "That is not the password of your wallet. Try again.";
     }
-    throw HostError(RPC_WALLET_PASSPHRASE_INCORRECT, "The passphrase is not right.");
+    throw HostError(RPC_WALLET_PASSPHRASE_INCORRECT, "The password is not right.");
 }
 
 void SeedKeeper::Keep(seed::Secret secret, SecureString passphrase, seed::Header header, std::set<std::string> awaited)
 {
+    header.password = !passphrase.empty();
     const std::string text{seed::Encrypt(secret, std::string_view{passphrase.data(), passphrase.size()}, header)};
     if (text.empty()) throw HostError("The backup phrase could not be encrypted.");
     if (Exists()) throw HostError("This app has a backup phrase already.");
     if (!m_hooks.file.parent_path().empty()) fs::create_directories(m_hooks.file.parent_path());
     if (const auto written{common::WriteSecretFile(m_hooks.file, text)}; !written) throw HostError(strprintf("The backup phrase could not be saved: %s", util::ErrorString(written).original));
-    LogInfo("webui: a backup phrase was %s (fingerprint %s)", header.birthday == header.created ? "made" : "restored", header.fingerprint);
+    LogInfo("webui: a backup phrase was %s (fingerprint %s)%s", header.birthday == header.created ? "made" : "restored", header.fingerprint, header.password ? "" : ", without a password");
     {
         LOCK(m_mutex);
         m_session = Session{std::move(secret), std::move(passphrase), header, std::chrono::steady_clock::now() + m_hooks.session, std::move(awaited)};
@@ -523,19 +701,21 @@ void SeedKeeper::RunJob(const std::string& id, seed::Secret secret, SecureString
     bool unlocked{false};
     try {
         const bool test{m_hooks.test_chain};
-        std::string genesis;
         uint32_t account{0};
-        if (id != APP_CHAIN) {
-            UniValue zero{UniValue::VARR};
-            zero.push_back(0);
-            const UniValue hash{ChainRpc(id, "getblockhash", zero, "", 30s)};
-            if (!hash.isStr() || hash.get_str().size() != 64) throw std::runtime_error("its node did not give its first block");
-            genesis = hash.get_str();
-            account = seed::Account(id, genesis);
-        }
-        // The passphrase of its wallet: the user's own on the app's chain (this process, where seed.dat is); on a sidechain one
-        // made from the seed for that chain alone (seed::WalletPassphrase): the user's never reaches a sidechain's node.
-        const SecureString wallet_pass{id == APP_CHAIN ? passphrase : seed::WalletPassphrase(secret.seed, id, genesis)};
+        UniValue zero{UniValue::VARR};
+        zero.push_back(0);
+        const UniValue hash{ChainRpc(id, "getblockhash", zero, "", 30s)};
+        if (!hash.isStr() || hash.get_str().size() != 64) throw std::runtime_error("its node did not give its first block");
+        const std::string genesis{hash.get_str()};
+        if (id != APP_CHAIN) account = seed::Account(id, genesis);
+        // Without a password (the user's choice): the session's passphrase is empty.
+        const bool password{!passphrase.empty()};
+        // The passphrase of its wallet: on the app's chain the user's password (this process, where seed.dat is); on a
+        // sidechain one made from the seed for that chain alone (seed::WalletPassphrase): the user's never reaches a
+        // sidechain's node. Without a password, the app's wallet has one made from the seed too (doc §23.11): the wallets are
+        // encrypted from their first moment (a wallet encrypted after its keys are in gets keys of Core's own, which the phrase
+        // would not bring back), and a password can be added or removed later by changing that passphrase.
+        const SecureString wallet_pass{id == APP_CHAIN && password ? passphrase : ChainWalletPassphrase(secret, id, genesis)};
         // The wallet of the phrase on this chain: the one made for it before if its keys were not all in yet (the same
         // genesis), else a new one: "main" where there is none, else "seed" (never a wallet that exists: an old wallet's
         // keys are never touched).
@@ -620,18 +800,23 @@ void SeedKeeper::RunJob(const std::string& id, seed::Secret secret, SecureString
         if (!failed.empty()) throw std::runtime_error(failed);
         SetRecord(id, {wallet, account, genesis, true});
         LogInfo("webui: the wallet %s of %s is made from the backup phrase (account %u)", wallet, id, account);
+        // The app's wallet of the phrase pays merged mining's bids (unless a mining wallet does): the daemons told.
+        if (id == APP_CHAIN && m_hooks.paying_changed) m_hooks.paying_changed();
     } catch (const std::exception& e) {
         const std::string error{seed::Scrubbed(e.what())};
         LogWarning("webui: the keys of %s were not made from the backup phrase: %s", id, error);
         LOCK(m_mutex);
         job->error = error;
     }
-    if (unlocked) {
+    const bool failed{WITH_LOCK(m_mutex, return !job->error.empty())};
+    if (unlocked && (!passphrase.empty() || failed)) {
         try {
             ChainRpc(id, "walletlock", UniValue{UniValue::VARR}, wallet, 30s);
         } catch (const std::exception&) {
         }
     }
+    // Without a password: kept open, as an unencrypted wallet would be.
+    if (passphrase.empty() && !failed) KeepOpen(id);
     {
         LOCK(m_mutex);
         job->done = true;
@@ -650,15 +835,12 @@ UniValue SeedKeeper::Create(const UniValue& params)
 {
     if (Exists()) throw HostError("This app has a backup phrase already.");
     if (!m_hooks.node_ready || !m_hooks.node_ready()) throw HostError(BRIDGE_NOT_READY, "The node is not ready yet");
-    bool expected{false};
-    if (!m_busy.compare_exchange_strong(expected, true)) throw HostError("The backup phrase is being made or shown already.");
-    struct Done {
-        std::atomic<bool>& busy;
-        ~Done() { busy = false; }
-    } done{m_busy};
+    Busy busy{m_busy};
     const UniValue count{Param(params, "words")};
     const int words{count.isNum() && count.getInt<int>() == 24 ? 24 : 12};
     const bool extra_word{Param(params, "extraWord").isTrue()};
+    // A password is the default (recommended); without one, said plainly in the page before this is asked.
+    const bool password{!Param(params, "password").isFalse()};
     bip39::Bytes entropy(words == 24 ? 32 : 16);
     GetStrongRandBytes(std::span{entropy});
     const bip39::Words phrase{bip39::FromEntropy(entropy)};
@@ -711,8 +893,16 @@ UniValue SeedKeeper::Create(const UniValue& params)
         if (right) break;
     }
 
-    // 3. The passphrase that encrypts it (and every wallet made from it); the extra word when asked for.
-    auto pass{AskNewPassphrase(extra_word, "A passphrase for your wallet")};
+    // 3. The password that encrypts it (and every wallet made from it), unless the user chose none; the extra word when asked for.
+    std::optional<std::pair<SecureString, SecureString>> pass;
+    if (password) {
+        pass = AskNewPassphrase(extra_word, "A password for your wallet");
+    } else if (extra_word) {
+        auto extra{AskExtraWord()};
+        if (extra) pass = std::make_pair(SecureString{}, std::move(*extra));
+    } else {
+        pass = std::make_pair(SecureString{}, SecureString{});
+    }
     if (!pass) return Cancelled();
     seed::Secret secret;
     secret.entropy = entropy;
@@ -732,20 +922,16 @@ UniValue SeedKeeper::Create(const UniValue& params)
     out.pushKV("created", true);
     out.pushKV("fingerprint", fingerprint);
     out.pushKV("words", words);
+    out.pushKV("password", password);
     return out;
 }
 
 UniValue SeedKeeper::Restore(const UniValue& params)
 {
-    (void)params;
+    const bool password{!Param(params, "password").isFalse()};
     if (Exists()) throw HostError("This app has a backup phrase already: a phrase is restored into a new data folder.");
     if (!m_hooks.node_ready || !m_hooks.node_ready()) throw HostError(BRIDGE_NOT_READY, "The node is not ready yet");
-    bool expected{false};
-    if (!m_busy.compare_exchange_strong(expected, true)) throw HostError("The backup phrase is being made or shown already.");
-    struct Done {
-        std::atomic<bool>& busy;
-        ~Done() { busy = false; }
-    } done{m_busy};
+    Busy busy{m_busy};
     Window::ConfirmDialog d;
     d.title = "Restore from your backup phrase";
     d.message = strprintf("Type your words in order. Use a phrase made for %s, not one of a Bitcoin wallet: the same phrase gives the same "
@@ -788,7 +974,12 @@ UniValue SeedKeeper::Restore(const UniValue& params)
         }
     }
     for (auto& f : d.fields) f.value.clear();
-    auto pass{AskNewPassphrase(false, "A passphrase for your wallet")};
+    std::optional<std::pair<SecureString, SecureString>> pass;
+    if (password) {
+        pass = AskNewPassphrase(false, "A password for your wallet");
+    } else {
+        pass = std::make_pair(SecureString{}, SecureString{});
+    }
     if (!pass) return Cancelled();
     seed::Secret secret;
     secret.entropy = parsed.entropy;
@@ -809,6 +1000,7 @@ UniValue SeedKeeper::Restore(const UniValue& params)
     out.pushKV("restored", true);
     out.pushKV("fingerprint", fingerprint);
     out.pushKV("words", header.words);
+    out.pushKV("password", password);
     return out;
 }
 
@@ -845,7 +1037,7 @@ UniValue SeedKeeper::Unlock(const UniValue& params)
     const std::string message{what.empty() ? strprintf("To make the keys of your chains from your backup phrase.") :
                                              strprintf("To make the keys of %s from your backup phrase. It stays unlocked until they are made, %d minutes at most.",
                                                        what, std::chrono::duration_cast<std::chrono::minutes>(m_hooks.session).count())};
-    auto opened{AskOpen("Your wallet passphrase", message)};
+    auto opened{AskOpen("Your wallet password", message)};
     if (!opened) return Cancelled();
     {
         LOCK(m_mutex);
@@ -886,13 +1078,18 @@ UniValue SeedKeeper::AddChain(const std::string& stem)
 
 UniValue SeedKeeper::Show()
 {
-    bool expected{false};
-    if (!m_busy.compare_exchange_strong(expected, true)) throw HostError("The backup phrase is being made or shown already.");
-    struct Done {
-        std::atomic<bool>& busy;
-        ~Done() { busy = false; }
-    } done{m_busy};
-    auto opened{AskOpen("Your wallet passphrase", "To show your backup phrase. Make sure nobody can see your screen.")};
+    Busy busy{m_busy};
+    if (!HasPassword()) {
+        // Nothing to type without a password: asked first all the same, the words not shown by a slip of the mouse.
+        Window::ConfirmDialog sure;
+        sure.title = "Show your backup phrase";
+        sure.message = "Make sure nobody can see your screen, and that it is not being shared or recorded.";
+        sure.accept = "Show";
+        sure.level = dialog::Level::WARNING;
+        sure.kind = "seed-show-confirm";
+        if (!m_hooks.ask(sure).accepted) return Cancelled();
+    }
+    auto opened{AskOpen("Your wallet password", "To show your backup phrase. Make sure nobody can see your screen.")};
     if (!opened) return Cancelled();
     const bip39::Words phrase{bip39::FromEntropy(opened->first.secret->entropy)};
     Window::ConfirmDialog show;
@@ -915,12 +1112,8 @@ UniValue SeedKeeper::ChangePassphrase()
     std::string error;
     const auto text{ReadFile(error)};
     if (!text) throw HostError(error);
-    bool expected{false};
-    if (!m_busy.compare_exchange_strong(expected, true)) throw HostError("The backup phrase is being made or shown already.");
-    struct Done {
-        std::atomic<bool>& busy;
-        ~Done() { busy = false; }
-    } done{m_busy};
+    if (!HasPassword()) throw HostError("Your wallet has no password to change: add one with “Add a password…”.");
+    Busy busy{m_busy};
     // The user's passphrase is that of seed.dat and of the app's own wallet made from it (both in this process). The
     // sidechains' wallets have passphrases of their own made from the seed (seed::WalletPassphrase): they do not change.
     const auto record{RecordOf(Records(), std::string{APP_CHAIN})};
@@ -930,15 +1123,15 @@ UniValue SeedKeeper::ChangePassphrase()
         wallets.emplace_back(std::string{APP_CHAIN}, record->wallet);
     }
     Window::ConfirmDialog d;
-    d.title = "Change the wallet passphrase";
+    d.title = "Change the wallet password";
     d.message = strprintf("It changes for your backup phrase kept on this computer and for your %s wallet made from it, at once. "
                           "Your words do not change, and neither do the keys of the sidechains' wallets: they are made from your phrase.",
                           m_hooks.product);
     d.accept = "Change";
     d.level = dialog::Level::INFO;
     d.kind = "seed-change";
-    d.fields.push_back(MakeField("old", dialog::Field::Kind::PASSWORD, "Current passphrase", ""));
-    d.fields.push_back(MakeField("passphrase", dialog::Field::Kind::NEW_PASSWORD, "New passphrase", strprintf("At least %u characters.", seed::MIN_PASSPHRASE)));
+    d.fields.push_back(MakeField("old", dialog::Field::Kind::PASSWORD, "Current password", ""));
+    d.fields.push_back(MakeField("passphrase", dialog::Field::Kind::NEW_PASSWORD, "New password", strprintf("At least %u characters.", seed::MIN_PASSPHRASE)));
     d.fields.push_back(MakeField("repeat", dialog::Field::Kind::PASSWORD, "Type the new one again", ""));
     for (int attempt{0}; attempt < 10; ++attempt) {
         dialog::Answer answer{m_hooks.ask(d)};
@@ -961,7 +1154,7 @@ UniValue SeedKeeper::ChangePassphrase()
         seed::Opened opened{seed::Decrypt(*text, std::string_view{old_pass.data(), old_pass.size()})};
         if (!opened.secret) {
             if (!opened.wrong_passphrase) throw HostError(opened.error);
-            d.fields[0].error = "That is not the passphrase of your wallet.";
+            d.fields[0].error = "That is not the password of your wallet.";
             continue;
         }
         // The wallet first, then seed.dat; seed.dat not written: the wallet is changed back.
@@ -1004,19 +1197,19 @@ UniValue SeedKeeper::ChangePassphrase()
                     LogWarning("webui: the passphrase of the wallet %s could not be changed back: %s", wallets[i].second, e.what());
                 }
             }
-            throw HostError(strprintf("The passphrase was not changed (nothing was): %s", failed.empty() ? written : failed));
+            throw HostError(strprintf("The password was not changed (nothing was): %s", failed.empty() ? written : failed));
         }
         {
             LOCK(m_mutex);
             if (m_session) m_session->passphrase = new_pass;
         }
-        LogInfo("webui: the passphrase of the backup phrase was changed");
+        LogInfo("webui: the password of the backup phrase was changed");
         UniValue out{UniValue::VOBJ};
         out.pushKV("changed", true);
         out.pushKV("wallets", static_cast<uint64_t>(wallets.size()));
         return out;
     }
-    throw HostError("The passphrase was not changed.");
+    throw HostError("The password was not changed.");
 }
 
 SecureString SeedKeeper::PassphraseFor(const std::string& stem, const SecureString& typed)
@@ -1064,12 +1257,343 @@ void SeedKeeper::ChainReady(const std::string& stem)
     const std::vector<std::string> shared{m_hooks.shared_chains ? m_hooks.shared_chains() : std::vector<std::string>{}};
     if (!Has(shared, stem) || !Running(stem)) return;
     const auto record{RecordOf(Records(), stem)};
-    if (record && record->imported) return;
+    if (record && record->imported) {
+        // Without a password: its wallet kept open again (its node started again, locked).
+        if (!HasPassword()) KeepOpenLater(stem);
+        return;
+    }
     {
         LOCK(m_mutex);
         if (m_session && !m_stopping) StartJob(stem);
     }
     Changed();
+}
+
+UniValue SeedKeeper::AddPassword()
+{
+    std::string error;
+    const auto text{ReadFile(error)};
+    if (!text) throw HostError(error);
+    const auto header{seed::ReadHeader(*text, error)};
+    if (!header) throw HostError(error);
+    if (header->password) throw HostError("Your wallet has a password already: change it with “Change the password…”.");
+    Busy busy{m_busy};
+    const auto record{RecordOf(Records(), std::string{APP_CHAIN})};
+    const bool app_wallet{record && record->imported};
+    if (app_wallet && !Running(std::string{APP_CHAIN})) throw HostError("The node is not ready yet");
+    Window::ConfirmDialog d;
+    d.title = "Add a password";
+    d.message = strprintf("From now on it is asked to send coins, to show your backup phrase and to make the keys of a sidechain you turn on: "
+                          "someone using this computer without it can do none of that.\n\nIt protects your backup phrase on this computer and "
+                          "your %s wallet made from it; each sidechain's wallet of the phrase is locked too, and opened for you when you type it.\n\n"
+                          "It is not part of your backup: on another computer your words bring everything back.",
+                          m_hooks.product);
+    d.accept = "Add the password";
+    d.level = dialog::Level::INFO;
+    d.kind = "seed-add-password";
+    d.fields.push_back(MakeField("passphrase", dialog::Field::Kind::NEW_PASSWORD, "Password", strprintf("At least %u characters. A few words you will remember are good.", seed::MIN_PASSPHRASE)));
+    d.fields.push_back(MakeField("repeat", dialog::Field::Kind::PASSWORD, "Type it again", ""));
+    for (int attempt{0}; attempt < 10; ++attempt) {
+        dialog::Answer answer{m_hooks.ask(d)};
+        if (!answer.accepted) return Cancelled();
+        for (auto& f : d.fields) f.error.clear();
+        const SecureString pass{FieldOf(answer, "passphrase")};
+        if (pass.size() < seed::MIN_PASSPHRASE) {
+            d.fields[0].error = strprintf("At least %u characters.", seed::MIN_PASSPHRASE);
+            continue;
+        }
+        if (pass.size() > seed::MAX_PASSPHRASE) {
+            d.fields[0].error = "Too long.";
+            continue;
+        }
+        if (pass != FieldOf(answer, "repeat")) {
+            d.fields[1].error = "The two are not the same.";
+            continue;
+        }
+        seed::Opened opened{seed::Decrypt(*text, "")};
+        if (!opened.secret) throw HostError(opened.error);
+        // The app's wallet first (its passphrase made from the seed becomes the password), then seed.dat; seed.dat not
+        // written: the wallet is changed back.
+        const SecureString derived{app_wallet ? ChainWalletPassphrase(*opened.secret, std::string{APP_CHAIN}, record->genesis) : SecureString{}};
+        const auto change{[&](const SecureString& from, const SecureString& to) {
+            UniValue p{UniValue::VARR};
+            p.push_back(Str(from));
+            p.push_back(Str(to));
+            try {
+                ChainRpc(std::string{APP_CHAIN}, "walletpassphrasechange", p, record->wallet, 120s);
+            } catch (...) {
+                WipeValue(p);
+                throw;
+            }
+            WipeValue(p);
+        }};
+        if (app_wallet) {
+            try {
+                change(derived, pass);
+            } catch (const std::exception& e) {
+                throw HostError(strprintf("The password was not added (nothing was): your %s wallet %s: %s", m_hooks.product, record->wallet, e.what()));
+            }
+        }
+        const std::string next{seed::Encrypt(*opened.secret, std::string_view{pass.data(), pass.size()}, opened.header)};
+        std::string written;
+        if (next.empty()) {
+            written = "the backup phrase could not be encrypted";
+        } else if (const auto ok{common::WriteSecretFile(m_hooks.file, next)}; !ok) {
+            written = util::ErrorString(ok).original;
+        }
+        if (!written.empty()) {
+            if (app_wallet) {
+                try {
+                    change(pass, derived);
+                } catch (const std::exception& e) {
+                    LogWarning("webui: the passphrase of the wallet %s could not be changed back: %s", record->wallet, e.what());
+                }
+            }
+            throw HostError(strprintf("The password was not added (nothing was): %s", written));
+        }
+        // Every wallet of the phrase locked now (they were kept open): the app's, and each sidechain's that runs.
+        std::vector<std::pair<std::string, std::string>> locks;
+        if (app_wallet) locks.emplace_back(std::string{APP_CHAIN}, record->wallet);
+        for (const std::string& stem : m_hooks.shared_chains ? m_hooks.shared_chains() : std::vector<std::string>{}) {
+            const auto r{RecordOf(Records(), stem)};
+            if (r && r->imported && Running(stem)) locks.emplace_back(stem, r->wallet);
+        }
+        for (const auto& [id, wallet] : locks) {
+            try {
+                ChainRpc(id, "walletlock", UniValue{UniValue::VARR}, wallet, 30s);
+            } catch (const std::exception& e) {
+                LogWarning("webui: the wallet %s of %s could not be locked: %s", wallet, id, e.what());
+            }
+        }
+        {
+            LOCK(m_mutex);
+            m_keep_open.clear();
+            if (m_session) m_session->passphrase = pass;
+        }
+        LogInfo("webui: a password was added to the backup phrase");
+        Changed();
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("added", true);
+        out.pushKV("locked", static_cast<uint64_t>(locks.size()));
+        return out;
+    }
+    throw HostError("The password was not added.");
+}
+
+UniValue SeedKeeper::RemovePassword()
+{
+    std::string error;
+    const auto text{ReadFile(error)};
+    if (!text) throw HostError(error);
+    const auto header{seed::ReadHeader(*text, error)};
+    if (!header) throw HostError(error);
+    if (!header->password) throw HostError("Your wallet has no password.");
+    Busy busy{m_busy};
+    const auto record{RecordOf(Records(), std::string{APP_CHAIN})};
+    const bool app_wallet{record && record->imported};
+    if (app_wallet && !Running(std::string{APP_CHAIN})) throw HostError("The node is not ready yet");
+    Window::ConfirmDialog d;
+    d.title = "Remove the password";
+    d.message = strprintf("Without a password, anyone who can use this computer, or copy its files, can spend your coins on %s and on every "
+                          "sidechain, and read your backup phrase. Nothing asks for a password before sending.\n\nYou can add a password again "
+                          "at any time.",
+                          m_hooks.product);
+    d.accept = "Remove the password";
+    d.level = dialog::Level::DANGER;
+    d.kind = "seed-remove-password";
+    d.checkbox = "I understand: anyone with access to this computer can spend my coins";
+    d.fields.push_back(MakeField("old", dialog::Field::Kind::PASSWORD, "Your password", ""));
+    for (int attempt{0}; attempt < 10; ++attempt) {
+        dialog::Answer answer{m_hooks.ask(d)};
+        if (!answer.accepted) return Cancelled();
+        for (auto& f : d.fields) f.error.clear();
+        const SecureString old_pass{FieldOf(answer, "old")};
+        seed::Opened opened{seed::Decrypt(*text, std::string_view{old_pass.data(), old_pass.size()})};
+        if (!opened.secret) {
+            if (!opened.wrong_passphrase) throw HostError(opened.error);
+            d.fields[0].error = "That is not the password of your wallet.";
+            continue;
+        }
+        // The app's wallet first (the password becomes its passphrase made from the seed), then seed.dat; or neither.
+        const SecureString derived{app_wallet ? ChainWalletPassphrase(*opened.secret, std::string{APP_CHAIN}, record->genesis) : SecureString{}};
+        const auto change{[&](const SecureString& from, const SecureString& to) {
+            UniValue p{UniValue::VARR};
+            p.push_back(Str(from));
+            p.push_back(Str(to));
+            try {
+                ChainRpc(std::string{APP_CHAIN}, "walletpassphrasechange", p, record->wallet, 120s);
+            } catch (...) {
+                WipeValue(p);
+                throw;
+            }
+            WipeValue(p);
+        }};
+        if (app_wallet) {
+            try {
+                change(old_pass, derived);
+            } catch (const std::exception& e) {
+                throw HostError(strprintf("The password was not removed (nothing was): your %s wallet %s: %s", m_hooks.product, record->wallet, e.what()));
+            }
+        }
+        const std::string next{seed::Encrypt(*opened.secret, "", opened.header)};
+        std::string written;
+        if (next.empty()) {
+            written = "the backup phrase could not be written";
+        } else if (const auto ok{common::WriteSecretFile(m_hooks.file, next)}; !ok) {
+            written = util::ErrorString(ok).original;
+        }
+        if (!written.empty()) {
+            if (app_wallet) {
+                try {
+                    change(derived, old_pass);
+                } catch (const std::exception& e) {
+                    LogWarning("webui: the passphrase of the wallet %s could not be changed back: %s", record->wallet, e.what());
+                }
+            }
+            throw HostError(strprintf("The password was not removed (nothing was): %s", written));
+        }
+        {
+            LOCK(m_mutex);
+            if (m_session) m_session->passphrase.clear();
+        }
+        // Every wallet of the phrase kept open from now on, as unencrypted ones would be.
+        KeepOpenLater(std::string{APP_CHAIN});
+        for (const std::string& stem : m_hooks.shared_chains ? m_hooks.shared_chains() : std::vector<std::string>{}) KeepOpenLater(stem);
+        LogInfo("webui: the password of the backup phrase was removed");
+        Changed();
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("removed", true);
+        return out;
+    }
+    throw HostError("The password was not removed.");
+}
+
+UniValue SeedKeeper::MiningRecord()
+{
+    const auto r{RecordValue("mining")};
+    return r && r->isObject() ? *r : UniValue{UniValue::VOBJ};
+}
+
+std::string SeedKeeper::MiningWallet()
+{
+    const UniValue r{MiningRecord()};
+    const UniValue& wallet{r.find_value("wallet")};
+    if (!r.find_value("on").isTrue() || !wallet.isStr()) return {};
+    const std::string& name{wallet.get_str()};
+    if (name.empty() || name.size() > 64 || name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != std::string::npos) return {};
+    return name;
+}
+
+UniValue SeedKeeper::MiningCreate()
+{
+    if (!Running(std::string{APP_CHAIN})) throw HostError(BRIDGE_NOT_READY, "The node is not ready yet");
+    Busy busy{m_busy};
+    const UniValue before{MiningRecord()};
+    const std::vector<std::string> names{Names(m_hooks.node_rpc("listwalletdir", UniValue{UniValue::VARR}, ""))};
+    const auto loaded{[&](const std::string& name) {
+        const UniValue list{m_hooks.node_rpc("listwallets", UniValue{UniValue::VARR}, "")};
+        return std::ranges::any_of(list.getValues(), [&](const UniValue& w) { return w.isStr() && w.get_str() == name; });
+    }};
+    const bool phrase{Exists()};
+    std::string wallet;
+    std::string from{phrase ? "phrase" : "own"};
+    // The one made before (turned off since): used again as it is, its keys and coins.
+    if (before.find_value("wallet").isStr() && before.find_value("imported").isTrue() && Has(names, before.find_value("wallet").get_str()) &&
+        before.find_value("from").isStr() && (before.find_value("from").get_str() == "phrase") == phrase) {
+        wallet = before.find_value("wallet").get_str();
+        from = before.find_value("from").get_str();
+        if (!loaded(wallet)) {
+            UniValue p{UniValue::VARR};
+            p.push_back(wallet);
+            m_hooks.node_rpc("loadwallet", p, "");
+        }
+    } else {
+        wallet = "mining";
+        for (int i{2}; Has(names, wallet); ++i) wallet = strprintf("mining-%d", i);
+        if (phrase) {
+            // Its keys from the phrase (the app's chain, account 1): the phrase opened (its password asked, if it has one).
+            std::optional<std::pair<seed::Secret, seed::Header>> open;
+            {
+                LOCK(m_mutex);
+                if (m_session) open = std::make_pair(m_session->secret, m_session->header);
+            }
+            if (!open) {
+                auto opened{AskOpen("Your wallet password", "To make a mining wallet from your backup phrase: it pays the bids of merged mining, so your wallet can stay locked.")};
+                if (!opened) return Cancelled();
+                open = std::make_pair(std::move(*opened->first.secret), opened->first.header);
+            }
+            UniValue p{UniValue::VARR};
+            p.push_back(wallet);
+            p.push_back(false); // private keys
+            p.push_back(true);  // blank: the phrase's keys only
+            p.push_back("");    // no passphrase: it pays bids by itself (a little, brought back by the phrase)
+            p.push_back(false);
+            p.push_back(true);
+            p.push_back(true); // loaded at each start
+            m_hooks.node_rpc("createwallet", p, "");
+            const bool test{m_hooks.test_chain};
+            std::vector<seed::Descriptor> descriptors{seed::AccountDescriptors(open->first.seed, seed::CoinType(test), seed::MINING_ACCOUNT, test)};
+            if (descriptors.empty()) throw HostError("Its keys could not be made.");
+            const int64_t from_time{ScanFrom(open->second)};
+            UniValue requests{UniValue::VARR};
+            for (const auto& d : descriptors) {
+                UniValue r{UniValue::VOBJ};
+                r.pushKV("desc", Str(d.text));
+                r.pushKV("active", true);
+                r.pushKV("internal", d.internal);
+                if (from_time >= Now() - 86400) r.pushKV("timestamp", "now");
+                else r.pushKV("timestamp", from_time);
+                requests.push_back(std::move(r));
+            }
+            descriptors.clear();
+            UniValue args{UniValue::VARR};
+            args.push_back(std::move(requests));
+            UniValue result;
+            try {
+                result = m_hooks.node_rpc("importdescriptors", args, wallet);
+            } catch (...) {
+                WipeValue(args);
+                throw;
+            }
+            WipeValue(args);
+            for (const UniValue& r : result.getValues()) {
+                if (!r.find_value("success").isTrue()) throw HostError(seed::Scrubbed(r.find_value("error").find_value("message").isStr() ? r.find_value("error").find_value("message").get_str() : "a key was refused"));
+            }
+        } else {
+            // No phrase: a wallet with keys of its own (Core's), without a password; its own backup.
+            UniValue p{UniValue::VARR};
+            p.push_back(wallet);
+            m_hooks.node_rpc("createwallet", p, "");
+        }
+    }
+    UniValue r{UniValue::VOBJ};
+    r.pushKV("wallet", wallet);
+    r.pushKV("from", from);
+    if (from == "phrase") r.pushKV("account", static_cast<int64_t>(seed::MINING_ACCOUNT));
+    r.pushKV("imported", true);
+    r.pushKV("on", true);
+    r.pushKV("time", Now());
+    SetValue("mining", r);
+    LogInfo("webui: merged mining's bids are paid from the wallet %s (%s)", wallet, from == "phrase" ? "from the backup phrase, account 1" : "keys of its own");
+    if (m_hooks.paying_changed) m_hooks.paying_changed();
+    Changed();
+    return r;
+}
+
+UniValue SeedKeeper::MiningStop()
+{
+    UniValue r{MiningRecord()};
+    if (!r.find_value("wallet").isStr()) throw HostError("There is no mining wallet.");
+    UniValue next{UniValue::VOBJ};
+    for (const std::string& k : r.getKeys()) {
+        if (k != "on") next.pushKV(k, r.find_value(k));
+    }
+    next.pushKV("on", false);
+    SetValue("mining", next);
+    LogInfo("webui: merged mining's bids are paid from the main wallet again");
+    if (m_hooks.paying_changed) m_hooks.paying_changed();
+    Changed();
+    return next;
 }
 
 } // namespace webui

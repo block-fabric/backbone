@@ -986,7 +986,12 @@ UniValue WalletApi::WithKeys(const std::string& wallet_name, Window::ConfirmDial
         dialog.rows.push_back(confirm::Note(strprintf("Plus the network fee the wallet sets when it makes the transaction: at most %s.", confirm::Coins(w->getDefaultMaxTxFee()))));
     }
     // Wallets without private keys may look "encrypted" after an old bug: they need no unlocking.
-    const bool locked{!w->privateKeysDisabled() && w->isCrypted() && w->isLocked()};
+    bool locked{!w->privateKeysDisabled() && w->isCrypted() && w->isLocked()};
+    if (locked) {
+        // One the app opens by itself (a backup phrase without a password): opened, nothing asked but the question.
+        const UnlockFn unlock{WITH_LOCK(m_mutex, return m_unlock)};
+        if (unlock && unlock(wallet_name)) locked = w->isLocked();
+    }
     if (!locked) {
         if (always && !Ask(dialog).accepted) throw HostError(BRIDGE_CANCELLED, strprintf("%s: declined.", dialog.title));
         return run();
@@ -1012,6 +1017,12 @@ UniValue WalletApi::WithKeys(const std::string& wallet_name, Window::ConfirmDial
             "version of this software prior to 25.0, please try again with only the characters up to — but not including — the first null character.";
     }
     throw HostError(PASSPHRASE_INCORRECT, "The passphrase entered for the wallet decryption was incorrect.");
+}
+
+void WalletApi::SetUnlocker(UnlockFn unlock)
+{
+    LOCK(m_mutex);
+    m_unlock = std::move(unlock);
 }
 
 std::optional<CAmount> WalletApi::FeeFor(const std::string& wallet_name, int64_t vsize)

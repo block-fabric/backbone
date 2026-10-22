@@ -98,6 +98,8 @@ private:
     //! The single seed (doc/unified-app.md §23): made when the node is ready.
     std::shared_ptr<SeedKeeper> Seed() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void RegisterSeedMethods(Bridge& b);
+    //! mining.status: which wallet pays merged mining's bids, whether it can (locked, empty), the mining wallet (doc §23.12).
+    UniValue MiningStatus() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     //! The downloads, updates and rollbacks of the sidechains' programs (modules.*, moduleinstaller.h).
     void RegisterModuleMethods(Bridge& b);
     //! Make the supervisor (the node is ready) and start the sidechains enabled.

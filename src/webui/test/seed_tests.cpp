@@ -245,36 +245,46 @@ BOOST_FIXTURE_TEST_CASE(our_paths_per_chain, RegtestSetup)
     for (const ChainType c : {ChainType::TESTNET, ChainType::SIGNET}) BOOST_CHECK_EQUAL(seed::CoinType(CreateChainParams(m_args, c)->IsTestChain()), 1U);
     // The app's own chain is account 0; a sidechain's from its id and genesis (vectors of seedref.py).
     BOOST_CHECK_EQUAL(seed::Account("", REGTEST_GENESIS), 0U);
-    BOOST_CHECK_EQUAL(seed::Account("layers", REGTEST_GENESIS), 1922787114U);
-    BOOST_CHECK_EQUAL(seed::Account("thunder", REGTEST_GENESIS), 1452416159U);
+    BOOST_CHECK_EQUAL(seed::Account("layers", REGTEST_GENESIS), 756096351U);
+    BOOST_CHECK_EQUAL(seed::Account("thunder", REGTEST_GENESIS), 954058073U);
     // The genesis as RPC writes it, in any case.
-    BOOST_CHECK_EQUAL(seed::Account("layers", "0F9188F13CB7B2C71F2A335E3A4FC328BF5BEB436012AFCA590B1A11466E2206"), 1922787114U);
+    BOOST_CHECK_EQUAL(seed::Account("layers", "0F9188F13CB7B2C71F2A335E3A4FC328BF5BEB436012AFCA590B1A11466E2206"), 756096351U);
     // Two sidechains of one genesis (every template chain on regtest) get two accounts; another genesis another account.
     BOOST_CHECK(seed::Account("layers", REGTEST_GENESIS) != seed::Account("thunder", REGTEST_GENESIS));
     BOOST_CHECK(seed::Account("layers", REGTEST_GENESIS) != seed::Account("layers", std::string(64, '1')));
-    for (const char* stem : {"layers", "thunder", "bitassets", "bitnames", "zside", "hivemind", "fastblocks", "flush"}) {
+    // Never an account of the app's own chain (0 its wallet, 1 its mining wallet: below 1024); the stems of seedref.py.
+    for (const auto& [stem, account] : std::vector<std::pair<const char*, uint32_t>>{{"layers", 756096351}, {"thunder", 954058073}, {"bitassets", 1219916544}, {"bitnames", 1270392304},
+                                                                                    {"zside", 563665917}, {"hivemind", 330684049}, {"fastblocks", 368603874}, {"flush", 31868005}}) {
         const uint32_t a{seed::Account(stem, REGTEST_GENESIS)};
-        BOOST_CHECK(a != 0 && a < 0x80000000U);
+        BOOST_CHECK_EQUAL(a, account);
+        BOOST_CHECK(a >= seed::APP_ACCOUNTS && a < 0x80000000U);
     }
+    // A hash that falls below 1024 is moved above the app's accounts (this genesis gives 804 for Layers: seedref.py).
+    BOOST_CHECK_EQUAL(seed::Account("layers", "0000000000000000000000000000000000000000000000000000000000070ee8"), 804U + seed::APP_ACCOUNTS);
     const bip39::Bytes s{SeedOf(ABOUT)};
     const auto chains{seed::AccountPublic(s, 1, 0, true)};
     BOOST_CHECK(chains[0].starts_with("tr([73c5da0a/86h/1h/0h]tpubDDfvzhdVV4unsoKt5aE6dcsNsfeWbTgmLZPi8LQDYU2xixrYemMfWJ3BaVneH3u7DBQePdTwhpybaKRU95pi6PMUtLPBJLVQRpzEnjfjZzX/0/*)#"));
-    const auto layers{seed::AccountPublic(s, 1, 1922787114, true)};
-    BOOST_CHECK(layers[0].starts_with("tr([73c5da0a/86h/1h/1922787114h]tpubDDfvzhdcx8EohTmiDZjDGYm3dYyJEM8vxMXKXTK7ggs66dDupHRKvDmaJMJ26KSyTzPtbGqKWmHRrberUr8pb6ERqdw5NBTrfRj5CJohW6D/0/*)#"));
-    const auto thunder{seed::AccountPublic(s, 1, 1452416159, true)};
-    BOOST_CHECK(thunder[0].starts_with("tr([73c5da0a/86h/1h/1452416159h]tpubDDfvzhdb8BnwYYovT4z6rbWuqHz9PXZjvEj5ZSZQQ3eTe5nhHcMvQQmWwKqHWG8t3osUtNLvHDZbjB3gK2WMYhwiMeb7MbPmzjxwHhVWCe9/0/*)#"));
+    const auto layers{seed::AccountPublic(s, 1, 756096351, true)};
+    BOOST_CHECK(layers[0].starts_with("tr([73c5da0a/86h/1h/756096351h]tpubDDfvzhdYRMnJH9p4K9hmRXkAJb2mRxRGDatU4LN2TZKehj3JVbgz1hRxbVYFdmEe69WiU4DW5zweu4qZhg4rDPGvuV2HgXy1mvu3L6mfsNB/0/*)#"));
+    const auto thunder{seed::AccountPublic(s, 1, 954058073, true)};
+    BOOST_CHECK(thunder[0].starts_with("tr([73c5da0a/86h/1h/954058073h]tpubDDfvzhdZBwkYn6UJhmC2F4wVREVoNdgfCwT4wqiw7FG43n3Z1K4hiQjBAL9o7TVQrGg5LZdEc2bjkKvqFMg3qLHfsA9CLzAxRqhuWPVRRof/0/*)#"));
     // The first address of each, by Core's descriptors from the private ones a node gets.
     BOOST_CHECK_EQUAL(FirstProgram(Text(seed::AccountDescriptors(s, 1, 0, true)[0].text)), "3b82b2b2a9185315da6f80da5f06d0440d8a5e1457fa93387c2d919c86ec8786");
-    BOOST_CHECK_EQUAL(FirstProgram(Text(seed::AccountDescriptors(s, 1, 1922787114, true)[0].text)), "f7179818e5dde5cc855f1d10037909d621d8fbc97be81eca4eb3c2d91f0584ef");
-    BOOST_CHECK_EQUAL(FirstProgram(Text(seed::AccountDescriptors(s, 1, 1452416159, true)[0].text)), "bed8c1734bedd6f7e7f11e73931fb57bb3d430a05cca6dc829e74035052d12ce");
+    BOOST_CHECK_EQUAL(FirstProgram(Text(seed::AccountDescriptors(s, 1, 756096351, true)[0].text)), "4e3c94ecfaa1d22ad7fa37b61e01a5b64eb2f630ca5166296319b6ea544c8666");
+    BOOST_CHECK_EQUAL(FirstProgram(Text(seed::AccountDescriptors(s, 1, 954058073, true)[0].text)), "c03e43c44389415edc7bdb102b4e920e42e68375b7e84a6eda2b0f0173cf4608");
     // What a node gets holds its account's key only (depth 3, hardened): not the master's.
     const std::string master_xprv{Text(seed::EncodeXprv(seed::Master(s), true))};
-    for (const auto& d : seed::AccountDescriptors(s, 1, 1922787114, true)) {
+    for (const auto& d : seed::AccountDescriptors(s, 1, 756096351, true)) {
         BOOST_CHECK(Text(d.text).find(master_xprv) == std::string::npos);
         BOOST_CHECK(Text(d.text).find("tprv") != std::string::npos);
     }
-    // The passphrase of a sidechain's wallet made from the seed (seedref.py wallet_passphrase).
-    BOOST_CHECK_EQUAL(Text(seed::WalletPassphrase(s, "layers", REGTEST_GENESIS)), "3014bb7e7a87a2d0d8a40b4520cf653f3c9bd5c7dce6f488890b501a093dac57");
+    // The mining wallet's account (1) of the app's own chain (seedref.py).
+    BOOST_CHECK(seed::AccountPublic(s, 1, seed::MINING_ACCOUNT, true)[0].starts_with("tr([73c5da0a/86h/1h/1h]tpubDDfvzhdVV4unxTr3yqNZkM2u5c8u9ecmsdWK6bFzZ4hE2tbjhSjhDa1dzsVymqrr19pZ43YK9c5CQwp7fcTNwHZg59Yt6Mdsu5myM4oUX42/0/*)#"));
+    BOOST_CHECK_EQUAL(FirstProgram(Text(seed::AccountDescriptors(s, 1, seed::MINING_ACCOUNT, true)[0].text)), "f34fac8695b01c225b2ad605ae70d129d7b767a97b3bf801788f7960a94e60a0");
+    // The passphrase of a wallet made from the seed (seedref.py wallet_passphrase): a sidechain's, and the app's own wallet's
+    // without a password (an empty stem).
+    BOOST_CHECK_EQUAL(Text(seed::WalletPassphrase(s, "", REGTEST_GENESIS)), "a6bf89c1da56d3a95b89e880778893509a4a685887311f159e503eb2a87b9e56");
+    BOOST_CHECK_EQUAL(Text(seed::WalletPassphrase(s, "layers", REGTEST_GENESIS)), "7bb89fdf7fee2d711745f541a54b03794f2a531addccea7ea033639e39eaec5a");
     BOOST_CHECK(Text(seed::WalletPassphrase(s, "thunder", REGTEST_GENESIS)) != Text(seed::WalletPassphrase(s, "layers", REGTEST_GENESIS)));
     // The public descriptors are the private ones without their keys (what a page may be told).
     const auto priv{seed::AccountDescriptors(s, 1, 0, true)};
@@ -426,6 +436,8 @@ struct FakeNodes {
     std::map<std::string, std::vector<std::pair<std::string, UniValue>>> calls;
     std::map<std::string, std::string> genesis;
     std::set<std::string> refuse_change;
+    //! id -> wallet -> how long it was last opened for (walletpassphrase), 0 when locked.
+    std::map<std::string, std::map<std::string, int64_t>> opened_for;
     bool running{true};
 
     UniValue Call(const std::string& id, const std::string& method, const UniValue& params, const std::string& wallet)
@@ -451,10 +463,19 @@ struct FakeNodes {
         }
         if (method == "createwallet") {
             dirs[id].push_back(params[0].get_str());
-            passphrases[id][params[0].get_str()] = params[3].get_str();
+            passphrases[id][params[0].get_str()] = params.size() > 3 ? params[3].get_str() : std::string{};
+            opened_for[id][params[0].get_str()] = 0;
             return UniValue{UniValue::VOBJ};
         }
-        if (method == "walletpassphrase" && passphrases[id][wallet] != params[0].get_str()) throw SidechainSupervisor::RpcError(-14, "The wallet passphrase entered was incorrect.");
+        if (method == "walletpassphrase") {
+            if (passphrases[id][wallet] != params[0].get_str()) throw SidechainSupervisor::RpcError(-14, "The wallet passphrase entered was incorrect.");
+            opened_for[id][wallet] = params[1].getInt<int64_t>();
+            return UniValue{};
+        }
+        if (method == "walletlock") {
+            opened_for[id][wallet] = 0;
+            return UniValue{};
+        }
         if (method == "walletpassphrasechange") {
             if (refuse_change.contains(id) || passphrases[id][wallet] != params[0].get_str()) throw SidechainSupervisor::RpcError(-14, "The wallet passphrase entered was incorrect.");
             passphrases[id][wallet] = params[1].get_str();
@@ -469,8 +490,23 @@ struct FakeNodes {
             }
             return out;
         }
-        if (method == "getwalletinfo") return UniValue{UniValue::VOBJ};
+        if (method == "getwalletinfo") {
+            UniValue info{UniValue::VOBJ};
+            // As Core says it: unlocked_until for an encrypted wallet only (0: locked).
+            if (!passphrases[id][wallet].empty()) info.pushKV("unlocked_until", opened_for[id][wallet] ? GetTime() + opened_for[id][wallet] : 0);
+            return info;
+        }
         return UniValue{};
+    }
+    int64_t OpenedFor(const std::string& id, const std::string& wallet)
+    {
+        std::lock_guard lock{mutex};
+        return opened_for[id][wallet];
+    }
+    std::string PassphraseOf(const std::string& id, const std::string& wallet)
+    {
+        std::lock_guard lock{mutex};
+        return passphrases[id][wallet];
     }
     /** Whether any request to a node carried a text (a passphrase) anywhere in its parameters. */
     bool Carried(const std::string& id, const std::string& text)
@@ -635,8 +671,9 @@ BOOST_FIXTURE_TEST_CASE(create_makes_every_chains_wallet_from_the_phrase, Keeper
     BOOST_CHECK_EQUAL(*keeper.WalletOf("layers"), "seed");
     BOOST_CHECK_EQUAL(keeper.MadeWallet("layers"), "seed");
 
-    // The app's node: a blank wallet encrypted with the passphrase, unlocked, the four descriptors of account 0, locked.
-    BOOST_CHECK((nodes.Methods("chains") == std::vector<std::string>{"listwalletdir", "createwallet", "walletpassphrase@main", "importdescriptors@main", "walletlock@main"}));
+    // The app's node: its genesis, a blank wallet encrypted with the password, unlocked, the four descriptors of account 0,
+    // locked.
+    BOOST_CHECK((nodes.Methods("chains") == std::vector<std::string>{"getblockhash", "listwalletdir", "createwallet", "walletpassphrase@main", "importdescriptors@main", "walletlock@main"}));
     const UniValue create{nodes.Params("chains", "createwallet")};
     BOOST_CHECK_EQUAL(create[0].get_str(), "main");
     BOOST_CHECK_EQUAL(create[1].get_bool(), false);
@@ -669,8 +706,15 @@ BOOST_FIXTURE_TEST_CASE(create_makes_every_chains_wallet_from_the_phrase, Keeper
     BOOST_CHECK(status.find("prv") == std::string::npos);
     BOOST_CHECK(status.find(HexStr(seed_bytes)) == std::string::npos);
     BOOST_CHECK(keeper.Status().find_value("unlocked").isTrue());
+    BOOST_CHECK(keeper.Status().find_value("password").isTrue());
+    BOOST_CHECK(keeper.HasPassword());
     keeper.Lock();
     BOOST_CHECK(keeper.Status().find_value("unlocked").isFalse());
+    // With a password the wallets stay locked: nothing opens them by itself.
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("chains", "main"), 0);
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("layers", "seed"), 0);
+    BOOST_CHECK(!keeper.OpenWithoutPassword("main"));
+    BOOST_CHECK(keeper.PassphraseWithout("layers", "seed").empty());
 
     // A second phrase is refused: one per data folder.
     BOOST_CHECK_THROW(keeper.Create(params), HostError);
@@ -852,6 +896,265 @@ BOOST_FIXTURE_TEST_CASE(the_phrase_is_locked_again_when_its_time_is_up, KeeperFi
     answer = [](const Window::ConfirmDialog&) { return dialog::Answer{}; };
     BOOST_CHECK(keeper.Unlock(UniValue{UniValue::VOBJ}).find_value("cancelled").isTrue());
     BOOST_CHECK(keeper.Status().find_value("unlocked").isFalse());
+    keeper.Stop();
+}
+
+BOOST_FIXTURE_TEST_CASE(without_a_password_then_one_added_then_removed, KeeperFixture)
+{
+    // The user's choice (doc §23.11): no password. Nothing asked after the words but nothing else; seed.dat says so; every
+    // wallet of the phrase encrypted from its first moment with a passphrase made from the seed (the app's too), and kept
+    // open as an unencrypted one would be.
+    std::vector<std::string> words;
+    std::string add_pass{"correct horse"};
+    int removes{0};
+    answer = [&](const Window::ConfirmDialog& d) -> dialog::Answer {
+        if (d.kind == "seed-words") {
+            for (const auto& w : *d.words) words.push_back(Text(w));
+            return Accept();
+        }
+        if (d.kind == "seed-check") {
+            std::map<std::string, std::string> typed;
+            for (const auto& f : d.fields) typed[f.id] = words[std::stoi(f.id.substr(5)) - 1];
+            return Accept(typed);
+        }
+        if (d.kind == "seed-show-confirm") return Accept();
+        if (d.kind == "seed-show") return Accept();
+        if (d.kind == "seed-add-password") return Accept({{"passphrase", add_pass}, {"repeat", add_pass}});
+        if (d.kind == "seed-remove-password") {
+            ++removes;
+            // A wrong one said at its field; the box (anyone with this computer can spend) ticked.
+            BOOST_CHECK(!d.checkbox.empty());
+            BOOST_CHECK(d.level == dialog::Level::DANGER);
+            if (removes == 1) return Accept({{"old", "not it"}});
+            BOOST_CHECK(!d.fields[0].error.empty());
+            return Accept({{"old", add_pass}});
+        }
+        BOOST_FAIL("unexpected question " + d.kind);
+        return {};
+    };
+    SeedKeeper keeper{Hooks()};
+    UniValue params{UniValue::VOBJ};
+    params.pushKV("password", false);
+    const UniValue made{keeper.Create(params)};
+    BOOST_CHECK(made.find_value("created").isTrue());
+    BOOST_CHECK(made.find_value("password").isFalse());
+    BOOST_CHECK((asked == std::vector<std::string>{"seed-words", "seed-check"}));
+    std::string phrase;
+    for (const auto& w : words) phrase += (phrase.empty() ? "" : " ") + w;
+    const bip39::Bytes seed_bytes{SeedOf(phrase)};
+    const auto file_text{[&] {
+        std::ifstream f{static_cast<const std::filesystem::path&>(dir / "seed.dat")};
+        std::stringstream text;
+        text << f.rdbuf();
+        return text.str();
+    }};
+    // seed.dat: said to have no password, opened with none, the least work; it says plainly that it protects nothing.
+    std::string error;
+    BOOST_CHECK(!seed::ReadHeader(file_text(), error)->password);
+    BOOST_CHECK_EQUAL(seed::ReadHeader(file_text(), error)->n, seed::NO_PASSWORD_N);
+    BOOST_CHECK(seed::Decrypt(file_text(), "").secret);
+    BOOST_CHECK(file_text().find("WITHOUT a password") != std::string::npos);
+    BOOST_CHECK(!keeper.HasPassword());
+    BOOST_CHECK(keeper.Status().find_value("password").isFalse());
+    WaitReady(keeper, "chains");
+    WaitReady(keeper, "layers");
+    const std::string app_pass{Text(seed::WalletPassphrase(seed_bytes, "", REGTEST_GENESIS))};
+    const std::string layers_pass{Text(seed::WalletPassphrase(seed_bytes, "layers", REGTEST_GENESIS))};
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("chains", "main"), app_pass);
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("layers", "main"), layers_pass);
+    // Kept open for good (Core's longest), never locked after the import.
+    for (int i{0}; i < 200 && (nodes.OpenedFor("chains", "main") != 100'000'000 || nodes.OpenedFor("layers", "main") != 100'000'000); ++i) std::this_thread::sleep_for(20ms);
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("chains", "main"), 100'000'000);
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("layers", "main"), 100'000'000);
+    {
+        const auto methods{nodes.Methods("chains")};
+        BOOST_CHECK(std::ranges::find(methods, "walletlock@main") == methods.end());
+    }
+    // A spend on Layers: its passphrase made from the seed goes with the question, nothing typed; not for another wallet.
+    BOOST_CHECK_EQUAL(Text(keeper.PassphraseWithout("layers", "main")), layers_pass);
+    BOOST_CHECK_EQUAL(Text(keeper.PassphraseWithout("layers", "")), layers_pass);
+    BOOST_CHECK(keeper.PassphraseWithout("layers", "other").empty());
+    // The app's own wallet locked by someone (its command line): opened again by itself for a spend; not another wallet.
+    {
+        std::lock_guard lock{nodes.mutex};
+        nodes.opened_for["chains"]["main"] = 0;
+    }
+    BOOST_CHECK(keeper.OpenWithoutPassword("main"));
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("chains", "main"), 100'000'000);
+    BOOST_CHECK(!keeper.OpenWithoutPassword("other"));
+    // Layers' node started again (locked): opened again when it is ready.
+    {
+        std::lock_guard lock{nodes.mutex};
+        nodes.opened_for["layers"]["main"] = 0;
+    }
+    keeper.ChainReady("layers");
+    for (int i{0}; i < 200 && nodes.OpenedFor("layers", "main") == 0; ++i) std::this_thread::sleep_for(20ms);
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("layers", "main"), 100'000'000);
+    // Shown with a question first (nobody looking), no password asked; changing a password there is none of is refused.
+    asked.clear();
+    BOOST_CHECK(keeper.Show().find_value("shown").isTrue());
+    BOOST_CHECK((asked == std::vector<std::string>{"seed-show-confirm", "seed-show"}));
+    BOOST_CHECK_THROW(keeper.ChangePassphrase(), HostError);
+    BOOST_CHECK_THROW(keeper.RemovePassword(), HostError);
+
+    // A password added: the app's wallet refuses first, so nothing changes at all.
+    nodes.refuse_change = {"chains"};
+    BOOST_CHECK_THROW(keeper.AddPassword(), HostError);
+    BOOST_CHECK(!seed::ReadHeader(file_text(), error)->password);
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("chains", "main"), app_pass);
+    nodes.refuse_change.clear();
+    const UniValue added{keeper.AddPassword()};
+    BOOST_CHECK(added.find_value("added").isTrue());
+    // seed.dat with it; the app's wallet's passphrase is it; every wallet of the phrase locked; Layers' keeps its own.
+    BOOST_CHECK(seed::ReadHeader(file_text(), error)->password);
+    BOOST_CHECK(seed::Decrypt(file_text(), add_pass).secret);
+    BOOST_CHECK(!seed::Decrypt(file_text(), "").secret);
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("chains", "main"), add_pass);
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("chains", "main"), 0);
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("layers", "main"), 0);
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("layers", "main"), layers_pass);
+    BOOST_CHECK(!nodes.Carried("layers", add_pass));
+    BOOST_CHECK(keeper.HasPassword());
+    BOOST_CHECK_THROW(keeper.AddPassword(), HostError);
+    // From now on, as with a password from the start: the user's exchanged for Layers' own, nothing opened by itself.
+    BOOST_CHECK_EQUAL(Text(keeper.PassphraseFor("layers", SecureString{add_pass.begin(), add_pass.end()})), layers_pass);
+    BOOST_CHECK(keeper.PassphraseWithout("layers", "main").empty());
+    BOOST_CHECK(!keeper.OpenWithoutPassword("main"));
+
+    // Removed again: asked with its consequences, a wrong one said; the wallets kept open again.
+    const UniValue removed{keeper.RemovePassword()};
+    BOOST_CHECK(removed.find_value("removed").isTrue());
+    BOOST_CHECK_EQUAL(removes, 2);
+    BOOST_CHECK(!seed::ReadHeader(file_text(), error)->password);
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("chains", "main"), app_pass);
+    for (int i{0}; i < 200 && (nodes.OpenedFor("chains", "main") != 100'000'000 || nodes.OpenedFor("layers", "main") != 100'000'000); ++i) std::this_thread::sleep_for(20ms);
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("chains", "main"), 100'000'000);
+    BOOST_CHECK_EQUAL(nodes.OpenedFor("layers", "main"), 100'000'000);
+    BOOST_CHECK(!nodes.Carried("layers", add_pass));
+    keeper.Stop();
+
+    // Restored elsewhere without a password: no password asked after the words; the same passphrases for the wallets.
+    {
+        std::lock_guard lock{nodes.mutex};
+        nodes.dirs.clear();
+        nodes.passphrases.clear();
+        nodes.calls.clear();
+        nodes.opened_for.clear();
+    }
+    {
+        std::lock_guard lock{records_mutex};
+        records = UniValue{UniValue::VOBJ};
+    }
+    dir = dir.parent_path() / "seedkeeper-nopass";
+    asked.clear();
+    answer = [&](const Window::ConfirmDialog& d) -> dialog::Answer {
+        if (d.kind == "seed-restore") return Accept({{"words", phrase}});
+        BOOST_FAIL("unexpected question " + d.kind);
+        return {};
+    };
+    SeedKeeper again{Hooks()};
+    UniValue restore{UniValue::VOBJ};
+    restore.pushKV("password", false);
+    BOOST_CHECK(again.Restore(restore).find_value("restored").isTrue());
+    BOOST_CHECK((asked == std::vector<std::string>{"seed-restore"}));
+    WaitReady(again, "chains");
+    WaitReady(again, "layers");
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("chains", "main"), app_pass);
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("layers", "main"), layers_pass);
+    again.Stop();
+}
+
+BOOST_FIXTURE_TEST_CASE(a_mining_wallet_from_the_phrase_pays_the_bids, KeeperFixture)
+{
+    // Merged mining's bids from a wallet of their own (doc §23.12): account 1 of the app's chain, from the phrase, without a
+    // password (it pays by itself), so the main wallet can stay locked.
+    shared = {};
+    int paying{0};
+    answer = [&](const Window::ConfirmDialog& d) -> dialog::Answer {
+        if (d.kind == "seed-restore") return Accept({{"words", ABOUT}});
+        if (d.kind == "seed-passphrase") return Accept({{"passphrase", "correct horse"}, {"repeat", "correct horse"}});
+        if (d.kind == "seed-unlock") return Accept({}, "correct horse");
+        BOOST_FAIL("unexpected question " + d.kind);
+        return {};
+    };
+    auto hooks{Hooks()};
+    hooks.paying_changed = [&] { ++paying; };
+    SeedKeeper keeper{hooks};
+    BOOST_CHECK_EQUAL(keeper.MiningWallet(), "");
+    keeper.Restore(UniValue{UniValue::VOBJ});
+    WaitReady(keeper, "chains");
+    // The app's wallet of the phrase made: it pays the bids from now on (the daemons told).
+    BOOST_CHECK_EQUAL(paying, 1);
+    keeper.Lock();
+    asked.clear();
+    const UniValue made{keeper.MiningCreate()};
+    // The phrase was locked: its password asked once.
+    BOOST_CHECK((asked == std::vector<std::string>{"seed-unlock"}));
+    BOOST_CHECK_EQUAL(made.find_value("wallet").get_str(), "mining");
+    BOOST_CHECK_EQUAL(made.find_value("from").get_str(), "phrase");
+    BOOST_CHECK_EQUAL(keeper.MiningWallet(), "mining");
+    BOOST_CHECK_EQUAL(paying, 2);
+    // A blank wallet without a passphrase, the four descriptors of account 1 (never the main wallet's account 0).
+    for (const auto& [m, p] : [&] { std::lock_guard l{nodes.mutex}; return nodes.calls["chains"]; }()) {
+        if (m == "createwallet" && p[0].get_str() == "mining") {
+            BOOST_CHECK(p[2].get_bool());
+            BOOST_CHECK_EQUAL(p[3].get_str(), "");
+        }
+    }
+    const UniValue imported{nodes.Params("chains", "importdescriptors@mining")};
+    BOOST_REQUIRE_EQUAL(imported[0].size(), 4U);
+    const auto expected{seed::AccountDescriptors(SeedOf(ABOUT), 1, seed::MINING_ACCOUNT, true)};
+    for (size_t i{0}; i < 4; ++i) BOOST_CHECK_EQUAL(imported[0][i].find_value("desc").get_str(), Text(expected[i].text));
+    BOOST_CHECK(Text(expected[0].text).find("/86h/1h/1h]") != std::string::npos);
+    BOOST_CHECK_EQUAL(nodes.PassphraseOf("chains", "mining"), "");
+    // The status says it, never a key.
+    const UniValue status{keeper.Status()};
+    BOOST_CHECK_EQUAL(status.find_value("mining").find_value("wallet").get_str(), "mining");
+    BOOST_CHECK(status.write().find("prv") == std::string::npos);
+    // Stopped: the main wallet pays again; the mining wallet stays, with its coins. Again: the same wallet, nothing made.
+    keeper.MiningStop();
+    BOOST_CHECK_EQUAL(keeper.MiningWallet(), "");
+    BOOST_CHECK_EQUAL(paying, 3);
+    const size_t creates{[&] { std::lock_guard l{nodes.mutex}; return static_cast<size_t>(std::ranges::count_if(nodes.calls["chains"], [](const auto& c) { return c.first == "createwallet"; })); }()};
+    asked.clear();
+    BOOST_CHECK_EQUAL(keeper.MiningCreate().find_value("wallet").get_str(), "mining");
+    BOOST_CHECK(asked.empty());
+    BOOST_CHECK_EQUAL(creates, [&] { std::lock_guard l{nodes.mutex}; return static_cast<size_t>(std::ranges::count_if(nodes.calls["chains"], [](const auto& c) { return c.first == "createwallet"; })); }());
+    BOOST_CHECK_EQUAL(keeper.MiningWallet(), "mining");
+    keeper.Stop();
+
+    // Without a phrase (wallets of before, "Not now"): a mining wallet with keys of its own.
+    {
+        std::lock_guard lock{records_mutex};
+        records = UniValue{UniValue::VOBJ};
+    }
+    dir = dir.parent_path() / "seedkeeper-nophrase";
+    SeedKeeper none{Hooks()};
+    const UniValue own{none.MiningCreate()};
+    BOOST_CHECK_EQUAL(own.find_value("from").get_str(), "own");
+    BOOST_CHECK_EQUAL(own.find_value("wallet").get_str(), "mining-2");
+    none.Stop();
+}
+
+BOOST_FIXTURE_TEST_CASE(zside_is_never_from_the_phrase, KeeperFixture)
+{
+    // zSide's shielded keys are not made from the phrase (doc §23.13): its wallet is its own, and the status says so for
+    // the pages' notices.
+    shared = {};
+    answer = [](const Window::ConfirmDialog&) { return dialog::Answer{}; };
+    auto hooks{Hooks()};
+    hooks.separate_chains = [] { return std::vector<std::string>{"zside"}; };
+    SeedKeeper keeper{hooks};
+    bool seen{false};
+    const UniValue status{keeper.Status()};
+    for (const UniValue& c : status.find_value("chains").getValues()) {
+        if (c.find_value("id").get_str() != "zside") continue;
+        seen = true;
+        BOOST_CHECK(c.find_value("phraseKeys").isFalse());
+        BOOST_CHECK_EQUAL(c.find_value("mode").get_str(), "separate");
+    }
+    BOOST_CHECK(seen);
+    BOOST_CHECK(!keeper.WalletOf("zside"));
     keeper.Stop();
 }
 

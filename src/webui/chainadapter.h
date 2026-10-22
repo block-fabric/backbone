@@ -67,6 +67,11 @@ public:
         } dex_features{};
     };
     static const std::vector<Capabilities>& Table();
+    /**
+     * The methods of a sidechain's daemon the app's own pages use there (this adapter, chaindex.cpp), by its capabilities:
+     * named in that daemon's -rpcwhitelist for this app's user beside its pack's (SidechainSupervisor::AppRpcMethodsFor).
+     */
+    static std::vector<std::string> MethodsUsed(std::string_view stem);
     static const Capabilities* Find(std::string_view stem);
     static UniValue CapabilitiesJson(const Capabilities& caps);
 
@@ -152,6 +157,11 @@ public:
     UniValue WalletLoad(const UniValue& params) const;
     UniValue WalletUnload(const UniValue& params) const;
     UniValue WalletBackup(const UniValue& params) const;
+    /**
+     * {stem, name}: a backup file of that chain's wallet (its own: zSide's, whose shielded keys no backup phrase brings back)
+     * chosen in the app's own chooser, restored by its node into a new wallet of that name, loaded. Nothing chosen: null.
+     */
+    UniValue WalletRestore(const UniValue& params) const;
     UniValue Receive(const UniValue& params) const;
     UniValue DepositAddress(const UniValue& params) const;
     /** {stem, address, shielded?} → {address, own, hrp} or a HostError that says which chain the address is of. */
