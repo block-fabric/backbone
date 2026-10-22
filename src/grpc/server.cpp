@@ -111,15 +111,30 @@ public:
     bool Write(const pb::Message& reply) override EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
     {
         const std::string payload{m_json ? reply.ToJson().write() : reply.Serialize()};
-        LOCK(m_mutex);
-        if (m_finished || m_cancelled) return false;
-        if (m_protocol == Protocol::CONNECT_UNARY) {
-            m_out = payload;
-        } else {
-            AppendEnvelope(m_out, 0, payload);
+        {
+            LOCK(m_mutex);
+            if (m_finished || m_cancelled) return false;
+            if (m_max_buffer == 0 || m_out.size() + payload.size() <= m_max_buffer) {
+                if (m_protocol == Protocol::CONNECT_UNARY) {
+                    m_out = payload;
+                } else {
+                    AppendEnvelope(m_out, 0, payload);
+                }
+                ++m_writes;
+                return true;
+            }
         }
-        ++m_writes;
-        return true;
+        // The client does not read as fast as the call writes (Options::max_call_buffer): the call ends; what it
+        // wrote still goes, as long as the client reads (Options::write_timeout_seconds).
+        Finish({Code::RESOURCE_EXHAUSTED, "the client does not read the replies as fast as they come"});
+        return false;
+    }
+
+    /** Bytes a call may have written and not handed to its connection (0: no bound). */
+    void SetMaxBuffer(size_t bytes) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+    {
+        LOCK(m_mutex);
+        m_max_buffer = bytes;
     }
 
     void Finish(const Status& status) override EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
@@ -243,6 +258,7 @@ private:
     bool m_cancelled GUARDED_BY(m_mutex){false};
     Status m_status GUARDED_BY(m_mutex);
     uint64_t m_writes GUARDED_BY(m_mutex){0};
+    size_t m_max_buffer GUARDED_BY(m_mutex){0};
     std::vector<std::function<void()>> m_on_close GUARDED_BY(m_mutex);
 };
 
@@ -395,6 +411,7 @@ void BeginCall(Server& server, Request& r, bool http2)
         return;
     }
     r.call = std::make_shared<Call>(kind->protocol, kind->json, method);
+    r.call->SetMaxBuffer(options.max_call_buffer);
     if (!entry) {
         r.call->Finish({Code::UNIMPLEMENTED, "unknown procedure " + r.path});
         return;
@@ -547,7 +564,11 @@ struct Connection::Impl {
     virtual void Goodbye() {}
     //! HTTP/2: when the oldest request still being read began (each stream is timed on its own).
     virtual std::optional<NodeClock::time_point> OldestRequest() const { return std::nullopt; }
-    //! Requests begun, all in, and given up by the client before they were all in (HTTP/2 streams reset).
+    //! Bytes the calls wrote that are not handed to the connection yet (HTTP/2: held back by flow control).
+    virtual size_t Undelivered() const { return 0; }
+    //! No new request (HTTP/2: a GOAWAY naming the last stream taken); the running calls go on.
+    virtual void Drain() {}
+    //! Requests begun, all in, and given up by the client (HTTP/2 streams it reset).
     uint64_t m_begun{0}, m_completed{0}, m_abandoned{0};
     std::string m_out;
     Server& m_server;
@@ -586,6 +607,10 @@ public:
         nghttp2_option_set_max_deflate_dynamic_table_size(option, 4096);
         // Flow control by hand: the window opens again only for the bytes taken in (see OnDataChunk).
         nghttp2_option_set_no_auto_window_update(option, 1);
+#if NGHTTP2_VERSION_NUM >= 0x013900
+        // nghttp2's own Rapid Reset bound (CVE-2023-44487; 1.57 on), stated: 1000 at once, 33 a second; ours beside it.
+        nghttp2_option_set_stream_reset_rate_limit(option, 1000, 33);
+#endif
         nghttp2_session_server_new2(&m_session, callbacks, this, option);
         nghttp2_option_del(option);
         nghttp2_session_callbacks_del(callbacks);
@@ -631,6 +656,21 @@ public:
                 stream.deferred = false;
                 nghttp2_session_resume_data(m_session, id);
             }
+            // Replies held back by a window the client does not open (slow reads by flow control): the stream is
+            // reset once they waited longer than a client may take no byte (Options::write_timeout_seconds).
+            const int timeout{m_server.GetOptions().write_timeout_seconds};
+            const bool blocked{stream.responded && state.has_data &&
+                               (nghttp2_session_get_stream_remote_window_size(m_session, id) <= 0 || nghttp2_session_get_remote_window_size(m_session) <= 0)};
+            if (!blocked) {
+                stream.blocked_since.reset();
+            } else if (!stream.blocked_since) {
+                stream.blocked_since = NodeClock::now();
+            } else if (timeout > 0 && NodeClock::now() - *stream.blocked_since > std::chrono::seconds{timeout}) {
+                LogDebug(BCLog::HTTP, "gRPC: stream %d: its window stays closed: reset\n", id);
+                call.Cancel();
+                stream.blocked_since.reset();
+                nghttp2_submit_rst_stream(m_session, NGHTTP2_FLAG_NONE, id, NGHTTP2_CANCEL);
+            }
         }
         return Flush();
     }
@@ -648,6 +688,21 @@ public:
     void Goodbye() override
     {
         nghttp2_session_terminate_session(m_session, NGHTTP2_NO_ERROR);
+        Flush();
+    }
+    size_t Undelivered() const override
+    {
+        size_t n{0};
+        for (const auto& [id, stream] : m_streams) {
+            if (stream.request.call) n += stream.request.call->Pending();
+        }
+        return n;
+    }
+    void Drain() override
+    {
+        if (m_draining) return;
+        m_draining = true;
+        nghttp2_submit_goaway(m_session, NGHTTP2_FLAG_NONE, nghttp2_session_get_last_proc_stream_id(m_session), NGHTTP2_NO_ERROR, nullptr, 0);
         Flush();
     }
     std::optional<NodeClock::time_point> OldestRequest() const override
@@ -677,6 +732,8 @@ private:
         bool responded{false};
         bool deferred{false};
         bool trailers_sent{false};
+        //! Since when its replies wait for a flow-control window the client does not open.
+        std::optional<NodeClock::time_point> blocked_since;
     };
 
     bool Flush()
@@ -806,6 +863,8 @@ private:
     static int OnFrameRecv(nghttp2_session* session, const nghttp2_frame* frame, void* user)
     {
         auto& self{*static_cast<Http2*>(user)};
+        // Every stream the client resets counts (Rapid Reset: a call cancelled as soon as asked is work for nothing).
+        if (frame->hd.type == NGHTTP2_RST_STREAM) ++self.m_abandoned;
         const auto it{self.m_streams.find(frame->hd.stream_id)};
         if (it == self.m_streams.end()) return 0;
         Request& r{it->second.request};
@@ -874,7 +933,6 @@ private:
         auto& self{*static_cast<Http2*>(user)};
         const auto it{self.m_streams.find(id)};
         if (it == self.m_streams.end()) return 0;
-        if (!it->second.request.ended) ++self.m_abandoned;
         if (it->second.request.call) it->second.request.call->Cancel();
         self.m_buffered -= it->second.buffered;
         self.m_server.Release(it->second.buffered);
@@ -884,6 +942,7 @@ private:
 
     nghttp2_session* m_session{nullptr};
     std::map<int32_t, Stream> m_streams;
+    bool m_draining{false};
     //! Request bytes of all the streams.
     size_t m_buffered{0};
 };
@@ -895,6 +954,8 @@ public:
     using Impl::Impl;
     ~Http1() override { CloseAll(); }
     bool Busy() const override { return m_current != nullptr; }
+    size_t Undelivered() const override { return m_current && m_current->call ? m_current->call->Pending() : 0; }
+    void Drain() override { m_draining = true; }
     bool Receiving() const override { return m_current == nullptr && (m_request != nullptr || !m_in.empty()); }
 
     bool Receive(std::span<const uint8_t> data) override
@@ -952,6 +1013,8 @@ private:
     bool Parse()
     {
         while (m_open && !m_current) {
+            // Draining: no next request; closed once the reply before is out.
+            if (m_draining) return m_open = false;
             if (!m_request) {
                 const auto end{m_in.find("\r\n\r\n")};
                 if (end == std::string::npos) return m_in.size() <= (64 << 10);
@@ -1044,6 +1107,7 @@ private:
     bool m_chunked{false};
     uint64_t m_length{0};
     bool m_open{true};
+    bool m_draining{false};
 };
 
 /** Until the first bytes tell which protocol it is. */
@@ -1099,6 +1163,8 @@ std::string Connection::TakeOutput()
 
 bool Connection::WantsWrite() const { return m_impl->WantsWrite(); }
 bool Connection::Busy() const { return m_impl->Busy(); }
+size_t Connection::Undelivered() const { return m_impl->Undelivered(); }
+void Connection::Drain() { m_impl->Drain(); }
 bool Connection::Receiving() const { return m_impl->Receiving(); }
 void Connection::Goodbye() { m_impl->Goodbye(); }
 std::optional<NodeClock::time_point> Connection::OldestRequest() const { return m_impl->OldestRequest(); }
@@ -1300,7 +1366,7 @@ void Server::ServeConnection(std::shared_ptr<Sock> sock, CService peer)
         const auto now{NodeClock::now()};
         // A client that does not read what it asked for (slow reads): replies pile up; closed once the peer took no
         // byte of them for a while.
-        if (pending.empty()) last_write = now;
+        if (pending.empty() && connection.Undelivered() == 0) last_write = now;
         if (m_options.write_timeout_seconds > 0 && now - last_write > std::chrono::seconds{m_options.write_timeout_seconds}) {
             LogDebug(BCLog::HTTP, "gRPC: %s reads nothing of its replies: closed\n", peer.ToStringAddrPort());
             break;
@@ -1329,12 +1395,18 @@ void Server::ServeConnection(std::shared_ptr<Sock> sock, CService peer)
             goodbye("idle");
             break;
         }
-        // Streams opened and given up again and again (each would restart the idle time), or too many requests on one
-        // connection: closed once no call runs (the client opens another).
-        if ((m_options.max_abandoned_requests > 0 && counts.abandoned > m_options.max_abandoned_requests) ||
-            (m_options.max_requests_per_connection > 0 && counts.begun > m_options.max_requests_per_connection && !connection.Busy() && pending.empty())) {
-            goodbye("past its requests");
+        // Streams reset again and again (Rapid Reset; each would restart the idle time): closed. Too many requests on one
+        // connection: no new one (GOAWAY), closed once the running calls are over (the client opens another).
+        if (m_options.max_abandoned_requests > 0 && counts.abandoned > m_options.max_abandoned_requests) {
+            goodbye("resets too many streams");
             break;
+        }
+        if (m_options.max_requests_per_connection > 0 && counts.begun > m_options.max_requests_per_connection) {
+            connection.Drain();
+            if (!connection.Busy() && pending.empty()) {
+                goodbye("past its requests");
+                break;
+            }
         }
         Sock::Event occurred{0};
         const Sock::Event wanted{static_cast<Sock::Event>(Sock::RecvEvent | (pending.empty() ? 0 : Sock::SendEvent))};

@@ -847,6 +847,134 @@ BOOST_AUTO_TEST_CASE(slow_reads_and_rotation)
     server.Stop();
 }
 
+namespace {
+/** An HTTP/2 client's bytes (nghttp2's client session; what the server sends is read raw by the test). */
+struct H2Bytes {
+    nghttp2_session* session{nullptr};
+    std::map<int32_t, std::string> bodies;
+    std::map<int32_t, size_t> sent;
+    explicit H2Bytes(const std::vector<nghttp2_settings_entry>& settings = {})
+    {
+        nghttp2_session_callbacks* cb;
+        nghttp2_session_callbacks_new(&cb);
+        nghttp2_session_client_new(&session, cb, this);
+        nghttp2_session_callbacks_del(cb);
+        nghttp2_submit_settings(session, NGHTTP2_FLAG_NONE, settings.data(), settings.size());
+    }
+    ~H2Bytes() { nghttp2_session_del(session); }
+    std::string Out()
+    {
+        std::string out;
+        const uint8_t* data;
+        for (ssize_t n; (n = nghttp2_session_mem_send(session, &data)) > 0;) out.append(reinterpret_cast<const char*>(data), n);
+        return out;
+    }
+    /** A whole gRPC request (its body, END_STREAM). */
+    int32_t Request(const std::string& path, const std::string& body)
+    {
+        const std::vector<std::pair<std::string, std::string>> headers{
+            {":method", "POST"}, {":scheme", "http"}, {":authority", "127.0.0.1"}, {":path", path}, {"content-type", "application/grpc"}, {"te", "trailers"}};
+        std::vector<nghttp2_nv> nvs;
+        for (const auto& [n, v] : headers) nvs.push_back({reinterpret_cast<uint8_t*>(const_cast<char*>(n.data())), reinterpret_cast<uint8_t*>(const_cast<char*>(v.data())), n.size(), v.size(), NGHTTP2_NV_FLAG_NONE});
+        nghttp2_data_provider provider;
+        provider.source.ptr = this;
+        provider.read_callback = [](nghttp2_session*, int32_t id, uint8_t* buf, size_t length, uint32_t* flags, nghttp2_data_source* source, void*) -> ssize_t {
+            auto& self{*static_cast<H2Bytes*>(source->ptr)};
+            const std::string& b{self.bodies[id]};
+            size_t& done{self.sent[id]};
+            const size_t n{std::min(length, b.size() - done)};
+            std::memcpy(buf, b.data() + done, n);
+            done += n;
+            if (done == b.size()) *flags |= NGHTTP2_DATA_FLAG_EOF;
+            return static_cast<ssize_t>(n);
+        };
+        const int32_t id{static_cast<int32_t>(nghttp2_session_get_next_stream_id(session))};
+        bodies[id] = body;
+        BOOST_REQUIRE_EQUAL(nghttp2_submit_request(session, nullptr, nvs.data(), nvs.size(), &provider, nullptr), id);
+        return id;
+    }
+};
+} // namespace
+
+BOOST_AUTO_TEST_CASE(flow_control_and_rapid_reset)
+{
+    grpcsrv::Options options;
+    options.write_timeout_seconds = 1;
+    options.idle_timeout_seconds = 30;
+    options.max_abandoned_requests = 5;
+    options.max_call_buffer = 1 << 20;
+    options.threads = 2;
+    grpcsrv::Server server{Pool(), options};
+    constexpr size_t MESSAGES{512}, MESSAGE_HEX{64 << 10};
+    std::atomic<size_t> written{0};
+    std::atomic<bool> refused{false};
+    // A server stream that would write 32 MiB.
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "SubscribeEvents", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        Message resp{New("cusf.crypto.v1.Ripemd160Response")};
+        SetWrapped(resp, "digest", std::string(MESSAGE_HEX, 'a'));
+        for (size_t i{0}; i < MESSAGES; ++i) {
+            if (!w->Write(resp)) {
+                refused = true;
+                break;
+            }
+            ++written;
+        }
+        w->Finish({});
+    }));
+    // A server stream that runs until the client goes.
+    std::vector<std::shared_ptr<grpcsrv::Writer>> running;
+    Mutex running_mutex;
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "SubscribeHeaderSyncProgress", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        LOCK(running_mutex);
+        running.push_back(w);
+    }));
+    std::string error;
+    BOOST_REQUIRE_MESSAGE(server.Start({*Assert(Lookup("127.0.0.1", 0, /*fAllowLookup=*/false))}, {}, error), error);
+    const CService to{server.Bound().at(0)};
+
+    {
+        // A client that opens no window (initial window 0, never a WINDOW_UPDATE): the call's unsent replies are
+        // bounded (it ends with RESOURCE_EXHAUSTED past 1 MiB), and the stream is reset or the connection closed
+        // once nothing moved for 1 s.
+        RawClient c{to};
+        H2Bytes client{{{NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, 0}}};
+        const int32_t id{client.Request("/cusf.mainchain.v1.ValidatorService/SubscribeEvents", Envelope(""))};
+        BOOST_REQUIRE(c.Send(client.Out()));
+        const auto start{NodeClock::now()};
+        bool reset{false};
+        while (!c.closed && !reset && NodeClock::now() - start < 5s) {
+            c.ReadFor(100ms);
+            const std::vector<uint8_t> types{FrameTypes(c.in)};
+            reset = std::find(types.begin(), types.end(), NGHTTP2_RST_STREAM) != types.end();
+        }
+        BOOST_CHECK(reset || c.closed);
+        const double took{Seconds(NodeClock::now() - start)};
+        BOOST_CHECK_MESSAGE(took >= 0.9 && took < 4, "zero-window stream ended after " << took << " s");
+        BOOST_CHECK(refused.load());
+        BOOST_CHECK_LE(written.load() * MESSAGE_HEX, size_t{1} << 20);
+        (void)id;
+    }
+    {
+        // Rapid Reset: calls asked for whole, then reset at once, again and again: closed past 5, with a GOAWAY.
+        RawClient c{to};
+        H2Bytes client;
+        int rounds{0};
+        for (; rounds < 20 && !c.closed; ++rounds) {
+            const int32_t id{client.Request("/cusf.mainchain.v1.ValidatorService/SubscribeHeaderSyncProgress", Envelope(""))};
+            std::string out{client.Out()};
+            nghttp2_submit_rst_stream(client.session, NGHTTP2_FLAG_NONE, id, NGHTTP2_CANCEL);
+            out += client.Out();
+            if (!c.Send(out)) break;
+            c.ReadFor(100ms);
+        }
+        BOOST_CHECK(c.closed || c.ReadFor(1s));
+        BOOST_CHECK_MESSAGE(rounds >= 6 && rounds < 9, rounds);
+        const std::vector<uint8_t> types{FrameTypes(c.in)};
+        BOOST_CHECK(std::find(types.begin(), types.end(), NGHTTP2_GOAWAY) != types.end());
+    }
+    server.Stop();
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 #endif // ENABLE_GRPC
