@@ -627,7 +627,12 @@ sidechain by hand, downloads from the app (phase 4).
 | 55 | **Wallets of before** | Their keys and files never touched: the move is an ordinary payment of each wallet of before, asked in the trusted dialog, never a sweep; offered once ("Not now" remembered), kept in Settings; their sidechain wallets stay loaded beside the new ones | seed.test.ts, run_seed (the old wallet's private descriptors identical before and after) |
 | 56 | **The wallet setup at the daemons** (§13.5 #11) | The app's user keeps its phase-2 whitelist (no `walletpassphrase`, no `importdescriptors`): the setup of the phrase's wallet goes as the daemon's own user (its cookie, read for the call) through `SidechainSupervisor::SetupRpc`, which takes only `SetupRpcMethods` (`createwallet`, `loadwallet`, `listwallets`, `listwalletdir`, `getblockhash`, `getwalletinfo`, `importdescriptors`, `walletpassphrase`, `walletlock`, `abortrescan`: no spend, no key read out) and is called by `SeedKeeper` alone; the supervisor makes no wallet of its own for a chain whose wallet is the phrase's | seed_tests `wallet_setup_at_the_daemons`, supervisor_tests `auto_wiring_args` (the app's user still refused `walletpassphrase`, `importdescriptors`), run_seed |
 | 57 | **Validator keys** (decision 4) | Never made from the seed, never imported; the enable wizard says the validator key is made on this computer | — |
-| 58 | **Merged mining with an encrypted wallet** | Residual (open): `createbmmrequest` pays BMM bids from the app's wallet, which is encrypted when it is the phrase's: bids need it unlocked for a while (`walletpassphrase`) or a wallet of their own for mining | — |
+| 58 | **Merged mining with an encrypted wallet** (§23.12) | The main wallet pays the bids by default (it can while it has no password, or is unlocked); a **mining wallet** of its own is an option: account 1 of the app's chain from the phrase (a hardened account: it derives nothing else), **without a password** so it pays by itself — a hot wallet, said so ("keep only a little in it"), topped up by an ordinary payment from the main wallet asked in the trusted dialog; the daemons name it (`-mainchainrpcwallet`) and are started again when it changes. The main wallet locked and no mining wallet: said plainly (Settings → Wallet → Merged mining, Home's card of the sidechain) from `mining.status` and the daemon's own error (`getbmminfo.error`), never a silent failure | seed_tests `a_mining_wallet_from_the_phrase_pays_the_bids`, supervisor_tests `auto_wiring_args`, seed.test.ts, run_seed (bids paid by the mining wallet while the main wallet stays locked and pays nothing) |
+| 59 | **The app's user at each daemon** (the remote host's privilege table, template 6fc20b4c9f) | The daemon runs a host method for a whitelisted user only when the whitelist names it or every RPC method it exercises, and an RPC method of the pages only when the user may call it: the app's `-rpcwhitelist` names **exactly what is used** — the kit's page reads, the privileges of the kit's host methods (send, PSBTs, fee bumps, the address book, coins, wallets, backups, `setbmm`, `requestbmmblock`, peers), the kit's confirmed methods (`signmessage`, `createwithdrawal`, `refundwithdrawal`), the Peg page's `peg.call`/`peg.connection` and its mainchain reads by name; then **each chain's own**, read at build time from its `local.cpp` at the pack's pinned commit (its reads, its confirmed methods, its host methods `<stem>.*`: the pack's manifest, `packs/index.json` `rpc`) and the app's own pages' use of it (`ChainAdapter::MethodsUsed`: DEX, assets, names, markets, shielded, staking). Never: `walletpassphrase`, `walletpassphrasechange`, `importdescriptors` (the phrase's setup is the daemon's own user's, #56), any key read out, `sendtoaddress`/`sendmany`, `createsidechaindeposit` (a deposit is the app's own payment, `peg.deposit` never reaches the daemon), another chain's methods | supervisor_tests `auto_wiring_args` (kit, never, a chain's own in its daemon only), packs.test.ts (the extraction), run_seed/run_integrated/run_dex with daemons of the fixes |
+| 60 | **Files the user chose** (`webuichosenfile`) | Daemons started with `-webuichooser=chains-app`: only the app's own user gives files. A save over a file there already: `overwrite` only when the app's chooser (GTK's, Win32's) asked to replace it and the user said yes (the file existed when chosen); a new file, or a file to read, never | sidechainpages_tests `overwrite_only_when_the_chooser_asked_to_replace`, run_seed (zSide's own backup, a new file then written over) |
+| 61 | **No password, by choice** (§23.11) | A password is recommended, never forced: without one, said plainly before anything is made ("anyone with access to this computer can spend your coins … and read your backup phrase"), in Settings, the status bar, the sidebar and Manage wallets ("no password"); seed.dat says it in its own words. The wallets of the phrase are still encrypted from their first moment (their passphrase made from the seed, kept open by the app): no protection on this computer, but a password can be **added and removed** without making a wallet again — Core cannot take encryption away, and encrypting a wallet once its keys are in makes it generate random keys of its own and make them active (`SetupWalletGeneration` after `importdescriptors` cleared the blank flag), which the phrase would not bring back | seed_tests `without_a_password_then_one_added_then_removed`, seed.test.ts, run_seed nopass |
+| 62 | **Adding or removing the password** | Asked in the app's window (twice; removing: its consequences said, a box ticked, the password typed); the app's wallet's passphrase changed first, then seed.dat, or neither (a refusal changes nothing; a failed write changes the wallet back); adding locks every wallet of the phrase at once, removing keeps them open; the sidechains' wallets keep their passphrases (made from the seed), so no sidechain sees the password. **Found by review (MEDIUM, fixed):** the app opening a wallet by itself (KeepOpen) looked at the mode then opened, so a password added in between could be followed by a late open of a wallet just locked, and an import begun without a password kept its wallet open at its end: now the mode is looked at and the wallet opened under the lock adding or removing a password holds (`m_protect_mutex`; one waits for the other, a wallet opened before is locked by AddPassword), an import's end looks again under it, no password is added or removed while keys are being made and no import starts meanwhile, and a sidechain's question asked without a field sends nothing if a password came meanwhile. **Residual:** as #53, a crash between the wallet and seed.dat leaves them out of step | seed_tests (a refusal changes nothing; `a_password_added_while_wallets_are_opened_leaves_them_locked`: fails 5/5 without the lock), sidechainpages_tests, run_seed nopass (locked then open, checked by the runner on each node) |
+| 63 | **zSide's private funds** (§23.13) | Never from the phrase (the catalog's `phrase_keys`, the supervisor's wallet mode, the enable wizard): its shielded keys are not made from it. Said wherever the phrase is said to cover the sidechains (the first start, the picker, the enable wizard, Settings → Backup phrase, the restore), with its own backup offered right there (and, in a restore, its own restore) | supervisor_tests `zside_keeps_its_own_wallet`, seed_tests `zside_is_never_from_the_phrase`, seed.test.ts, run_seed nopass |
 
 ### 13.6 Coverage per chain
 
@@ -1911,22 +1916,25 @@ version and from Settings; the first-run guide as the real first start; a fresh 
 ```
 First start (no wallet yet): the guide opens by itself
   Welcome → Your wallet (create / restore; "a phrase of its own, even if you have a Bitcoin wallet")
-  → Backup phrase: [Make my backup phrase…] ──► the app's own window (dialog.h): 12 words, numbered, not selectable;
+  → Backup phrase: ( ) Protect it with a password [recommended] / ( ) No password (its warning: §23.11)
+     [Make my backup phrase…] ──► the app's own window (dialog.h): 12 words, numbered, not selectable;
         "I wrote the 12 words down, in order" ☐ → Next
         → "Check your backup": Word 3 [   ] Word 7 [   ] Word 11 [   ] (a wrong one said at its field)
-        → "A passphrase for your wallet": passphrase (at least 8, its length said) + again (+ the extra word, an option)
+        → "A password for your wallet": password (at least 8, its length said) + again (+ the extra word, an option);
+          without a password nothing more (the extra word alone, if chosen)
      ✓ made and checked; your Chains wallet "main"
-  → Network → Sidechains (cards; "gets its keys from your backup phrase") → Storage → Getting ready
+  → Network → Sidechains (cards; "gets its keys from your backup phrase", zSide's "its own wallet") → Storage → Getting ready
      [Turn them on] → each chain's wallet: "From your backup phrase" / "Making its keys…" / "Reading its chain again… 40 %"
      [Move coins into a sidechain…] (the guided move)  [Done]
 Restore: the same guide, [Type my backup phrase…] ──► the app's window: the words (counted, a word not of the list said as
-  it is typed), "About when did you make it?" (optional), the extra word (optional); then a new passphrase.
+  it is typed), "About when did you make it?" (optional), the extra word (optional); then a new password, if chosen.
 Wallets of before (decision 6): "One backup phrase for all your chains" opens once at the first start of this version
   → a phrase made → the new wallets listed → "Move your coins": each wallet of before with coins, [Move…] (a payment to
   yourself, asked in the trusted dialog) → Done. "Not now" is remembered; Settings keeps it.
 Settings → Wallet → Backup phrase: made on …, phrase 73c5da0a; each chain's wallet and where its keys come from
   (from the phrase · its own wallet: back it up on its own · its keys not made yet [Make its keys…] · being read again 40 %);
-  [Show my backup phrase…] [Change the passphrase…] [Lock it now]
+  [Show my backup phrase…] [Change the password…] [Remove the password…] [Lock it now] (no password: [Add a password…]);
+  zSide's own wallet said apart, its backup; then Merged mining (§23.12)
 Turn a sidechain on (wizard, "Its wallet"): "Use my backup phrase" (recommended: its keys are made from your phrase as it
   starts, you type your wallet passphrase once) or "A separate wallet" (its own keys, its own backup).
 Move coins, step by step (from the Move coins panel, the palette, the end of the first start): Which way → Which sidechain
@@ -1955,11 +1963,11 @@ Move coins, step by step (from the Move coins panel, the palette, the end of the
 |---|---|
 | Phrase | BIP39, English list (byte-identical to bitcoin/bips, SHA-256 checked in the tests), 12 words by default, 24 an option; an extra word (BIP39 passphrase) an option, printable ASCII only (no Unicode normalisation needed, read the same by every wallet) |
 | Seed | PBKDF2-HMAC-SHA512, 2048 rounds, salt "mnemonic" + the extra word (BIP39) |
-| Account of a chain | `m/86'/C'/A'` (taproot, the default) and `m/84'/C'/A'`; **C** = Core's coin type from the chain's parameters (`IsTestChain() ? 1 : 0`, as Core's own wallets); **A = 0** for the app's own chain; a sidechain's **A = BE32(SHA-256("chains/account" 0x00 stem 0x00 genesis-hex))[0..4] & 0x7fffffff**, never 0 |
+| Account of a chain | `m/86'/C'/A'` (taproot, the default) and `m/84'/C'/A'`; **C** = Core's coin type from the chain's parameters (`IsTestChain() ? 1 : 0`, as Core's own wallets); **A = 0** for the app's own chain's wallet, **A = 1** for its mining wallet (§23.12); a sidechain's **A = BE32(SHA-256("sidechain/account/v1" 0x00 stem 0x00 genesis-hex))[0..4] & 0x7fffffff**, plus 1024 when below 1024 (the app's own chain keeps accounts 0–1023: a sidechain never shares one with it) |
 | What a node gets | `tr([fp/86h/Ch/Ah]xprv/0/*)`, `tr(…/1/*)`, `wpkh([fp/84h/Ch/Ah]xprv/0/*)`, `wpkh(…/1/*)`: the **account** key (hardened) only, imported active into a **blank** wallet (`createwallet blank=true` with a passphrase, `walletpassphrase`, `importdescriptors`, `walletlock`); never the master key or the seed |
 | Wallet | "main" where the chain has none, else "seed" (then "seed-2"…): an existing wallet is never reused, never touched |
-| Its passphrase | the app's own chain: **the user's** (that wallet lives in this process, next to seed.dat); a sidechain's: **its own**, `hex(HMAC-SHA256(seed, "unified-wallet/passphrase/1" 0x00 stem 0x00 genesis))`, made while the phrase is unlocked; the user's passphrase never reaches a sidechain's node (§13.5 #49) |
-| seed.dat | `<network datadir>/seed.dat`, written once (atomic, 0600): JSON with the public header (format, network, made, birthday, words, extra word yes/no, fingerprint, scrypt N=2^15 r=8 p=1 and salt, nonce) and the secret (entropy and seed) under **ChaCha20-Poly1305** (Bitcoin Core's own AEAD; §4.1 had said AES-GCM, which Core does not have) with a key from **scrypt** of the passphrase; the header is the AEAD's associated data (changing the network, the birthday, the fingerprint fails like a wrong passphrase); a file that asks for more work than N=2^20, r=16, p=4 is refused before any work |
+| Its passphrase | the app's own chain: **the user's password** (that wallet lives in this process, next to seed.dat), or, without a password (§23.11), one made from the seed (an empty stem and that chain's genesis); a sidechain's: **its own**, `hex(HMAC-SHA256(seed, "wallet/passphrase/v1" 0x00 stem 0x00 genesis))`, made from the seed; the user's password never reaches a sidechain's node (§13.5 #49) |
+| seed.dat | `<network datadir>/seed.dat` (atomic, 0600): JSON, **format 2**, with the public header (format, network, made, birthday, words, extra word yes/no, **password yes/no**, fingerprint, scrypt N=2^15 r=8 p=1 and salt, nonce) and the secret (entropy and seed) under **ChaCha20-Poly1305** (Bitcoin Core's own AEAD; §4.1 had said AES-GCM, which Core does not have) with a key from **scrypt** of the password; the header is the AEAD's associated data under the product-neutral tag `seed-file/2` (changing the network, the birthday, the fingerprint or the password flag fails like a wrong password); a file that asks for more work than N=2^20, r=16, p=4 is refused before any work. **Without a password**: the same file, its key from an empty password with the least work (N=2^10), its `about` saying "WITHOUT a password: anyone who can read this file can take the coins" — no protection, said so (§23.11). A format-1 file (the test builds of 2026-10-21) is refused: "saved by a test version: restore your words into a new data folder" |
 | Validator keys | not from the seed (decision 4): FastBlocks and Layers make theirs on each machine (`-validatorkeyfile`); the enable wizard says so |
 
 **Why the stem is in a sidechain's account** (a refinement of §4.1, which had `SHA256("chains/account" ‖ genesis)`): on
@@ -1972,8 +1980,19 @@ its own chain only. The genesis still separates a chain restarted from a new gen
 **Vectors** (`seed_tests`): BIP39's 24 English vectors with "TREZOR" (entropy → words → seed) and the root xprv of the
 first; BIP84 and BIP86 (`abandon … about`: m/84'/0'/0' and m/86'/0'/0', the first address's key hash and output key);
 scrypt's RFC 7914 vectors; our paths against `test/e2e/seedref.py` (a pure-Python BIP39/BIP32/BIP86 apart from the app's
-code, itself checked against the published vectors): `A(layers, regtest genesis) = 1922787114`, `A(thunder, …) =
-1452416159`, their tpubs and first output keys, Chains' account 0 on a test chain, the passphrase of Layers' wallet.
+code, itself checked against the published vectors): `A(layers, regtest genesis) = 756096351`, `A(thunder, …) =
+954058073` (BitAssets 1219916544, BitNames 1270392304, zSide 563665917, Hivemind 330684049, FastBlocks 368603874, Flush
+31868005), their tpubs and first output keys, Chains' account 0 and its mining account 1 on a test chain, a genesis whose
+hash falls below 1024 for Layers (…070ee8: 804 → 1828), the passphrase of Layers' wallet and of the app's wallet without
+a password.
+
+**The labels are product-neutral** (the user's decision of 2026-10-22: Backbone gets no product-specific label):
+`sidechain/account/v1` (was `chains/account`) and `wallet/passphrase/v1` (was `unified-wallet/passphrase/1`), shared by
+Chains and Backbone, versioned instead of named. No user had a phrase yet, so they were simply changed. **A phrase made
+with the test builds of 2026-10-21 derives other sidechain accounts with this version** (and other sidechain wallet
+passphrases): its words still restore the app's own chain (account 0 is the same), but coins received on a sidechain by
+those test builds are on accounts this version does not make; and their seed.dat (format 1) is refused (restore the
+words into a new data folder).
 
 ### 23.3 Unlocked for a while, and the chains that wait for their keys
 
@@ -2004,9 +2023,9 @@ of the new wallet on the same chain, the fee taken from it (`wallet.send.prepare
 on a sidechain), asked in the trusted dialog like any payment. The old wallets' keys and files are never touched (the e2e
 compares their private descriptors before and after); they stay loaded, and can be closed once empty.
 
-### 23.5 Security (rows #46–#58 of §13.5)
+### 23.5 Security (rows #46–#63 of §13.5)
 
-See §13.5. Found by review: **HIGH, the user's passphrase sent to the sidechains' nodes** (the first version encrypted every
+See §13.5 (#59–#63 for phase 3b, §23.11–23.14). Found by review: **HIGH, the user's passphrase sent to the sidechains' nodes** (the first version encrypted every
 daemon wallet with the user's passphrase, as §4.1 had planned, so a compromised or buggy daemon, or its RPC history, learned
 the passphrase that protects the seed of every chain): fixed before commit (#49).
 
@@ -2016,9 +2035,10 @@ What is already a variable: the product's and the coin's names (`CLIENT_NAME`, `
 dialogs' words from `Hooks::product`), the coin type and the key prefixes (from the chain's parameters: `IsTestChain()`, so
 eCash's main network and betanet are 0 with xprv, its testnet 1 with tprv), the network name in seed.dat
 (`ChainTypeToString`: `ecash`, `ecashbeta`, `ecashtest`), the catalog of sidechains (a Flush row on that branch). What stays
-fixed on purpose: the account tag `"chains/account"` and the passphrase label `"unified-wallet/passphrase/1"` (changing
-either changes every sidechain account or wallet passphrase of every existing phrase; a Backbone phrase is new anyway, but a
-user may restore a Chains phrase into Backbone: same tag, same keys). The trial merge is in §23.8.
+fixed on purpose, and names no product (decided 2026-10-22, §23.2): the account tag `"sidechain/account/v1"`, the wallet
+passphrase label `"wallet/passphrase/v1"` and seed.dat's tag `"seed-file/2"` (changing any changes every sidechain account,
+wallet passphrase or file of every existing phrase; a phrase restored from Chains into Backbone, or the other way, gets the
+same keys). The trial merge is in §23.8.
 
 ### 23.7 Tests
 
@@ -2072,8 +2092,8 @@ committed. What the merge does not do by itself (the adaptations to make when th
    step then just says.
 6. **The seed carries over unchanged**: the coin type and key prefixes come from the chain's parameters (eCash's main
    network and betanet: `0'`, xprv; its testnet: `1'`, tprv), seed.dat names its network (`ecash`, `ecashbeta`,
-   `ecashtest`), the product's name comes from `CLIENT_NAME` ("Backbone") and the unit from `setCurrency` (ECX). To decide:
-   keep `"chains/account"` (a Chains phrase restored into Backbone keeps its sidechain accounts) or give Backbone its own.
+   `ecashtest`), the product's name comes from `CLIENT_NAME` ("Backbone") and the unit from `setCurrency` (ECX). Decided
+   2026-10-22: one product-neutral tag for both, `"sidechain/account/v1"` (§23.2).
 7. **The wallet fix of this branch** (932491ff04, a drivechain spend from an encrypted wallet signs under `cs_wallet`) is
    needed on `ecash` too (and `main`, `lab-fixes`, `regtest-link`): the same code is there.
 
@@ -2124,15 +2144,170 @@ the phrase); `seed-first-dialog-words` (the app's window: the 12 words, a copy r
 `seed-settings` (Settings → Wallet → Backup phrase); `seed-dialog-restore` (a typo said as typed), `seed-restore-1-made`,
 `-2-reading`, `-3-done`, `seed-restore-settings`; `seed-migrate-1-offer` … `-4-moved` and their dialogs.
 
-### 23.11 Open
+### 23.11 A password: recommended, never forced (2026-10-22)
 
-- **The account tag on Backbone** (§23.6): keep `"chains/account"` (a Chains phrase restored into Backbone keeps its
-  sidechains' accounts) or give Backbone its own.
-- **Merged mining with the phrase's wallet** (§13.5 #58): BMM bids are paid from the app's wallet, encrypted when it is the
-  phrase's: unlock it for a while for mining, or let a separate wallet pay the bids.
-- **zSide's shielded keys** (ZIP-32 from the same seed, §4.1) are not made from the phrase: its wallet of the phrase gets
-  the transparent account only, and how zSide makes its Orchard keys in a blank wallet is not tested here (only Layers and
-  Thunder were driven end to end); until then, zSide's own wallet ("separate") is the safe choice.
+The user: "Make sure we are NOT forced to password-protect our main wallet — it's an option."
+
+```
+First start → Backup phrase: ( ) Protect it with a password  [recommended]
+                                 Asked to send coins and to show your phrase: someone using this computer without it can do neither.
+                             ( ) No password — Nothing to type, ever.
+                             ⚠ Without a password, anyone with access to this computer can spend your coins on Chains and on every
+                               sidechain, and read your backup phrase. You can add a password later in Settings → Wallet.
+             [Make my backup phrase…] → the words, the check (the app's window) → a password only if chosen
+Restore and the move of wallets of before: the same choice.
+Settings → Wallet → Backup phrase:   🔓 No password. Anyone with access to this computer can spend…   [Add a password…]
+                                     🔒 Protected by a password.   [Change the password…] [Remove the password…] [Lock it now]
+Status bar, sidebar, Manage wallets: "No password" (warning) for the phrase's wallet; its "Change passphrase…" goes to the
+phrase's own (seed.dat and the wallet together; without a password: Add a password).
+```
+
+**How, and why this way.** Without a password every wallet of the phrase is still **encrypted from its first moment**
+(created blank with a passphrase, then its keys imported), its passphrase made from the seed (`WalletPassphrase`: a
+sidechain's as before, the app's own with an empty stem), and the app keeps it open (`walletpassphrase` for Core's longest,
+again whenever its node starts, and at once before a spend if something locked it: `WalletApi::SetUnlocker`,
+`SeedKeeper::KeepOpen`, `PassphraseWithout` sent with a sidechain's question so no field is asked). seed.dat is the same file
+under an empty password (§23.2) and says so. That is **no protection on this computer, said so everywhere**, but it is what
+lets a password be added and removed later by changing one wallet passphrase:
+
+- Bitcoin Core cannot take a wallet's encryption away (no `decryptwallet`; `walletpassphrasechange` refuses an empty one), so
+  truly unencrypted wallets could never be made unencrypted again once a password was added without making new wallets and
+  reading the chains again;
+- and **encrypting a wallet once its keys are in replaces them**: `encryptwallet` calls `SetupWalletGeneration`, which,
+  the blank flag having been cleared by `importdescriptors` (`AddWalletDescriptor` → `UnsetBlankWalletFlag`), makes new
+  random descriptors and sets them active — every new address would then come from keys the phrase does not bring back.
+  Creating the wallet encrypted while blank skips that.
+
+**Add a password** (`seed.addPassword`): the password asked twice in the app's window; the app's wallet's passphrase changed
+from the one made from the seed to it, then seed.dat written with it, or neither (a refusal changes nothing, a failed write
+changes the wallet back); every wallet of the phrase locked at once. **Remove the password** (`seed.removePassword`): its
+consequences said (level danger), a box "I understand: anyone with access to this computer can spend my coins", the
+password typed; the reverse, then every wallet of the phrase kept open. The sidechains' wallets keep their passphrases (made
+from the seed) through both: no sidechain ever learns the password. Without a password, showing the phrase still asks "Make
+sure nobody can see your screen" first; changing a password there is none of is refused ("add one").
+
+All flows work in both modes: making and restoring (the password step skipped), turning a sidechain on (nothing asked),
+deposits and payments on every chain (no password field; with one, as before), the move of coins, the mining wallet
+(§23.12), adding and removing the password.
+
+### 23.12 Merged mining: the main wallet, or a mining wallet of its own
+
+The daemons pay their bids through this app's node (`createbmmrequest` on `-mainchainrpcwallet`). **By default the main
+wallet pays**, as before: the phrase's wallet of this chain, now named to every daemon (with a wallet of before loaded
+beside it, "the node's only wallet" no longer chose one). It can while it has no password or is unlocked.
+
+**The option: "Use a separate mining wallet"** (Settings → Wallet → Merged mining): a wallet `mining` of this chain, **from
+the phrase, account 1** (`m/86'/C'/1'`, `m/84'/C'/1'`: restoring the phrase and turning the option on again brings its
+coins back; a standard wallet scanning accounts finds it too), **without a password** so it pays by itself while the main
+wallet stays locked: a hot wallet, said so ("keep only a little in it"); its password asked once (to open the phrase) when
+made. Without a phrase (wallets of before, "Not now"), a mining wallet with keys of its own (Core's), said to need its own
+backup. Its balance shown; **Top up…** (an amount, then an ordinary payment from the main wallet, asked in the trusted
+dialog with its password); **Move its coins back**; **Pay from my wallet again** (it stays, with its coins, used again as it
+is if turned on later). Each change names the new wallet to the daemons (`-mainchainrpcwallet`) and starts again those that
+paid from another (`SidechainSupervisor::RefreshBmmWallets`; `setbmm` is kept by the daemon across a start).
+
+**When bids cannot be paid, it is said plainly**: `mining.status` (which wallet pays, locked or not, the mining wallet's
+balance, the sidechains whose merged mining is on) gives Settings "Merged mining cannot pay its bids: your wallet has a
+password and is locked. Use a separate mining wallet (Settings → Wallet), or unlock your wallet for a while." (or "your
+mining wallet is empty: top it up", or "the wallet that pays them is not open"); Home's card of a sidechain turns its
+daemon's own last error (`getbmminfo.error`) into the same words, with a button to the mining wallet.
+
+Known, said here: a daemon's own Peg page (its pack) sees the paying wallet as "the mainchain wallet" (`peg.call
+getbalances`, an address for a withdrawal by `getnewaddress`): with a mining wallet, that page shows it; the app's own Move
+coins pays and receives with the main wallet.
+
+### 23.13 zSide: a wallet of its own, said where it matters
+
+The user: "zSide separate, with a mention in the UI where necessary." zSide's shielded (Orchard) keys are not made from the
+phrase, so its private funds would not come back with it: **zSide always gets its own wallet** (`Spec::phrase_keys =
+false`: the supervisor's wallet mode is "separate" whatever a setting says, the enable wizard offers no phrase, the first
+start's unlock skips it). Said, with its own backup offered right there (`ZsideNote`: **Back up zSide's wallet…**, through
+the app's chooser and zSide's node; in a restore **Restore zSide's wallet from a backup…**, `chain.wallet.restore`):
+
+- the first start: its card in the picker ("Its own wallet: its private funds are not covered by your backup phrase. Back
+  it up on its own."), the end of the guide when it was picked;
+- the restore step ("If you used zSide, bring its private funds back from its own backup file once it runs.");
+- the enable wizard's wallet step ("A wallet of its own", why), its last step (the backup);
+- Settings → Wallet → Backup phrase (its row: "Its own wallet: its private funds are not covered by your backup phrase",
+  and the backup).
+
+### 23.14 The sidechains' daemons since their remote host's security fixes
+
+The sidechains' mains carry the template's fixes (6fc20b4c9f): host methods under the caller's privileges, files only
+from the app's chooser, `peg.call`/`peg.connection` by name. The app follows (§13.5 #59, #60): its `-rpcwhitelist` at each
+daemon is the kit's list (`SidechainSupervisor::AppRpcMethods`) plus that chain's own (`AppRpcMethodsFor`: its pack's
+manifest — `scripts/packs.mjs` reads `RpcMethods`, `ConfirmedRpcMethods` and `RegisterHost` of the chain's `local.cpp` at
+the pinned commit into `packs/index.json` — and `ChainAdapter::MethodsUsed`); `-webuichooser=chains-app`; `overwrite` given
+to `webuichosenfile` only when the chooser asked to replace a file and the user said yes.
+
+The daemons the tests use (`~/skydoge/tools/unified-bin`, COMMITS.txt): Thunder, BitAssets, Hivemind, zSide and FastBlocks
+of their `main` (each with the template's fixes merged); Layers of its branch `unified-dex` with `main` merged
+(b29139ef7b: Trade's DEX reads are not on Layers' `main` yet). The packs stay at their pinned commits (pages only; the
+fixes are the daemons').
+
+### 23.15 Tests (phase 3b)
+
+- **Host** (`test_chains-app`): `seed_tests` — the new labels' vectors against `seedref.py` (every stem, a low hash moved
+  above 1024, the mining account, the app's wallet passphrase without a password); seed.dat format 2 (password flag bound,
+  no password = least work, the file says so); the keeper without a password (nothing asked after the words; every wallet
+  encrypted from its start with its passphrase from the seed, kept open, opened again for a spend or a daemon started
+  again; shown with a question first; change refused), a password added (a refusal changes nothing; then seed.dat with it,
+  the app's wallet's passphrase it, every wallet locked, Layers' unchanged and never sent the password) and removed (a
+  wrong one said; open again), a restore without a password elsewhere (the same passphrases); the mining wallet (account 1,
+  blank, no passphrase, its password asked once, the daemons told; stopped and reused; without a phrase, keys of its own);
+  zSide never from the phrase. `supervisor_tests` — the whitelist (the kit's, never, a chain's own in its daemon only, plain
+  names only), `-webuichooser`, `-mainchainrpcwallet` (named, a bad name refused), zSide's wallet always its own.
+  `sidechainpages_tests` — overwrite only when the chooser asked to replace; without a password no field asked and the
+  phrase wallet's passphrase sent, another wallet's asked as before.
+- **Pages** (vitest): `seed.test.ts` (26: the choice with a password by default, the warning before anything is made,
+  create and restore without one; Settings without a password and with one, add, change, remove; a sidechain turned on
+  without one asks nothing; zSide in the picker, the enable wizard, Settings, its backup at the end; the mining wallet:
+  locked said plainly, made, empty said, topped up by a payment from the main wallet, stopped; merged mining's errors in
+  plain words); `packs.test.ts` (the extraction of a chain's methods, past strings and comments).
+- **End to end** (`run_seed.py` + `seed.js`): four runs, see §23.16.
+
+### 23.16 End-to-end runs and the test set (2026-10-22)
+
+`run_seed.py` (+ `seed.js`, ctest `webui_e2e_seed`), four runs of the real app on regtest with the daemons of
+`~/skydoge/tools/unified-bin` (§23.14), **55 checks** and the runner's own:
+
+1. **First start, with a password** (20): as §23.9, with zSide's notice on its card; then **merged mining with the main
+   wallet locked**: Layers' own merged mining turned on (`setbmm`), its bids refused by the locked wallet and said plainly in
+   Settings → Wallet → Merged mining; a mining wallet made from the phrase (the phrase locked first: its password asked
+   once), the daemons started again to pay from it; "empty" said; topped up with 0.05 from the main wallet (its password
+   asked); the runner mines and checks: Layers 4 → 7 by its own bids, **paid by the mining wallet** (0.0499 → 0.0496, 4
+   bids), **the main wallet locked and untouched** (`unlocked_until` 0, no transaction of its own).
+2. **Restore** (5): the same balances on Chains, Layers and Thunder, and the runner checks every chain's account again with
+   this version's labels (`seedref.py`: Layers 756096351, Thunder 954058073).
+3. **Wallets of before** (12): as §23.9.
+4. **Without a password** (18): said before it is made; nothing asked after the words; the runner checks seed.dat says
+   no password, every wallet of the phrase open for good, the app's wallet's passphrase made from the seed; a deposit and
+   two payments on Layers asked with no password field; zSide on with its own wallet, its notice at the end of the guide and
+   in Settings, **its own backup written by zSide's node** through the app's chooser (`-webuichooser`), then written over
+   (the chooser asked: `overwrite`); a password added (the runner: seed.dat with one, the wallets locked; a payment asks
+   it), removed (its consequences said; open again; a payment asks none).
+
+**The test set on `unified-main` with phase 3b**: `test_chains-app` 159 cases with the real daemons
+(`CHAINS_TEST_SIDECHAIN_BINDIR` the unified-bin), no error; vitest 57 files / 522 tests; svelte-check 598 files 0/0; `i18n.mjs --check`; `run_seed.py`
+55/55; `run_startup.py` 5/5; `run_integrated.py` 66/66 (Layers, Thunder, BitAssets, Hivemind, FastBlocks: the whitelist
+made of the packs' manifests holds every page); `run_dex.py` 23/23; the hub-scale cost (§21.3's state and window, Trade
+among the pages): idle 0.6–2.9 % of one core on every page (budget 5), live 3.8–8.3 % (budget 25). After the review's
+fix (§13.5 #62) the units, `run_seed.py` and `run_integrated.py` were run again on it: the same.
+
+### 23.17 Pictures
+
+In `~/skydoge/media/unified-app/phase3b/` (Midnight, the e2e's own runs): `seed-nopass-1-choice` (the choice, the warning),
+`seed-nopass-2-done-zside` (the end of the guide, zSide's backup), `seed-nopass-3-settings` (no password, Add a password,
+zSide apart), `seed-nopass-4-password-added`, `seed-nopass-dialog-add-password`, `seed-nopass-dialog-remove-password`;
+`seed-firstrun-5b-zside` (zSide's card in the picker); `seed-mining-1-locked` … `-4-paying` (merged mining with the main
+wallet locked, the mining wallet made, empty, funded, paying); `seed-settings` (with a password: change, remove, lock);
+and the pictures of §23.10 taken again.
+
+### 23.18 Open
+
+- **zSide's shielded keys from the phrase** (ZIP-32 from the same seed, §4.1): not for now (§23.13); its own wallet and
+  backup meanwhile.
+- **The mining wallet and a pack's Peg page** (§23.12): that page sees the paying wallet as the mainchain wallet.
 - **A prepared send on a sidechain is used up by a wrong passphrase** (§13.5 #8): the user sends again (the trusted dialog
   cannot ask again for it). Seen by the e2e with the old passphrase.
 - **The extra word** is printable ASCII only (no Unicode normalisation in the app): a phrase made elsewhere with a
