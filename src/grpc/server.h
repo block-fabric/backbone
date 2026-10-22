@@ -9,11 +9,13 @@
 #include <netaddress.h>
 #include <sync.h>
 #include <util/threadinterrupt.h>
+#include <util/time.h>
 
 #include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -88,6 +90,16 @@ struct Options {
     std::vector<std::string> allowed_hosts;
     //! Largest number of connections at a time.
     int max_connections{128};
+    //! Connections one client address may hold at once (0: no bound), but for the addresses of per_ip_exempt (the
+    //! loopback addresses for the node: the machine's own sidechain nodes and apps share them; the total bounds them).
+    int max_connections_per_ip{0};
+    std::vector<CSubNet> per_ip_exempt;
+    //! Close a connection whose request (its headers and body) is not all in this long after its first byte, however
+    //! slowly it keeps coming (slow clients holding connections); 0: never. Calls running on a worker are not counted.
+    int request_timeout_seconds{0};
+    //! Close a connection that has no call running and sent nothing for this long (0: never); over HTTP/2 with a
+    //! GOAWAY first, so that a client knows to open another.
+    int idle_timeout_seconds{0};
     //! Worker threads for the handlers.
     int threads{4};
 };
@@ -144,6 +156,8 @@ private:
     std::atomic<int> m_connections{0};
     std::atomic<size_t> m_buffered{0};
     Guard m_guard;
+    //! Connections by client address (Options::max_connections_per_ip).
+    std::map<std::string, int> m_per_ip GUARDED_BY(m_mutex);
 };
 
 /**
@@ -162,6 +176,14 @@ public:
     std::string TakeOutput();
     /** Whether there is something to send, or to wait for. */
     bool WantsWrite() const;
+    /** Whether a call is running (its request all in, the call not over). */
+    bool Busy() const;
+    /** Whether a request is being read: begun and not all in (its headers, or its body). */
+    bool Receiving() const;
+    /** Before closing an idle connection: HTTP/2 says GOAWAY (no error), to be sent from TakeOutput. */
+    void Goodbye();
+    /** HTTP/2: when the oldest request still being read began (each stream timed on its own); else nothing. */
+    std::optional<NodeClock::time_point> OldestRequest() const;
     /** End every call of the connection (the client went away, or the server stops). */
     void CloseAll();
 

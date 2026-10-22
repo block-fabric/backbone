@@ -12,12 +12,14 @@
 #include <util/string.h>
 #include <util/thread.h>
 #include <util/threadpool.h>
+#include <util/time.h>
 
 #include <nghttp2/nghttp2.h>
 
 #include <algorithm>
 #include <cstring>
 #include <deque>
+#include <optional>
 #include <set>
 
 namespace grpcsrv {
@@ -263,6 +265,10 @@ struct Request {
     const Server::MethodEntry* entry{nullptr};
     //! Not a content type of these protocols: HTTP 415.
     bool bad_type{false};
+    //! All of it is in (END_STREAM): its call runs, or ran.
+    bool ended{false};
+    //! When its first bytes came (HTTP/2: its HEADERS frame).
+    NodeClock::time_point begun{};
 };
 
 std::string Header(const Request& r, const std::string& name)
@@ -534,6 +540,13 @@ struct Connection::Impl {
     virtual bool Poll() = 0;
     virtual bool WantsWrite() const = 0;
     virtual void CloseAll() = 0;
+    //! A call is running (a connection idle otherwise may be closed: Options::idle_timeout_seconds).
+    virtual bool Busy() const = 0;
+    //! A request is being read (Options::request_timeout_seconds).
+    virtual bool Receiving() const = 0;
+    virtual void Goodbye() {}
+    //! HTTP/2: when the oldest request still being read began (each stream is timed on its own).
+    virtual std::optional<NodeClock::time_point> OldestRequest() const { return std::nullopt; }
     std::string m_out;
     Server& m_server;
 };
@@ -621,6 +634,28 @@ public:
     }
 
     bool WantsWrite() const override { return !m_out.empty() || nghttp2_session_want_write(m_session); }
+    bool Busy() const override
+    {
+        // Busy only while a call runs; a stream still being read is not (Receiving).
+        return std::any_of(m_streams.begin(), m_streams.end(), [](const auto& s) { return s.second.request.ended && s.second.request.call && !s.second.request.call->Closed(); });
+    }
+    bool Receiving() const override
+    {
+        return std::any_of(m_streams.begin(), m_streams.end(), [](const auto& s) { return !s.second.request.ended; });
+    }
+    void Goodbye() override
+    {
+        nghttp2_session_terminate_session(m_session, NGHTTP2_NO_ERROR);
+        Flush();
+    }
+    std::optional<NodeClock::time_point> OldestRequest() const override
+    {
+        std::optional<NodeClock::time_point> oldest;
+        for (const auto& [id, stream] : m_streams) {
+            if (!stream.request.ended && (!oldest || stream.request.begun < *oldest)) oldest = stream.request.begun;
+        }
+        return oldest;
+    }
 
     void CloseAll() override
     {
@@ -737,7 +772,7 @@ private:
     static int OnBeginHeaders(nghttp2_session*, const nghttp2_frame* frame, void* user)
     {
         auto& self{*static_cast<Http2*>(user)};
-        if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST) self.m_streams[frame->hd.stream_id];
+        if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST) self.m_streams[frame->hd.stream_id].request.begun = NodeClock::now();
         return 0;
     }
 
@@ -773,6 +808,7 @@ private:
             BeginCall(self.m_server, r, /*http2=*/true);
         }
         if ((frame->hd.type == NGHTTP2_HEADERS || frame->hd.type == NGHTTP2_DATA) && (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) && r.call) {
+            r.ended = true;
             EndRequest(self.m_server, r);
             // The request is decoded: its bytes are no longer buffered.
             Stream& stream{it->second};
@@ -851,6 +887,8 @@ class Http1 : public Connection::Impl
 public:
     using Impl::Impl;
     ~Http1() override { CloseAll(); }
+    bool Busy() const override { return m_current != nullptr; }
+    bool Receiving() const override { return m_current == nullptr && (m_request != nullptr || !m_in.empty()); }
 
     bool Receive(std::span<const uint8_t> data) override
     {
@@ -1003,6 +1041,8 @@ class Sniff : public Connection::Impl
 {
 public:
     using Impl::Impl;
+    bool Busy() const override { return false; }
+    bool Receiving() const override { return !m_in.empty(); }
     bool Receive(std::span<const uint8_t> data) override
     {
         m_in.append(reinterpret_cast<const char*>(data.data()), data.size());
@@ -1048,6 +1088,10 @@ std::string Connection::TakeOutput()
 }
 
 bool Connection::WantsWrite() const { return m_impl->WantsWrite(); }
+bool Connection::Busy() const { return m_impl->Busy(); }
+bool Connection::Receiving() const { return m_impl->Receiving(); }
+void Connection::Goodbye() { m_impl->Goodbye(); }
+std::optional<NodeClock::time_point> Connection::OldestRequest() const { return m_impl->OldestRequest(); }
 void Connection::CloseAll() { m_impl->CloseAll(); }
 
 // ---------------------------------------------------------------------------
@@ -1176,10 +1220,18 @@ void Server::AcceptLoop()
                 continue;
             }
             if (!client->SetNonBlocking()) continue;
+            // Connections by address: bounded, but for the addresses exempted (the loopback ones: this machine's own processes).
+            const bool exempt{std::any_of(m_options.per_ip_exempt.begin(), m_options.per_ip_exempt.end(), [&](const CSubNet& s) { return s.Match(peer); })};
+            const std::string ip{exempt ? std::string{} : peer.ToStringAddr()};
+            LOCK(m_mutex);
+            if (!ip.empty() && m_options.max_connections_per_ip > 0 && m_per_ip[ip] >= m_options.max_connections_per_ip) {
+                LogWarning("gRPC: connection from %s refused: %d connections from it already", peer.ToStringAddrPort(), m_per_ip[ip]);
+                continue;
+            }
+            if (!ip.empty()) ++m_per_ip[ip];
             ++m_connections;
             std::shared_ptr<Sock> shared{std::move(client)};
             auto done{std::make_shared<std::atomic<bool>>(false)};
-            LOCK(m_mutex);
             // The threads of connections that ended are joined here, so that they do not pile up.
             for (auto it{m_connection_threads.begin()}; it != m_connection_threads.end();) {
                 if (it->second->load()) {
@@ -1189,7 +1241,15 @@ void Server::AcceptLoop()
                     ++it;
                 }
             }
-            m_connection_threads.emplace_back(std::thread(&util::TraceThread, "grpcconn", [this, shared, peer, done] { ServeConnection(shared, peer); --m_connections; *done = true; }), done);
+            m_connection_threads.emplace_back(std::thread(&util::TraceThread, "grpcconn", [this, shared, peer, done, ip] {
+                ServeConnection(shared, peer);
+                if (!ip.empty()) {
+                    LOCK(m_mutex);
+                    if (--m_per_ip[ip] <= 0) m_per_ip.erase(ip);
+                }
+                --m_connections;
+                *done = true;
+            }), done);
         }
     }
 }
@@ -1201,7 +1261,40 @@ void Server::ServeConnection(std::shared_ptr<Sock> sock, CService peer)
     std::string pending;
     bool open{true};
     uint8_t buf[16384];
+    auto last_activity{NodeClock::now()};
+    std::optional<NodeClock::time_point> receiving_since;
     while (open && !m_interrupt) {
+        const auto now{NodeClock::now()};
+        // A request that takes too long to come in, however slowly it keeps coming, ends the connection (slow clients
+        // holding connections); so does a connection with nothing running that sent nothing for a while (with a GOAWAY
+        // over HTTP/2). Calls running on a worker (a server stream for as long as it lasts) are never cut.
+        if (connection.Receiving()) {
+            if (!receiving_since) receiving_since = now;
+            // HTTP/2: each stream from its own first bytes (a connection always reading some new stream is not slow).
+            const NodeClock::time_point since{connection.OldestRequest().value_or(*receiving_since)};
+            if (m_options.request_timeout_seconds > 0 && now - since > std::chrono::seconds{m_options.request_timeout_seconds}) {
+                LogDebug(BCLog::HTTP, "gRPC: %s too slow to send its request: closed\n", peer.ToStringAddrPort());
+                break;
+            }
+        } else {
+            receiving_since.reset();
+        }
+        // Idle is counted from the end of the last call (a long call is not idleness).
+        if (connection.Busy()) last_activity = now;
+        if (m_options.idle_timeout_seconds > 0 && pending.empty() && !connection.Busy() && !connection.Receiving() &&
+            now - last_activity > std::chrono::seconds{m_options.idle_timeout_seconds}) {
+            LogDebug(BCLog::HTTP, "gRPC: %s idle: closed\n", peer.ToStringAddrPort());
+            connection.Goodbye();
+            pending += connection.TakeOutput();
+            for (int i{0}; i < 50 && !pending.empty(); ++i) {
+                Sock::Event ev{0};
+                if (!sock->Wait(std::chrono::milliseconds{20}, Sock::SendEvent, &ev)) break;
+                const ssize_t n{sock->Send(pending.data(), pending.size(), MSG_NOSIGNAL)};
+                if (n <= 0) break;
+                pending.erase(0, static_cast<size_t>(n));
+            }
+            break;
+        }
         Sock::Event occurred{0};
         const Sock::Event wanted{static_cast<Sock::Event>(Sock::RecvEvent | (pending.empty() ? 0 : Sock::SendEvent))};
         // Woken by the socket, or every 20 ms to send what the calls wrote meanwhile.
@@ -1209,6 +1302,7 @@ void Server::ServeConnection(std::shared_ptr<Sock> sock, CService peer)
         if (occurred & Sock::RecvEvent) {
             const ssize_t n{sock->Recv(buf, sizeof(buf), 0)};
             if (n > 0) {
+                last_activity = NodeClock::now();
                 open = connection.Receive({buf, static_cast<size_t>(n)});
             } else if (n == 0) {
                 break;
