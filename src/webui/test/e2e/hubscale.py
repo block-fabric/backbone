@@ -174,7 +174,8 @@ def _sidechains(hub, stems, scale, log):
     t0 = time.time()
     n = lambda x: max(1, int(x * scale))  # noqa: E731
     # Sidechains: coins spread, payments in their wallets (Layers ~2 300 records, BitAssets ~900).
-    for stem, count in (("layers", 2000), ("bitassets", 700), ("hivemind", 300)):
+    # The other four when they are on too (doc/unified-app.md §25: every chain of the catalog at once): a few hundred each.
+    for stem, count in (("layers", 2000), ("bitassets", 700), ("hivemind", 300), ("fastblocks", 300), ("thunder", 300), ("bitnames", 200), ("zside", 200)):
         if stem not in stems:
             continue
         main = hub.main(stem)

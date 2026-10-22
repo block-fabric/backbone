@@ -187,6 +187,34 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
               --budget 5 --page-budget 5 --steady-budget 25
           )
           set_tests_properties(webui_e2e_hub_cost PROPERTIES TIMEOUT 7200 RUN_SERIAL TRUE)
+          # Every chain of the catalog at once (doc/unified-app.md §25): the seven on, each one's deposit, payment, address,
+          # withdrawal and what it is for (a validator key and a bond, a name, shielded coins, a market), and the pages of
+          # every chain. Needs every program in the folders given (unified-bin.next, then unified-bin).
+          add_test(NAME webui_e2e_allchains
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_allchains.py
+              --app $<TARGET_FILE:chains-app>
+              --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+              ${extra_bindirs}
+              --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-allchains
+              --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots-allchains
+          )
+          set_tests_properties(webui_e2e_allchains PROPERTIES TIMEOUT 3600 RUN_SERIAL TRUE)
+          # The hub's scale with all seven on: idle under 5 % of one core on every page.
+          add_test(NAME webui_e2e_hub_cost_allchains
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_showcase.py
+              --app $<TARGET_FILE:chains-app>
+              --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+              ${extra_bindirs}
+              --scale hub --sidechains layers,fastblocks,thunder,bitnames,bitassets,zside,hivemind
+              --state ${CMAKE_CURRENT_BINARY_DIR}/e2e-hub7-state
+              --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-hub7
+              --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots-hub7
+              --screen 3440x1440 --window 3440x1380 --env WEBKIT_DISABLE_DMABUF_RENDERER=
+              --perf --perf-seconds 30 --pages home,overview,transactions,sidechains,explorer,staking
+              --steady home,overview,transactions --steady-seconds 90
+              --budget 5 --page-budget 5 --steady-budget 25
+          )
+          set_tests_properties(webui_e2e_hub_cost_allchains PROPERTIES TIMEOUT 9000 RUN_SERIAL TRUE)
         endif()
       endif()
       # The supervisor's unit tests with a real layersd wired to a real chainsd.

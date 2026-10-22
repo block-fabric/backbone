@@ -55,6 +55,8 @@ import seedref  # noqa: E402
 STEMS = ("layers", "thunder")
 #: zSide's place in the catalog (supervisor.cpp): its ports are the base + 2 * 5.
 ZSIDE_INDEX = 5
+#: FastBlocks and BitNames, their keys from the phrase too when their programs are given (doc §25): their places.
+EXTRA_INDEX = {"fastblocks": 1, "bitnames": 3}
 
 
 def run(args, base, name, datadir, prelude, programs, ports, handle, failures):
@@ -144,6 +146,13 @@ def main():
         programs[stem] = found / f"{stem}-cli"
     rpc_port, sc_base = args.port + 1, args.port + 10
     ports = {stem: sc_base + 2 * SIDECHAINS[stem][1] for stem in STEMS}
+    extra = []
+    for stem, index in EXTRA_INDEX.items():
+        found = next((d for d in args.sidechain_bindir if (d / f"{stem}d").is_file() and (d / f"{stem}-cli").is_file()), None)
+        if found:
+            programs[stem] = found / f"{stem}-cli"
+            ports[stem] = sc_base + 2 * index
+            extra.append(stem)
     zside_dir = next((d for d in args.sidechain_bindir if (d / "zsided").is_file() and (d / "zside-cli").is_file()), None)
     if zside_dir:
         programs["zside"] = zside_dir / "zside-cli"
@@ -177,7 +186,7 @@ def main():
             print(f"  the phrase of the test: {len(noted['words'])} words", flush=True)
         elif what == "addresses":
             # Apart from the app's code: the seed of the words (seedref.py), each chain's account, each node's descriptors.
-            stems = ("layers",) if rest == "nopass" else STEMS
+            stems = ("layers",) if rest == "nopass" else STEMS + tuple(extra)
             seed = seedref.bip39_seed(" ".join(noted["words"]))
             m = seedref.master(seed)
             fp = seedref.fingerprint(m)
@@ -286,12 +295,12 @@ def main():
     first = base / "first" / "datadir"
     if "first" in only:
         first.mkdir(parents=True)
-        run(args, base, "first", first, "window.__SEED = {phase: 'first'};\n", programs, ports, handle, failures)
+        run(args, base, "first", first, f"window.__SEED = {json.dumps({'phase': 'first', 'extra': extra})};\n", programs, ports, handle, failures)
     if "restore" in only and "words" in noted and "balances" in noted:
         second = base / "restore" / "datadir"
         second.parent.mkdir(parents=True)
         copy_chains(first, second)
-        prelude = f"window.__SEED = {json.dumps({'phase': 'restore', 'words': noted['words'], 'balances': noted['balances']})};\n"
+        prelude = f"window.__SEED = {json.dumps({'phase': 'restore', 'words': noted['words'], 'balances': noted['balances'], 'extra': extra})};\n"
         run(args, base, "restore", second, prelude, programs, ports, handle, failures)
     elif "restore" in only:
         failures.append("restore: not run (the first run noted no words or balances)")

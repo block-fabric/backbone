@@ -44,7 +44,7 @@ from run_unified import cli, daemons  # noqa: E402
 from run_packs import SIDECHAINS, bmm  # noqa: E402
 import hubscale  # noqa: E402
 
-SIDECHAINS.update({"bitassets": (4, 4), "hivemind": (9, 6)})
+SIDECHAINS.update({"bitnames": (3, 3), "bitassets": (4, 4), "zside": (6, 5), "hivemind": (9, 6)})
 STEMS = ("layers", "thunder", "bitassets", "hivemind")
 
 

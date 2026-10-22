@@ -1,6 +1,7 @@
 // The single seed (doc/unified-app.md §23) as a user meets it, in three runs (run_seed.py, window.__SEED.phase):
 //   first    the first start: the guide opens by itself; the phrase made, read from the app's own window, checked (a wrong
-//            word said, then right), given a passphrase; Layers and Thunder turned on, their keys made from the phrase;
+//            word said, then right), given a passphrase; Layers and Thunder turned on, their keys made from the phrase (and
+//            FastBlocks and BitNames, when the runner has them: window.__SEED.extra);
 //            the runner checks every chain's addresses against the words; coins moved in (the user's passphrase asked, the
 //            chains' own given to them), a payment on Layers, the guided move of coins, the passphrase changed, the phrase
 //            shown again; the balances noted.
@@ -26,6 +27,9 @@
   const dialogWindow = (action, more = {}) => host('test.dialog', { action, ...more });
   const inDialog = (script) => dialogWindow('eval', { script });
   const PASS = 'correct horse';
+  // FastBlocks and BitNames too, their keys from the phrase (doc §25), when the runner has their programs.
+  const EXTRA = (S && S.extra) || [];
+  const EXTRA_SLOTS = { fastblocks: 5, bitnames: 3 };
   const NEW_PASS = 'battery staple';
 
   // The runner can answer only through the node's RPC server, which runs once a sidechain is on (Chains alone has none):
@@ -123,6 +127,14 @@
       await rpc('createsidechainproposal', [7, 'Layers', 'Assets on a fast chain']);
       await rpc('createsidechainproposal', [2, 'Thunder', 'Large blocks']);
       await rpc('generatetodescriptor', [25, 'raw(51)']);
+      for (const stem of EXTRA) await rpc('createsidechainproposal', [EXTRA_SLOTS[stem], stem, 'e2e']);
+      if (EXTRA.length) {
+        for (let i = 0; i < 4; i++) {
+          await rpc('generatetodescriptor', [25, 'raw(51)']);
+          const active = (await rpc('listactivesidechains')).map((x) => x.slot);
+          if (EXTRA.every((stem) => active.includes(EXTRA_SLOTS[stem]))) break;
+        }
+      }
       const st0 = await seedStatus();
       await check('first start: no phrase, no wallet, the guide to open', st0.firstRun && !st0.exists && !st0.offer, JSON.stringify(st0));
       await waitFor('the page knows it is a first start', () => window.__chainsSeed.status && window.__chainsSeed.status.firstRun, 30000);
@@ -148,6 +160,7 @@
       await waitFor('the sidechains step', () => wizardStep('firstrun') === 'sidechains');
       $('.pick[data-stem="layers"] input').click();
       $('.pick[data-stem="thunder"] input').click();
+      for (const stem of EXTRA) $(`.pick[data-stem="${stem}"] input`).click();
       await sleep(200);
       // zSide: its own wallet, its private funds not covered by the phrase: said on its card (doc §23.13).
       const zNote = $('.pick[data-stem="zside"] [data-zside-note]');
@@ -163,11 +176,15 @@
       await waitFor('the last step', () => wizardStep('firstrun') === 'sync');
       $('[data-action="finish"]').click();
       await waitFor('both turned on', () => wizardStep('firstrun') === 'done', 180000);
-      await keysReady(['layers', 'thunder']);
+      await keysReady(['layers', 'thunder', ...EXTRA]);
       await sleep(1500);
       await shot('seed-firstrun-6-done');
       const st1 = await seedStatus();
       await check('every chain\'s wallet from the phrase: Chains "main" (account 0), Layers and Thunder "main" of their own accounts', ['chains', 'layers', 'thunder'].every((id) => { const c = st1.chains.find((x) => x.id === id); return c && c.state === 'ready' && c.wallet === 'main'; }) && st1.chains.find((c) => c.id === 'chains').account === 0 && st1.chains.find((c) => c.id === 'layers').account !== st1.chains.find((c) => c.id === 'thunder').account, JSON.stringify(st1.chains));
+      if (EXTRA.length) {
+        const accounts = ['chains', 'layers', 'thunder', ...EXTRA].map((id) => st1.chains.find((x) => x.id === id)?.account);
+        await check(`${EXTRA.join(' and ')}: "main" from the phrase too, each an account of its own`, EXTRA.every((id) => { const c = st1.chains.find((x) => x.id === id); return c && c.state === 'ready' && c.wallet === 'main'; }) && new Set(accounts).size === accounts.length, JSON.stringify(st1.chains));
+      }
       // (Words that are words of the status itself, "seed" a wallet's name, "own" a mode, are not looked for.)
       await check('the phrase\'s status says no word', !words.filter((w) => !['seed', 'own', 'ready', 'error', 'off', 'main'].includes(w)).some((w) => JSON.stringify(st1).includes(`"${w}"`)));
       $('[data-action="done"]').click();
@@ -383,6 +400,7 @@
       await waitFor('the sidechains step', () => wizardStep('firstrun') === 'sidechains' && $('.pick[data-stem="layers"] input'));
       $('.pick[data-stem="layers"] input').click();
       $('.pick[data-stem="thunder"] input').click();
+      for (const stem of EXTRA) $(`.pick[data-stem="${stem}"] input`).click();
       next();
       await waitFor('the storage step', () => wizardStep('firstrun') === 'storage');
       next();
@@ -390,7 +408,7 @@
       $('[data-action="finish"]').click();
       await waitFor('both turned on', () => wizardStep('firstrun') === 'done', 180000);
       await shot('seed-restore-2-reading');
-      await keysReady(['chains', 'layers', 'thunder']);
+      await keysReady(['chains', 'layers', 'thunder', ...EXTRA]);
       await sleep(2000);
       await shot('seed-restore-3-done');
       // The restored wallets hold the accounts the words give with this version's labels ("sidechain/account/v1"), checked

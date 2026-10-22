@@ -15,8 +15,8 @@
   // The sidechains turned on: the four of the showcase, or the hub's three (--scale hub: Layers, BitAssets, Hivemind).
   const SIDE = S.sidechains && S.sidechains.length ? S.sidechains : ['layers', 'thunder', 'bitassets', 'hivemind'];
   const HUB = S.scale === 'hub';
-  const SLOTS = { layers: 7, thunder: 2, bitassets: 4, hivemind: 9 };
-  const NAMES = { layers: 'Layers', thunder: 'Thunder', bitassets: 'BitAssets', hivemind: 'Hivemind' };
+  const SLOTS = { layers: 7, fastblocks: 5, thunder: 2, bitnames: 3, bitassets: 4, zside: 6, hivemind: 9 };
+  const NAMES = { layers: 'Layers', fastblocks: 'FastBlocks', thunder: 'Thunder', bitnames: 'BitNames', bitassets: 'BitAssets', zside: 'zSide', hivemind: 'Hivemind' };
   async function bmm(stem, count) {
     const from = await heightOf(stem);
     await log(`CHECKPOINT bmm ${stem} ${count}`);
@@ -38,8 +38,13 @@
     const mining = await rpc('getnewaddress', ['Mining'], 'demo');
     await rpc('generatetoaddress', [110, mining]);
     for (const stem of SIDE) await rpc('createsidechainproposal', [SLOTS[stem], NAMES[stem], 'showcase']);
-    await rpc('generatetoaddress', [25, mining]);
-    const active = (await rpc('listactivesidechains')).map((s) => s.slot);
+    // A proposal a block: many take more than the 25 blocks of acks one does.
+    let active = [];
+    for (let i = 0; i < 6; i++) {
+      await rpc('generatetoaddress', [25, mining]);
+      active = (await rpc('listactivesidechains')).map((s) => s.slot);
+      if (SIDE.every((s) => active.includes(SLOTS[s]))) break;
+    }
     await check(`${SIDE.length} sidechains active`, SIDE.every((s) => active.includes(SLOTS[s])), JSON.stringify(active));
     for (const stem of SIDE) await host('sidechains.enable', { stem, wallet: 'separate' });
     for (const stem of SIDE) await waitFor(`${stem} running`, async () => (await chainOf(stem)).ready, 240000);
