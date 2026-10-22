@@ -8,6 +8,7 @@
   import { formatCount, formatTime, shortHash } from '../lib/format';
   import { host, rpc } from '../lib/rpc';
   import { app, node, prefs, savePrefs, statusTip, toast, wallets } from '../lib/state.svelte';
+  import { phraseWalletState, seed } from '../lib/seed.svelte';
   import { syncStatus } from '../lib/sync';
   import { UNITS, type Unit } from '../lib/units';
   import { go, nav } from '../lib/nav.svelte';
@@ -161,7 +162,11 @@
     {#if !wallet.privateKeysDisabled}
       <span class="hd" class:off={!wallet.hd} title={wallet.hd ? 'HD key generation is enabled' : 'HD key generation is disabled'} aria-label={wallet.hd ? 'HD key generation is enabled' : 'HD key generation is disabled'}>HD</span>
     {/if}
-    {#if wallet.encrypted}
+    {#if phraseWalletState(seed.status, wallet.name) === 'open'}
+      <span class="lock open" title="No password: anyone with access to this computer can spend" data-no-password>
+        <Icon name="unlock" size={16} label="No password" />
+      </span>
+    {:else if wallet.encrypted}
       <span class="lock" title={wallet.locked ? 'Wallet is encrypted and currently locked' : 'Wallet is encrypted and currently unlocked'}>
         <Icon name={wallet.locked ? 'lock' : 'unlock'} size={16} label={wallet.locked ? 'Wallet locked' : 'Wallet unlocked'} />
       </span>
@@ -356,6 +361,9 @@
   .lock {
     display: inline-flex;
     color: var(--text-muted);
+  }
+  .lock.open {
+    color: var(--warning);
   }
   /* A narrow window: everything stays, on two lines if it must (the height of the chain, how far behind). */
   @media (max-width: 760px) {

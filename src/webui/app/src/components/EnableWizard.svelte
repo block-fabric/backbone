@@ -12,6 +12,7 @@
   import { refreshSidechains, selectChain, sidechainHost } from '../lib/sidechains.svelte';
   import { refreshSeed, seed, seedHost } from '../lib/seed.svelte';
   import SeedChainList from './SeedChainList.svelte';
+  import ZsideNote from './ZsideNote.svelte';
   import { canContinue, defaultChoices, diskCheck, enablePlan, enableSteps, nextStep, previousStep, resources, type EnableStep, type SidechainEntry } from '../lib/unified';
 
   let { entry, onclose }: { entry: SidechainEntry; onclose: () => void } = $props();
@@ -42,6 +43,8 @@
   }
 
   const hasPhrase = $derived(!!seed.status?.exists);
+  // zSide: its wallet is always its own (its shielded keys are not made from the phrase, doc §23.13).
+  const ownOnly = $derived(entry.phraseKeys === false);
   $effect(() => {
     if (!seed.status) void refreshSeed();
   });
@@ -52,11 +55,11 @@
     const plan = enablePlan(entry, choices);
     // Its keys come from the backup phrase: the passphrase is asked once now (in the app's own window), the keys are made
     // as soon as its node answers (doc §23).
-    if (plan.wallet === 'shared' && hasPhrase && !seed.status?.unlocked) {
+    if (plan.wallet === 'shared' && hasPhrase && !seed.status?.unlocked && seed.status?.password !== false) {
       try {
         const r = await seedHost.unlock([entry.stem]);
         if (r.cancelled) {
-          error = t('Its keys are made from your backup phrase with your passphrase: turn it on when you are ready, or choose a separate wallet.');
+          error = t('Its keys are made from your backup phrase with your password: turn it on when you are ready, or choose a separate wallet.');
           phase = 'asking';
           return;
         }
@@ -99,10 +102,11 @@
         <span class="big" aria-hidden="true"><Icon name="check" size={28} /></span>
         <h3><SafeText text={entry.name} /> is on</h3>
         <p>{t('Its node is starting in the background. It catches up with %1 by itself; that can take a while the first time. It is in the chain selector at the top, and in the sidebar under Chain.', productName())}</p>
-        {#if choices.wallet === 'shared' && hasPhrase}
+        {#if choices.wallet === 'shared' && hasPhrase && !ownOnly}
           {@const mine = (seed.status?.chains ?? []).filter((c) => c.id === entry.stem)}
           {#if mine.length}<SeedChainList chains={mine} />{/if}
         {/if}
+        {#if ownOnly}<ZsideNote actions />{/if}
       </div>
     {:else if step === 'about'}
       <h3><SafeText text={entry.name} /></h3>
@@ -145,6 +149,12 @@
         </label>
       </fieldset>
       <p class="room {room.tone}"><Icon name={room.tone === 'ok' ? 'check' : 'alert'} size={15} /> {t(room.key, ...room.args)}</p>
+    {:else if step === 'wallet' && ownOnly}
+      <div class="own-only" data-wallet-own-only>
+        <h3>{t('A wallet of its own')}</h3>
+        <ZsideNote />
+        <p class="muted">{t('%1 makes its own keys when it starts, its private (shielded) ones too. Back its wallet up from here once it runs, or from Settings → Wallet; keep that backup with your phrase.', entry.name)}</p>
+      </div>
     {:else if step === 'wallet'}
       <fieldset class="choices">
         <legend class="sr-only">Its wallet</legend>
@@ -154,7 +164,7 @@
             <span class="title"><strong>{t('Use my backup phrase')}</strong> <span class="badge accent">{t('recommended')}</span></span>
             <span class="muted">{t('One backup phrase for %1 and every sidechain: if this computer is lost, the phrase brings all of them back.', productName())}</span>
             {#if hasPhrase}
-              <span class="note"><Icon name="key" size={14} /> {t('Its keys are made from your phrase as it starts: you type your wallet passphrase once, in the app’s own window.')}</span>
+              <span class="note"><Icon name="key" size={14} /> {seed.status?.password === false ? t('Its keys are made from your phrase as it starts.') : t('Its keys are made from your phrase as it starts: you type your wallet password once, in the app’s own window.')}</span>
             {:else}
               <span class="note"><Icon name="info" size={14} /> {t('You have no backup phrase yet (Settings → Wallet → Backup phrase): until you make one, %1 gets a wallet of its own.', entry.name)}</span>
             {/if}
@@ -183,7 +193,7 @@
         <dt>Data</dt>
         <dd class="path"><SafeText text={choices.storage === 'custom' ? choices.customPath : entry.defaultDataDir} /></dd>
         <dt>Wallet</dt>
-        <dd>{choices.wallet === 'shared' ? t('My backup phrase (keys of its own for now)') : t('A separate wallet')}</dd>
+        <dd>{ownOnly ? t('Its own wallet (its private funds need its own backup)') : choices.wallet === 'shared' ? (hasPhrase ? t('My backup phrase') : t('My backup phrase (keys of its own for now)')) : t('A separate wallet')}</dd>
         {#if entry.staking}<dt>Staking</dt><dd>Off</dd>{/if}
         <dt>Takes</dt>
         <dd>{t(res.key, ...res.args)}</dd>
@@ -298,6 +308,15 @@
   }
   .room.bad {
     color: var(--negative);
+  }
+  .own-only {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .own-only h3,
+  .own-only p {
+    margin: 0;
   }
   .choices {
     display: flex;

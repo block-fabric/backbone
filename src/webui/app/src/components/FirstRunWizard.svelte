@@ -7,6 +7,8 @@
   import Icon from './Icon.svelte';
   import SafeText from './SafeText.svelte';
   import SeedChainList from './SeedChainList.svelte';
+  import PasswordChoice from './PasswordChoice.svelte';
+  import ZsideNote from './ZsideNote.svelte';
   import { ErrorCode } from '../lib/bridge';
   import { errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -22,6 +24,8 @@
   let step = $state<FirstRunStep>('welcome');
   let words = $state<12 | 24>(12);
   let extraWord = $state(false);
+  // A password for the phrase and its wallets: recommended, not forced (doc §23.11).
+  let protect = $state(true);
   let advanced = $state(false);
   let making = $state(false);
   let made = $state<null | 'created' | 'restored'>(null);
@@ -43,6 +47,8 @@
   const TITLES: Record<FirstRunStep, string> = { welcome: 'Welcome', wallet: 'Your wallet', backup: 'Backup phrase', restore: 'Restore', network: 'Network', sidechains: 'Sidechains', storage: 'Storage', sync: 'Getting ready' };
   // The chains whose wallets the guide made or turned on: the app's own, and those picked.
   const shownChains = $derived((status?.chains ?? []).filter((c) => c.id === 'chains' || choices.picked.includes(c.id)));
+  const zside = $derived(list.find((e) => e.phraseKeys === false));
+  const zsidePicked = $derived(!!zside && (choices.picked.includes(zside.stem) || zside.enabled));
   const canGo = $derived(step === 'backup' || step === 'restore' ? made !== null || hasPhrase : true);
 
   function toggle(stem: string, on: boolean) {
@@ -53,7 +59,7 @@
     making = true;
     error = '';
     try {
-      const r = choices.wallet === 'create' ? await seedHost.create(words, extraWord) : await seedHost.restore();
+      const r = choices.wallet === 'create' ? await seedHost.create(words, extraWord, protect) : await seedHost.restore(protect);
       if (r.cancelled) error = t('Nothing was made: make it when you are ready.');
       else made = choices.wallet === 'create' ? 'created' : 'restored';
     } catch (e) {
@@ -68,12 +74,14 @@
     finishing = true;
     error = '';
     const picking = list.filter((e) => choices.picked.includes(e.stem) && !e.enabled);
-    // Their keys come from the phrase: it stays unlocked a while after it was made; else the passphrase is asked once.
-    if (picking.length && seed.status?.exists && !seed.status.unlocked) {
+    // Their keys come from the phrase (zSide's never do): it stays unlocked a while after it was made; else its password is
+    // asked once (none is, without one).
+    const fromPhrase = picking.filter((e) => e.phraseKeys !== false);
+    if (fromPhrase.length && seed.status?.exists && !seed.status.unlocked) {
       try {
-        const r = await seedHost.unlock(picking.map((e) => e.stem));
+        const r = await seedHost.unlock(fromPhrase.map((e) => e.stem));
         if (r.cancelled) {
-          error = t('Their keys are made from your backup phrase with your passphrase: turn them on when you are ready.');
+          error = t('Their keys are made from your backup phrase with your password: turn them on when you are ready.');
           finishing = false;
           return;
         }
@@ -151,11 +159,12 @@
         <p class="made" data-made><Icon name="check" size={18} /> {made === 'created' ? t('Your backup phrase is made and checked. Keep the paper safe: it is the only copy.') : t('You have a backup phrase on this computer.')}</p>
         <SeedChainList chains={shownChains} />
       {:else}
-        <p>{t('The app shows you 12 words in a window of its own. Write them on paper, in order; it then asks for three of them back, and for a passphrase that protects them on this computer.')}</p>
+        <p>{t('The app shows you 12 words in a window of its own. Write them on paper, in order; it then asks for three of them back.')}</p>
         <ul class="plain">
           <li><Icon name="eyeoff" size={16} /> {t('Make sure nobody can see your screen.')}</li>
           <li><Icon name="edit" size={16} /> {t('Paper and a pen: the words cannot be copied, on purpose.')}</li>
         </ul>
+        <PasswordChoice bind:protect disabled={making} />
         <button type="button" class="btn ghost small more" onclick={() => (advanced = !advanced)} aria-expanded={advanced}><Icon name={advanced ? 'chevron' : 'chevron-right'} size={14} /> {advanced ? t('Fewer options') : t('More options')}</button>
         {#if advanced}
           <div class="advanced">
@@ -173,7 +182,9 @@
         <p class="made" data-made><Icon name="check" size={18} /> {made === 'restored' ? t('Your backup phrase is back. Each chain is read again for your coins, in the background: this can take a while.') : t('You have a backup phrase on this computer.')}</p>
         <SeedChainList chains={shownChains} />
       {:else}
-        <p>{t('The app asks for your words in a window of its own, with your passphrase. %1 and the sidechains you pick next are brought back from them, and each chain is read again for your coins.', product)}</p>
+        <p>{t('The app asks for your words in a window of its own. %1 and the sidechains you pick next are brought back from them, and each chain is read again for your coins.', product)}</p>
+        <PasswordChoice bind:protect disabled={making} />
+        <ZsideNote restore />
         <div><button type="button" class="btn primary" onclick={makePhrase} disabled={making} data-action="make-phrase"><Icon name="key" size={16} /> {making ? t('In the app’s window…') : t('Type my backup phrase…')}</button></div>
       {/if}
       {#if error}<p class="error" role="alert"><SafeText text={error} /></p>{/if}
@@ -183,7 +194,7 @@
       <p class="muted">{t('The network is chosen when the app starts. Try things on the test network first if you like: its coins are free and worth nothing. Each network keeps its own wallet and data.')}</p>
     {:else if step === 'sidechains'}
       <h3>{t('Pick the sidechains you want')}</h3>
-      <p class="muted">{t('None is needed: %1 works on its own. Each one you pick runs in the background, takes some room, and gets its keys from your backup phrase.', product)}</p>
+      <p class="muted">{t('None is needed: %1 works on its own. Each one you pick runs in the background, takes some room, and gets its keys from your backup phrase (all but zSide).', product)}</p>
       <div class="picks">
         {#each list as e (e.stem)}
           {@const res = resources(e)}
@@ -193,6 +204,7 @@
               <strong><SafeText text={e.name} /></strong>
               <span>{t(e.description)}</span>
               <span class="muted small">{t(res.key, ...res.args)}{e.enabled ? ' · ' + t('already on') : ''}{!e.program ? ' · ' + t('not on this computer') : ''}</span>
+              {#if e.phraseKeys === false}<span class="own-note" data-zside-note><Icon name="alert" size={13} /> {t('Its own wallet: its private funds are not covered by your backup phrase. Back it up on its own.')}</span>{/if}
             </span>
           </label>
         {/each}
@@ -242,6 +254,7 @@
         <SeedChainList chains={shownChains} />
         {#if !allReady(status, choices.picked)}<p class="muted small">{t('Their keys are being made as their nodes start: you can close this, it goes on.')}</p>{/if}
       {/if}
+      {#if finished && zsidePicked}<ZsideNote actions restore={choices.wallet === 'restore'} />{/if}
       {#if error}<p class="error" role="alert"><SafeText text={error} /></p>{/if}
     {/if}
   </div>
@@ -383,6 +396,13 @@
   }
   .total {
     font-weight: 600;
+  }
+  .own-note {
+    display: inline-flex;
+    gap: 0.3rem;
+    align-items: flex-start;
+    font-size: 0.82rem;
+    color: var(--warning);
   }
   .progress {
     display: flex;

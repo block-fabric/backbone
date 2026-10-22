@@ -18,6 +18,7 @@
   import ThemeEditor from '../components/ThemeEditor.svelte';
   import SidechainSettings from '../components/SidechainSettings.svelte';
   import SeedSettings from '../components/SeedSettings.svelte';
+  import MiningWallet from '../components/MiningWallet.svelte';
   import { effectiveColors } from '../lib/customthemes';
   import { frame } from '../lib/windowframe.svelte';
 
@@ -298,6 +299,7 @@
     </section>
   {:else if tab === 'wallet' && options}
     <SeedSettings />
+    <MiningWallet />
     <section class="panel">
       <div class="panel-body form">
         <label class="check">

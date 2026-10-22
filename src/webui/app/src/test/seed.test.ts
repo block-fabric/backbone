@@ -10,7 +10,7 @@ import { fireEvent, render as mount, screen, waitFor } from '@testing-library/sv
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ARM_MS, isListWord, phraseState, readData, render, wire, type Typed } from '../dialog/dialog';
 import { BIP39_WORDS } from '../lib/bip39words';
-import { allReady, autoGuide, chainWords, progressText, refreshSeed, seed, type SeedStatus } from '../lib/seed.svelte';
+import { allReady, autoGuide, bmmErrorWords, chainWords, miningProblem, phraseWalletState, progressText, refreshSeed, seed, type MiningStatus, type SeedStatus } from '../lib/seed.svelte';
 import { setTransport, type BridgeRequest } from '../lib/bridge';
 import { hub } from '../lib/sidechains.svelte';
 import { app, wallets } from '../lib/state.svelte';
@@ -20,6 +20,7 @@ import MoveWizard from '../components/MoveWizard.svelte';
 import SeedSettings from '../components/SeedSettings.svelte';
 import SeedFlows from '../components/SeedFlows.svelte';
 import EnableWizard from '../components/EnableWizard.svelte';
+import MiningWallet from '../components/MiningWallet.svelte';
 import type { SidechainEntry, SidechainList } from '../lib/unified';
 
 describe('the word list', () => {
@@ -151,6 +152,24 @@ describe('the state of the phrase in words', () => {
     expect(progressText({ id: 'chains', name: 'Chains', mode: 'phrase', state: 'scanning' })).toBe('');
     expect(allReady(status({ chains: [{ id: 'chains', name: 'Chains', mode: 'phrase', state: 'ready' }, { id: 'thunder', name: 'Thunder', mode: 'separate', state: 'own' }] }))).toBe(true);
     expect(allReady(status({ chains: [{ id: 'layers', name: 'Layers', mode: 'phrase', state: 'importing' }] }))).toBe(false);
+    // zSide's own wallet: its private funds are not covered by the phrase, said so.
+    expect(chainWords({ id: 'zside', name: 'zSide', mode: 'separate', state: 'own', phraseKeys: false }).text).toContain('not covered by your backup phrase');
+  });
+  it('says the phrase\'s wallet without a password as such, and merged mining\'s problems plainly', () => {
+    const chains = [{ id: 'chains', name: 'Chains', mode: 'phrase' as const, state: 'ready' as const, wallet: 'main' }];
+    expect(phraseWalletState(status({ exists: true, password: false, chains }), 'main')).toBe('open');
+    expect(phraseWalletState(status({ exists: true, password: true, chains }), 'main')).toBe('password');
+    expect(phraseWalletState(status({ exists: true, password: false, chains }), 'demo')).toBeNull();
+    expect(phraseWalletState(status({ exists: false, chains }), 'main')).toBeNull();
+    expect(bmmErrorWords('Error: Please enter the wallet passphrase with walletpassphrase first.')?.text).toContain('locked');
+    expect(bmmErrorWords('Insufficient funds')?.text).toContain('no coins');
+    expect(bmmErrorWords('Wallet file not specified (must request wallet RPC through /wallet/<filename> uri-path).')?.text).toContain('not open');
+    expect(bmmErrorWords('Outbid: 0.0001')).toEqual({ text: 'Outbid: 0.0001', settings: false });
+    expect(bmmErrorWords('')).toBeNull();
+    const m = (problem: MiningStatus['problem']): MiningStatus => ({ on: false, main: 'main', paying: 'main', payingPresent: true, payingEncrypted: true, payingLocked: true, bidding: [], problem, phrase: true });
+    expect(miningProblem(m('locked'))).toContain('Use a separate mining wallet');
+    expect(miningProblem(m('empty'))).toContain('Top it up');
+    expect(miningProblem(m(''))).toBe('');
   });
 });
 
@@ -167,7 +186,7 @@ beforeAll(() => {
 });
 
 function entry(stem: string, over: Partial<SidechainEntry> = {}): SidechainEntry {
-  const names: Record<string, string> = { layers: 'Layers', thunder: 'Thunder' };
+  const names: Record<string, string> = { layers: 'Layers', thunder: 'Thunder', zside: 'zSide' };
   return { stem, name: names[stem] ?? stem, description: `${stem} for tests`, slot: 7, diskGB: 4, ramMB: 400, staking: false, enabled: false, state: 'disabled', pid: 0, restarts: 0, ready: false, dataDir: '', defaultDataDir: '', customDataDir: false, hasData: false, freeGB: 200, program: `/app/${stem}d`, rpcPort: 1, port: 2, wallet: 'shared', ...over };
 }
 
@@ -239,9 +258,11 @@ describe('the first start', () => {
     // 24 words and an extra word are options of their own.
     await fireEvent.click(screen.getByText('More options'));
     await fireEvent.click(screen.getByText('24 words'));
+    // A password is the default (recommended): the host asks it in its own window.
+    expect(document.querySelector('[data-password-choice]')?.getAttribute('data-password-choice')).toBe('password');
     await fireEvent.click(document.querySelector('[data-action="make-phrase"]') as HTMLButtonElement);
     await waitFor(() => expect(document.querySelector('[data-made]')).toBeTruthy());
-    expect(calls.find((c) => c.method === 'seed.create')?.params).toEqual({ words: 24, extraWord: false });
+    expect(calls.find((c) => c.method === 'seed.create')?.params).toEqual({ words: 24, extraWord: false, password: true });
     // Nothing of the phrase in the page.
     expect(document.body.textContent).not.toMatch(/abandon|zoo/);
     await fireEvent.click(next());
@@ -401,7 +422,7 @@ describe('Settings → Wallet → Backup phrase, and turning a sidechain on', ()
     const next = () => document.querySelector('[data-action="next"]') as HTMLButtonElement;
     for (let i = 0; i < 3; i++) await fireEvent.click(next());
     expect(document.querySelector('[data-wizard="enable"]')?.getAttribute('data-step')).toBe('wallet');
-    expect(document.body.textContent).toContain('you type your wallet passphrase once');
+    expect(document.body.textContent).toContain('you type your wallet password once');
     await fireEvent.click(next());
     await fireEvent.click(document.querySelector('[data-action="turn-on"]') as HTMLButtonElement);
     await waitFor(() => expect(methods()).toContain('seed.unlock'));
@@ -410,5 +431,181 @@ describe('Settings → Wallet → Backup phrase, and turning a sidechain on', ()
     await fireEvent.click(document.querySelector('[data-action="turn-on"]') as HTMLButtonElement);
     await waitFor(() => expect(methods()).toContain('sidechains.enable'));
     expect(calls.filter((c) => c.method === 'seed.unlock').map((c) => c.params)).toEqual([{ stems: ['layers'] }, { stems: ['layers'] }]);
+  });
+});
+
+describe('a password: recommended, never forced (doc §23.11)', () => {
+  it('the first start without a password: said plainly before anything is made, then made without one', async () => {
+    await refreshSeed();
+    mount(FirstRunWizard, { onclose: () => {} });
+    const next = () => document.querySelector('[data-action="next"]') as HTMLButtonElement;
+    await fireEvent.click(next());
+    await fireEvent.click(next());
+    expect(document.querySelector('[data-no-password-warning]')).toBeNull();
+    await fireEvent.click(document.querySelector('[data-protect="none"]') as HTMLInputElement);
+    expect(document.querySelector('[data-no-password-warning]')?.textContent).toContain('anyone with access to this computer can spend your coins');
+    await fireEvent.click(document.querySelector('[data-action="make-phrase"]') as HTMLButtonElement);
+    await waitFor(() => expect(document.querySelector('[data-made]')).toBeTruthy());
+    expect(calls.find((c) => c.method === 'seed.create')?.params).toEqual({ words: 12, extraWord: false, password: false });
+  });
+
+  it('a restore without a password, and zSide\'s own backup said on the way', async () => {
+    list.chains.push(entry('zside', { phraseKeys: false, wallet: 'separate' }));
+    hub.list = structuredClone(list);
+    await refreshSeed();
+    mount(FirstRunWizard, { onclose: () => {} });
+    await fireEvent.click(document.querySelector('[data-action="next"]') as HTMLButtonElement);
+    await fireEvent.click(screen.getByText('Restore from a backup phrase'));
+    await fireEvent.click(document.querySelector('[data-action="next"]') as HTMLButtonElement);
+    expect(document.querySelector('[data-zside-note="restore"]')?.textContent).toContain('not covered by your backup phrase');
+    await fireEvent.click(document.querySelector('[data-protect="none"]') as HTMLInputElement);
+    await fireEvent.click(document.querySelector('[data-action="make-phrase"]') as HTMLButtonElement);
+    await waitFor(() => expect(document.querySelector('[data-made]')).toBeTruthy());
+    expect(calls.find((c) => c.method === 'seed.restore')?.params).toEqual({ password: false });
+  });
+
+  it('Settings without a password: said plainly, "Add a password…"; with one: change it, or remove it', async () => {
+    st = { ...st, exists: true, firstRun: false, password: false, chains: [{ id: 'chains', name: 'Chains', mode: 'phrase', state: 'ready', wallet: 'main' }] };
+    answers['seed.addPassword'] = () => {
+      st = { ...st, password: true };
+      return { added: true, locked: 1 };
+    };
+    answers['seed.removePassword'] = { cancelled: true };
+    mount(SeedSettings);
+    await waitFor(() => expect(document.querySelector('[data-password="none"]')).toBeTruthy());
+    expect(document.querySelector('[data-password="none"]')?.textContent).toContain('Anyone with access to this computer can spend');
+    expect(document.querySelector('[data-action="seed-change"]')).toBeNull();
+    expect(document.querySelector('[data-action="seed-lock"]')).toBeNull();
+    await fireEvent.click(document.querySelector('[data-action="seed-add-password"]') as HTMLButtonElement);
+    await waitFor(() => expect(document.querySelector('[data-password="on"]')).toBeTruthy());
+    expect(methods()).toContain('seed.addPassword');
+    expect(document.querySelector('[data-action="seed-change"]')).toBeTruthy();
+    await fireEvent.click(document.querySelector('[data-action="seed-remove-password"]') as HTMLButtonElement);
+    await waitFor(() => expect(methods()).toContain('seed.removePassword'));
+    // Declined in the app's window: nothing changed here.
+    expect(document.querySelector('[data-password="on"]')).toBeTruthy();
+  });
+
+  it('a sidechain turned on without a password: nothing asked before', async () => {
+    st = { ...st, exists: true, firstRun: false, unlocked: false, password: false };
+    await refreshSeed();
+    mount(EnableWizard, { entry: entry('layers'), onclose: () => {} });
+    const next = () => document.querySelector('[data-action="next"]') as HTMLButtonElement;
+    for (let i = 0; i < 4; i++) await fireEvent.click(next());
+    await fireEvent.click(document.querySelector('[data-action="turn-on"]') as HTMLButtonElement);
+    await waitFor(() => expect(methods()).toContain('sidechains.enable'));
+    expect(methods()).not.toContain('seed.unlock');
+  });
+});
+
+describe('zSide: a wallet of its own (doc §23.13)', () => {
+  it('the picker says it; picked with Layers, only Layers\' keys need the phrase unlocked; its backup offered at the end', async () => {
+    list.chains.push(entry('zside', { phraseKeys: false, wallet: 'separate' }));
+    hub.list = structuredClone(list);
+    await refreshSeed();
+    mount(FirstRunWizard, { onclose: () => {} });
+    const next = () => document.querySelector('[data-action="next"]') as HTMLButtonElement;
+    await fireEvent.click(next());
+    await fireEvent.click(next());
+    await fireEvent.click(document.querySelector('[data-action="make-phrase"]') as HTMLButtonElement);
+    await waitFor(() => expect(document.querySelector('[data-made]')).toBeTruthy());
+    await fireEvent.click(next());
+    await fireEvent.click(next());
+    expect(document.querySelector('.pick[data-stem="zside"] [data-zside-note]')?.textContent).toContain('not covered by your backup phrase');
+    expect(document.querySelector('.pick[data-stem="layers"] [data-zside-note]')).toBeNull();
+    await fireEvent.click(document.querySelector('.pick[data-stem="layers"] input') as HTMLInputElement);
+    await fireEvent.click(document.querySelector('.pick[data-stem="zside"] input') as HTMLInputElement);
+    await fireEvent.click(next());
+    await fireEvent.click(next());
+    st.unlocked = false;
+    await refreshSeed();
+    await fireEvent.click(document.querySelector('[data-action="finish"]') as HTMLButtonElement);
+    await waitFor(() => expect(document.querySelector('[data-wizard="firstrun"]')?.getAttribute('data-step')).toBe('done'));
+    expect(calls.find((c) => c.method === 'seed.unlock')?.params).toEqual({ stems: ['layers'] });
+    // Its own backup, offered right there once its node runs.
+    hub.list = structuredClone(list);
+    await waitFor(() => expect(document.querySelector('[data-zside-note] [data-action="zside-backup"]')).toBeTruthy());
+    answers['chain.wallet.backup'] = '/home/u/zside.backup';
+    await fireEvent.click(document.querySelector('[data-action="zside-backup"]') as HTMLButtonElement);
+    await waitFor(() => expect(calls.find((c) => c.method === 'chain.wallet.backup')?.params).toMatchObject({ stem: 'zside' }));
+  });
+
+  it('the enable wizard offers no phrase for it, says why, and turns it on with its own wallet without asking', async () => {
+    st = { ...st, exists: true, firstRun: false, unlocked: false };
+    list.chains.push(entry('zside', { phraseKeys: false, wallet: 'separate' }));
+    hub.list = structuredClone(list);
+    await refreshSeed();
+    mount(EnableWizard, { entry: entry('zside', { phraseKeys: false, wallet: 'separate' }), onclose: () => {} });
+    const next = () => document.querySelector('[data-action="next"]') as HTMLButtonElement;
+    for (let i = 0; i < 3; i++) await fireEvent.click(next());
+    expect(document.querySelector('[data-wallet-own-only]')?.textContent).toContain('not covered by your backup phrase');
+    expect(document.querySelector('input[name="wallet"]')).toBeNull();
+    await fireEvent.click(next());
+    await fireEvent.click(document.querySelector('[data-action="turn-on"]') as HTMLButtonElement);
+    await waitFor(() => expect(methods()).toContain('sidechains.enable'));
+    expect((calls.find((c) => c.method === 'sidechains.enable')?.params as Record<string, unknown>).wallet).toBe('separate');
+    expect(methods()).not.toContain('seed.unlock');
+  });
+
+  it('Settings → Backup phrase says it with its own backup, and a restore of its own', async () => {
+    list.chains.push(entry('zside', { phraseKeys: false, wallet: 'separate', enabled: true, state: 'running', ready: true }));
+    hub.list = structuredClone(list);
+    st = { ...st, exists: true, firstRun: false, chains: [{ id: 'chains', name: 'Chains', mode: 'phrase', state: 'ready', wallet: 'main' }, { id: 'zside', name: 'zSide', mode: 'separate', state: 'own', phraseKeys: false }] };
+    mount(SeedSettings);
+    await waitFor(() => expect(document.querySelector('[data-seed-settings] [data-zside-note]')).toBeTruthy());
+    expect(document.querySelector('[data-seed-chains] li[data-chain="zside"]')?.textContent).toContain('not covered by your backup phrase');
+    expect(document.querySelector('[data-seed-settings] [data-action="zside-backup"]')).toBeTruthy();
+  });
+});
+
+describe('merged mining: a separate mining wallet, as an option (doc §23.12)', () => {
+  const mining = (over: Partial<MiningStatus> = {}): MiningStatus => ({ on: false, main: 'main', paying: 'main', payingPresent: true, payingEncrypted: true, payingLocked: true, bidding: [{ stem: 'layers', name: 'Layers' }], problem: 'locked', phrase: true, ...over });
+
+  it('the main wallet locked and no mining wallet: said plainly; made on a click; its balance; topped up by a payment from the main wallet', async () => {
+    let status = mining();
+    answers['mining.status'] = () => structuredClone(status);
+    answers['mining.create'] = () => {
+      status = mining({ on: true, paying: 'mining', payingEncrypted: false, payingLocked: false, problem: 'empty', mining: { wallet: 'mining', from: 'phrase', loaded: true, trusted: '0.00000000' } });
+      return { wallet: 'mining', from: 'phrase' };
+    };
+    answers['wallet.newAddress'] = 'bcrt1qmining';
+    answers['wallet.send.prepare'] = { token: 't9', fee: 141, vsize: 141, total: 5_000_000, recipients: [], txid: 'ab'.repeat(32) };
+    answers['wallet.send.commit'] = () => {
+      status = mining({ on: true, paying: 'mining', payingEncrypted: false, payingLocked: false, problem: '', mining: { wallet: 'mining', from: 'phrase', loaded: true, trusted: '0.05000000' } });
+      return { complete: true, txid: 'ab'.repeat(32) };
+    };
+    mount(MiningWallet);
+    await waitFor(() => expect(document.querySelector('[data-mining-problem="locked"]')).toBeTruthy());
+    expect(document.querySelector('[data-mining-problem]')?.textContent).toContain('your wallet has a password and is locked');
+    expect(document.querySelector('[data-mining-paying="main"]')?.textContent).toContain('main');
+    await fireEvent.click(document.querySelector('[data-action="mining-create"]') as HTMLButtonElement);
+    await waitFor(() => expect(document.querySelector('[data-mining-paying="mining"]')).toBeTruthy());
+    expect(document.querySelector('[data-mining-problem="empty"]')?.textContent).toContain('empty');
+    expect(document.querySelector('[data-mining-paying="mining"]')?.textContent).toContain('made from your backup phrase');
+    await fireEvent.click(document.querySelector('[data-action="mining-topup"]') as HTMLButtonElement);
+    await fireEvent.input(document.querySelector('[data-mining-amount]') as HTMLInputElement, { target: { value: '0.05' } });
+    await fireEvent.click(document.querySelector('[data-action="mining-topup-send"]') as HTMLButtonElement);
+    await waitFor(() => expect(methods()).toContain('wallet.send.commit'));
+    // An address of the mining wallet; paid by the main wallet, asked in the app's window (commit).
+    expect(calls.find((c) => c.method === 'wallet.newAddress')?.params).toMatchObject({ wallet: 'mining' });
+    const prepare = calls.find((c) => c.method === 'wallet.send.prepare')?.params as Record<string, unknown>;
+    expect(prepare.wallet).toBe('main');
+    expect((prepare.recipients as Record<string, unknown>[])[0]).toMatchObject({ address: 'bcrt1qmining', amount: 5_000_000, subtractFee: false });
+    await waitFor(() => expect(document.querySelector('[data-mining-balance]')?.textContent).toContain('0.05'));
+    expect(document.querySelector('[data-mining-problem]')).toBeNull();
+  });
+
+  it('stopped: the main wallet pays again', async () => {
+    let status = mining({ on: true, paying: 'mining', payingLocked: false, problem: '', mining: { wallet: 'mining', from: 'phrase', loaded: true, trusted: '0.01' } });
+    answers['mining.status'] = () => structuredClone(status);
+    answers['mining.stop'] = () => {
+      status = mining({ problem: '' });
+      return { wallet: 'mining' };
+    };
+    mount(MiningWallet);
+    await waitFor(() => expect(document.querySelector('[data-action="mining-stop"]')).toBeTruthy());
+    await fireEvent.click(document.querySelector('[data-action="mining-stop"]') as HTMLButtonElement);
+    await waitFor(() => expect(document.querySelector('[data-mining-paying="main"]')).toBeTruthy());
+    expect(methods()).toContain('mining.stop');
   });
 });

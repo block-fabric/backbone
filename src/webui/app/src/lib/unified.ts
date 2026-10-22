@@ -13,6 +13,8 @@ export interface SidechainEntry {
   diskGB: number;
   ramMB: number;
   staking: boolean;
+  /** false: its wallet never comes from the backup phrase (zSide: its private funds need its own backup). */
+  phraseKeys?: boolean;
   enabled: boolean;
   state: SidechainState;
   pid: number;
@@ -161,7 +163,8 @@ export function defaultChoices(e: SidechainEntry): EnableChoices {
     customPath: e.customDataDir ? e.dataDir : '',
     customProblem: '',
     move: e.hasData,
-    wallet: e.wallet ?? 'shared',
+    // zSide: always its own wallet (its shielded keys are not made from the phrase).
+    wallet: e.phraseKeys === false ? 'separate' : (e.wallet ?? 'shared'),
     stake: false,
     programReady: !!e.program,
   };
@@ -190,7 +193,7 @@ export function enablePlan(e: SidechainEntry, c: EnableChoices): { setDir: { dir
   const wantCustom = c.storage === 'custom' ? c.customPath : null;
   const now = e.customDataDir ? e.dataDir : null;
   const setDir = wantCustom === now ? null : { dir: wantCustom, move: c.move && e.hasData };
-  return { setDir, wallet: c.wallet };
+  return { setDir, wallet: e.phraseKeys === false ? 'separate' : c.wallet };
 }
 
 // ---- The first start of the app ----

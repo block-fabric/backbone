@@ -8,6 +8,7 @@
   import SafeText from './SafeText.svelte';
   import ChainBadge from './ChainBadge.svelte';
   import SeedChainList from './SeedChainList.svelte';
+  import PasswordChoice from './PasswordChoice.svelte';
   import { ErrorCode } from '../lib/bridge';
   import { errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -24,6 +25,8 @@
   let step = $state<Step>('why');
   let making = $state(false);
   let error = $state('');
+  // A password for the phrase and its wallets: recommended, not forced (doc §23.11).
+  let protect = $state(true);
   const product = $derived(productName());
   const status = $derived(seed.status);
   const phraseChains = $derived((status?.chains ?? []).filter((c) => c.mode === 'phrase'));
@@ -45,7 +48,7 @@
     making = true;
     error = '';
     try {
-      const r = await seedHost.create(12, false);
+      const r = await seedHost.create(12, false, protect);
       if (r.cancelled) error = t('Nothing was made: make it when you are ready.');
     } catch (e) {
       error = errorText(e);
@@ -139,7 +142,8 @@
         <SeedChainList chains={phraseChains} />
         {#if !allReady(status)}<p class="muted small">{t('Being made… a sidechain that is off gets its wallet when it is turned on.')}</p>{/if}
       {:else}
-        <p>{t('The app shows you 12 words in a window of its own. Write them on paper, in order; it then asks for three of them back, and for a passphrase.')}</p>
+        <p>{t('The app shows you 12 words in a window of its own. Write them on paper, in order; it then asks for three of them back.')}</p>
+        <PasswordChoice bind:protect disabled={making} />
         <div><button type="button" class="btn primary" onclick={makePhrase} disabled={making} data-action="make-phrase"><Icon name="key" size={16} /> {making ? t('In the app’s window…') : t('Make my backup phrase…')}</button></div>
       {/if}
       {#if error}<p class="error" role="alert"><SafeText text={error} /></p>{/if}

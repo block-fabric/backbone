@@ -14,6 +14,7 @@
   import { coinsToSats } from '../../lib/units';
   import { NODE_PAGE, openModule, productName } from '../../lib/modules.svelte';
   import { simpleMode } from '../../lib/uimode.svelte';
+  import { bmmErrorWords } from '../../lib/seed.svelte';
   import { balanceOf, chainHost, chainLink, chainState, chainWallet, fromBaseUnits, pendingDeposits, refreshSummary, type ChainEntry, type ChainPeg, type ChainStaking } from '../../lib/chains.svelte';
 
   let { entry, escrow = null }: { entry: ChainEntry; escrow?: number | null } = $props();
@@ -51,6 +52,7 @@
   });
 
   const mine = $derived((peg?.withdrawals ?? []).filter((w) => w.mine));
+  const bmmProblem = $derived(bmmErrorWords(peg?.bmm?.error));
   /** Simple mode says what moves, not the slot and the escrow of the drivechain. */
   const simple = $derived(simpleMode());
   const onTheirWay = $derived(pendingDeposits(stem).length);
@@ -137,8 +139,11 @@
         <dt>{t('Requests')}</dt><dd class="num">{peg?.bmm?.requests !== undefined ? formatCount(peg.bmm.requests) : '–'}</dd>
         <dt>{t('Outbid')}</dt><dd class="num">{peg?.bmm?.outbid !== undefined ? formatCount(peg.bmm.outbid) : '–'}</dd>
       </dl>
+      <!-- Why it cannot bid, said plainly (doc/unified-app.md §23.12): the wallet that pays is locked, empty or not open. -->
+      {#if peg?.bmm?.mining && bmmProblem}<p class="bmm-problem" role="alert" data-bmm-problem><Icon name="alert" size={14} /> <span><SafeText text={t(bmmProblem.text)} /></span></p>{/if}
       {#snippet actions()}
         <button type="button" class="btn grow" onclick={() => openModule(stem, 'peg', 'bmm')}><Icon name="mine" size={15} /> {t('Settings')}</button>
+        {#if bmmProblem?.settings && peg?.bmm?.mining}<button type="button" class="btn grow" onclick={() => go('settings', 'wallet')} data-action="mining-wallet"><Icon name="wallet" size={15} /> {t('Mining wallet')}</button>{/if}
       {/snippet}
     </Card>
   {/if}
@@ -172,6 +177,17 @@
   }
   .state.warn {
     color: var(--warning);
+  }
+  .bmm-problem {
+    display: flex;
+    gap: 0.35rem;
+    align-items: flex-start;
+    margin: 0.4rem 0 0;
+    font-size: 0.82rem;
+    color: var(--warning);
+  }
+  .bmm-problem span {
+    color: var(--text);
   }
   .pairs {
     display: grid;

@@ -17,6 +17,16 @@ export interface SeedChain {
   /** Of a rescan, 0 to 1. */
   progress?: number;
   error?: string;
+  /** false: its keys never come from the phrase (zSide: its private funds need its own backup). */
+  phraseKeys?: boolean;
+}
+
+/** The mining wallet (doc/unified-app.md §23.12): it pays merged mining's bids so the main wallet can stay locked. */
+export interface MiningRecord {
+  wallet: string;
+  /** From the phrase (account 1 of the app's chain) or with keys of its own (no phrase). */
+  from: 'phrase' | 'own';
+  on: boolean;
 }
 
 export interface SeedStatus {
@@ -27,6 +37,9 @@ export interface SeedStatus {
   restored?: boolean;
   fingerprint?: string;
   extraWord?: boolean;
+  /** false: the phrase and its wallets have no password (the user's choice): anyone using this computer can spend. */
+  password?: boolean;
+  mining?: MiningRecord;
   unlocked: boolean;
   expiresIn?: number;
   nodeReady: boolean;
@@ -46,19 +59,89 @@ export interface SeedDone {
   unlocked?: boolean;
   fingerprint?: string;
   words?: number;
+  password?: boolean;
 }
 
 export const seedHost = {
   status: () => request<SeedStatus>('host', 'seed.status', {}),
-  create: (words: 12 | 24, extraWord: boolean) => request<SeedDone>('host', 'seed.create', { words, extraWord }),
-  restore: () => request<SeedDone>('host', 'seed.restore', {}),
+  /** password: false makes the phrase and its wallets without one (said plainly in the page before). */
+  create: (words: 12 | 24, extraWord: boolean, password = true) => request<SeedDone>('host', 'seed.create', { words, extraWord, password }),
+  restore: (password = true) => request<SeedDone>('host', 'seed.restore', { password }),
   unlock: (stems: string[] = []) => request<SeedDone>('host', 'seed.unlock', { stems }),
   lock: () => request<boolean>('host', 'seed.lock', {}),
   addChain: (stem: string) => request<SeedDone>('host', 'seed.addChain', { stem }),
   show: () => request<{ shown?: boolean; cancelled?: boolean }>('host', 'seed.show', {}),
   changePassphrase: () => request<{ changed?: boolean; cancelled?: boolean; wallets?: number }>('host', 'seed.changePassphrase', {}),
+  addPassword: () => request<{ added?: boolean; cancelled?: boolean; locked?: number }>('host', 'seed.addPassword', {}),
+  removePassword: () => request<{ removed?: boolean; cancelled?: boolean }>('host', 'seed.removePassword', {}),
   dismiss: (what: 'firstRun' | 'offer') => request<boolean>('host', 'seed.dismiss', { what }),
 };
+
+/** What pays merged mining's bids now, and whether it can (mining.status). */
+export interface MiningStatus {
+  /** A mining wallet pays them (else the main wallet). */
+  on: boolean;
+  main: string;
+  paying: string;
+  payingPresent: boolean;
+  payingEncrypted: boolean;
+  payingLocked: boolean;
+  mining?: { wallet: string; from: 'phrase' | 'own'; loaded: boolean; trusted?: number | string; pending?: number | string };
+  /** The sidechains whose merged mining is on, and what each last said. */
+  bidding: { stem: string; name: string; error?: string }[];
+  /** '' fine; 'locked' the main wallet pays and is locked; 'mining-locked'; 'empty' the mining wallet holds nothing; 'missing'. */
+  problem: '' | 'locked' | 'mining-locked' | 'empty' | 'missing';
+  phrase: boolean;
+}
+
+export const miningHost = {
+  status: () => request<MiningStatus>('host', 'mining.status', {}),
+  create: () => request<{ wallet?: string; from?: string; cancelled?: boolean }>('host', 'mining.create', {}),
+  stop: () => request<{ wallet?: string }>('host', 'mining.stop', {}),
+};
+
+/** Merged mining's problem in plain words (or ''), for the notices of Home, Sidechains and Settings. */
+export function miningProblem(m: MiningStatus | null): string {
+  if (!m) return '';
+  switch (m.problem) {
+    case 'locked':
+      return 'Merged mining cannot pay its bids: your wallet has a password and is locked. Use a separate mining wallet, or unlock your wallet for a while.';
+    case 'mining-locked':
+      return 'Merged mining cannot pay its bids: the mining wallet is locked.';
+    case 'empty':
+      return 'Merged mining cannot pay its bids: your mining wallet is empty. Top it up from your wallet.';
+    case 'missing':
+      return 'Merged mining cannot pay its bids: the wallet that pays them is not open.';
+    default:
+      return '';
+  }
+}
+
+/**
+ * What a sidechain's merged mining last said when it could not bid (getbmminfo.error), in plain words: the wallet that pays
+ * its bids is locked, empty, or not open; else what it said.
+ */
+export function bmmErrorWords(error: string | undefined | null): { text: string; settings: boolean } | null {
+  if (!error) return null;
+  if (/walletpassphrase|unlock needed|is locked|wallet passphrase/i.test(error)) {
+    return { text: 'Its bids cannot be paid: the wallet that pays them is locked (it has a password). Use a separate mining wallet, or unlock your wallet for a while.', settings: true };
+  }
+  if (/insufficient funds|not enough/i.test(error)) return { text: 'Its bids cannot be paid: the wallet that pays them has no coins to spend. Top it up.', settings: true };
+  if (/wallet file not specified|does not exist or is not loaded|no wallet/i.test(error)) return { text: 'Its bids cannot be paid: the wallet that pays them is not open.', settings: true };
+  return { text: error, settings: false };
+}
+
+/**
+ * How the app's own wallet named stands with the backup phrase: 'open' (the phrase's, without a password: anyone using this
+ * computer can spend), 'password' (the phrase's, with one: its password is the phrase's, changed in Settings → Wallet), or
+ * null (another wallet).
+ */
+export function phraseWalletState(status: SeedStatus | null, name: string | null | undefined): 'open' | 'password' | null {
+  if (!status?.exists || !name) return null;
+  const app = status.chains.find((c) => c.id === 'chains');
+  if (!app || app.mode !== 'phrase' || app.wallet !== name) return null;
+  return status.password === false ? 'open' : 'password';
+}
 
 export const seed = $state({
   status: null as SeedStatus | null,
@@ -146,6 +229,7 @@ export function chainWords(c: SeedChain): { text: string; tone: 'ok' | 'busy' | 
     case 'off':
       return { text: c.mode === 'phrase' ? 'From your backup phrase · turned off' : 'Turned off', tone: 'off' };
     case 'own':
+      if (c.phraseKeys === false) return { text: 'Its own wallet: its private funds are not covered by your backup phrase', tone: 'warn' };
       return { text: c.mode === 'separate' ? 'Its own wallet: back it up on its own' : 'Its own wallet, made before your backup phrase', tone: 'warn' };
     case 'waiting':
       return { text: 'Waiting for its node to start', tone: 'busy' };
@@ -166,6 +250,9 @@ export function progressText(c: SeedChain): string {
 }
 
 /** Whether every chain whose wallet is the phrase's has its keys (nothing being made, nothing waiting). */
+/** zSide's notice (doc/unified-app.md §23.13), said wherever the phrase is said to cover the sidechains. */
+export const ZSIDE_NOTE = 'zSide’s private (shielded) funds are not covered by your backup phrase: zSide keeps a wallet of its own, which needs its own backup.';
+
 export function allReady(status: SeedStatus | null, ids?: string[]): boolean {
   if (!status) return false;
   return status.chains.filter((c) => !ids || ids.includes(c.id)).every((c) => c.mode !== 'phrase' || c.state === 'ready' || c.state === 'off');

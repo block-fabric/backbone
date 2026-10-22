@@ -20,6 +20,7 @@
   import { navSections, pageIcon } from '../lib/layout';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { prefs, savePrefs, statusTip, wallets } from '../lib/state.svelte';
+  import { phraseWalletState, seed } from '../lib/seed.svelte';
   import { pendingNow } from '../lib/settingsdraft.svelte';
   import { clampFontAdjust, THEMES } from '../lib/themes';
   import ThemePicker from './ThemePicker.svelte';
@@ -42,6 +43,8 @@
     const w = shownWallet;
     if (!w) return null;
     if (w.privateKeysDisabled) return { label: 'Watch-only', title: 'Watch-only: no private keys', icon: 'eye' as const, tone: '' };
+    // The backup phrase's wallet without a password (doc §23.11): the app keeps it open; said as what it is.
+    if (phraseWalletState(seed.status, w.name) === 'open') return { label: 'No password', title: 'No password: anyone with access to this computer can spend', icon: 'unlock' as const, tone: 'warning' };
     if (!w.encrypted) return { label: 'Not encrypted', title: 'The wallet is not encrypted', icon: 'unlock' as const, tone: 'warning' };
     return w.locked
       ? { label: 'Locked', title: 'Encrypted, and locked', icon: 'lock' as const, tone: 'accent' }

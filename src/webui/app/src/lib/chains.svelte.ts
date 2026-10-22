@@ -145,6 +145,8 @@ export const chainHost = {
   walletLoad: (stem: string, name: string) => request<unknown>('host', 'chain.wallet.load', { stem, name }),
   walletUnload: (stem: string, name: string) => request<unknown>('host', 'chain.wallet.unload', { stem, name }),
   walletBackup: (stem: string, wallet: string) => request<string | null>('host', 'chain.wallet.backup', { stem, wallet }),
+  /** A backup file of a wallet of that chain (zSide's own) chosen in the app's chooser, restored into a new wallet `name`. */
+  walletRestore: (stem: string, name: string) => request<{ name: string } | null>('host', 'chain.wallet.restore', { stem, name }),
   receive: (stem: string, wallet?: string, label = '', shielded = false) => request<{ address: string; wallet: string; shielded?: boolean }>('host', 'chain.receive', { ...w(stem, wallet), label, shielded }),
   depositAddress: (stem: string, wallet?: string) => request<{ depositaddress: string; address: string; slot: number; wallet: string }>('host', 'chain.depositAddress', w(stem, wallet)),
   validate: (stem: string, address: string, wallet?: string, shielded = false) => request<{ address: string; own: boolean; hrp?: string; shielded?: boolean }>('host', 'chain.validate', { ...w(stem, wallet), address, shielded }),
