@@ -1376,7 +1376,7 @@ UniValue SidechainSupervisor::List() const
         entry.pushKV("staking", s.staking);
         // Whether its wallet may come from the backup phrase (zSide: never, its private funds need its own backup).
         entry.pushKV("phraseKeys", s.phrase_keys);
-        // A validator key this app made on this computer (doc §24.2): the daemon runs with it.
+        // A validator key this app made on this computer (doc §25.2): the daemon runs with it.
         if (s.staking) entry.pushKV("validatorKey", HasValidatorKey(s.stem));
         entry.pushKV("enabled", Enabled(s.stem));
         entry.pushKV("state", StateName(status.state));

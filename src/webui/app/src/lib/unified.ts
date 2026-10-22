@@ -13,7 +13,7 @@ export interface SidechainEntry {
   diskGB: number;
   ramMB: number;
   staking: boolean;
-  /** A chain that stakes: whether its node runs with a validator key this app made on this computer (doc §24.2). */
+  /** A chain that stakes: whether its node runs with a validator key this app made on this computer (doc §25.2). */
   validatorKey?: boolean;
   /** false: its wallet never comes from the backup phrase (zSide: its private funds need its own backup). */
   phraseKeys?: boolean;

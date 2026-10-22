@@ -206,7 +206,7 @@ BOOST_AUTO_TEST_CASE(zside_keeps_its_own_wallet)
 
 BOOST_AUTO_TEST_CASE(validator_key_made_on_this_computer)
 {
-    // A chain that stakes gets a validator key made by the app on this computer (doc §24.2, decision 4 of §12): random, never
+    // A chain that stakes gets a validator key made by the app on this computer (doc §25.2, decision 4 of §12): random, never
     // from the phrase, owner-only in its network's data folder; its daemon started with it, and its payout once known.
     Memory memory;
     const fs::path base{m_args.GetDataDirBase()};

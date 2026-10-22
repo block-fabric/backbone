@@ -1,4 +1,4 @@
-// Every chain of the catalog first-class in the app's own pages (doc/unified-app.md §24): zSide's private coins on Home and
+// Every chain of the catalog first-class in the app's own pages (doc/unified-app.md §25): zSide's private coins on Home and
 // Overview, its Send from its private coins and to yourself (shield, unshield); BitNames' names held, found by the palette
 // (Ctrl+K) and the explorer's search, opened in its own directory; a module's frame told the page it was asked once it
 // listens (a first visit); the validator key of a chain that stakes said in Settings' list.

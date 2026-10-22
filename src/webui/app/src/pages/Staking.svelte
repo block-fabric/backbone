@@ -41,7 +41,7 @@
   /** The tabs offered: those shown, or, with a chain selected that does not stake, the chains that do (a click away). */
   const offered = $derived(tabs.length ? tabs : stakers);
 
-  // This computer as a validator (doc/unified-app.md §24.2): whether the node of the chain shown has a validator key, read
+  // This computer as a validator (doc/unified-app.md §25.2): whether the node of the chain shown has a validator key, read
   // once when its tab is shown (getstakinginfo, by the adapter); without one, the app offers to make one here.
   let validator = $state<Record<string, boolean>>({});
   let making = $state('');

@@ -2413,7 +2413,7 @@ void App::RegisterSidechainMethods(Bridge& b)
         s->Enable(stem, wallet);
         return UniValue{true};
     }), Bridge::Thread::LONG);
-    // A validator key of this computer for a chain that stakes (doc/unified-app.md §24.2): made here, never from the backup
+    // A validator key of this computer for a chain that stakes (doc/unified-app.md §25.2): made here, never from the backup
     // phrase; its node starts again with it. One made before is kept.
     b.RegisterHost("sidechains.validatorKey", guarded([this, stem_of](const UniValue& params) {
         const std::string stem{stem_of(params)};

@@ -138,7 +138,7 @@ public:
     bool AnyEnabled() const;
     std::string WalletMode(const std::string& stem) const;
 
-    /** The validator key file this app makes for a chain that stakes (doc/unified-app.md §24.2): in its network's data. */
+    /** The validator key file this app makes for a chain that stakes (doc/unified-app.md §25.2): in its network's data. */
     fs::path ValidatorKeyFile(const std::string& stem) const;
     /** Whether its daemon is started with a validator key this app made (its setting, and the file there). */
     bool HasValidatorKey(const std::string& stem) const;
