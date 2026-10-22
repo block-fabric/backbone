@@ -161,6 +161,17 @@ struct Nodes {
         } else if (method == "bitassets.logo") {
             result = Json(logo);
         } else if (method == "getname") {
+            // A node that answers a name with a mark that turns text around, and markup for its number.
+            if (stem == "bitnames" && p[0].get_str() == "evil") {
+                result = Json(R"({"namehash":")" + std::string(64, 'e') + "\",\"name\":\"\u202eevil\",\"seq\":\"0001-0002\",\"owner\":{\"address\":\"rsc1q\"}}");
+                out.pushKV("result", result);
+                return out;
+            }
+            if (stem == "bitnames" && p[0].get_str() == "odd") {
+                result = Json(R"({"namehash":")" + std::string(64, 'f') + R"(","name":"odd","seq":"<b>1</b>","owner":{"address":"rsc1q <script>"}})");
+                out.pushKV("result", result);
+                return out;
+            }
             if (stem != "bitnames" || (p[0].get_str() != "alice" && p[0].get_str() != "#0001-0001")) throw std::runtime_error{"No such name is registered"};
             result = Json(R"({"namehash":")" + std::string(64, 'a') + R"(","name":"alice","seq":"0001-0001","registered":12,"owner":{"txid":")" + TXID + R"(","vout":0,"address":"rsc1qbnowner00"}})");
         } else if (method == "listmynames") {
@@ -518,6 +529,13 @@ BOOST_AUTO_TEST_CASE(names_found_and_held_and_private_coins_moved)
     BOOST_CHECK_EQUAL(found[0].find_value("owner").get_str(), "rsc1qbnowner00");
     BOOST_CHECK(found[0].find_value("mine").isTrue());
     BOOST_CHECK_EQUAL(a.Search(P(R"({"stem":"bitnames","q":"alice.x"})")).find_value("results").size(), 1U);
+    // A node's text that is not a name's is not shown: a name turning text around is dropped; a number or an owner that are
+    // not one are left out.
+    BOOST_CHECK(a.Search(P(R"({"stem":"bitnames","q":"evil"})")).find_value("results").empty());
+    const UniValue odd{a.Search(P(R"({"stem":"bitnames","q":"odd"})")).find_value("results")};
+    BOOST_REQUIRE_EQUAL(odd.size(), 1U);
+    BOOST_CHECK_EQUAL(odd[0].find_value("seq").get_str(), "");
+    BOOST_CHECK_EQUAL(odd[0].find_value("owner").get_str(), "");
     // Not a name there: nothing; a chain without names is not asked.
     BOOST_CHECK(a.Search(P(R"({"stem":"bitnames","q":"bob"})")).find_value("results").empty());
     nodes.rpcs.clear();

@@ -1442,14 +1442,21 @@ UniValue ChainAdapter::Search(const UniValue& params) const
             const std::string text{NameOf(q)};
             const UniValue n{PageRead(stem, "getname", Array({UniValue{text}}), "")};
             if (!IsHex64(Str(n, "namehash"))) return;
+            // Only what a name is made of (a node's text is shown in lists and the palette: never markup, never a mark that
+            // turns text around): its text a name's, its number two groups of four digits.
+            const std::string name{Str(n, "name").empty() ? text : Str(n, "name")};
+            const std::string seq{Str(n, "seq")};
+            if (!IsNameText(name) || name.starts_with('#')) return;
+            const bool seq_ok{seq.size() == 9 && seq[4] == '-' && std::all_of(seq.begin(), seq.end(), [](char c) { return c == '-' || (c >= '0' && c <= '9'); })};
             UniValue r{UniValue::VOBJ};
             r.pushKV("kind", "name");
             r.pushKV("namehash", Str(n, "namehash"));
-            r.pushKV("name", Line(Str(n, "name").empty() ? text : Str(n, "name"), 120));
-            r.pushKV("seq", Line(Str(n, "seq"), 16));
+            r.pushKV("name", name);
+            r.pushKV("seq", seq_ok ? seq : std::string{});
             if (Param(n, "registered").isNum()) r.pushKV("height", Param(n, "registered").getInt<int64_t>());
-            const std::string owner{Str(Param(n, "owner"), "address")};
-            r.pushKV("owner", Line(owner, 120));
+            std::string owner{Str(Param(n, "owner"), "address")};
+            if (owner.size() > 120 || owner.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") != std::string::npos) owner.clear();
+            r.pushKV("owner", owner);
             bool mine{false};
             if (!owner.empty()) attempt([&] { mine = PageRead(stem, "getaddressinfo", Array({UniValue{owner}}), Wallet(stem, params)).find_value("ismine").isTrue(); });
             r.pushKV("mine", mine);

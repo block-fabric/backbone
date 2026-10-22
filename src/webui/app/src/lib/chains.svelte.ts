@@ -530,6 +530,9 @@ export function pendingDeposits(stem?: string): PendingDeposit[] {
   return deposits.list.filter((d) => !d.credited && (!stem || d.stem === stem));
 }
 
+/** A name (BitNames): lower-case letters, digits, - and _, labels joined by dots (what the host takes as one, too). */
+export const NAME_TEXT = /^[a-z0-9_-]{1,63}(?:\.[a-z0-9_-]{1,63}){0,7}$/;
+
 /** What a search finds on a sidechain (chain.search: reads only): blocks, transactions, addresses, names (BitNames). */
 export interface ChainFound {
   chain: string;
@@ -544,7 +547,9 @@ export interface ChainFound {
 
 export async function searchChain(stem: string, q: string): Promise<ChainFound[]> {
   const r = await request<{ results: { kind: ChainFound['kind']; hash?: string; txid?: string; address?: string; name?: string; seq?: string; owner?: string; height?: number; mine?: boolean; confirmations?: number }[] }>('host', 'chain.search', { stem, q });
-  return r.results.map((x) => ({ chain: stem, kind: x.kind, id: x.hash ?? x.txid ?? x.address ?? x.name ?? '', height: x.height, mine: x.mine, confirmations: x.confirmations, seq: x.seq, owner: x.owner }));
+  return r.results
+    .filter((x) => x.kind !== 'name' || (NAME_TEXT.test(x.name ?? '') && (!x.seq || /^\d{4}-\d{4}$/.test(x.seq)) && (!x.owner || /^[A-Za-z0-9]{1,120}$/.test(x.owner))))
+    .map((x) => ({ chain: stem, kind: x.kind, id: x.hash ?? x.txid ?? x.address ?? x.name ?? '', height: x.height, mine: x.mine, confirmations: x.confirmations, seq: x.seq, owner: x.owner }));
 }
 
 /** A name of a chain that keeps names, shown whole in that chain's own directory (its tab "name:<name>"). */

@@ -97,6 +97,7 @@ beforeEach(async () => {
       case 'chain.shield':
         return { stem: p.stem, wallet: 'main', txid: 'ab'.repeat(32) };
       case 'chain.search':
+        if (p.stem === 'bitnames' && p.q === 'mallory') return { results: [{ kind: 'name', name: '\u202emallory', seq: '0001-0002', owner: 'rsc1q' }, { kind: 'name', name: 'mallory', seq: '<b>', owner: 'rsc1q' }] };
         return p.stem === 'bitnames' && p.q === 'alice' ? { stem: 'bitnames', q: 'alice', results: [{ kind: 'name', name: 'alice', namehash: 'aa'.repeat(32), seq: '0001-0001', owner: 'rsc1qowner', mine: true, height: 9 }] } : { results: [] };
       case 'prefs.set':
         return {};
@@ -207,6 +208,8 @@ describe('BitNames: names found and opened', () => {
     await fireEvent.click(row);
     expect(modules.routes.bitnames).toEqual({ page: 'directory', tab: 'name:alice' });
     expect(await searchChain('zside', 'alice')).toEqual([]);
+    // A node's answer that is not a name's (a mark turning text around, markup for its number): not listed.
+    expect(await searchChain('bitnames', 'mallory')).toEqual([]);
   });
 });
 
