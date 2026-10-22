@@ -190,8 +190,10 @@ the same for the ValidatorService. What is added, from the security review of 20
    client that takes no byte of its replies for 30 s is closed (slow reads: replies waiting in the socket, in a
    call or behind HTTP/2 flow control all count; a stream whose window stays closed 30 s is reset); a call's
    unsent replies are at most 320 MiB (then RESOURCE_EXHAUSTED; SubscribeEvents ends its subscriber at 256 MiB
-   first, as the enforcer); past 100 streams the client reset (Rapid Reset, stream rotation; nghttp2's own reset
-   rate limit too) the connection is closed with a GOAWAY; past 10,000 requests it takes no new one (GOAWAY) and
+   first, as the enforcer); past 100 streams reset before their call was over, by the client (Rapid Reset, stream
+   rotation) or by the server because of the client (MadeYouReset, CVE-2025-8671: oversized or malformed
+   frames), each counted once, the connection is closed with a GOAWAY (nghttp2's own reset rate limit too; depends
+   builds nghttp2 1.66.0, which has its MadeYouReset fix; an older system libnghttp2 is warned about at startup); past 10,000 requests it takes no new one (GOAWAY) and
    is closed once its calls are over;
    a running call is otherwise never cut (SubscribeEvents and other server streams last as long as their client
    reads them); 16 connections per address beyond this machine, IPv6 counted by its /64 (`-grpcipv6prefix`, 16 to

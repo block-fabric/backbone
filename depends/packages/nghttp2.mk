@@ -1,8 +1,8 @@
 package=nghttp2
-$(package)_version=1.64.0
+$(package)_version=1.66.0
 $(package)_download_path=https://github.com/nghttp2/nghttp2/releases/download/v$($(package)_version)/
 $(package)_file_name=$(package)-$($(package)_version).tar.xz
-$(package)_sha256_hash=88bb94c9e4fd1c499967f83dece36a78122af7d5fb40da2019c56b9ccc6eb9dd
+$(package)_sha256_hash=00ba1bdf0ba2c74b2a4fe6c8b1069dc9d82f82608af24442d430df97c6f9e631
 $(package)_build_subdir=build
 
 # libnghttp2 alone (the HTTP/2 framing and HPACK of the gRPC server, WITH_GRPC): no applications,
