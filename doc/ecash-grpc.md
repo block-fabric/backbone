@@ -186,15 +186,19 @@ the same for the ValidatorService. What is added, from the security review of 20
    stream from its own HEADERS), else the connection is closed; a connection with no call running that began or
    completed no request for 30 s is closed, over HTTP/2 with a GOAWAY first (gRPC clients open another; a call
    sent meanwhile is above its last stream id, so retried); bytes alone are not activity (PINGs, SETTINGS); a
-   client that takes no byte of its replies for 30 s is closed (slow reads); past 100 streams reset before their
-   request was in (stream rotation), or past 10,000 requests once no call runs, the connection is closed (GOAWAY);
+   client that takes no byte of its replies for 30 s is closed (slow reads: replies waiting in the socket, in a
+   call or behind HTTP/2 flow control all count; a stream whose window stays closed 30 s is reset); a call's
+   unsent replies are at most 320 MiB (then RESOURCE_EXHAUSTED; SubscribeEvents ends its subscriber at 256 MiB
+   first, as the enforcer); past 100 streams the client reset (Rapid Reset, stream rotation; nghttp2's own reset
+   rate limit too) the connection is closed with a GOAWAY; past 10,000 requests it takes no new one (GOAWAY) and
+   is closed once its calls are over;
    a running call is otherwise never cut (SubscribeEvents and other server streams last as long as their client
    reads them); 16 connections per address beyond this machine, IPv6 counted by its /64 (`-grpcipv6prefix`, 16 to
    128), the loopback addresses (shared by the machine's own sidechain nodes and apps) not bounded by address;
    256 in all.
 
 Tests: `grpc_tests/transport`, `grpc_tests/limits`, `grpc_tests/connection_states`, `grpc_tests/slow_clients`,
-`grpc_tests/slow_reads_and_rotation`, `grpc_tests/address_keys`; `interface_ecash_grpc.py`
+`grpc_tests/slow_reads_and_rotation`, `grpc_tests/flow_control_and_rapid_reset`, `grpc_tests/address_keys`; `interface_ecash_grpc.py`
 (`test_security`, `test_slow_clients`).
 
 ## 8. Why nghttp2 and our own protobuf code
