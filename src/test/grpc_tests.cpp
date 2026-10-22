@@ -973,6 +973,31 @@ BOOST_AUTO_TEST_CASE(flow_control_and_rapid_reset)
         BOOST_CHECK(std::find(types.begin(), types.end(), NGHTTP2_GOAWAY) != types.end());
     }
     server.Stop();
+
+    // MadeYouReset: a client that makes the server reset its streams (here: requests over the connection's buffer,
+    // reset with ENHANCE_YOUR_CALM) without resetting any itself is closed past the bound as well.
+    grpcsrv::Options tight{options};
+    tight.max_request_bytes = 5000;
+    tight.max_connection_buffer = 2000;
+    grpcsrv::Server strict{Pool(), tight};
+    BOOST_REQUIRE(strict.Register("cusf.crypto.v1.CryptoService", "Ripemd160", [](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) { w->Finish({}); }));
+    BOOST_REQUIRE_MESSAGE(strict.Start({*Assert(Lookup("127.0.0.1", 0, /*fAllowLookup=*/false))}, {}, error), error);
+    {
+        RawClient c{strict.Bound().at(0)};
+        H2Bytes client;
+        int rounds{0};
+        for (; rounds < 20 && !c.closed; ++rounds) {
+            client.Request("/cusf.crypto.v1.CryptoService/Ripemd160", Envelope(std::string(3000, 'y')));
+            if (!c.Send(client.Out())) break;
+            c.ReadFor(100ms);
+        }
+        BOOST_CHECK(c.closed || c.ReadFor(1s));
+        BOOST_CHECK_MESSAGE(rounds >= 6 && rounds < 9, rounds);
+        const std::vector<uint8_t> types{FrameTypes(c.in)};
+        BOOST_CHECK(std::find(types.begin(), types.end(), NGHTTP2_RST_STREAM) != types.end());
+        BOOST_CHECK(std::find(types.begin(), types.end(), NGHTTP2_GOAWAY) != types.end());
+    }
+    strict.Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()
