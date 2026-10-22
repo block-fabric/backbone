@@ -87,7 +87,8 @@ public:
     static AddressKind KindOf(std::string_view address, std::string* hrp = nullptr);
 
     //! The wallet a chain's views use: the one asked for if loaded, else "main", else the first loaded ("" without one).
-    static std::string PickWallet(const UniValue& loaded, const std::string& wanted);
+    /** The wallet a call uses: the one asked for if loaded, else the one of the backup phrase (preferred) if loaded, else "main", else the first. */
+    static std::string PickWallet(const UniValue& loaded, const std::string& wanted, const std::string& preferred = {});
     //! The rows of listtransactions as the app shows them: bounded, checked, amounts as text, newest first.
     static UniValue TransactionRows(const UniValue& listed, size_t max);
     //! The assets of listmyassets: {id, label, decimals, balance, pending, control}, at most 200.
@@ -136,6 +137,8 @@ public:
         std::function<UniValue(const std::string& stem, const UniValue& params)> deposit;
         //! Whether its wallet is made from the app's backup phrase ("shared") or its own ("separate").
         std::function<std::string(const std::string& stem)> wallet_mode;
+        //! The wallet of a chain made from the backup phrase (SeedKeeper::MadeWallet, doc §23), "" when none: used first.
+        std::function<std::string(const std::string& stem)> seed_wallet;
     };
 
     explicit ChainAdapter(Hooks hooks) : m_hooks(std::move(hooks)) {}

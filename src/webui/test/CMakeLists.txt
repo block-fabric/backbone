@@ -17,6 +17,7 @@ add_executable(test_chains-app
   moduleinstaller_tests.cpp
   nodeapi_tests.cpp
   nodeevents_tests.cpp
+  seed_tests.cpp
   singleinstance_tests.cpp
   supervisor_tests.cpp
   sidechainpages_tests.cpp
@@ -125,6 +126,16 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
         set_tests_properties(webui_e2e_packs PROPERTIES TIMEOUT 3000 RUN_SERIAL TRUE)
         # The app's own pages over every chain (doc/unified-app.md §18): Overview, Send, Receive, Transactions, Wallets,
         # Sidechains, Staking and Assets with Layers and Thunder on.
+        # The single seed (doc/unified-app.md §23): the first start, a restore into a fresh data folder, wallets of before.
+        add_test(NAME webui_e2e_seed
+          COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_seed.py
+            --app $<TARGET_FILE:chains-app>
+            --sidechain-bindir ${WEBUI_E2E_SIDECHAIN_BINDIR}
+            --sidechain-bindir ${WEBUI_E2E_THUNDER_BINDIR}
+            --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-seed
+            --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+        )
+        set_tests_properties(webui_e2e_seed PROPERTIES TIMEOUT 3600 RUN_SERIAL TRUE)
         add_test(NAME webui_e2e_integrated
           COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_integrated.py
             --app $<TARGET_FILE:chains-app>
@@ -171,8 +182,8 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
               --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-hub
               --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots-hub
               --screen 3440x1440 --window 3440x1380 --env WEBKIT_DISABLE_DMABUF_RENDERER=
-              --perf --perf-seconds 30 --pages home,overview,transactions,sidechains,explorer,hivemind:markets,bitassets:assets
-              --steady home,overview,transactions,hivemind:markets --steady-seconds 90
+              --perf --perf-seconds 30 --pages home,overview,transactions,sidechains,trade,trade:pools,explorer,hivemind:markets,bitassets:assets
+              --steady home,overview,transactions,hivemind:markets,trade --steady-seconds 90
               --budget 5 --page-budget 5 --steady-budget 25
           )
           set_tests_properties(webui_e2e_hub_cost PROPERTIES TIMEOUT 7200 RUN_SERIAL TRUE)

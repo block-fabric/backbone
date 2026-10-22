@@ -233,15 +233,18 @@ ChainAdapter::AddressKind ChainAdapter::KindOf(std::string_view address, std::st
     return AddressKind::OTHER;
 }
 
-std::string ChainAdapter::PickWallet(const UniValue& loaded, const std::string& wanted)
+std::string ChainAdapter::PickWallet(const UniValue& loaded, const std::string& wanted, const std::string& preferred)
 {
     if (!loaded.isArray() || loaded.empty()) return {};
     bool has_main{false};
+    bool has_preferred{false};
     for (const UniValue& w : loaded.getValues()) {
         if (!w.isStr()) continue;
         if (!wanted.empty() && w.get_str() == wanted) return wanted;
         if (w.get_str() == "main") has_main = true;
+        if (!preferred.empty() && w.get_str() == preferred) has_preferred = true;
     }
+    if (has_preferred) return preferred;
     if (has_main) return "main";
     return loaded[0].isStr() ? loaded[0].get_str() : std::string{};
 }
@@ -449,7 +452,7 @@ std::string ChainAdapter::Wallet(const std::string& stem, const UniValue& params
 {
     if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
     const UniValue loaded{m_hooks.rpc(stem, "listwallets", UniValue{UniValue::VARR}, "")};
-    const std::string wallet{PickWallet(loaded, Str(params, "wallet"))};
+    const std::string wallet{PickWallet(loaded, Str(params, "wallet"), m_hooks.seed_wallet ? m_hooks.seed_wallet(stem) : std::string{})};
     if (wallet.empty()) throw HostError(-18, strprintf("%s has no wallet loaded", m_hooks.name(stem)));
     return wallet;
 }
@@ -581,7 +584,7 @@ UniValue ChainAdapter::Summary(const UniValue& params) const
     std::string wallet;
     section("wallet", [&] {
         const UniValue loaded{m_hooks.rpc(stem, "listwallets", UniValue{UniValue::VARR}, "")};
-        wallet = PickWallet(loaded, Str(params, "wallet"));
+        wallet = PickWallet(loaded, Str(params, "wallet"), m_hooks.seed_wallet ? m_hooks.seed_wallet(stem) : std::string{});
         UniValue names{UniValue::VARR};
         for (size_t i{0}; loaded.isArray() && i < loaded.size() && i < 50; ++i) {
             if (loaded[i].isStr()) names.push_back(Line(loaded[i].get_str(), 64));
@@ -711,7 +714,8 @@ UniValue ChainAdapter::Wallets(const UniValue& params) const
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
     out.pushKV("mode", m_hooks.wallet_mode ? m_hooks.wallet_mode(stem) : std::string{"shared"});
-    out.pushKV("selected", PickWallet(loaded, Str(params, "wallet")));
+    out.pushKV("selected", PickWallet(loaded, Str(params, "wallet"), m_hooks.seed_wallet ? m_hooks.seed_wallet(stem) : std::string{}));
+    out.pushKV("phraseWallet", m_hooks.seed_wallet ? m_hooks.seed_wallet(stem) : std::string{});
     out.pushKV("wallets", std::move(list));
     return out;
 }

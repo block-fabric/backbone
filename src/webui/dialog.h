@@ -11,6 +11,7 @@
 #include <atomic>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -101,6 +102,45 @@ constexpr size_t MAX_IMAGE_URL{44 * 1024};
 /** Whether a value is a picture a dialog shows: "data:image/png;base64," or "data:image/jpeg;base64," and base64 only, of at most MAX_IMAGE_URL. */
 bool IsImageDataUrl(std::string_view value);
 
+/**
+ * A field the user fills in the dialog's window (doc/unified-app.md §23): a passphrase, a new passphrase, a word or the
+ * words of a backup phrase, a date. What is typed there reaches the host only, in the answer: never a page.
+ */
+struct Field {
+    enum class Kind {
+        //! A passphrase (hidden).
+        PASSWORD,
+        //! A new passphrase (hidden; the page says how long it is against the least, MIN_NEW_PASSWORD).
+        NEW_PASSWORD,
+        //! One word of a backup phrase (the page says whether it is one of the list).
+        WORD,
+        //! The words of a backup phrase (12 to 24; the page counts them and marks a word not of the list).
+        WORDS,
+        //! A day, YYYY-MM-DD.
+        DATE,
+        //! A short secret shown as typed only on request (the extra word of a phrase).
+        SECRET,
+    };
+    //! [a-z0-9-], 1 to 24 characters: the key of its value in the answer.
+    std::string id;
+    Kind kind{Kind::PASSWORD};
+    std::string label;
+    //! A line under it (what it is for).
+    std::string hint;
+    bool optional{false};
+    //! What it holds when it shows: what the user typed before, given back to correct (a phrase with one word wrong).
+    SecureString value;
+    //! An error shown at it.
+    std::string error;
+};
+//! The least a new passphrase has (the page says so as it is typed; the host checks again).
+inline constexpr size_t MIN_NEW_PASSWORD{8};
+//! The most fields of one question, and the longest value of one (bytes): a phrase of 24 words is far less.
+inline constexpr size_t MAX_FIELDS{6};
+inline constexpr size_t MAX_FIELD_VALUE{1024};
+
+std::string_view FieldKindName(Field::Kind kind);
+
 /** A question of the host. */
 struct Request {
     std::string title;
@@ -128,6 +168,13 @@ struct Request {
     //! Set when whoever asked no longer waits (the page cancelled its request): a question still waiting its turn is
     //! not shown (Pending::Next). Null for one that cannot be withdrawn.
     std::shared_ptr<std::atomic<bool>> withdrawn;
+    //! A backup phrase shown (doc/unified-app.md §23): numbered, in a grid; the page lets nobody select or copy it. Only
+    //! the dialog's window shows it (never the dialog of the system: NeedsThemedWindow).
+    std::shared_ptr<const std::vector<SecureString>> words;
+    //! Fields to fill (Field), after the rows.
+    std::vector<Field> fields;
+    //! A box the user ticks before the button that accepts can be pressed ("I wrote the 12 words down"); empty: none.
+    std::string checkbox;
     //! The look of the app (Look).
     UniValue look{UniValue::VOBJ};
     //! The tests only (WEBUI_TEST_HOOKS): the themed window is not made, as when its web view cannot be (the fallback shows).
@@ -139,7 +186,18 @@ struct Answer {
     bool accepted{false};
     //! What was typed in the passphrase field (accepted, with a field), else empty.
     SecureString passphrase;
+    //! What was typed in each field of the question (Field), by its id (accepted only).
+    std::map<std::string, SecureString> fields;
+    //! The box of the question was ticked (accepted only).
+    bool checked{false};
 };
+
+/**
+ * Whether a question can only be asked in the dialog's window: it shows a backup phrase, has fields or a box to tick.
+ * The dialog of the system cannot (it has one hidden field at most): such a question is then declined, never shown
+ * there without its words or fields.
+ */
+bool NeedsThemedWindow(const Request& request);
 
 /** The name of a level ("info", "warning", "danger"), as the page reads it. */
 std::string_view LevelName(Level level);
@@ -192,8 +250,9 @@ struct Size {
  *
  *  1. "hello" (once): the reply is PageData.
  *  2. "ready" {width, height} (once, after hello): the size the page needs, in CSS pixels; the window shows.
- *  3. "answer" {accept, passphrase?} (once, after ready): the dialog ends. A passphrase is taken only when the
- *     request has a field and the user accepted, and is then needed.
+ *  3. "answer" {accept, passphrase?, fields?, checked?} (once, after ready): the dialog ends. A passphrase is taken only
+ *     when the request has a field and the user accepted, and is then needed; the fields (Field) only those of the
+ *     request, each of its length, the ones not optional filled; the box ticked when the request has one.
  *
  * Anything else, out of order, or after the answer is refused (an error to the page, nothing else happens).
  */

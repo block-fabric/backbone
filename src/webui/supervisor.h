@@ -85,6 +85,10 @@ public:
         std::vector<std::chrono::milliseconds> backoff{std::chrono::seconds{2}, std::chrono::seconds{5}, std::chrono::seconds{15}, std::chrono::seconds{30}, std::chrono::seconds{60}};
         //! A daemon that ran this long is well again: its count of restarts starts over.
         std::chrono::seconds healthy_after{std::chrono::minutes{10}};
+        //! The wallet a sidechain's node loads when its wallet is the backup phrase's (SeedKeeper::WalletOf, doc §23): its
+        //! name, or "" while its keys are not made yet (then no wallet of its own is made); nothing: as before (a wallet
+        //! of its own, "main", made when it has none).
+        std::function<std::optional<std::string>(const std::string& stem)> seed_wallet;
     };
     using LoadFn = std::function<UniValue()>;
     using StoreFn = std::function<void(const UniValue&)>;
@@ -185,6 +189,13 @@ public:
     };
     /** Call a method of its daemon over JSON-RPC (127.0.0.1, as APP_RPC_USER). Throws RpcError with its error. */
     UniValue Rpc(const std::string& stem, const std::string& method, const UniValue& params = UniValue{UniValue::VARR}, const std::string& wallet = {}, std::chrono::milliseconds timeout = std::chrono::seconds{30}) const;
+    /**
+     * The wallet setup of the backup phrase (SeedKeeper, doc/unified-app.md §23): a blank wallet made, the keys of its
+     * account put in, its passphrase. As the daemon's own user (its cookie, read for the call), never as APP_RPC_USER, whose
+     * whitelist stays without them: only the methods of SetupRpcMethods, refused here for any other. Throws RpcError.
+     */
+    static const std::vector<std::string>& SetupRpcMethods();
+    UniValue SetupRpc(const std::string& stem, const std::string& method, const UniValue& params, const std::string& wallet, std::chrono::milliseconds timeout) const;
     /** What the overview of a sidechain shows: height, sync, the balance of its wallet, recent blocks. */
     UniValue Overview(const std::string& stem, int mainchain_height) const;
 

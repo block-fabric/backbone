@@ -80,6 +80,8 @@ target_link_libraries(chains_webui_assets PRIVATE core_interface)
 add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   appconfig.cpp
   assets.cpp
+  bip39.cpp
+  bip39_english.cpp
   bridge.cpp
   rpcpolicy.cpp
   confirm.cpp
@@ -98,6 +100,8 @@ add_library(chains_webui_core STATIC EXCLUDE_FROM_ALL
   options.cpp
   sidechainnodes.cpp
   sidechainpages.cpp
+  seed.cpp
+  seedkeeper.cpp
   supervisor.cpp
   singleinstance.cpp
   windowframe.cpp

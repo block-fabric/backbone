@@ -42,6 +42,7 @@
 #include <webui/nodeevents.h>
 #include <webui/options.h>
 #include <webui/rpcpolicy.h>
+#include <webui/seedkeeper.h>
 #include <webui/sidechainpages.h>
 #include <webui/moduleinstaller.h>
 #include <webui/supervisor.h>
@@ -739,6 +740,16 @@ void App::NodeThread()
         if (pages) pages->Stop();
         if (supervisor) supervisor->StopAll();
         {
+            // The backup phrase wiped from memory; the wallets being made from it stopped (after the sidechains, before
+            // the node: a rescan of this node's wallet is aborted).
+            std::shared_ptr<SeedKeeper> keeper;
+            {
+                LOCK(m_mutex);
+                keeper = m_seed;
+            }
+            if (keeper) keeper->Stop();
+        }
+        {
             // A download still running stops (nothing half done stays installed).
             std::shared_ptr<ModuleInstaller> installer;
             {
@@ -823,6 +834,9 @@ dialog::Request App::DialogRequest(const Window::ConfirmDialog& confirm)
     request.chain = confirm.chain;
     request.chain_network = confirm.chain_network;
     request.chain_logo = confirm.chain_logo;
+    request.words = confirm.words;
+    request.fields = confirm.fields;
+    request.checkbox = confirm.checkbox;
     std::string language;
     {
         LOCK(m_mutex);
@@ -921,6 +935,12 @@ dialog::Answer App::AskHost(const Window::ConfirmDialog& confirm)
                 dialog::Answer out;
                 out.accepted = answer->kind == TestConfirm::YES;
                 if (out.accepted && shown.passphrase) out.passphrase.assign(answer->passphrase.begin(), answer->passphrase.end());
+                if (out.accepted) {
+                    for (const dialog::Field& f : shown.fields) {
+                        if (const auto it{answer->fields.find(f.id)}; it != answer->fields.end()) out.fields[f.id].assign(it->second.begin(), it->second.end());
+                    }
+                    out.checked = !shown.checkbox.empty();
+                }
                 answered(out.accepted, false);
                 return out;
             }
@@ -1386,6 +1406,7 @@ void App::RegisterHostMethods()
     // Nodes tab (start, stop and download by hand: SidechainNodes) is gone; its download and check of a release stays
     // in sidechainnodes.cpp for download-on-enable (phase 4).
     RegisterSidechainMethods(b);
+    RegisterSeedMethods(b);
     RegisterModuleMethods(b);
 
     // The options of the node (OptionsModel), in settings.json; the flag of a restart in the preferences.
@@ -1647,9 +1668,16 @@ void App::RegisterHostMethods()
             const bool fallback{Param(params, "fallback").isTrue()};
             if (!yes.isBool() && !show && !fallback) throw HostError(BRIDGE_INVALID_REQUEST, "yes: true or false; or show: true; or fallback: true");
             const UniValue& passphrase{Param(params, "passphrase")};
+            // {yes: true, fields: {id: text}} types in the fields of a question that has some (dialog::Field) and ticks its box.
+            std::map<std::string, std::string> fields;
+            if (Param(params, "fields").isObject()) {
+                for (const std::string& key : Param(params, "fields").getKeys()) {
+                    if (Param(params, "fields").find_value(key).isStr()) fields[key] = Param(params, "fields").find_value(key).get_str();
+                }
+            }
             LOCK(m_mutex);
             m_test_confirms.push_back({fallback ? TestConfirm::FALLBACK : show ? TestConfirm::SHOW : yes.get_bool() ? TestConfirm::YES : TestConfirm::NO,
-                                       passphrase.isStr() ? passphrase.get_str() : std::string{}});
+                                       passphrase.isStr() ? passphrase.get_str() : std::string{}, std::move(fields)});
             return UniValue{true};
         });
         b.RegisterHost("test.questionLimits", [this](const UniValue&) {
@@ -1732,6 +1760,21 @@ void App::RegisterHostMethods()
                     rows.push_back(std::move(r));
                 }
                 entry.pushKV("rows", std::move(rows));
+                // A backup phrase is never written here: how many words were shown, the fields asked and the box.
+                if (d.words) entry.pushKV("words", static_cast<uint64_t>(d.words->size()));
+                if (!d.fields.empty()) {
+                    UniValue fields{UniValue::VARR};
+                    for (const auto& f : d.fields) {
+                        UniValue field{UniValue::VOBJ};
+                        field.pushKV("id", f.id);
+                        field.pushKV("kind", std::string{dialog::FieldKindName(f.kind)});
+                        field.pushKV("label", f.label);
+                        if (!f.error.empty()) field.pushKV("error", f.error);
+                        fields.push_back(std::move(field));
+                    }
+                    entry.pushKV("fields", std::move(fields));
+                }
+                if (!d.checkbox.empty()) entry.pushKV("checkbox", d.checkbox);
                 out.push_back(std::move(entry));
             }
             return out;
@@ -1794,7 +1837,82 @@ void App::EnsureRpcServer()
 
 void App::StartSidechains()
 {
+    // The single seed (doc/unified-app.md §23), made first: the supervisor asks it which wallet a sidechain's node loads.
+    SeedKeeper::Hooks seed_hooks;
+    seed_hooks.file = m_args.GetDataDirNet() / "seed.dat";
+    seed_hooks.chain = m_args.GetChainType();
+    seed_hooks.test_chain = Params().IsTestChain();
+    seed_hooks.product = CLIENT_NAME;
+    seed_hooks.node_ready = [this] {
+        LOCK(m_mutex);
+        return m_node_started && m_node && m_phase == "ready";
+    };
+    seed_hooks.node_rpc = [this](const std::string& method, const UniValue& params, const std::string& wallet) -> UniValue {
+        interfaces::Node* node;
+        {
+            LOCK(m_mutex);
+            if (!m_node_started || !m_node) throw SidechainSupervisor::RpcError(BRIDGE_NOT_READY, "The node is not running");
+            node = m_node.get();
+        }
+        try {
+            return node->executeRpc(method, params, wallet.empty() ? std::string{"/"} : WalletUri(wallet));
+        } catch (const UniValue& error) {
+            const UniValue& code{error.find_value("code")};
+            const UniValue& message{error.find_value("message")};
+            throw SidechainSupervisor::RpcError(code.isNum() ? code.getInt<int>() : -1, message.isStr() ? message.get_str() : std::string{"the node refused it"});
+        }
+    };
+    const auto running_supervisor{[this] {
+        LOCK(m_mutex);
+        return m_supervisor;
+    }};
+    seed_hooks.side_rpc = [running_supervisor](const std::string& stem, const std::string& method, const UniValue& params, const std::string& wallet, std::chrono::milliseconds timeout) {
+        const auto s{running_supervisor()};
+        if (!s) throw SidechainSupervisor::RpcError(BRIDGE_NOT_READY, "The sidechains are not running");
+        return s->SetupRpc(stem, method, params, wallet, timeout);
+    };
+    seed_hooks.side_running = [running_supervisor](const std::string& stem) {
+        const auto s{running_supervisor()};
+        if (!s) return false;
+        const auto status{s->GetStatus(stem)};
+        return status.state == SidechainSupervisor::State::RUNNING && status.rpc_ready;
+    };
+    const auto chains_of{[running_supervisor](bool separate) {
+        std::vector<std::string> out;
+        const auto s{running_supervisor()};
+        if (!s) return out;
+        for (const SidechainSupervisor::Spec& spec : SidechainSupervisor::Catalog()) {
+            if (s->Enabled(spec.stem) && (s->WalletMode(spec.stem) == "separate") == separate) out.push_back(spec.stem);
+        }
+        return out;
+    }};
+    seed_hooks.shared_chains = [chains_of] { return chains_of(false); };
+    seed_hooks.separate_chains = [chains_of] { return chains_of(true); };
+    seed_hooks.name = [](const std::string& stem) {
+        const SidechainSupervisor::Spec* spec{SidechainSupervisor::FindSpec(stem)};
+        return spec ? spec->name : stem;
+    };
+    seed_hooks.ask = [this](const Window::ConfirmDialog& dialog) { return AskHost(dialog); };
+    const std::string seed_key{"seed:" + ChainTypeToString(m_args.GetChainType())};
+    seed_hooks.load = [this, seed_key] {
+        UniValue value{m_config->Value(seed_key)};
+        return value.isObject() ? value : UniValue{UniValue::VOBJ};
+    };
+    seed_hooks.store = [this, seed_key](const UniValue& value) { m_config->SetValue(seed_key, value); };
+    seed_hooks.changed = [this] {
+        if (m_hub) m_hub->Emit("seed", UniValue{UniValue::VOBJ}, "seed");
+    };
+    auto keeper{std::make_shared<SeedKeeper>(std::move(seed_hooks))};
+    {
+        LOCK(m_mutex);
+        m_seed = keeper;
+    }
+
     SidechainSupervisor::Options options;
+    options.seed_wallet = [weak = std::weak_ptr<SeedKeeper>{keeper}](const std::string& stem) -> std::optional<std::string> {
+        const auto k{weak.lock()};
+        return k ? k->WalletOf(stem) : std::nullopt;
+    };
     options.chains_datadir = m_args.GetDataDirBase();
     options.chain = m_args.GetChainType();
     options.mainchain_rpc_port = m_args.GetIntArg("-rpcport", BaseParams().RPCPort());
@@ -1851,10 +1969,12 @@ void App::StartSidechains()
             return value.isObject() ? value : UniValue{UniValue::VOBJ};
         },
         [this, key](const UniValue& value) { m_config->SetValue(key, value); },
-        [this](const std::string& stem) {
+        [this, weak_keeper = std::weak_ptr<SeedKeeper>{keeper}](const std::string& stem) {
             UniValue data{UniValue::VOBJ};
             data.pushKV("stem", stem);
             if (m_hub) m_hub->Emit("sidechains", std::move(data), "sidechains:" + stem);
+            // A sidechain whose wallet is the backup phrase's gets its keys as soon as its node answers (when unlocked).
+            if (const auto k{weak_keeper.lock()}) k->ChainReady(stem);
         })};
     SidechainPages::Hooks hooks;
     hooks.rpc = [supervisor](const std::string& stem, const std::string& method, const UniValue& params, std::chrono::milliseconds timeout) {
@@ -1885,6 +2005,14 @@ void App::StartSidechains()
         return m_language;
     };
     hooks.network = [] { return confirm::NetworkName(); };
+    hooks.passphrase = [weak = std::weak_ptr<SeedKeeper>{keeper}](const std::string& stem, const SecureString& typed) {
+        const auto k{weak.lock()};
+        return k ? k->PassphraseFor(stem, typed) : typed;
+    };
+    hooks.phrase_wallet = [weak = std::weak_ptr<SeedKeeper>{keeper}](const std::string& stem) {
+        const auto k{weak.lock()};
+        return k ? k->MadeWallet(stem) : std::string{};
+    };
     auto pages{std::make_shared<SidechainPages>(std::move(hooks))};
     // The app's own pages over every chain (chain.*): reads by the supervisor, spends through the pages' host above.
     ChainAdapter::Hooks adapter_hooks;
@@ -1921,6 +2049,10 @@ void App::StartSidechains()
     adapter_hooks.mainchain_address = [this](const std::string& address) { return MainchainAddress(address); };
     adapter_hooks.deposit = [this](const std::string& stem, const UniValue& params) { return PackDeposit(stem, params); };
     adapter_hooks.wallet_mode = [supervisor](const std::string& stem) { return supervisor->WalletMode(stem); };
+    adapter_hooks.seed_wallet = [weak = std::weak_ptr<SeedKeeper>{keeper}](const std::string& stem) {
+        const auto k{weak.lock()};
+        return k ? k->MadeWallet(stem) : std::string{};
+    };
     auto adapter{std::make_shared<ChainAdapter>(std::move(adapter_hooks))};
     {
         LOCK(m_mutex);
@@ -1938,6 +2070,46 @@ void App::StartSidechains()
         return;
     }
     supervisor->StartEnabled();
+}
+
+std::shared_ptr<SeedKeeper> App::Seed()
+{
+    LOCK(m_mutex);
+    if (!m_seed) throw HostError(BRIDGE_NOT_READY, "The node is not running");
+    return m_seed;
+}
+
+void App::RegisterSeedMethods(Bridge& b)
+{
+    // The backup phrase (doc/unified-app.md §23). Its words and keys never come here: every one of these asks in the dialog's
+    // window of the host, and answers what the page may know (made, cancelled, the state of each chain). Packs: refused
+    // (SidechainPages::RouteOf, "seed.").
+    const auto guarded{[](auto fn) {
+        return [fn](const UniValue& params) -> UniValue {
+            try {
+                return fn(params);
+            } catch (const HostError&) {
+                throw;
+            } catch (const std::runtime_error& e) {
+                throw HostError(e.what());
+            }
+        };
+    }};
+    b.RegisterHost("seed.status", guarded([this](const UniValue&) { return Seed()->Status(); }));
+    b.RegisterHost("seed.create", guarded([this](const UniValue& params) { return Seed()->Create(params); }), Bridge::Thread::LONG);
+    b.RegisterHost("seed.restore", guarded([this](const UniValue& params) { return Seed()->Restore(params); }), Bridge::Thread::LONG);
+    b.RegisterHost("seed.unlock", guarded([this](const UniValue& params) { return Seed()->Unlock(params); }), Bridge::Thread::LONG);
+    b.RegisterHost("seed.lock", guarded([this](const UniValue&) {
+        Seed()->Lock();
+        return UniValue{true};
+    }));
+    b.RegisterHost("seed.addChain", guarded([this](const UniValue& params) { return Seed()->AddChain(ParamStr(params, "stem")); }), Bridge::Thread::LONG);
+    b.RegisterHost("seed.show", guarded([this](const UniValue&) { return Seed()->Show(); }), Bridge::Thread::LONG);
+    b.RegisterHost("seed.changePassphrase", guarded([this](const UniValue&) { return Seed()->ChangePassphrase(); }), Bridge::Thread::LONG);
+    b.RegisterHost("seed.dismiss", guarded([this](const UniValue& params) {
+        Seed()->Dismiss(ParamStr(params, "what"));
+        return UniValue{true};
+    }));
 }
 
 std::shared_ptr<SidechainPages> App::Pages()

@@ -851,6 +851,11 @@ private:
     /** The dialog of GTK, modal to the window; Cancel is the default response. */
     void OpenNative(const dialog::Request& request, Done done)
     {
+        if (dialog::NeedsThemedWindow(request)) {
+            // A backup phrase, fields or a box to tick (§23): only in the dialog's window, never without them.
+            LogWarning("webui: no dialog window for a question with a backup phrase or fields: declined");
+            return Finish(done, {});
+        }
         if (request.rows.size() > dialog::MAX_NATIVE_ROWS) {
             // The dialog of GTK does not scroll: facts off the screen are never accepted unseen.
             LogWarning("webui: no dialog window for a question of %u facts: declined", request.rows.size());

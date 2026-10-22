@@ -189,6 +189,33 @@ UniValue PageData(const Request& request)
     }
     out.pushKV("rows", std::move(rows));
     out.pushKV("look", request.look.isObject() ? request.look : UniValue{UniValue::VOBJ});
+    if (request.words && !request.words->empty()) {
+        // A backup phrase (doc/unified-app.md §23): the words as they are (a-z), 24 at most.
+        UniValue words{UniValue::VARR};
+        for (const SecureString& w : *request.words) {
+            if (words.size() >= 24) break;
+            words.push_back(std::string{w.begin(), w.end()});
+        }
+        out.pushKV("words", std::move(words));
+    }
+    if (!request.fields.empty()) {
+        UniValue fields{UniValue::VARR};
+        for (const Field& f : request.fields) {
+            if (fields.size() >= MAX_FIELDS) break;
+            UniValue field{UniValue::VOBJ};
+            field.pushKV("id", f.id);
+            field.pushKV("kind", std::string{FieldKindName(f.kind)});
+            field.pushKV("label", guard::OneLine(f.label, MAX_LABEL));
+            field.pushKV("hint", Shown(f.hint, MAX_LABEL));
+            field.pushKV("optional", f.optional);
+            if (!f.value.empty() && f.value.size() <= MAX_FIELD_VALUE) field.pushKV("value", std::string{f.value.begin(), f.value.end()});
+            field.pushKV("error", guard::OneLine(f.error, MAX_ERROR));
+            fields.push_back(std::move(field));
+        }
+        out.pushKV("fields", std::move(fields));
+        out.pushKV("minNewPassword", static_cast<uint64_t>(MIN_NEW_PASSWORD));
+    }
+    if (!request.checkbox.empty()) out.pushKV("checkbox", guard::OneLine(request.checkbox, MAX_LABEL));
     if (!request.chain.empty()) {
         // The chain the question is about (a sidechain the app runs): its name and network in fixed words, its mark only
         // as a picture checked here.
@@ -199,6 +226,24 @@ UniValue PageData(const Request& request)
         out.pushKV("chain", std::move(chain));
     }
     return out;
+}
+
+std::string_view FieldKindName(Field::Kind kind)
+{
+    switch (kind) {
+    case Field::Kind::PASSWORD: return "password";
+    case Field::Kind::NEW_PASSWORD: return "new-password";
+    case Field::Kind::WORD: return "word";
+    case Field::Kind::WORDS: return "words";
+    case Field::Kind::DATE: return "date";
+    case Field::Kind::SECRET: return "secret";
+    }
+    return "password";
+}
+
+bool NeedsThemedWindow(const Request& request)
+{
+    return (request.words && !request.words->empty()) || !request.fields.empty() || !request.checkbox.empty();
 }
 
 std::string FallbackText(const UniValue& page)
@@ -299,6 +344,21 @@ Session::~Session()
     if (!m_answer.passphrase.empty()) memory_cleanse(m_answer.passphrase.data(), m_answer.passphrase.size());
 }
 
+namespace {
+//! The text of every string of a value wiped (the fields and passphrase of an answer, once taken).
+void Wipe(UniValue& value)
+{
+    if (value.isStr()) {
+        std::string& text{const_cast<std::string&>(value.get_str())};
+        memory_cleanse(text.data(), text.size());
+        return;
+    }
+    if (value.isArray() || value.isObject()) {
+        for (size_t i{0}; i < value.size(); ++i) Wipe(const_cast<UniValue&>(value[i]));
+    }
+}
+} // namespace
+
 Session::Reply Session::Call(const std::string& args_json)
 {
     const auto error{[](const std::string& message) {
@@ -310,7 +370,7 @@ Session::Reply Session::Call(const std::string& args_json)
     UniValue args;
     if (!args.read(args_json) || !args.isArray() || args.empty() || !args[0].isStr()) return error("A call of the dialog is [method, params].");
     const std::string method{args[0].get_str()};
-    const UniValue params{args.size() > 1 ? args[1] : UniValue{UniValue::VOBJ}};
+    UniValue params{args.size() > 1 ? args[1] : UniValue{UniValue::VOBJ}};
     if (m_answered) return error("The dialog has been answered.");
 
     if (method == "hello") {
@@ -339,14 +399,53 @@ Session::Reply Session::Call(const std::string& args_json)
         if (!accept.isBool()) return error("answer: {accept: true or false}");
         Answer answer;
         answer.accepted = accept.get_bool();
-        const UniValue& pass{params.find_value("passphrase")};
+        UniValue taken{params};
+        // What was typed is not left in freed memory: every copy of the answer wiped (the page's own JSON is the platform's).
+        const auto wipe{[&] {
+            Wipe(taken);
+            Wipe(params);
+            Wipe(args);
+        }};
+        const auto refuse{[&](const std::string& message) {
+            wipe();
+            return error(message);
+        }};
+        const UniValue& pass{taken.find_value("passphrase")};
         if (m_request.passphrase && answer.accepted) {
-            if (!pass.isStr() || pass.get_str().empty()) return error("answer: the passphrase is needed");
-            if (pass.get_str().size() > MAX_PASSPHRASE) return error("answer: the passphrase is too long");
+            if (!pass.isStr() || pass.get_str().empty()) return refuse("answer: the passphrase is needed");
+            if (pass.get_str().size() > MAX_PASSPHRASE) return refuse("answer: the passphrase is too long");
             answer.passphrase.assign(pass.get_str().begin(), pass.get_str().end());
         } else if (!pass.isNull()) {
-            return error("answer: no passphrase was asked for");
+            return refuse("answer: no passphrase was asked for");
         }
+        // The fields: only those of the question, each of its length; the ones not optional filled; nothing when declined.
+        const UniValue& fields{taken.find_value("fields")};
+        if (!fields.isNull()) {
+            if (!fields.isObject() || m_request.fields.empty()) return refuse("answer: no fields were asked for");
+            if (!answer.accepted) return refuse("answer: no fields when declined");
+            for (const std::string& key : fields.getKeys()) {
+                if (std::ranges::none_of(m_request.fields, [&](const Field& f) { return f.id == key; })) return refuse("answer: a field that was not asked for");
+            }
+        }
+        if (answer.accepted) {
+            for (const Field& f : m_request.fields) {
+                const UniValue& value{fields.isObject() ? fields.find_value(f.id) : NullUniValue};
+                if (value.isNull() || (value.isStr() && value.get_str().empty())) {
+                    if (!f.optional) return refuse(strprintf("answer: %s is needed", f.id));
+                    continue;
+                }
+                if (!value.isStr()) return refuse(strprintf("answer: %s is text", f.id));
+                if (value.get_str().size() > MAX_FIELD_VALUE) return refuse(strprintf("answer: %s is too long", f.id));
+                answer.fields[f.id].assign(value.get_str().begin(), value.get_str().end());
+            }
+        }
+        const UniValue& checked{taken.find_value("checked")};
+        if (!checked.isNull() && !checked.isBool()) return refuse("answer: checked is true or false");
+        if (answer.accepted && !m_request.checkbox.empty()) {
+            if (!checked.isTrue()) return refuse("answer: the box is to be ticked first");
+            answer.checked = true;
+        }
+        wipe();
         m_answered = true;
         m_answer = std::move(answer);
         Reply reply;

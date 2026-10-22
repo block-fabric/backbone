@@ -36,6 +36,7 @@ class NodeApi;
 class SidechainSupervisor;
 class SidechainPages;
 class ChainAdapter;
+class SeedKeeper;
 class ModuleInstaller;
 class EventHub;
 class NodeEvents;
@@ -94,6 +95,9 @@ private:
     //! The supervisor of the sidechains, once the node is ready; throws HostError before.
     std::shared_ptr<SidechainSupervisor> Supervisor() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     std::shared_ptr<ModuleInstaller> Installer() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! The single seed (doc/unified-app.md §23): made when the node is ready.
+    std::shared_ptr<SeedKeeper> Seed() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    void RegisterSeedMethods(Bridge& b);
     //! The downloads, updates and rollbacks of the sidechains' programs (modules.*, moduleinstaller.h).
     void RegisterModuleMethods(Bridge& b);
     //! Make the supervisor (the node is ready) and start the sidechains enabled.
@@ -193,6 +197,8 @@ private:
     std::shared_ptr<ChainAdapter> m_adapter GUARDED_BY(m_mutex);
     //! The downloads of the sidechains' programs from their releases (modules.*): made with the supervisor.
     std::shared_ptr<ModuleInstaller> m_installer GUARDED_BY(m_mutex);
+    //! The backup phrase of every chain and the wallets made from it (seed.*, doc/unified-app.md §23): made when the node is ready.
+    std::shared_ptr<SeedKeeper> m_seed GUARDED_BY(m_mutex);
     //! The password of the user the sidechain daemons reach this node as (an -rpcauth of this run only).
     std::string m_sidechain_rpc_password;
     //! The folder the user last chose for the data of each sidechain (the page can only set one chosen so).
@@ -237,6 +243,8 @@ private:
         TestConfirm kind;
         //! The passphrase typed in the field of a question that has one (YES).
         std::string passphrase;
+        //! What is typed in the fields of a question that has some (YES; dialog::Field), by id; its box ticked.
+        std::map<std::string, std::string> fields{};
     };
     std::deque<TestAnswer> m_test_confirms GUARDED_BY(m_mutex);
     //! The answer of every question asked when none is queued (test.confirmAnswer {always}): none, a no for each.

@@ -44,6 +44,19 @@
 
 namespace webui {
 namespace {
+
+//! Every string of a value wiped (a request that carried keys or a passphrase, once written out).
+void WipeStrings(UniValue& value)
+{
+    if (value.isStr()) {
+        std::string& text{const_cast<std::string&>(value.get_str())};
+        memory_cleanse(text.data(), text.size());
+        return;
+    }
+    if (value.isArray() || value.isObject()) {
+        for (size_t i{0}; i < value.size(); ++i) WipeStrings(const_cast<UniValue&>(value[i]));
+    }
+}
 using namespace std::chrono_literals;
 
 std::runtime_error Error(const std::string& message) { return std::runtime_error{message}; }
@@ -813,11 +826,43 @@ void SidechainSupervisor::Loop()
                     check_wallet = !it->second.wallet_checked;
                 }
                 if (check_wallet) {
-                    // Phase 1: a wallet of its own, made by the daemon (the single seed of all chains is phase 3).
+                    // A wallet of its own, made by the daemon; or, when its wallet is the backup phrase's (doc §23), that
+                    // one (made by SeedKeeper with the keys of its account) and the wallet it had before, if any: never a
+                    // new one of its own.
                     bool done{false};
+                    const std::optional<std::string> seed{m_options.seed_wallet ? m_options.seed_wallet(stem) : std::nullopt};
                     try {
                         const UniValue wallets{Rpc(stem, "listwallets")};
-                        if (wallets.isArray() && !wallets.empty()) {
+                        if (seed) {
+                            std::vector<std::string> found;
+                            const UniValue dir{Rpc(stem, "listwalletdir")};
+                            for (const UniValue& w : dir.find_value("wallets").getValues()) {
+                                if (w.find_value("name").isStr()) found.push_back(w.find_value("name").get_str());
+                            }
+                            const auto loaded{[&](const std::string& name) {
+                                return std::ranges::any_of(wallets.getValues(), [&](const UniValue& w) { return w.isStr() && w.get_str() == name; });
+                            }};
+                            std::vector<std::string> load;
+                            if (!seed->empty() && std::ranges::find(found, *seed) != found.end() && !loaded(*seed)) load.push_back(*seed);
+                            // The wallet it had before (made by this app before the phrase, or by its own app): kept in sight,
+                            // to move its coins.
+                            std::string before{std::ranges::find(found, "main") != found.end() && *seed != "main" ? std::string{"main"} : std::string{}};
+                            if (before.empty()) {
+                                for (const auto& f : found) {
+                                    if (f != *seed && !f.starts_with("seed")) {
+                                        before = f;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!before.empty() && !loaded(before)) load.push_back(before);
+                            for (const auto& name : load) {
+                                UniValue p{UniValue::VARR};
+                                p.push_back(name);
+                                Rpc(stem, "loadwallet", p);
+                            }
+                            done = true;
+                        } else if (wallets.isArray() && !wallets.empty()) {
                             done = true;
                         } else {
                             // A folder adopted from a standalone app keeps its wallet: "main" if it has one, else the
@@ -983,12 +1028,61 @@ UniValue SidechainSupervisor::Rpc(const std::string& stem, const std::string& me
     if (wallet.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != std::string::npos) throw RpcError(-8, "That wallet name is not taken here.");
     const std::string path{wallet.empty() ? std::string{"/"} : "/wallet/" + wallet};
     std::string text{request.write()};
+    // The copy of the parameters in the request (keys, a passphrase) not left in freed memory either.
+    WipeStrings(request);
     auto [status, body] = HttpPost(RpcPort(stem), path, cookie, text, timeout);
     memory_cleanse(cookie.data(), cookie.size());
     // The request may carry a passphrase the user typed (webuihost): not left in freed memory.
     memory_cleanse(text.data(), text.size());
     if (status == 0) throw RpcError(-28, body);
     if (status == 401 || status == 403) throw RpcError(-32601, strprintf("%s is not one of the methods this app may call on the %s node", method, stem));
+    UniValue reply;
+    if (!reply.read(body) || !reply.isObject()) throw RpcError(-1, strprintf("HTTP %d from the node", status));
+    const UniValue& error{reply.find_value("error")};
+    if (!error.isNull()) {
+        const UniValue& message{error.find_value("message")};
+        const UniValue& code{error.find_value("code")};
+        throw RpcError(code.isNum() ? code.getInt<int>() : -1, message.isStr() ? message.get_str() : error.write());
+    }
+    return reply.find_value("result");
+#endif
+}
+
+const std::vector<std::string>& SidechainSupervisor::SetupRpcMethods()
+{
+    static const std::vector<std::string> methods{
+        "getblockhash", "listwallets", "listwalletdir", "loadwallet", "createwallet", "getwalletinfo",
+        "importdescriptors", "walletpassphrase", "walletlock", "abortrescan",
+    };
+    return methods;
+}
+
+UniValue SidechainSupervisor::SetupRpc(const std::string& stem, const std::string& method, const UniValue& params, const std::string& wallet, std::chrono::milliseconds timeout) const
+{
+#ifdef WIN32
+    throw RpcError(-1, "not on Windows yet");
+#else
+    // Only the wallet setup of the backup phrase, refused here for anything else (the daemon's cookie can do all).
+    if (std::ranges::find(SetupRpcMethods(), method) == SetupRpcMethods().end()) throw RpcError(-32601, strprintf("%s is not a method of the wallet setup", method));
+    if (wallet.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != std::string::npos) throw RpcError(-8, "That wallet name is not taken here.");
+    std::string cookie;
+    {
+        std::ifstream file{static_cast<const std::filesystem::path&>(CookieFile(stem))};
+        std::getline(file, cookie);
+    }
+    if (cookie.find(':') == std::string::npos) throw RpcError(-28, strprintf("The %s node is not ready yet (no cookie)", stem));
+    UniValue request{UniValue::VOBJ};
+    request.pushKV("jsonrpc", "2.0");
+    request.pushKV("id", 1);
+    request.pushKV("method", method);
+    request.pushKV("params", params.isNull() ? UniValue{UniValue::VARR} : params);
+    std::string text{request.write()};
+    WipeStrings(request);
+    auto [status, body] = HttpPost(RpcPort(stem), wallet.empty() ? std::string{"/"} : "/wallet/" + wallet, cookie, text, timeout);
+    memory_cleanse(cookie.data(), cookie.size());
+    memory_cleanse(text.data(), text.size());
+    if (status == 0) throw RpcError(-28, body);
+    if (status == 401 || status == 403) throw RpcError(-32601, strprintf("the %s node refused the wallet setup", stem));
     UniValue reply;
     if (!reply.read(body) || !reply.isObject()) throw RpcError(-1, strprintf("HTTP %d from the node", status));
     const UniValue& error{reply.find_value("error")};

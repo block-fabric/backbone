@@ -83,7 +83,7 @@ SidechainPages::Route SidechainPages::RouteOf(const std::string& method)
     static const std::set<std::string> refused{"app.quit", "app.restart", "app.updateLanguage", "app.quitGuard", "app.help", "app.about", "tray.state",
                                                "node.paths", "node.setNetworkActive", "options.get", "options.set", "options.apply", "options.cancel",
                                                "options.reset", "options.chooseFile", "options.chooseProgram", "options.validProxy"};
-    static const std::vector<std::string_view> refused_prefixes{"intro.", "test.", "sidechainNodes.", "sidechains.", "pack.", "modules.", "chain."};
+    static const std::vector<std::string_view> refused_prefixes{"intro.", "test.", "sidechainNodes.", "sidechains.", "pack.", "modules.", "chain.", "seed."};
     // What the app answers for the frame (it has no window, no settings, no files of its own).
     // Checked here first: links only (app.open of a URL, which asks for one not the app's own), notices named after the
     // chain, files only those chosen for this chain's pages.
@@ -277,9 +277,17 @@ UniValue SidechainPages::Daemon(const std::string& stem, const UniValue& request
         if (token.size() != 64 || !IsHex(token)) throw HostError(strprintf("The %s node asked a question without its token", name));
         Window::ConfirmDialog dialog{Question(description, name, network, Logo(stem), app_rows)};
         if (!error.empty()) dialog.error = error;
+        // The wallet of the backup phrase (doc §23): the user types their own wallet passphrase, as on the app's own chain.
+        const std::string phrase{m_hooks.phrase_wallet ? m_hooks.phrase_wallet(stem) : std::string{}};
+        const UniValue& asked_wallet{request.find_value("wallet")};
+        if (dialog.passphrase && !phrase.empty() && (!asked_wallet.isStr() || asked_wallet.get_str().empty() || asked_wallet.get_str() == phrase)) {
+            dialog.passphrase_label = "Your wallet passphrase";
+        }
         dialog::Answer said{m_hooks.ask(dialog)};
         if (!said.accepted) throw HostError(BRIDGE_CANCELLED, strprintf("%s: declined.", dialog.title));
-        std::string passphrase{said.passphrase.begin(), said.passphrase.end()};
+        // The user's own phrase passphrase is never sent to the node: that chain's wallet passphrase made from the seed is.
+        const SecureString sent{dialog.passphrase && m_hooks.passphrase ? m_hooks.passphrase(stem, said.passphrase) : said.passphrase};
+        std::string passphrase{sent.begin(), sent.end()};
         try {
             // Exactly the request that was described, with its token: the daemon runs it only if it is that one.
             UniValue done{call(token, std::move(passphrase))};

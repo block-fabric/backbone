@@ -70,6 +70,12 @@ public:
         //! The language of the app ("" English), and the network of the node, as the dialogs name it.
         std::function<std::string()> language;
         std::function<std::string()> network;
+        //! What is sent to a node for the passphrase typed in the trusted dialog (SeedKeeper::PassphraseFor, doc §23): the
+        //! user's own phrase passphrase is exchanged for that chain's wallet passphrase made from the seed; any other as
+        //! typed. Unset: as typed.
+        std::function<SecureString(const std::string& stem, const SecureString& typed)> passphrase;
+        //! The wallet of a chain made from the backup phrase ("" when none): its question asks "your wallet passphrase".
+        std::function<std::string(const std::string& stem)> phrase_wallet;
     };
 
     explicit SidechainPages(Hooks hooks);

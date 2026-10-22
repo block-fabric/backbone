@@ -336,7 +336,9 @@ BOOST_AUTO_TEST_CASE(one_at_a_time)
     auto next{pending.Next()};
     BOOST_REQUIRE(next);
     BOOST_CHECK_EQUAL(next->first.title, "second");
-    next->second(dialog::Answer{true, {}});
+    dialog::Answer yes;
+    yes.accepted = true;
+    next->second(yes);
     next = pending.Next();
     BOOST_REQUIRE(next);
     BOOST_CHECK_EQUAL(next->first.title, "third");
