@@ -4,8 +4,8 @@ One app for Chains and its sidechains. Status: **one branch, `unified-main`** (�
 (supervisor, switcher, wizards) and phase 2 (the sidechains' own pages in the app, spends through the app's trusted dialog,
 §13); sidechains as modules of one shell (§14) and their programs downloaded from GitHub releases (§15); the app's own
 pages over every chain (§18); one chain selector (§19); the quality pass (§20); the hub's scale (§21); Trade, the DEX as a
-page of the app (§22); **phase 3, the single seed (§23)**; and **every chain of the catalog first-class (§25, branch
-`unified-allchains`)**. Not merged into `main`, not pushed.
+page of the app (§22); **phase 3, the single seed (§23)**; what a prediction market came to, at a glance (§24); and **every
+chain of the catalog first-class (§25, branch `unified-allchains`)**. Not merged into `main`, not pushed.
 Written 2026-10-20; phase 2 in §13; ideas taken from BitWindow in §16.
 
 ## 0. What the user decided (2026-10-20)
@@ -38,7 +38,7 @@ they were (nothing is deleted), and new work goes on `unified-main`.
 | `unified-ux2` | a8a81b5d70 | `~/skydoge/chains-ux2` | §20 | the quality pass, coin control, performance | ✓ |
 | `unified-ux3` | 5d5cddcfca | `~/skydoge/chains-ux3` | §21 | the hub's scale, Hivemind's menu, Staking whole, strips | ✓ |
 | `unified-dex` | 664feacb06 | `~/skydoge/chains-dex` | §22 | Trade (the DEX page), pools by id | ✓ |
-| **`unified-main`** | | `~/skydoge/chains-unified` | §0.1, §23 | all of the above, then phase 3 | ✓ |
+| **`unified-main`** | | `~/skydoge/chains-unified` | §0.1, §23, §24 | all of the above, then phase 3, the markets' results | ✓ |
 | **`unified-allchains`** | (this branch) | `~/skydoge/chains-allchains` | §25 | every chain first-class; the drop-ins' interface | — |
 
 Checked when consolidated: every branch above is an ancestor of `unified-dex` (`git merge-base --is-ancestor`), no worktree
@@ -635,6 +635,7 @@ sidechain by hand, downloads from the app (phase 4).
 | 61 | **No password, by choice** (§23.11) | A password is recommended, never forced: without one, said plainly before anything is made ("anyone with access to this computer can spend your coins … and read your backup phrase"), in Settings, the status bar, the sidebar and Manage wallets ("no password"); seed.dat says it in its own words. The wallets of the phrase are still encrypted from their first moment (their passphrase made from the seed, kept open by the app): no protection on this computer, but a password can be **added and removed** without making a wallet again — Core cannot take encryption away, and encrypting a wallet once its keys are in makes it generate random keys of its own and make them active (`SetupWalletGeneration` after `importdescriptors` cleared the blank flag), which the phrase would not bring back | seed_tests `without_a_password_then_one_added_then_removed`, seed.test.ts, run_seed nopass |
 | 62 | **Adding or removing the password** | Asked in the app's window (twice; removing: its consequences said, a box ticked, the password typed); the app's wallet's passphrase changed first, then seed.dat, or neither (a refusal changes nothing; a failed write changes the wallet back); adding locks every wallet of the phrase at once, removing keeps them open; the sidechains' wallets keep their passphrases (made from the seed), so no sidechain sees the password. **Found by review (MEDIUM, fixed):** the app opening a wallet by itself (KeepOpen) looked at the mode then opened, so a password added in between could be followed by a late open of a wallet just locked, and an import begun without a password kept its wallet open at its end: now the mode is looked at and the wallet opened under the lock adding or removing a password holds (`m_protect_mutex`; one waits for the other, a wallet opened before is locked by AddPassword), an import's end looks again under it, no password is added or removed while keys are being made and no import starts meanwhile, and a sidechain's question asked without a field sends nothing if a password came meanwhile. **Residual:** as #53, a crash between the wallet and seed.dat leaves them out of step | seed_tests (a refusal changes nothing; `a_password_added_while_wallets_are_opened_leaves_them_locked`: fails 5/5 without the lock), sidechainpages_tests, run_seed nopass (locked then open, checked by the runner on each node) |
 | 63 | **zSide's private funds** (§23.13) | Never from the phrase (the catalog's `phrase_keys`, the supervisor's wallet mode, the enable wizard): its shielded keys are not made from it. Said wherever the phrase is said to cover the sidechains (the first start, the picker, the enable wizard, Settings → Backup phrase, the restore), with its own backup offered right there (and, in a restore, its own restore) | supervisor_tests `zside_keeps_its_own_wallet`, seed_tests `zside_is_never_from_the_phrase`, seed.test.ts, run_seed nopass |
+| 64 | **The markets' results** (§24: `chain.markets` with the decisions and the clock) | Reads only, of the chain's own pages' policy (`listmarkets`, `listdecisions`, `gethivemindinfo`; `ChainAdapter::MethodsUsed` names the two new ones, so the app's user is given exactly them at Hivemind's daemon), no wallet; an answer that asks refused, not asked; bounded (200 markets, 4 decision ids each, only the decisions those markets are about, plain fields only: no votes, no author), ids 64 hex; a node of before (no such read) leaves the markets as they were. A paid-out market's result is worked out by the page from the chain's outcomes (`StatePayout`), never from a price | chainadapter_tests `markets_with_their_decisions_and_the_clock`, markets.test.ts, run_hmresults |
 | 65 | **A validator key made by the app** (§25.2) | Random, never the phrase, written once 0600 in the chain's network folder, never sent; kept when there; its payout an address of the chain's wallet (plain text only); not callable by packs | supervisor_tests `validator_key_made_on_this_computer`, run_allchains |
 | 66 | **Shield and unshield built by the app** (§25.4) | Two directions, an exact amount, the wallet's own accounts only; the chain's own question with the fee of its own estimate | chainadapter_tests, zSide local_tests, run_allchains |
 | 67 | **Names looked up** (§25.3) | Reads of the chain's own policy (`getname`) only, the text classified first, chains with names only, answers bounded | chainadapter_tests, allchains.test.ts |
@@ -2334,6 +2335,118 @@ and the pictures of §23.10 taken again.
 - **A sidechain restarted from a new genesis** gets a new account and wallet only when its keys are made again (Settings:
   [Make its keys…]); nothing tells the user of the restart yet.
 - **The wallet fix** (932491ff04) to carry to `main`, `ecash`, `lab-fixes` and `regtest-link`.
+
+## 24. What a market came to: Hivemind's results at a glance (2026-10-22, `unified-main`)
+
+**User:** the paid-out markets no longer showed bars; show the result visually at a glance (the outcome that won, the
+consensus value of the vote, a scale's answer, when it paid, the user's own result), with the market's last prices
+before trading closed as a faint mark (did it call it?), from the chain's real data; the same on Home if it lists
+settled positions; nothing errors without live prices.
+
+### 24.1 Why the bars went
+
+A market that pays out is settled by the block that resolves the last of its decisions (`State::Resolve` → `Settle`): the
+node then **gives no price** (`MarketToJSON` leaves `price` out once `settled`) and **zeroes every position**, but keeps
+the market's **shares** (and the decisions with their `outcome`, both pruned 30 periods later). Hivemind's Markets cards
+drew no bars for a settled market at all (`{#if m.status !== 'settled'}`), its Simple cards and question page drew
+`price ?? 0` (every outcome at 0 %), and its market page drew payouts from `outcome ?? 0` (a decision not known read as
+"no"). The app's own Markets page showed price chips ("–" once settled). Home's open positions never list a settled
+market: the chain pays and zeroes the positions in the same block.
+
+### 24.2 What it shows now
+
+The last prices of a market are the node's while it gives them; once settled, the **market maker's prices of its kept
+shares** (LMSR, `b` its liquidity): nothing trades after trading closes, so they are exactly the prices it closed at. What
+a share of each state paid is the chain's own `StatePayout` of its decisions' outcomes. Stages: **Live**; **Voting**,
+**Revealing**, **Counting** (the vote over, the next block resolves); **Partly decided** (a market on several decisions
+voted in different periods: the options a resolved decision answered against say *Ruled out*); **Paid out**.
+
+```
+ [PAID OUT] [Yes or no] [Weather] [You won +0.83]       [PAID OUT] [Scale] [Sports]
+ Rain in Paris on Sunday                                Goals in the cup final
+ (✓) Yes  [WON]                          100.0%                   4
+ ██████████████████████████|████████████████              0 ●━━━━━━━━○━━━━━━━━━━━━━━━ 10
+ ● No                                      0.0%         The market said 5.83 when trading closed
+ ░░░░░░░░░░░░░░|░░░░░░░░░░░░░░░░░░░░░░░░░░░
+ ▏Last price at close: the market called it
+ 3 shares sold · Paid out at block 36
+```
+
+- **Hivemind's own pages** (the pack, branch `ux3-results`, pinned): the Markets cards keep their bars at every stage
+  (`hm/MarketOdds.svelte`): paid out, the outcome that won first, checked, **Won**, filled with what a share paid; the
+  others muted at what they paid (0 %, or a tie's 50 %); on every bar a thin faint line at its **last price before trading
+  closed**, with "the market called it" or "the market had <its favourite>"; a scale: its range, the vote's answer (filled
+  mark) and the market's estimate (hollow mark). Trading closed: the last prices, "Vote ends in …". The card says when it
+  paid ("Paid out at block N" where periods are counted in blocks: the first block of the period after the last vote
+  closed, exactly; else "Paid out in period N") and **what it made the wallet** ("You won +X" / "You lost X", by the
+  trades the pages recorded: the chain keeps neither trades nor, once it pays, positions). The market page: a **Result**
+  panel (the outcome that won, "The market called it: Yes was at 62.0 % when trading closed" or "An upset: …", a scale's
+  bar with its legend, what High and Low paid), "Resolved: <outcome>" beside the stage, "Paid out at block N (period P)"
+  or "at the start of period P, <date>", each outcome's row with what a share paid, its last price and its shares sold, the
+  chart of the prices this app saw (until trading closed; none when it saw none); **Your result** (the shares that paid,
+  what a share paid, what they paid, what the trades cost, and the payout received in that block's coinbase, from the
+  wallet's own records). Simple mode alike (the answer checked, what a bet on each answer paid, "Your bets won …").
+  The palette's **Markets that paid out** (`status/settled`, a route to the filter).
+- **The app's own Markets page**: a row per market (those that trade first, then those voted on, then those that paid
+  out), its stage, when it paid or until when it is voted on, and its outcomes as the same bars
+  (`components/MarketOutcomes.svelte`, `lib/marketresults.ts`), in the colours Hivemind gives each state. The adapter's
+  `chain.markets` now gives each market's decision ids, the decisions those markets are about (their outcome and answer)
+  and the chain's clock (`gethivemindinfo`): §13.5 #64.
+- **Home's open positions**: a market voted on says **Voting** (not the node's word `closed`), its price marked *final*.
+  A market that paid out is not there (the chain paid and zeroed the positions); its result is on the Markets pages.
+
+Everything draws without a price from the node and never reads NaN (bars from the shares; a market whose decisions are
+not known shows its last prices without a result).
+
+### 24.3 What was checked, and how
+
+- **The chain's data:** `listmarkets` (status, shares; no price once settled), `listdecisions` (status, outcome, answer,
+  close period), `gethivemindinfo` (the clock). Payout height = (last close period + 1) × period blocks (the block that
+  resolves pays, `State::Resolve`); on a chain counted in time, the start of that period. The wallet's own payout: the
+  outputs of that block's coinbase to the accounts its shares were bought to (the wallet's records).
+- **Hivemind's pack** (branch `ux3-results` from `ux3`, pinned 1143c922ad): `hm/model.ts` `lastPrices`, `resolutionOf`,
+  `marketStage`, `paidAt`, `favourite`, `scaleAnswer`, `marketResult`, `shareValue`/`ruledOut` (an outcome a resolved
+  decision answered against is worth nothing: positions, Portfolio, Payouts, the home's cards, Simple mode);
+  `hm/MarketOdds.svelte`, `hm/OutcomeBar.svelte`, `hm/ScaleBar.svelte`. A paid-out market's page has no trade panel (the
+  result the whole width); its chart ends where trading closed. The Payouts page's settled list now reads the
+  outcomes as the node says them (a decision not known no longer reads as "no").
+- **Home**: a categorical position named by its option (the decisions' texts), "Ruled out" and worth 0 once a resolved
+  decision answered against it (the adapter's `chain.positions` gives a market's decisions when it is about several or
+  no longer trades).
+
+### 24.4 Tests
+
+- Pack vitest (`hivemind.test.ts`, 57): the model (prices from shares, every kind of resolution, stages, payout block or
+  time, favourite, a wallet's result, share values); the cards at every stage on a pretend node that gives no price for a
+  settled market (bars drawn, Won, marks, "called it" / "had Yes", "Paid out at block 12", You won / You lost, Partly
+  decided and Ruled out, no NaN); a paid-out market's page (Result, its payout from the coinbase records, no trade
+  panel), a scale, an upset, one voted on; Simple mode; the palette's "Markets that paid out". The whole pack: 54 files,
+  479 tests; svelte-check 0/0; `i18n.mjs --check`.
+- App: `chainadapter_tests` `markets_with_their_decisions_and_the_clock` (and positions with their decisions);
+  `test_chains-app` 160 cases with the unified-bin daemons, no error; vitest `markets.test.ts` (6) and the whole app
+  (58 files, 528 tests); svelte-check 0/0; `i18n.mjs --check`.
+- End to end: **`run_hmresults.py` + `hmresults.js`** (ctest `webui_e2e_hmresults` with `-DWEBUI_E2E_HIVEMIND_BINDIR`):
+  the real app on regtest with Hivemind's daemon; markets made at every stage by its CLI (the genesis votecoin imported,
+  a ballot sealed and revealed, the vote resolving them), the trades the pages record written to its journal; 15 checks
+  (the node gives no price once settled; `chain.markets`; each market's stage and bars on the app's page; yes, no (an
+  upset), a scale, several outcomes; voted on and partly decided; no NaN; Home's Voting/final and Ruled out; the palette)
+  and 26 pictures. `run_startup.py` 5/5, `run_integrated.py` 66/66 (Layers, Thunder, BitAssets, Hivemind, FastBlocks).
+
+### 24.5 Pictures
+
+`~/skydoge/media/unified-app/hivemind-results/` (regtest; Midnight, Dark, Light): `hm-results-markets-all-*` (Hivemind's
+Markets, every stage), `hm-results-markets-paid-*` (the markets that paid out), `hm-results-market-{won,upset,scale,
+categorical,partly,voting,trading}-*` (each market's page), `hm-results-simple-*` (Simple mode), `hm-results-app-markets-*`
+(the app's Markets page), `hm-results-home-positions-*` (Home's open positions).
+
+### 24.6 Open
+
+- **"You won / You lost"** comes from the trades the pages recorded (the chain keeps none): a position bought from the
+  console or another machine shows its market's result but not the wallet's.
+- **On a chain counted in time** (testnet), when a market paid is said as the start of its period (the block is the first
+  after it); the wallet's own payout says its exact block.
+- The node could say a settled market's `settled_period` itself (it keeps it): not needed while its decisions are kept as
+  long as the market (both pruned together).
 
 ## 25. Every chain of the catalog first-class (2026-10-22, branch `unified-allchains`)
 
