@@ -94,11 +94,19 @@ struct Options {
     //! loopback addresses for the node: the machine's own sidechain nodes and apps share them; the total bounds them).
     int max_connections_per_ip{0};
     std::vector<CSubNet> per_ip_exempt;
+    //! IPv6 clients are counted by this prefix (a client usually has a /64 to rotate addresses in); IPv4 by address.
+    int ipv6_prefix{64};
+    //! Close a connection whose replies the peer took no byte of for this long (slow reads); 0: never.
+    int write_timeout_seconds{0};
+    //! Close a connection (once no call runs, with a GOAWAY) past this many requests (0: no bound), or at once past
+    //! this many requests given up before they were all in (HTTP/2 streams reset; each restarts the idle time).
+    uint64_t max_requests_per_connection{0};
+    uint64_t max_abandoned_requests{0};
     //! Close a connection whose request (its headers and body) is not all in this long after its first byte, however
     //! slowly it keeps coming (slow clients holding connections); 0: never. Calls running on a worker are not counted.
     int request_timeout_seconds{0};
-    //! Close a connection that has no call running and sent nothing for this long (0: never); over HTTP/2 with a
-    //! GOAWAY first, so that a client knows to open another.
+    //! Close a connection that has no call running and began or completed no request for this long (0: never; bytes
+    //! alone, PINGs, are not activity); over HTTP/2 with a GOAWAY first, so that a client knows to open another.
     int idle_timeout_seconds{0};
     //! Worker threads for the handlers.
     int threads{4};
@@ -136,6 +144,8 @@ public:
     const MethodEntry* Find(std::string_view path) const;
     const pb::Pool& Pool() const { return m_pool; }
     const Options& GetOptions() const { return m_options; }
+    /** The key a client's connections are counted under (Options::max_connections_per_ip, ipv6_prefix). */
+    static std::string AddressKey(const CNetAddr& addr, int ipv6_prefix);
     void Run(std::function<void()> task);
 
 private:
@@ -184,6 +194,11 @@ public:
     void Goodbye();
     /** HTTP/2: when the oldest request still being read began (each stream timed on its own); else nothing. */
     std::optional<NodeClock::time_point> OldestRequest() const;
+    /** Requests begun, all in, and given up before they were all in. */
+    struct Counts {
+        uint64_t begun{0}, completed{0}, abandoned{0};
+    };
+    Counts GetCounts() const;
     /** End every call of the connection (the client went away, or the server stops). */
     void CloseAll();
 

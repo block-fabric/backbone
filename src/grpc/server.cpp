@@ -547,6 +547,8 @@ struct Connection::Impl {
     virtual void Goodbye() {}
     //! HTTP/2: when the oldest request still being read began (each stream is timed on its own).
     virtual std::optional<NodeClock::time_point> OldestRequest() const { return std::nullopt; }
+    //! Requests begun, all in, and given up by the client before they were all in (HTTP/2 streams reset).
+    uint64_t m_begun{0}, m_completed{0}, m_abandoned{0};
     std::string m_out;
     Server& m_server;
 };
@@ -772,7 +774,10 @@ private:
     static int OnBeginHeaders(nghttp2_session*, const nghttp2_frame* frame, void* user)
     {
         auto& self{*static_cast<Http2*>(user)};
-        if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST) self.m_streams[frame->hd.stream_id].request.begun = NodeClock::now();
+        if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
+            self.m_streams[frame->hd.stream_id].request.begun = NodeClock::now();
+            ++self.m_begun;
+        }
         return 0;
     }
 
@@ -809,6 +814,7 @@ private:
         }
         if ((frame->hd.type == NGHTTP2_HEADERS || frame->hd.type == NGHTTP2_DATA) && (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) && r.call) {
             r.ended = true;
+            ++self.m_completed;
             EndRequest(self.m_server, r);
             // The request is decoded: its bytes are no longer buffered.
             Stream& stream{it->second};
@@ -868,6 +874,7 @@ private:
         auto& self{*static_cast<Http2*>(user)};
         const auto it{self.m_streams.find(id)};
         if (it == self.m_streams.end()) return 0;
+        if (!it->second.request.ended) ++self.m_abandoned;
         if (it->second.request.call) it->second.request.call->Cancel();
         self.m_buffered -= it->second.buffered;
         self.m_server.Release(it->second.buffered);
@@ -949,6 +956,7 @@ private:
                 const auto end{m_in.find("\r\n\r\n")};
                 if (end == std::string::npos) return m_in.size() <= (64 << 10);
                 m_request = std::make_unique<Request>();
+                ++m_begun;
                 const std::vector<std::string> lines{util::SplitString(m_in.substr(0, end), '\n')};
                 m_in.erase(0, end + 4);
                 const std::vector<std::string> start{util::SplitString(util::TrimString(lines[0]), ' ')};
@@ -979,6 +987,7 @@ private:
                     m_request->call->Finish({Code::RESOURCE_EXHAUSTED, "request too large"});
                     m_keep_alive = false;
                     m_current = std::move(m_request);
+                    ++m_completed;
                     return true;
                 }
             }
@@ -1009,6 +1018,7 @@ private:
             BeginCall(m_server, *m_request, /*http2=*/false);
             EndRequest(m_server, *m_request);
             m_current = std::move(m_request);
+            ++m_completed;
         }
         return m_open;
     }
@@ -1092,6 +1102,7 @@ bool Connection::Busy() const { return m_impl->Busy(); }
 bool Connection::Receiving() const { return m_impl->Receiving(); }
 void Connection::Goodbye() { m_impl->Goodbye(); }
 std::optional<NodeClock::time_point> Connection::OldestRequest() const { return m_impl->OldestRequest(); }
+Connection::Counts Connection::GetCounts() const { return {m_impl->m_begun, m_impl->m_completed, m_impl->m_abandoned}; }
 void Connection::CloseAll() { m_impl->CloseAll(); }
 
 // ---------------------------------------------------------------------------
@@ -1148,6 +1159,13 @@ void Server::Run(std::function<void()> task)
 }
 
 std::vector<CService> Server::Bound() const { return m_bound; }
+
+std::string Server::AddressKey(const CNetAddr& addr, int ipv6_prefix)
+{
+    // An IPv6 client usually has a whole prefix (a /64 at least) to rotate its addresses in: bounded as one.
+    if (addr.IsIPv6() && ipv6_prefix > 0 && ipv6_prefix < 128) return CSubNet{addr, static_cast<uint8_t>(ipv6_prefix)}.ToString();
+    return addr.ToStringAddr();
+}
 
 bool Server::Start(const std::vector<CService>& binds, const std::vector<CSubNet>& allow, std::string& error)
 {
@@ -1222,7 +1240,7 @@ void Server::AcceptLoop()
             if (!client->SetNonBlocking()) continue;
             // Connections by address: bounded, but for the addresses exempted (the loopback ones: this machine's own processes).
             const bool exempt{std::any_of(m_options.per_ip_exempt.begin(), m_options.per_ip_exempt.end(), [&](const CSubNet& s) { return s.Match(peer); })};
-            const std::string ip{exempt ? std::string{} : peer.ToStringAddr()};
+            const std::string ip{exempt ? std::string{} : AddressKey(peer, m_options.ipv6_prefix)};
             LOCK(m_mutex);
             if (!ip.empty() && m_options.max_connections_per_ip > 0 && m_per_ip[ip] >= m_options.max_connections_per_ip) {
                 LogWarning("gRPC: connection from %s refused: %d connections from it already", peer.ToStringAddrPort(), m_per_ip[ip]);
@@ -1262,9 +1280,31 @@ void Server::ServeConnection(std::shared_ptr<Sock> sock, CService peer)
     bool open{true};
     uint8_t buf[16384];
     auto last_activity{NodeClock::now()};
+    auto last_write{last_activity};
+    Connection::Counts counts;
     std::optional<NodeClock::time_point> receiving_since;
+    // Close, over HTTP/2 with a GOAWAY first (what it says sent if the client takes it at once).
+    const auto goodbye{[&](const char* why) {
+        LogDebug(BCLog::HTTP, "gRPC: %s %s: closed\n", peer.ToStringAddrPort(), why);
+        connection.Goodbye();
+        pending += connection.TakeOutput();
+        for (int i{0}; i < 50 && !pending.empty(); ++i) {
+            Sock::Event ev{0};
+            if (!sock->Wait(std::chrono::milliseconds{20}, Sock::SendEvent, &ev)) break;
+            const ssize_t n{sock->Send(pending.data(), pending.size(), MSG_NOSIGNAL)};
+            if (n <= 0) break;
+            pending.erase(0, static_cast<size_t>(n));
+        }
+    }};
     while (open && !m_interrupt) {
         const auto now{NodeClock::now()};
+        // A client that does not read what it asked for (slow reads): replies pile up; closed once the peer took no
+        // byte of them for a while.
+        if (pending.empty()) last_write = now;
+        if (m_options.write_timeout_seconds > 0 && now - last_write > std::chrono::seconds{m_options.write_timeout_seconds}) {
+            LogDebug(BCLog::HTTP, "gRPC: %s reads nothing of its replies: closed\n", peer.ToStringAddrPort());
+            break;
+        }
         // A request that takes too long to come in, however slowly it keeps coming, ends the connection (slow clients
         // holding connections); so does a connection with nothing running that sent nothing for a while (with a GOAWAY
         // over HTTP/2). Calls running on a worker (a server stream for as long as it lasts) are never cut.
@@ -1279,20 +1319,21 @@ void Server::ServeConnection(std::shared_ptr<Sock> sock, CService peer)
         } else {
             receiving_since.reset();
         }
-        // Idle is counted from the end of the last call (a long call is not idleness).
-        if (connection.Busy()) last_activity = now;
-        if (m_options.idle_timeout_seconds > 0 && pending.empty() && !connection.Busy() && !connection.Receiving() &&
+        // Idle: no call running, and no request begun or all in, for a while (bytes alone, PINGs or SETTINGS, are not
+        // activity; nor a request given up). Counted from the end of the last call (a long call is not idleness).
+        const Connection::Counts now_counts{connection.GetCounts()};
+        if (connection.Busy() || now_counts.begun != counts.begun || now_counts.completed != counts.completed) last_activity = now;
+        counts = now_counts;
+        if (m_options.idle_timeout_seconds > 0 && pending.empty() && !connection.Busy() &&
             now - last_activity > std::chrono::seconds{m_options.idle_timeout_seconds}) {
-            LogDebug(BCLog::HTTP, "gRPC: %s idle: closed\n", peer.ToStringAddrPort());
-            connection.Goodbye();
-            pending += connection.TakeOutput();
-            for (int i{0}; i < 50 && !pending.empty(); ++i) {
-                Sock::Event ev{0};
-                if (!sock->Wait(std::chrono::milliseconds{20}, Sock::SendEvent, &ev)) break;
-                const ssize_t n{sock->Send(pending.data(), pending.size(), MSG_NOSIGNAL)};
-                if (n <= 0) break;
-                pending.erase(0, static_cast<size_t>(n));
-            }
+            goodbye("idle");
+            break;
+        }
+        // Streams opened and given up again and again (each would restart the idle time), or too many requests on one
+        // connection: closed once no call runs (the client opens another).
+        if ((m_options.max_abandoned_requests > 0 && counts.abandoned > m_options.max_abandoned_requests) ||
+            (m_options.max_requests_per_connection > 0 && counts.begun > m_options.max_requests_per_connection && !connection.Busy() && pending.empty())) {
+            goodbye("past its requests");
             break;
         }
         Sock::Event occurred{0};
@@ -1302,7 +1343,6 @@ void Server::ServeConnection(std::shared_ptr<Sock> sock, CService peer)
         if (occurred & Sock::RecvEvent) {
             const ssize_t n{sock->Recv(buf, sizeof(buf), 0)};
             if (n > 0) {
-                last_activity = NodeClock::now();
                 open = connection.Receive({buf, static_cast<size_t>(n)});
             } else if (n == 0) {
                 break;
@@ -1317,6 +1357,7 @@ void Server::ServeConnection(std::shared_ptr<Sock> sock, CService peer)
             const ssize_t n{sock->Send(pending.data(), pending.size(), MSG_NOSIGNAL)};
             if (n > 0) {
                 pending.erase(0, static_cast<size_t>(n));
+                last_write = NodeClock::now();
             } else {
                 const int err{WSAGetLastError()};
                 if (n < 0 && (err == WSAEWOULDBLOCK || err == WSAEINTR || err == WSAEINPROGRESS)) break;

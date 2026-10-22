@@ -159,6 +159,7 @@ CryptoService (bitwindowd probes Ripemd160): Ripemd160, HmacSha512, Secp256k1Sec
 | `-grpcwallet=<name>` / `-nogrpcwallet` | ecash: not served; others: served with the only wallet | the startup log says which |
 | `-grpcallowstop` | 0 | |
 | `-grpcallowedorigin`, `-grpcallowedhost` | none | §7 |
+| `-grpcipv6prefix=<bits>` | 64 | IPv6 clients counted by this prefix for the 16 connections an address may hold (§7.5) |
 
 On by default at the enforcer's port: a node next to a running enforcer cannot bind 50051 and runs on with a
 warning (an explicit `-grpc` makes it an error). Two eCash networks on one machine need distinct `-grpcport`s.
@@ -181,15 +182,20 @@ the same for the ValidatorService. What is added, from the security review of 20
 3. **The token** (`-grpcauth`) for what spends, mines, decides votes or stops the node.
 4. **Defaults**: Stop opt-in; WalletService opt-in on eCash's main network; beyond localhost only with an allow
    list and the token.
-5. **Slow clients** (slowloris; as the Flush public API's row 10, 2026-10-21): a request (its headers and body)
-   must be all in within 15 s of its first byte however slowly it trickles, else the connection is closed; a
-   connection with no call running that sent nothing for 30 s is closed, over HTTP/2 with a GOAWAY first (gRPC
-   clients open another; a call sent meanwhile is above its last stream id, so retried); a running call is never
-   cut (SubscribeEvents and other server streams last as long as they do; HTTP/2 PINGs keep a connection open);
-   16 connections per address beyond this machine (the loopback address is shared by the machine's own sidechain
-   nodes and apps: not bounded by address), 256 in all.
+5. **Slow clients** (slowloris; as the Flush public API's row 10, 2026-10-21, and its review): a request (its
+   headers and body) must be all in within 15 s of its first byte however slowly it trickles (over HTTP/2 each
+   stream from its own HEADERS), else the connection is closed; a connection with no call running that began or
+   completed no request for 30 s is closed, over HTTP/2 with a GOAWAY first (gRPC clients open another; a call
+   sent meanwhile is above its last stream id, so retried); bytes alone are not activity (PINGs, SETTINGS); a
+   client that takes no byte of its replies for 30 s is closed (slow reads); past 100 streams reset before their
+   request was in (stream rotation), or past 10,000 requests once no call runs, the connection is closed (GOAWAY);
+   a running call is otherwise never cut (SubscribeEvents and other server streams last as long as their client
+   reads them); 16 connections per address beyond this machine, IPv6 counted by its /64 (`-grpcipv6prefix`, 16 to
+   128), the loopback addresses (shared by the machine's own sidechain nodes and apps) not bounded by address;
+   256 in all.
 
-Tests: `grpc_tests/transport`, `grpc_tests/limits`, `grpc_tests/slow_clients`; `interface_ecash_grpc.py`
+Tests: `grpc_tests/transport`, `grpc_tests/limits`, `grpc_tests/connection_states`, `grpc_tests/slow_clients`,
+`grpc_tests/slow_reads_and_rotation`, `grpc_tests/address_keys`; `interface_ecash_grpc.py`
 (`test_security`, `test_slow_clients`).
 
 ## 8. Why nghttp2 and our own protobuf code

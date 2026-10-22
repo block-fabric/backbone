@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <map>
+#include <set>
 #include <thread>
 
 using pb::Message;
@@ -725,6 +726,125 @@ BOOST_AUTO_TEST_CASE(slow_clients)
         BOOST_CHECK(c.ReadFor(500ms));
     }
     total.Stop();
+}
+
+BOOST_AUTO_TEST_CASE(address_keys)
+{
+    // Connections are counted by address; IPv6 by its /64 (or the prefix given), where one client rotates addresses.
+    const auto key{[](const std::string& a, int prefix = 64) { return grpcsrv::Server::AddressKey(*Assert(LookupHost(a, false)), prefix); }};
+    BOOST_CHECK_EQUAL(key("2001:db8:1:2::1"), key("2001:db8:1:2:ffff:ffff:ffff:ffff"));
+    BOOST_CHECK_EQUAL(key("2001:db8:1:2::1"), "2001:db8:1:2::/64");
+    BOOST_CHECK(key("2001:db8:1:2::1") != key("2001:db8:1:3::1"));
+    BOOST_CHECK_EQUAL(key("2001:db8:1:2::1", 48), key("2001:db8:1:3::1", 48));
+    BOOST_CHECK(key("2001:db8:1:2::1", 128) != key("2001:db8:1:2::2", 128));
+    BOOST_CHECK_EQUAL(key("1.2.3.4"), "1.2.3.4");
+    BOOST_CHECK(key("1.2.3.4") != key("1.2.3.5"));
+    // Many addresses of one /64: one counter, so the per-address cap holds them all.
+    std::set<std::string> keys;
+    for (int i{1}; i < 200; ++i) keys.insert(key(strprintf("2001:db8:aa:bb:%x:%x::%x", i, i * 7, i * 13)));
+    BOOST_CHECK_EQUAL(keys.size(), 1U);
+}
+
+BOOST_AUTO_TEST_CASE(slow_reads_and_rotation)
+{
+    grpcsrv::Options options;
+    options.write_timeout_seconds = 1;
+    options.idle_timeout_seconds = 2;
+    options.request_timeout_seconds = 1;
+    options.max_requests_per_connection = 8;
+    options.max_abandoned_requests = 5;
+    options.threads = 2;
+    grpcsrv::Server server{Pool(), options};
+    constexpr size_t MESSAGES{512}, MESSAGE_HEX{64 << 10};
+    std::atomic<size_t> written{0};
+    // A server stream that writes 32 MiB, far more than the sockets hold.
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "SubscribeEvents", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        Message resp{New("cusf.crypto.v1.Ripemd160Response")};
+        SetWrapped(resp, "digest", std::string(MESSAGE_HEX, 'a'));
+        for (size_t i{0}; i < MESSAGES && w->Write(resp); ++i) ++written;
+        w->Finish({});
+    }));
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "GetChainTip", [](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        w->Write(New("cusf.mainchain.v1.GetChainTipResponse"));
+        w->Finish({});
+    }));
+    std::string error;
+    BOOST_REQUIRE_MESSAGE(server.Start({*Assert(Lookup("127.0.0.1", 0, /*fAllowLookup=*/false))}, {}, error), error);
+    const CService to{server.Bound().at(0)};
+
+    {
+        // A client that asks and never reads (slow reads): closed once it took nothing for 1 s, though a call runs.
+        RawClient c{to};
+        const std::string body{Envelope("{}")};
+        BOOST_REQUIRE(c.Send(strprintf("POST /cusf.mainchain.v1.ValidatorService/SubscribeEvents HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/connect+json\r\nContent-Length: %u\r\n\r\n", body.size()) + body));
+        std::this_thread::sleep_for(3s);
+        // Read now as fast as it comes: the server closed the connection long before all of it.
+        BOOST_CHECK(c.ReadFor(10s));
+        BOOST_CHECK_MESSAGE(c.in.size() < MESSAGES * MESSAGE_HEX, c.in.size());
+    }
+    {
+        // HTTP/2 PINGs alone are not activity: closed (with a GOAWAY) 2 s after it began, though it keeps pinging.
+        RawClient c{to};
+        const auto start{NodeClock::now()};
+        BOOST_REQUIRE(c.Send(std::string{"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"} + std::string{"\0\0\0\4\0\0\0\0\0", 9}));
+        const std::string ping{std::string{"\0\0\x08\x06\0\0\0\0\0", 9} + std::string(8, 'p')};
+        while (!c.closed && NodeClock::now() - start < 6s) {
+            if (!c.Send(ping)) break;
+            c.ReadFor(300ms);
+        }
+        BOOST_CHECK(c.closed || c.ReadFor(1s));
+        const double took{Seconds(NodeClock::now() - start)};
+        BOOST_CHECK_MESSAGE(took >= 1.9 && took < 4, "pinging connection closed after " << took << " s");
+        const std::vector<uint8_t> types{FrameTypes(c.in)};
+        BOOST_CHECK(std::find(types.begin(), types.end(), NGHTTP2_PING) != types.end()); // the PINGs answered
+        BOOST_CHECK(std::find(types.begin(), types.end(), NGHTTP2_GOAWAY) != types.end());
+    }
+    {
+        // Streams opened and reset again and again: closed past 5 of them, long before it would be idle.
+        RawClient c{to};
+        nghttp2_session_callbacks* cb;
+        nghttp2_session_callbacks_new(&cb);
+        nghttp2_session* session;
+        nghttp2_session_client_new(&session, cb, nullptr);
+        nghttp2_session_callbacks_del(cb);
+        nghttp2_submit_settings(session, NGHTTP2_FLAG_NONE, nullptr, 0);
+        const std::vector<std::pair<std::string, std::string>> headers{
+            {":method", "POST"}, {":scheme", "http"}, {":authority", "127.0.0.1"}, {":path", "/cusf.mainchain.v1.ValidatorService/GetChainTip"}, {"content-type", "application/grpc"}};
+        std::vector<nghttp2_nv> nvs;
+        for (const auto& [n, v] : headers) nvs.push_back({reinterpret_cast<uint8_t*>(const_cast<char*>(n.data())), reinterpret_cast<uint8_t*>(const_cast<char*>(v.data())), n.size(), v.size(), NGHTTP2_NV_FLAG_NONE});
+        const auto start{NodeClock::now()};
+        int rotations{0};
+        for (; rotations < 20 && !c.closed; ++rotations) {
+            // The HEADERS sent first (a stream reset before it is sent is never sent), then its reset.
+            const int32_t id{nghttp2_submit_headers(session, NGHTTP2_FLAG_NONE, -1, nullptr, nvs.data(), nvs.size(), nullptr)};
+            std::string out;
+            const uint8_t* data;
+            for (ssize_t n; (n = nghttp2_session_mem_send(session, &data)) > 0;) out.append(reinterpret_cast<const char*>(data), n);
+            nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, id, NGHTTP2_CANCEL);
+            for (ssize_t n; (n = nghttp2_session_mem_send(session, &data)) > 0;) out.append(reinterpret_cast<const char*>(data), n);
+            if (!c.Send(out)) break;
+            c.ReadFor(100ms);
+        }
+        nghttp2_session_del(session);
+        BOOST_CHECK(c.closed || c.ReadFor(1s));
+        BOOST_CHECK_MESSAGE(rotations >= 6 && rotations < 8, rotations);
+        BOOST_CHECK(Seconds(NodeClock::now() - start) < 1.9);
+    }
+    {
+        // Past 8 requests on one connection: closed once its call is over (the client opens another).
+        RawClient c{to};
+        const std::string request{"POST /cusf.mainchain.v1.ValidatorService/GetChainTip HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}"};
+        for (int i{0}; i < 8; ++i) {
+            c.in.clear();
+            BOOST_REQUIRE(c.Send(request));
+            while (c.in.find("\r\n\r\n") == std::string::npos && !c.ReadFor(100ms)) {}
+            BOOST_CHECK_MESSAGE(c.in.starts_with("HTTP/1.1 200"), c.in);
+            BOOST_CHECK(!c.ReadFor(300ms));
+        }
+        BOOST_REQUIRE(c.Send(request));
+        BOOST_CHECK(c.ReadFor(1s));
+    }
+    server.Stop();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

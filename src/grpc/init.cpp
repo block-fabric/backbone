@@ -54,6 +54,8 @@ void AddGrpcOptions(ArgsManager& args)
                  ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
     args.AddArg("-grpcallowedhost=<name>", "Accept gRPC requests whose Host is this name, beside IP addresses and localhost (others are refused, against DNS rebinding). Can be specified multiple times",
                  ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
+    args.AddArg("-grpcipv6prefix=<bits>", "IPv6 clients of the gRPC server are counted by this prefix for the 16 connections an address may hold (one client usually has a /64 to rotate addresses in; 16 to 128, default: 64)",
+                 ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
     args.AddArg("-grpcthreads=<n>", strprintf("Threads that serve gRPC calls (default: %d)", DEFAULT_GRPC_THREADS),
                  ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::RPC);
 }
@@ -85,6 +87,8 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
         if (!subnet.IsValid()) return InitError(strprintf(_("Invalid -grpcallowip subnet specification: %s"), ip));
         allow.push_back(subnet);
     }
+    const int64_t ipv6_prefix{args.GetIntArg("-grpcipv6prefix", 64)};
+    if (ipv6_prefix < 16 || ipv6_prefix > 128) return InitError(Untranslated("-grpcipv6prefix: a prefix length from 16 to 128"));
     const uint16_t default_port{static_cast<uint16_t>(args.GetIntArg("-grpcport", DEFAULT_GRPC_PORT))};
     std::vector<std::pair<std::string, uint16_t>> endpoints;
     if (!args.IsArgSet("-grpcbind")) {
@@ -114,11 +118,18 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
     grpcsrv::Options options;
     options.threads = std::max<int>(1, args.GetIntArg("-grpcthreads", DEFAULT_GRPC_THREADS));
     // Slow clients (slowloris): a request must be all in within 15 s of its first byte however slowly it trickles;
-    // a connection with no running call idle 30 s is closed (GOAWAY first over HTTP/2; a server stream such as
-    // SubscribeEvents is a running call); 16 connections per address beyond this machine, 256 in all.
+    // a connection with no running call that begins or completes no request for 30 s is closed (GOAWAY first over
+    // HTTP/2; a server stream such as SubscribeEvents is a running call; PINGs are not activity); one whose replies
+    // the peer takes no byte of for 30 s too (slow reads); one past 10,000 requests once no call runs, or past 100
+    // streams given up before their request was in; 16 connections per address beyond this machine (IPv6 by /64,
+    // -grpcipv6prefix), 256 in all.
     options.max_connections = 256;
     options.max_connections_per_ip = 16;
     options.per_ip_exempt = {LookupSubNet("127.0.0.0/8"), LookupSubNet("::1/128")};
+    options.ipv6_prefix = static_cast<int>(ipv6_prefix);
+    options.write_timeout_seconds = 30;
+    options.max_requests_per_connection = 10000;
+    options.max_abandoned_requests = 100;
     options.request_timeout_seconds = 15;
     options.idle_timeout_seconds = 30;
     options.allowed_origins = args.GetArgs("-grpcallowedorigin");
