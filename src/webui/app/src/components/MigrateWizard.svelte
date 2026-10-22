@@ -11,7 +11,7 @@
   import { ErrorCode } from '../lib/bridge';
   import { errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
-  import { productName } from '../lib/modules.svelte';
+  import { productName, productUnit } from '../lib/modules.svelte';
   import { selectWallet, wallets } from '../lib/state.svelte';
   import { walletApi } from '../lib/wallet';
   import { formatUnits, chainHost } from '../lib/chains.svelte';
@@ -156,7 +156,7 @@
             <li data-old={o.chain + '/' + o.wallet} data-state={o.state}>
               <ChainBadge id={o.chain} name={o.name} small />
               <span class="what"><span class="mono"><SafeText text={o.wallet} /></span> <Icon name="arrow" size={13} /> <span class="mono"><SafeText text={phraseWallet(o.chain)} /></span></span>
-              <span class="num">{o.amount}</span>
+              <span class="num">{o.amount} {productUnit()}</span>
               {#if o.state === 'moved'}<span class="ok"><Icon name="check" size={14} /> {t('Sent')}</span>
               {:else}<button type="button" class="btn small" disabled={o.state === 'moving'} onclick={() => move(o)} data-action="move-old">{o.state === 'moving' ? t('Working…') : t('Move…')}</button>{/if}
               {#if o.error}<span class="error small"><SafeText text={o.error} /></span>{/if}
@@ -239,7 +239,11 @@
     flex: 1 1 12rem;
   }
   .ok {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
     color: var(--positive);
+    white-space: nowrap;
   }
   .small {
     font-size: 0.85rem;

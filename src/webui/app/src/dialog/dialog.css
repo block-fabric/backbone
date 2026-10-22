@@ -448,6 +448,14 @@ body.loading {
   display: none;
 }
 
+/* What a field says as it is typed takes its room from the start: the window is sized once, when the page is ready. */
+.field.kind-words .live,
+.field.kind-word .live,
+.field.kind-new-password .live {
+  display: block;
+  min-height: 1.3em;
+}
+
 .field .live.bad {
   color: var(--negative);
 }

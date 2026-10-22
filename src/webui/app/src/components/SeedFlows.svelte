@@ -6,14 +6,12 @@
   import MigrateWizard from './MigrateWizard.svelte';
   import MoveWizard from './MoveWizard.svelte';
   import { app } from '../lib/state.svelte';
-  import { autoGuide, refreshSeed, seed, watchSeed } from '../lib/seed.svelte';
+  import { autoGuide, defaultForTests, refreshSeed, seed, watchSeed } from '../lib/seed.svelte';
   import { refreshSidechains, watchSidechains } from '../lib/sidechains.svelte';
 
-  let defaulted = false;
   $effect(() => {
-    // The tests of the app ask for the guides themselves (seed.autoOpen), not to cover the pages they drive: once.
-    if (app.info?.test && !defaulted) seed.autoOpen = false;
-    if (app.info) defaulted = true;
+    // The tests of the app ask for the guides themselves (seed.autoOpen), not to cover the pages they drive: once per page.
+    if (app.info) defaultForTests(!!app.info.test);
   });
   $effect(() => {
     watchSeed();

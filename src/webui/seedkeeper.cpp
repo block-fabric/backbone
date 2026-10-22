@@ -748,16 +748,16 @@ UniValue SeedKeeper::Restore(const UniValue& params)
     } done{m_busy};
     Window::ConfirmDialog d;
     d.title = "Restore from your backup phrase";
-    d.message = strprintf("Type the words of your backup phrase, in order, with spaces between them.\n\nUse a phrase made for %s, not one of "
-                          "a Bitcoin wallet: the same phrase gives the same keys on both, and your addresses on one could be linked to the other.",
+    d.message = strprintf("Type your words in order. Use a phrase made for %s, not one of a Bitcoin wallet: the same phrase gives the same "
+                          "keys on both, and your addresses on one could be linked to the other.",
                           m_hooks.product);
     d.accept = "Restore";
     d.level = dialog::Level::INFO;
     d.kind = "seed-restore";
     d.fields.push_back(MakeField("words", dialog::Field::Kind::WORDS, "Your backup phrase", "12 or 24 words"));
     d.fields.push_back(MakeField("day", dialog::Field::Kind::DATE, "About when did you make it?",
-                        "Optional. Each chain is read again from that day; without it, from its start, which takes longer.", true));
-    d.fields.push_back(MakeField("extra", dialog::Field::Kind::SECRET, "Extra word", "Only if you set one when the phrase was made.", true));
+                        "Optional: each chain is read again from that day (without it, from its start: slower).", true));
+    d.fields.push_back(MakeField("extra", dialog::Field::Kind::SECRET, "Extra word", "Only if you set one with the phrase.", true));
     bip39::Parsed parsed;
     SecureString extra;
     int64_t birthday{0};

@@ -391,7 +391,7 @@ the Sidechains page) → "available on Layers". Withdrawals back to Chains are e
 |---|---|---|
 | **1** (this branch) | Supervisor (Linux), late RPC server, Settings → Sidechains, chain switcher, read-only overview, wizard skeletons, tests | done (≈ 3 days) |
 | **2** (this branch, done 2026-10-20) | The sidechains' own pages as packs pinned by commit, in isolated frames; their host is their daemon over RPC; every spend described by the daemon (`describeconfirmation`) and asked in the app's trusted dialog, bound by a one-time token; rpcwhitelists both ways; deposits from the pages by Chains' wallet; the old Nodes tab removed (§13). Moved on: Windows supervisor and packs (phase 5), liveness/stall detection and the move-data wizard (phase 4) | done |
-| **3** | Single seed: BIP39 + derivation (`m/86'/0'/A'`, `1'` on test chains) + `seed.dat`, blank-wallet import per chain, unified encryption/unlock, backup/restore with rescans, first-run wizard as the real first start, separate-wallet path, existing-user migration (offered once at first start, and in Settings), the deposit wizard | 2–3 weeks |
+| **3** (`unified-main`, done 2026-10-21, §23) | Single seed: BIP39 + derivation (`m/86'/0'/A'`, `1'` on test chains) + `seed.dat`, blank-wallet import per chain, unified encryption/unlock, backup/restore with rescans, first-run wizard as the real first start, separate-wallet path, existing-user migration (offered once at first start, and in Settings), the deposit wizard | done |
 | **4** | Download-on-enable with signed manifests (#9), upgrade/fork banners, a BMM spending cap per sidechain, liveness/stall detection, move-data wizard with progress, end-to-end runs of every pack | 3 weeks |
 | **5** | Windows (Job objects, WebView2 origins for the packs), macOS (`-exitwithparentfd`), hardware wallets / xpub-only mode, resource caps (cgroups/Job memory), battery pause | 2 weeks |
 
@@ -615,6 +615,19 @@ sidechain by hand, downloads from the app (phase 4).
 | 43 | **Found by review (MEDIUM): an unknown fee tier shown as 0.30 %** (a pool whose node gave its fee in percent, or a fee of no tier, was read as the default) | The fee as the node says it, exactly: `fee_millionths`, else `fee` in percent parsed exactly; a node of before the pool kinds (no `curve`, no `fee`) is constant product at 0.30 % by its rules. A fee that is not one of the four tiers, or a kind with no fee: the pool is not shown at all, so never claimed in a question | chainadapter_tests `dex_capabilities_and_pure_parts` (0.25 %, 2500, 7, 0 refused), `dex_reads_pools_info_quote_chart_positions` |
 | 44 | **Found by review (MEDIUM): a question that names one pool while the chain acts on the pair's** (with pool kinds a pair has a pool of each kind; removeliquidity, addliquidity, swapasset and swaproute name the assets, so the pool of the default kind) | Every spend names its pools **by id** where the chain takes ids (its pool kinds apply: `getdexinfo`), and the request binds those ids: `swappools [asset, amount, [pools], slippage, min_out]`, `addpoolliquidity [pool, {asset: amount}, slippage]`, `removepoolliquidity [pool, percent, null, slippage]`, `createpool … {curve, fee, amp\|weight_a}`; Layers' own describers resolve each pool by its id in the same question. On a chain without ids, a spend goes by the assets only when what they name is the pool shown: a swap only through pools of the default kind; liquidity in or out only when the pair has one pool and the wallet shares of one; else refused before anything is asked | chainadapter_tests `dex_swap_quoted_again_its_route_checked_and_shown`, `dex_liquidity_in_and_out_and_new_pools` (a second pool of the pair: refused by assets, sent by id), rpc_describeconfirmation_layers.py (swappools), run_dex |
 | 45 | **Found by review (MEDIUM): pools found by "last match"** (the first page of a pair's pools, the last row of the pair taken) | A pool is confirmed **by its id** (`getpool <id>`, else every page of `listpools` of an asset of it, the one row of that id: two of one id, none), its assets those of the hop or of the pair asked; the client sends the ids it showed (a swap: each hop's pool; liquidity: the pool) and the route must match the chain's fresh quote in its assets **and** its pools; the question shows each pool by pair, kind, fee tier and id; a pair quote (`quoteswap`) is shown only on the pair's one pool of the default kind. A new pool: its id as the chain will make it (`previewpool`), refused when one of that kind already has providers | chainadapter_tests, sidechainpages_tests, run_dex (the dialog's pools by id, the app's and Layers') |
+| 46 | **The backup phrase seen only by the host** (§23: made, shown, checked, typed) | Its words are shown and typed only in the app's own dialog window (its own web view and origin, no network, no frames, no forms; the page has no handle on it); a question with words, fields or a box is never shown in the dialog of the system (declined); the page asks `seed.*` and gets "made", "cancelled" and each chain's state, never a word or a key; packs cannot call `seed.*` (refused prefix in `SidechainPages::RouteOf`); the test hooks record that words were shown and which fields were asked, never the words | seed_tests (`dialog_fields_words_and_box`, the status holds no word, no key), seed.test.ts, sidechainpages_tests, run_seed (words read from the app's window) |
+| 47 | **seed.dat at rest** | scrypt (N 2^15, r 8, p 1) of the passphrase → ChaCha20-Poly1305 over the entropy and the seed, the header as associated data (another network, birthday or fingerprint fails like a wrong passphrase); written once, atomically, 0600; a header asking more work than N 2^20, r 16, p 4 refused before any; a passphrase of at least 8 | seed_tests `seed_file_encrypted`, `create_makes_every_chains_wallet_from_the_phrase` (0600) |
+| 48 | **A node gets its own account only** | The hardened account key `m/86'/C'/A'` (and 84'), never the master or the seed; a sidechain's A from its catalog id and its genesis: a daemon naming another chain's genesis gets an account of its own chain; two chains of one genesis (the template's regtest) get two accounts | seed_tests `our_paths_per_chain`, `a_daemon_naming_another_genesis_gets_an_account_of_its_own_chain`; run_seed (each wallet holds its four descriptors only) |
+| 49 | **Found by review (HIGH): the user's passphrase sent to the sidechains' nodes** (every daemon wallet encrypted with it, as §4.1 had planned: a compromised or buggy daemon, or its RPC history, learned what protects the seed of every chain) | A sidechain's wallet is encrypted with its own passphrase, `hex(HMAC-SHA256(seed, "unified-wallet/passphrase/1" ‖ stem ‖ genesis))`, made while the phrase is unlocked, wiped after; a spend on a sidechain asks the user's passphrase in the trusted dialog and the app sends that chain's own (`SeedKeeper::PassphraseFor`: the typed one opens seed.dat, so it is the phrase's: never sent; one that does not is another wallet's and goes as typed); a change of the passphrase changes seed.dat and the app's own wallet only | seed_tests `create_…` (no request to a sidechain carries the user's passphrase), `the_users_passphrase_never_reaches_a_sidechain` (exchange, change, restore elsewhere gives the same chain passphrase); run_seed (the user's passphrase does not open Layers' or Thunder's wallet, theirs does; a payment on Layers with the user's passphrase, before and after a change) |
+| 50 | **Memory** | The seed, the entropy, the words and every passphrase in locked memory that is wiped (`secure_allocator`); unlocked for 10 minutes at most, wiped as soon as the chains it was opened for have their keys, at Lock and at the end; every request that carried a key or a passphrase wiped once written (`SidechainSupervisor::Rpc`, `SeedKeeper`), every copy of a dialog's answer wiped (`dialog::Session`), the fields emptied in the dialog's page after the answer. **Residual:** the dialog's web process holds the words and what was typed while it shows them; the in-process node's RPC layer and the daemons' memory hold the account keys they were given (they keep them anyway) | seed_tests, seed.test.ts (the fields emptied) |
+| 51 | **Never logged** | The host logs a phrase's fingerprint, wallet names and accounts only; an error of a node about keys is scrubbed of anything that looks like an extended private key before it is shown or logged (`seed::Scrubbed`); Core's RPC log names methods, never parameters. The e2e writes its own throwaway regtest phrase to its log (the runner needs it) | seed_tests (`Scrubbed`) |
+| 52 | **Backup verification** | The words shown once, the box "I wrote the 12 words down, in order" before the button; three words at random places typed back, a wrong one said; five wrong checks start over; a copy refused and said; nothing written before the check and the passphrase | seed_tests (wrong then right), seed.test.ts, run_seed (copy refused, a wrong word said) |
+| 53 | **Passphrase changes** | Old, new (at least 8) and again in the app's window; the app's own wallet changed first, then seed.dat; a failure changes the wallet back and leaves seed.dat as it was; the sidechains' wallets unchanged (their passphrases come from the seed). **Residual:** a crash between the two leaves the wallet with the new one and seed.dat with the old; a change of that wallet's passphrase from Manage wallets is not carried to seed.dat | seed_tests, run_seed (changed: the old one no longer spends, the new one does on Layers) |
+| 54 | **Restore edge cases** | The words checked (each of the list, the count, the checksum), the typed text given back only to the app's window to correct; the extra word ASCII only; the birthday a day early and not after tomorrow; a phrase over one already there refused (a new data folder); a new wallet never takes an existing name; a chain restarted from a new genesis gets a new account and wallet (made again from Settings: [Make its keys…]) | seed_tests `restore_reads_each_chain_again_…`, run_seed (a typo said, the same balances on every chain) |
+| 55 | **Wallets of before** | Their keys and files never touched: the move is an ordinary payment of each wallet of before, asked in the trusted dialog, never a sweep; offered once ("Not now" remembered), kept in Settings; their sidechain wallets stay loaded beside the new ones | seed.test.ts, run_seed (the old wallet's private descriptors identical before and after) |
+| 56 | **The wallet setup at the daemons** (§13.5 #11) | The app's user keeps its phase-2 whitelist (no `walletpassphrase`, no `importdescriptors`): the setup of the phrase's wallet goes as the daemon's own user (its cookie, read for the call) through `SidechainSupervisor::SetupRpc`, which takes only `SetupRpcMethods` (`createwallet`, `loadwallet`, `listwallets`, `listwalletdir`, `getblockhash`, `getwalletinfo`, `importdescriptors`, `walletpassphrase`, `walletlock`, `abortrescan`: no spend, no key read out) and is called by `SeedKeeper` alone; the supervisor makes no wallet of its own for a chain whose wallet is the phrase's | seed_tests `wallet_setup_at_the_daemons`, supervisor_tests `auto_wiring_args` (the app's user still refused `walletpassphrase`, `importdescriptors`), run_seed |
+| 57 | **Validator keys** (decision 4) | Never made from the seed, never imported; the enable wizard says the validator key is made on this computer | — |
+| 58 | **Merged mining with an encrypted wallet** | Residual (open): `createbmmrequest` pays BMM bids from the app's wallet, which is encrypted when it is the phrase's: bids need it unlocked for a while (`walletpassphrase`) or a wallet of their own for mining | — |
 
 ### 13.6 Coverage per chain
 
@@ -641,10 +654,7 @@ side (`remotehost.cpp`) is portable. macOS: no supervisor (`-exitwithparentfd`),
 
 ### 13.8 What remains (phases 3–5)
 
-- **Phase 3:** the single seed (BIP39, `m/86'/0'|1'/A'`, blank wallets of the daemons with imported
-  descriptors, one passphrase), restore with rescans, the offer to move to it at the first start (decision
-  6), the first-run guide as the real first start (with the fresh-phrase advice of §4.1); the wizard to move
-  coins into a sidechain (the deposit exists, its screens do not). (The calmer layout around a pack is done: §14.)
+- **Phase 3:** done on `unified-main` (§23). (The calmer layout around a pack was done in §14; §17 has no layout item left.)
 - **Phase 4:** the release key made and built in, then `require` the default (§15.4); Windows progress/cancel of
   downloads; upgrade/fork
   banners, a cap of BMM spending per sidechain (§13.5 #12), liveness and stall detection, the move-data wizard
@@ -1888,3 +1898,245 @@ describer, the trusted dialog naming the chain first with its mark, the one-time
 - **Flush** (Starbase renamed, on eCash): its row of the table with its catalog entry on the `ecash` branch.
 - **BitAssets** is mapped (pair quotes, one-pool swaps, liquidity) and unit-tested, not driven end to end here.
 - A pool's figures follow its chain at the pace of the page's reads (20 s): just after a spend they are the block's before.
+
+## 23. Phase 3: one backup phrase for every chain (2026-10-21, branch `unified-main`)
+
+User: "We still want to complete the unified Chains wallet, because we will port it into Backbone." The decisions of §12:
+a single seed by default and a separate wallet per chain as the option; the coin type Bitcoin Core's (`0'`/`1'`,
+`m/86'/C'/A'`); validator keys not from the seed; the move of existing wallets offered once at the first start of the new
+version and from Settings; the first-run guide as the real first start; a fresh phrase advised, never a Bitcoin one.
+
+### 23.1 What the user sees
+
+```
+First start (no wallet yet): the guide opens by itself
+  Welcome → Your wallet (create / restore; "a phrase of its own, even if you have a Bitcoin wallet")
+  → Backup phrase: [Make my backup phrase…] ──► the app's own window (dialog.h): 12 words, numbered, not selectable;
+        "I wrote the 12 words down, in order" ☐ → Next
+        → "Check your backup": Word 3 [   ] Word 7 [   ] Word 11 [   ] (a wrong one said at its field)
+        → "A passphrase for your wallet": passphrase (at least 8, its length said) + again (+ the extra word, an option)
+     ✓ made and checked; your Chains wallet "main"
+  → Network → Sidechains (cards; "gets its keys from your backup phrase") → Storage → Getting ready
+     [Turn them on] → each chain's wallet: "From your backup phrase" / "Making its keys…" / "Reading its chain again… 40 %"
+     [Move coins into a sidechain…] (the guided move)  [Done]
+Restore: the same guide, [Type my backup phrase…] ──► the app's window: the words (counted, a word not of the list said as
+  it is typed), "About when did you make it?" (optional), the extra word (optional); then a new passphrase.
+Wallets of before (decision 6): "One backup phrase for all your chains" opens once at the first start of this version
+  → a phrase made → the new wallets listed → "Move your coins": each wallet of before with coins, [Move…] (a payment to
+  yourself, asked in the trusted dialog) → Done. "Not now" is remembered; Settings keeps it.
+Settings → Wallet → Backup phrase: made on …, phrase 73c5da0a; each chain's wallet and where its keys come from
+  (from the phrase · its own wallet: back it up on its own · its keys not made yet [Make its keys…] · being read again 40 %);
+  [Show my backup phrase…] [Change the passphrase…] [Lock it now]
+Turn a sidechain on (wizard, "Its wallet"): "Use my backup phrase" (recommended: its keys are made from your phrase as it
+  starts, you type your wallet passphrase once) or "A separate wallet" (its own keys, its own backup).
+Move coins, step by step (from the Move coins panel, the palette, the end of the first start): Which way → Which sidechain
+  → How much (a withdrawal: an address of your wallet filled in, the miners' fee said) → Check → the trusted dialog →
+  On its way (a deposit followed until the sidechain credits it; a withdrawal's state while the miners vote).
+```
+
+- **Where the phrase is shown and typed: only in the app's own dialog window** (§13.3, `dialog.h`: a window of its own,
+  its own web view and origin `chains-dialog://dialog`, no network, no frames, no forms; the main page has no handle on it).
+  The page never holds a word: it asks the host (`seed.create`, `seed.restore`, `seed.show`) and gets back "made",
+  "cancelled" and the state of each chain. The dialog page gained what the flows need: the words in a numbered grid that
+  cannot be selected or copied (a try says "Copying is off on purpose: write the words on paper"), fields (a passphrase,
+  a new one with its length said, a word, the words of a phrase counted with the first word not of BIP39's list said, a
+  day, an extra word), and a box to tick before the button that accepts can be pressed. A question with words, fields or
+  a box is never shown in the dialog of the system (the fallback has one hidden field at most): declined instead.
+- **The words are checked**: three of them, at random places, typed back; a wrong one is said at its field ("Not this
+  word: look at your paper again"); five wrong checks start over. Nothing is written before the check and the passphrase.
+- **Restore**: the words are read as typed (any spaces, upper case taken as lower); each must be of the list (its place
+  said), 12, 15, 18, 21 or 24 of them, the checksum right ("one of them is wrong, or two are swapped"); what was typed comes
+  back into the field to correct one word. The day bounds the rescans (a day earlier); without it, every chain is read
+  from its start (Chains and its sidechains are young).
+
+### 23.2 The keys
+
+| | |
+|---|---|
+| Phrase | BIP39, English list (byte-identical to bitcoin/bips, SHA-256 checked in the tests), 12 words by default, 24 an option; an extra word (BIP39 passphrase) an option, printable ASCII only (no Unicode normalisation needed, read the same by every wallet) |
+| Seed | PBKDF2-HMAC-SHA512, 2048 rounds, salt "mnemonic" + the extra word (BIP39) |
+| Account of a chain | `m/86'/C'/A'` (taproot, the default) and `m/84'/C'/A'`; **C** = Core's coin type from the chain's parameters (`IsTestChain() ? 1 : 0`, as Core's own wallets); **A = 0** for the app's own chain; a sidechain's **A = BE32(SHA-256("chains/account" 0x00 stem 0x00 genesis-hex))[0..4] & 0x7fffffff**, never 0 |
+| What a node gets | `tr([fp/86h/Ch/Ah]xprv/0/*)`, `tr(…/1/*)`, `wpkh([fp/84h/Ch/Ah]xprv/0/*)`, `wpkh(…/1/*)`: the **account** key (hardened) only, imported active into a **blank** wallet (`createwallet blank=true` with a passphrase, `walletpassphrase`, `importdescriptors`, `walletlock`); never the master key or the seed |
+| Wallet | "main" where the chain has none, else "seed" (then "seed-2"…): an existing wallet is never reused, never touched |
+| Its passphrase | the app's own chain: **the user's** (that wallet lives in this process, next to seed.dat); a sidechain's: **its own**, `hex(HMAC-SHA256(seed, "unified-wallet/passphrase/1" 0x00 stem 0x00 genesis))`, made while the phrase is unlocked; the user's passphrase never reaches a sidechain's node (§13.5 #49) |
+| seed.dat | `<network datadir>/seed.dat`, written once (atomic, 0600): JSON with the public header (format, network, made, birthday, words, extra word yes/no, fingerprint, scrypt N=2^15 r=8 p=1 and salt, nonce) and the secret (entropy and seed) under **ChaCha20-Poly1305** (Bitcoin Core's own AEAD; §4.1 had said AES-GCM, which Core does not have) with a key from **scrypt** of the passphrase; the header is the AEAD's associated data (changing the network, the birthday, the fingerprint fails like a wrong passphrase); a file that asks for more work than N=2^20, r=16, p=4 is refused before any work |
+| Validator keys | not from the seed (decision 4): FastBlocks and Layers make theirs on each machine (`-validatorkeyfile`); the enable wizard says so |
+
+**Why the stem is in a sidechain's account** (a refinement of §4.1, which had `SHA256("chains/account" ‖ genesis)`): on
+regtest every sidechain built from the template has the same genesis (Bitcoin's regtest genesis, 0f9188f1…), so §4.1's
+formula gave Layers and Thunder the **same keys** (and, both being `rsc`, the same addresses); and a compromised daemon
+naming another chain's genesis would have been handed that chain's account. With the stem (the catalog's id, never what
+a daemon says), each chain gets its own account on every network, and a daemon lying about its genesis gets an account of
+its own chain only. The genesis still separates a chain restarted from a new genesis (a new account, a new wallet).
+
+**Vectors** (`seed_tests`): BIP39's 24 English vectors with "TREZOR" (entropy → words → seed) and the root xprv of the
+first; BIP84 and BIP86 (`abandon … about`: m/84'/0'/0' and m/86'/0'/0', the first address's key hash and output key);
+scrypt's RFC 7914 vectors; our paths against `test/e2e/seedref.py` (a pure-Python BIP39/BIP32/BIP86 apart from the app's
+code, itself checked against the published vectors): `A(layers, regtest genesis) = 1922787114`, `A(thunder, …) =
+1452416159`, their tpubs and first output keys, Chains' account 0 on a test chain, the passphrase of Layers' wallet.
+
+### 23.3 Unlocked for a while, and the chains that wait for their keys
+
+The phrase is unlocked only to make keys: after it is made or restored (10 minutes, for the first-run guide's sidechains),
+or by `seed.unlock` (the passphrase in the app's window) for the chains that wait; it is locked again as soon as those
+chains have their keys, when its time is up, at Lock and at the app's end. Its secret and passphrase are held in locked,
+wiped memory (`secure_allocator`).
+
+- **A sidechain turned on later** (Enable wizard, "Use my backup phrase"): the wizard asks the passphrase once before it
+  turns the chain on (declined: not turned on); the supervisor makes **no wallet of its own** for a chain whose wallet is
+  the phrase's (`SidechainSupervisor::Options::seed_wallet`), and the app makes its keys as soon as its node answers
+  (`SeedKeeper::ChainReady`). Locked meanwhile: the chain says "Its keys are not made yet" with [Make its keys…].
+- **A separate wallet**: as before (the daemon's own "main"), marked "its own backup".
+- **No phrase yet** (existing users who said "Not now"): a sidechain turned on gets its own wallet, as before.
+- **The app's pages** use the phrase's wallet of a chain first (`ChainAdapter::PickWallet` with the phrase's wallet
+  preferred); the wallets of before stay loaded beside it (the supervisor loads both), to move their coins.
+- **Rescans**: `importdescriptors` with the birthday runs the rescan in the node, in a thread of the app per chain; the
+  state shows "Reading its chain again for your coins… 40 %" (`getwalletinfo.scanning`); quitting aborts the app's own
+  node's rescan (`abortrescan`), the daemons' stop with them.
+
+### 23.4 Moving wallets of before (decision 6)
+
+`seed.status` says `offer` when there is no phrase and the app's chain has wallets; the guide opens once at the first start
+of this version (`seed.dismiss offer` remembers "Not now"), and Settings keeps it. It makes a phrase (the same dialogs), a
+wallet from it on the app's chain ("seed" when a "main" exists) and on each running sidechain whose wallet is the
+phrase's, then lists each wallet of before that holds spendable coins: [Move…] is a payment of all of it to a new address
+of the new wallet on the same chain, the fee taken from it (`wallet.send.prepare/commit` on the app's chain, `chain.send`
+on a sidechain), asked in the trusted dialog like any payment. The old wallets' keys and files are never touched (the e2e
+compares their private descriptors before and after); they stay loaded, and can be closed once empty.
+
+### 23.5 Security (rows #46–#58 of §13.5)
+
+See §13.5. Found by review: **HIGH, the user's passphrase sent to the sidechains' nodes** (the first version encrypted every
+daemon wallet with the user's passphrase, as §4.1 had planned, so a compromised or buggy daemon, or its RPC history, learned
+the passphrase that protects the seed of every chain): fixed before commit (#49).
+
+### 23.6 Port to Backbone (the `ecash` branch)
+
+What is already a variable: the product's and the coin's names (`CLIENT_NAME`, `productName()`, `productUnit()`, the
+dialogs' words from `Hooks::product`), the coin type and the key prefixes (from the chain's parameters: `IsTestChain()`, so
+eCash's main network and betanet are 0 with xprv, its testnet 1 with tprv), the network name in seed.dat
+(`ChainTypeToString`: `ecash`, `ecashbeta`, `ecashtest`), the catalog of sidechains (a Flush row on that branch). What stays
+fixed on purpose: the account tag `"chains/account"` and the passphrase label `"unified-wallet/passphrase/1"` (changing
+either changes every sidechain account or wallet passphrase of every existing phrase; a Backbone phrase is new anyway, but a
+user may restore a Chains phrase into Backbone: same tag, same keys). The trial merge is in §23.8.
+
+### 23.7 Tests
+
+- **Host** (`test_chains-app`, `seed_tests`, 12 cases): BIP39's 24 English vectors and the root xprv; the list's SHA-256;
+  phrases read back (spaces, case, a word not of the list and its place, two swapped, counts 12 to 24, every entropy
+  length); scrypt RFC 7914; BIP84 and BIP86 (`abandon … about`); our paths against `seedref.py`, the descriptors' first
+  output keys by Core's own descriptors, a node never given the master key; seed.dat (round trip, a fresh salt and nonce
+  each time, a wrong passphrase, the header bound, the ciphertext changed, a work out of bounds, damaged files); errors
+  scrubbed of keys; the dialog's fields, words and box (only those asked, their lengths, the box first, nothing when
+  declined); the wallet setup's methods (none spends or reads a key; the app's user keeps its whitelist); the keeper with
+  pretend nodes: a phrase made through its three questions (a wrong check and short and different passphrases said at
+  their fields), seed.dat 0600, each node's calls in order (a blank wallet with a passphrase, unlocked, the four
+  descriptors of its own account, locked), a wallet of before kept ("seed"), no request to a sidechain carrying the user's
+  passphrase; a restore (a typo given back, a bad day, the extra word in the seed, the birthday a day early in every
+  import), a sidechain turned on later waiting for its keys, unlocked for it and locked again by itself; a daemon naming
+  another chain's genesis; the passphrase exchanged for a spend, changed on the app's wallet only (a refusal changes
+  nothing; a sidechain off does not hold it back), restored elsewhere with the same chain passphrase; the session's time;
+  the first run and the offer. `supervisor_tests`: the app's user still refused `walletpassphrase`, `importdescriptors`.
+- **Pages** (vitest `seed.test.ts`, 16): the word list the host's; the dialog's words (numbered, a copy refused), fields
+  (as typed: a word not of the list, the words counted, a new passphrase's length; a phrase given back with its error),
+  the box; the guides opening by themselves once; the first start (the phrase made by the host, never a word in the page,
+  24 words and an extra word as options, the sidechains turned on after one unlock), a restore cancelled, skipping
+  remembered; the move of wallets of before (Not now remembered; a payment to yourself of all an old wallet holds, asked);
+  Move coins step by step (a deposit followed until credited; a withdrawal with an address of the wallet filled in, the
+  miners' fee, its state); Settings → Wallet → Backup phrase; the enable wizard asking once, not turning on when declined.
+- **End to end** (`run_seed.py` + `seed.js`, ctest `webui_e2e_seed`): see §23.9.
+- Run again on `unified-main` with phase 3: vitest 509, svelte-check 0/0, i18n, `test_chains-app` (all cases, real
+  daemons), `run_startup.py`, the hub-scale cost; see §23.9.
+
+### 23.8 Trial merge onto Backbone (`ecash`, 2026-10-21)
+
+`git merge --no-commit unified-main` into `ecash` (5c00255340) in a throwaway worktree: **no conflict** (12 files merged
+by git: `init.cpp`, `wallet/rpc/spend.cpp`, `webui/CMakeLists.txt`, `app.cpp`, `app.h`, `App.svelte`, `rpc.ts`,
+`state.svelte.ts`, `i18n-lint.test.ts`, `appconfig.{h,cpp}`, `confirm.cpp`). The result builds (`backbone-app`), its
+`test_chains-app` passes (every case, the seed's included), vitest 509 and svelte-check pass, `run_startup.py` 5/5. Not
+committed. What the merge does not do by itself (the adaptations to make when the port is done for real):
+
+1. **The supervisor knows Chains' networks only**: its three switches on the network (`NetDir`, the default ports in `RpcPort`
+   and `P2pPort` `<net>9<code>54`, the network flag in `DaemonArgs`) have no case for `ECASH`, `ECASH_BETANET`, `ECASH_TESTNET` (compiler
+   warnings): a sidechain started by Backbone on eCash would get no network flag. The sidechains of the `ecash` branches take
+   `-chain=ecash|ecashbeta|ecashtest` and keep their data in `~/.backbone-<name>`: the flag, the folder of each network
+   and a digit of the ports per eCash network are to be chosen.
+2. **The catalog** (`SidechainSupervisor::Catalog`): Chains' slots (Layers 7, Thunder 2, …); the eCash networks have their
+   own (Flush 47 on regtest, the rows of `ecash`'s catalog), and Flush is not in it. One catalog per family of networks.
+3. **The downloads' repositories** (`ModuleInstaller::Repos`): `block-fabric/<stem>` → `block-fabric/backbone-<chain>`
+   (one line per chain, §15.1).
+4. **The coin of a sidechain's DEX** (`chaindex.cpp` names the coin `CHN` in Layers' requests): what Layers on eCash calls
+   its coin.
+5. **The first-run guide's "Network" step** names Chains' networks (`NETWORKS` of `FirstRunWizard.svelte`): eCash's
+   (main network, betanet, testnet) to add; on Backbone the network is chosen by its intro at the first start, which the
+   step then just says.
+6. **The seed carries over unchanged**: the coin type and key prefixes come from the chain's parameters (eCash's main
+   network and betanet: `0'`, xprv; its testnet: `1'`, tprv), seed.dat names its network (`ecash`, `ecashbeta`,
+   `ecashtest`), the product's name comes from `CLIENT_NAME` ("Backbone") and the unit from `setCurrency` (ECX). To decide:
+   keep `"chains/account"` (a Chains phrase restored into Backbone keeps its sidechain accounts) or give Backbone its own.
+7. **The wallet fix of this branch** (932491ff04, a drivechain spend from an encrypted wallet signs under `cs_wallet`) is
+   needed on `ecash` too (and `main`, `lab-fixes`, `regtest-link`): the same code is there.
+
+### 23.9 End-to-end run and the test set (2026-10-21)
+
+`run_seed.py --app build_app/bin/chains-app --sidechain-bindir <layers and thunder bin> --tmp … --shots …` (ctest
+`webui_e2e_seed`): three runs of the real app on regtest, **33 checks** and the runner's own:
+
+1. **First start** (16): no wallet, so the guide opens by itself; the words read from the app's own window (12, of the
+   list), none of them in the page, a copy refused and said, the button waiting for the box; a wrong check word said at its
+   field, then the right ones; the passphrase. Layers and Thunder picked; each chain's wallet "main" from the phrase
+   (account 0, Layers 1922787114, Thunder 1452416159). **The runner** (apart from the app's code: `seedref.py` from the words
+   read, each node's own `deriveaddresses`, `getaddressinfo`, `listdescriptors`): the first address of each chain's account
+   is its wallet's, with its path `m/86h/1h/A'h/0/0` and the phrase's fingerprint; each wallet holds its own four
+   descriptors only; Layers' and Thunder's wallets open with their passphrase made from the seed, not with the user's.
+   Then deposits from the encrypted wallet (the passphrase asked in the app's window), a payment on Layers with the user's
+   passphrase (exchanged for Layers' own), Move coins step by step into Thunder (followed until credited), the passphrase
+   changed (a payment on Layers with the new one; the old one spends nothing), the phrase shown again (the same words).
+   Balances noted: Chains 32.9998764, Layers 10.00000000, Thunder 7.00000000.
+2. **Restore** (5) into a fresh data folder (the three chains' blocks copied; no wallet, no seed.dat, no settings): the
+   guide by itself; a typo said as typed and given back with its error; the phrase restored, Layers and Thunder turned on,
+   every chain read again: **the same balance on Chains, Layers and Thunder**.
+3. **Wallets of before** (12): a wallet "main" with 500 coins; the offer by itself (not the first start); the phrase's wallet
+   "seed" beside it; the 500 moved by a payment to yourself, asked; arrived less the fee; the old wallet's private
+   descriptors identical before and after; the offer not made again.
+
+**Found by it: a deadlock of the node** (fixed, 932491ff04): a deposit from an encrypted wallet froze the app (and its
+shutdown). A gdb dump showed `createsidechaindeposit` → Chains' own `SignAndCommit` → `SignTransaction` without
+`cs_wallet`: the descriptor manager (holding its lock) asked the wallet whether it is locked (`cs_wallet`), while another
+thread held `cs_wallet` and waited for the manager (`IsMine`). Phase 2's tests never paid a deposit from an encrypted
+wallet; the phrase's wallet always is. The same code is on `main`, `ecash`, `lab-fixes` and `regtest-link`.
+
+**Found by it in the pages**: the state of the phrase read during a read could stay stale (a wallet just made, the
+first-run state kept: now read once more after); and a guide could open before the app knew it was under test (the
+"ready" phase can come before the app's info): the guides now open by themselves only once the app's info is known.
+
+**The test set on `unified-main` with phase 3**: `test_chains-app` 151 cases with the real daemons, no error; vitest 56
+files / 509 tests; svelte-check 594 files, 0/0; `i18n.mjs --check`; `run_seed.py` 33/33; `run_startup.py` 5/5;
+`run_integrated.py` 66/66; `run_dex.py` 23/23; the hub-scale cost (the same state and window as §21.3, Trade among the pages):
+idle 0.5–2.8 % of one core on every page (budget 5), live 4.3–8.8 % (budget 25): unchanged by phase 3.
+
+### 23.10 Pictures
+
+In `~/skydoge/media/unified-app/phase3/` (Midnight, the e2e's own run): `seed-firstrun-1-welcome` … `-6-done` (the guide:
+welcome, your wallet with the fresh-phrase advice, the phrase step, made, the sidechains picked, every chain's wallet from
+the phrase); `seed-first-dialog-words` (the app's window: the 12 words, a copy refused, the box), `seed-first-dialog-check-wrong`
+(a wrong word said), `seed-dialog-show` (shown again); `seed-move-1-direction` … `-5-credited` (Move coins step by step);
+`seed-settings` (Settings → Wallet → Backup phrase); `seed-dialog-restore` (a typo said as typed), `seed-restore-1-made`,
+`-2-reading`, `-3-done`, `seed-restore-settings`; `seed-migrate-1-offer` … `-4-moved` and their dialogs.
+
+### 23.11 Open
+
+- **The account tag on Backbone** (§23.6): keep `"chains/account"` (a Chains phrase restored into Backbone keeps its
+  sidechains' accounts) or give Backbone its own.
+- **Merged mining with the phrase's wallet** (§13.5 #58): BMM bids are paid from the app's wallet, encrypted when it is the
+  phrase's: unlock it for a while for mining, or let a separate wallet pay the bids.
+- **zSide's shielded keys** (ZIP-32 from the same seed, §4.1) are not made from the phrase: its wallet of the phrase gets
+  the transparent account only, and how zSide makes its Orchard keys in a blank wallet is not tested here (only Layers and
+  Thunder were driven end to end); until then, zSide's own wallet ("separate") is the safe choice.
+- **A prepared send on a sidechain is used up by a wrong passphrase** (§13.5 #8): the user sends again (the trusted dialog
+  cannot ask again for it). Seen by the e2e with the old passphrase.
+- **The extra word** is printable ASCII only (no Unicode normalisation in the app): a phrase made elsewhere with a
+  non-ASCII passphrase cannot be restored here.
+- **A sidechain restarted from a new genesis** gets a new account and wallet only when its keys are made again (Settings:
+  [Make its keys…]); nothing tells the user of the restart yet.
+- **The wallet fix** (932491ff04) to carry to `main`, `ecash`, `lab-fixes` and `regtest-link`.

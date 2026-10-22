@@ -65,8 +65,11 @@ export const seed = $state({
   error: '',
   /** Which guide shows: the first start, the move to a phrase of existing users, the guided move of coins. */
   open: null as null | 'firstrun' | 'migrate' | 'move',
-  /** The guides open by themselves (the first run, the offer). Off in the tests of the app unless they ask for it. */
-  autoOpen: true,
+  /**
+   * The guides open by themselves (the first run, the offer): on once the app's info says it is not a test of the app
+   * (defaultForTests), never before it is known; the tests of the app set it themselves.
+   */
+  autoOpen: false,
   /** Opened by itself once in this run already: not again (a dismissal is the host's). */
   autoOpened: false,
 });
@@ -94,6 +97,17 @@ export function refreshSeed(): Promise<void> {
     }
   })();
   return refreshing;
+}
+
+let testDefaulted = false;
+/**
+ * In the tests of the app the guides do not open by themselves (they would cover the pages the tests drive) unless a test
+ * asks (seed.autoOpen): set once for the life of the page, whatever is mounted again.
+ */
+export function defaultForTests(test: boolean): void {
+  if (testDefaulted) return;
+  testDefaulted = true;
+  if (!test) seed.autoOpen = true;
 }
 
 /** Which guide opens by itself, if any: the first run, else the offer; once per run, never over another. */
