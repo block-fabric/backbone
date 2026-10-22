@@ -5,12 +5,12 @@
     {
       "stem": "layers",
       "repo": "layers",
-      "commit": "f532ed16832cf96cb99b3ecddd35b98ff78601fa"
+      "commit": "86bfa44d208df10c249999681966e4e9edae7739"
     },
     {
       "stem": "fastblocks",
       "repo": "fastblocks",
-      "commit": "bb4c7078f5fd3c03e3f5c198369955194670d39a"
+      "commit": "e616ff8cfa805771d1f06567fc8ca685c50f887f"
     },
     {
       "stem": "thunder",
