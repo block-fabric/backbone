@@ -48,7 +48,7 @@
     {:else if status.damaged}
       <p class="error">{t('The file of your backup phrase cannot be read. Your words on paper still bring everything back: restore them into a new data folder.')}</p>
     {:else if status.exists}
-      <p>{t('One phrase of %1 words keeps your wallets on %2 and on every sidechain that uses it.', status.words ?? 12, product)} <span class="muted">{status.restored ? t('Restored on %1.', made(status.created)) : t('Made on %1.', made(status.created))} {t('Phrase %1', status.fingerprint ?? '')}</span></p>
+      <p>{t('One phrase of %1 words keeps your wallets on %2 and on every sidechain that uses it.', status.words ?? 12, product)} <span class="muted">{status.restored ? t('Restored on %1.', made(status.created)) : t('Made on %1.', made(status.created))} {t('Fingerprint %1', status.fingerprint ?? '')}</span></p>
       <SeedChainList chains={status.chains} />
       <div class="actions">
         <button type="button" class="btn" disabled={busy !== ''} onclick={() => run('show', seedHost.show, '')} data-action="seed-show"><Icon name="eye" size={15} /> {t('Show my backup phrase…')}</button>

@@ -192,7 +192,7 @@
       <p class="muted small">{t('You confirm it in the next window, the app’s own: what it says is what is sent.')}</p>
       {#if error}<p class="error" role="alert"><SafeText text={error} /></p>{/if}
     {:else if step === 'sent' && sent && entry}
-      <h3>{sent.direction === 'in' ? t('Sent into %1', entry.name) : t('Made on %1', entry.name)}</h3>
+      <h3>{sent.direction === 'in' ? t('%1 %2 sent into %3', sent.amount, unit, entry.name) : t('%1 %2 on their way back from %3', sent.amount, entry.unit, entry.name)}</h3>
       <ol class="track">
         {#if sent.direction === 'in'}
           <li class="done"><Icon name="check" size={15} /> {t('Sent on %1', product)}</li>

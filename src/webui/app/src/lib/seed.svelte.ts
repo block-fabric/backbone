@@ -72,8 +72,13 @@ export const seed = $state({
 });
 
 let refreshing: Promise<void> | null = null;
+let again = false;
+/** The host's state read again; asked while a read is under way, read once more after it (that read may be from before). */
 export function refreshSeed(): Promise<void> {
-  if (refreshing) return refreshing;
+  if (refreshing) {
+    again = true;
+    return refreshing;
+  }
   refreshing = (async () => {
     try {
       seed.status = await seedHost.status();
@@ -82,6 +87,10 @@ export function refreshSeed(): Promise<void> {
       seed.error = e instanceof Error ? e.message : String(e);
     } finally {
       refreshing = null;
+      if (again) {
+        again = false;
+        void refreshSeed();
+      }
     }
   })();
   return refreshing;

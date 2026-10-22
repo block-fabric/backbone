@@ -385,7 +385,7 @@ describe('Settings → Wallet → Backup phrase, and turning a sidechain on', ()
     answers['seed.addChain'] = { unlocked: true };
     mount(SeedSettings);
     await waitFor(() => expect(document.querySelector('[data-seed-chains] li[data-chain="layers"]')).toBeTruthy());
-    expect(document.body.textContent).toContain('Phrase 73c5da0a');
+    expect(document.body.textContent).toContain('Fingerprint 73c5da0a');
     await fireEvent.click(document.querySelector('[data-make-keys="layers"]') as HTMLButtonElement);
     await waitFor(() => expect(calls.find((c) => c.method === 'seed.addChain')?.params).toEqual({ stem: 'layers' }));
     await fireEvent.click(document.querySelector('[data-action="seed-show"]') as HTMLButtonElement);
