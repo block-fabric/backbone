@@ -27,6 +27,8 @@
   /** '' for the chain's coin, else the hash of an asset. */
   let asset = $state('');
   let shielded = $state(false);
+  /** zSide: coins moved between the wallet's own two accounts (shield: into its private coins; unshield: back). */
+  let toSelf = $state(false);
   let memo = $state('');
   let subtractFee = $state(false);
   let busy = $state(false);
@@ -48,6 +50,20 @@
     void refreshSummary(stem, 0).then((s) => {
       if (s && !wallet) wallet = chainWallet(stem) && s.wallets?.includes(chainWallet(stem)!) ? chainWallet(stem)! : (s.wallet ?? '');
     });
+  });
+
+  // What it holds, kept fresh while the form is shown (a payment, a shielding: their coins become spendable blocks later),
+  // and read at once when the other account is picked.
+  $effect(() => {
+    const s = stem;
+    const timer = setInterval(() => {
+      if (!document.hidden) void refreshSummary(s, 4000);
+    }, 10000);
+    return () => clearInterval(timer);
+  });
+  $effect(() => {
+    void shielded;
+    void refreshSummary(stem, 2000);
   });
 
   const chosenAsset = $derived<ChainAsset | null>(asset ? (summary?.assets?.find((a) => a.id === asset) ?? null) : null);
@@ -83,7 +99,7 @@
     return () => clearTimeout(timer);
   });
 
-  const canSend = $derived(!busy && check.state === 'ok' && check.address === address.trim() && !!amount.trim() && !amountError && !!wallet);
+  const canSend = $derived(!busy && (toSelf || (check.state === 'ok' && check.address === address.trim())) && !!amount.trim() && !amountError && !!wallet);
 
   function pickWallet(ev: Event) {
     wallet = (ev.currentTarget as HTMLSelectElement).value;
@@ -102,12 +118,16 @@
     error = '';
     sent = null;
     try {
-      const r = await chainHost.send({ stem, wallet, address: address.trim(), amount: amount.trim(), ...(asset ? { asset } : {}), ...(shielded ? { shielded: true, memo } : {}), ...(asset || shielded ? {} : { subtractFee }) });
+      const r = toSelf
+        ? await chainHost.shield(stem, shielded ? 'unshield' : 'shield', amount.trim(), wallet)
+        : await chainHost.send({ stem, wallet, address: address.trim(), amount: amount.trim(), ...(asset ? { asset } : {}), ...(shielded ? { shielded: true, memo } : {}), ...(asset || shielded ? {} : { subtractFee }) });
       sent = { txid: r.txid };
-      toast('success', t('Sent on %1', name), r.txid ? t('Transaction %1…', r.txid.slice(0, 16)) : '');
+      toast('success', toSelf ? (shielded ? t('Unshielded on %1', name) : t('Shielded on %1', name)) : t('Sent on %1', name), r.txid ? t('Transaction %1…', r.txid.slice(0, 16)) : '');
       address = '';
       amount = '';
       memo = '';
+      // Done: the next one pays someone again (a move between your own coins is asked for each time).
+      toSelf = false;
       void refreshSummary(stem, 0);
     } catch (e) {
       const code = e && typeof e === 'object' && 'code' in e ? (e as { code: number }).code : 0;
@@ -161,14 +181,46 @@
     </div>
   {/if}
   {#if caps?.shielded && !asset}
-    <label class="check shielded">
-      <input type="checkbox" bind:checked={shielded} data-send-shielded />
-      <span>{t('From the shielded account (private)')}</span>
-    </label>
+    <!-- zSide: its coins and its private (shielded) coins, two accounts of one wallet: which one pays. -->
+    <div class="field">
+      <span class="label" id="send-from-{stem}">{t('What to send')}</span>
+      <div class="what" role="radiogroup" aria-labelledby="send-from-{stem}" data-send-from>
+        <button type="button" role="radio" class="what-item" class:on={!shielded} aria-checked={!shielded} onclick={() => (shielded = false)} data-send-from-pick="coins">
+          <ChainBadge id={stem} {name} small markOnly />
+          <span class="what-name"><SafeText text={chainUnit(stem)} /></span>
+          <span class="muted small"><ModuleAmount text={summary?.balances?.trusted ?? null} coins /></span>
+        </button>
+        <button type="button" role="radio" class="what-item" class:on={shielded} aria-checked={shielded} onclick={() => (shielded = true)} title={t('Shielded: amounts and addresses hidden')} data-send-from-pick="private">
+          <span class="private-mark" aria-hidden="true"><Icon name="eyeoff" size={14} /></span>
+          <span class="what-name">{t('Private %1', chainUnit(stem))}</span>
+          <span class="muted small"><ModuleAmount text={summary?.shielded?.spendable ?? null} coins /></span>
+        </button>
+      </div>
+      <!-- The same choice for the keyboard and the tests. -->
+      <input class="sr-only" tabindex="-1" aria-hidden="true" type="checkbox" bind:checked={shielded} data-send-shielded />
+    </div>
   {/if}
 
   <div class="field">
-    <label for="send-to-{stem}">{t('Pay to')}</label>
+    <div class="label-row">
+      <label for="send-to-{stem}">{t('Pay to')}</label>
+      {#if caps?.shielded && !asset}
+        <!-- Shield and unshield: a payment to yourself, between your two accounts. -->
+        <div class="to-kind" role="radiogroup" aria-label={t('Who receives')} data-send-to-kind>
+          <button type="button" role="radio" class:on={!toSelf} aria-checked={!toSelf} onclick={() => (toSelf = false)}>{t('Someone')}</button>
+          <button type="button" role="radio" class:on={toSelf} aria-checked={toSelf} onclick={() => (toSelf = true)} data-send-to-self>{shielded ? t('Yourself: unshield') : t('Yourself: shield')}</button>
+        </div>
+      {/if}
+    </div>
+    {#if toSelf}
+      <div class="self-dest" data-send-self={shielded ? 'unshield' : 'shield'}>
+        <Icon name={shielded ? 'wallet' : 'eyeoff'} size={17} />
+        <span>
+          <strong>{shielded ? t('Your %1 coins', name) : t('Your private %1 coins', name)}</strong>
+          <span class="muted small">{shielded ? t('Unshield: back to a new address of this wallet, seen on the chain again.') : t('Shield: into this wallet’s shielded account, where amounts and addresses are hidden.')}</span>
+        </span>
+      </div>
+    {:else}
     <input id="send-to-{stem}" class="mono" type="text" spellcheck="false" autocomplete="off" placeholder={shielded ? t('A shielded %1 address', name) : t('A %1 address', name)} bind:value={address} aria-invalid={check.state === 'bad' ? 'true' : undefined} aria-describedby="send-to-help-{stem}" data-send-address />
     <span id="send-to-help-{stem}" class="help">
       {#if check.state === 'bad'}
@@ -184,6 +236,7 @@
         <span class="muted small">{t('Addresses of other chains are refused.')}</span>
       {/if}
     </span>
+    {/if}
   </div>
 
   <div class="field">
@@ -191,7 +244,7 @@
     <div class="amount-row">
       <input id="send-amount-{stem}" class="num" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" bind:value={amount} aria-invalid={amountError ? 'true' : undefined} data-send-amount />
       <span class="unit"><SafeText text={unit} /></span>
-      {#if available && !shielded}
+      {#if available && !shielded && !toSelf}
         <!-- All of it: a coin's fee then comes out of the amount. -->
         <button type="button" class="btn ghost small" onclick={useAll} data-send-max>{t('All of it')}</button>
       {/if}
@@ -201,13 +254,13 @@
     </span>
   </div>
 
-  {#if shielded}
+  {#if shielded && !toSelf}
     <div class="field">
       <label for="send-memo-{stem}">{t('Memo (for a shielded address)')}</label>
       <input id="send-memo-{stem}" type="text" maxlength="512" bind:value={memo} autocomplete="off" />
     </div>
   {/if}
-  {#if !asset && !shielded}
+  {#if !asset && !shielded && !toSelf}
     <label class="check">
       <input type="checkbox" bind:checked={subtractFee} />
       <span>{t('Subtract fee from amount')}</span>
@@ -220,7 +273,7 @@
   {/if}
 
   <footer class="actions">
-    <button type="button" class="btn primary" disabled={!canSend} onclick={send} data-send-go><Icon name="send" size={17} /> {busy ? t('Working…') : t('Send…')}</button>
+    <button type="button" class="btn primary" disabled={!canSend} onclick={send} data-send-go><Icon name={toSelf ? 'eyeoff' : 'send'} size={17} /> {busy ? t('Working…') : toSelf ? (shielded ? t('Unshield…') : t('Shield…')) : t('Send…')}</button>
     <span class="muted small note">{t('You confirm the details in the next step.')}</span>
   </footer>
 </section>
@@ -276,6 +329,67 @@
   }
   .what-name {
     font-weight: 650;
+  }
+  .private-mark {
+    display: grid;
+    place-items: center;
+    width: 1.3rem;
+    height: 1.3rem;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--chain-zside, var(--accent)) 22%, transparent);
+    color: var(--text);
+  }
+  .label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+  }
+  .label-row label {
+    font-weight: 600;
+  }
+  .to-kind {
+    display: inline-flex;
+    padding: 0.15rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+  }
+  .to-kind button {
+    padding: 0.2rem 0.75rem;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .to-kind button.on {
+    background: var(--surface, var(--bg));
+    color: var(--text);
+    box-shadow: 0 0 0 1px var(--line-strong, var(--line));
+  }
+  .self-dest {
+    display: flex;
+    gap: 0.7rem;
+    align-items: flex-start;
+    padding: 0.65rem 0.85rem;
+    border: 1px dashed var(--line-strong, var(--line));
+    border-radius: var(--radius-m);
+    background: var(--surface-2);
+  }
+  .self-dest > span {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .self-dest :global(svg) {
+    flex: none;
+    margin-top: 0.15rem;
+    color: var(--text-muted);
   }
   .help {
     min-height: 1.2rem;

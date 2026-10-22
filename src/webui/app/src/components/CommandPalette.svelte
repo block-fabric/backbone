@@ -4,6 +4,7 @@
   import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
   import { buildCommands, palette, searchCommands, type Command } from '../lib/commands.svelte';
+  import { chainEntries, openName, searchChain } from '../lib/chains.svelte';
 
   let dialog: HTMLDialogElement | undefined = $state();
   let input: HTMLInputElement | undefined = $state();
@@ -13,9 +14,55 @@
 
   const all = $derived(buildCommands());
   const found = $derived(searchCommands(all, query));
+
+  // A name typed (BitNames): looked up on each chain of names that runs, a moment after the typing stops; each found
+  // opens that chain's directory at it (its owner, its records).
+  const NAME = /^(?:#\d{4}-\d{4}|[a-z0-9_-]{1,63}(?:\.[a-z0-9_-]{1,63}){0,7})$/;
+  let names = $state<{ q: string; items: Command[] }>({ q: '', items: [] });
+  $effect(() => {
+    const q = query.trim().toLowerCase();
+    const chains = chainEntries().filter((e) => e.running && e.caps?.names);
+    if (!palette.open || !q || !NAME.test(q) || /^\d+$/.test(q) || chains.length === 0) {
+      if (names.q) names = { q: '', items: [] };
+      return;
+    }
+    const timer = setTimeout(async () => {
+      const lists = await Promise.all(
+        chains.map((e) =>
+          searchChain(e.id, q).then(
+            (r) =>
+              r
+                .filter((x) => x.kind === 'name')
+                .map(
+                  (x): Command => ({
+                    id: `name:${e.id}:${x.id}`,
+                    // Said with its number (and "yours"): "%1" is the name, put in by the list as the user's text.
+                    label: `${t('%1 — a name on %2', '%1', e.name)}${x.seq ? ` · #${x.seq}` : ''}${x.mine ? ` · ${t('yours')}` : ''}`,
+                    arg: x.id,
+                    group: 'Go to',
+                    icon: 'search',
+                    keywords: q,
+                    tip: [x.seq ? `#${x.seq}` : '', x.owner ? t('held by %1', x.owner) : '', x.mine ? t('yours') : ''].filter(Boolean).join(' · '),
+                    run: () => openName(e.id, x.id),
+                  }),
+                ),
+            () => [] as Command[],
+          ),
+        ),
+      );
+      if (query.trim().toLowerCase() === q) names = { q, items: lists.flat() };
+    }, 250);
+    return () => clearTimeout(timer);
+  });
+  const nameItems = $derived(names.q && names.q === query.trim().toLowerCase() ? names.items : []);
+
   /** With nothing typed, by group as the menus were; otherwise best match first, in one list. */
   const groups = $derived.by(() => {
-    if (query.trim()) return [{ title: `${found.length} result${found.length === 1 ? '' : 's'}`, items: found }];
+    if (query.trim()) {
+      const out = found.length || !nameItems.length ? [{ title: `${found.length} result${found.length === 1 ? '' : 's'}`, items: found }] : [];
+      if (nameItems.length) out.unshift({ title: nameItems.length === 1 ? t('1 name') : t('%1 names', String(nameItems.length)), items: nameItems });
+      return out;
+    }
     const out: { title: string; items: Command[] }[] = [];
     for (const c of found) {
       const last = out[out.length - 1];

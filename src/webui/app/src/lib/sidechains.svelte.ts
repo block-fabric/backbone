@@ -16,7 +16,10 @@ export const hub = $state({
 
 export const sidechainHost = {
   list: () => request<SidechainList>('host', 'sidechains.list', {}),
-  enable: (stem: string, wallet: 'shared' | 'separate') => request<boolean>('host', 'sidechains.enable', { stem, wallet }),
+  /** stake: a validator key of this computer made before it starts (a chain that stakes; never from the phrase). */
+  enable: (stem: string, wallet: 'shared' | 'separate', stake = false) => request<boolean>('host', 'sidechains.enable', { stem, wallet, ...(stake ? { stake: true } : {}) }),
+  /** A validator key of this computer for a chain that stakes (doc/unified-app.md §24.2): its node starts again with it. */
+  validatorKey: (stem: string) => request<{ pubkey: string; file: string }>('host', 'sidechains.validatorKey', { stem }),
   disable: (stem: string) => request<boolean>('host', 'sidechains.disable', { stem }),
   chooseDataDir: (stem: string) => request<{ path: string; problem: string; freeGB?: number } | null>('host', 'sidechains.chooseDataDir', { stem }),
   setDataDir: (stem: string, dir: string | null, move: boolean) => request<boolean>('host', 'sidechains.setDataDir', { stem, dir, move }),

@@ -77,7 +77,7 @@
   }
 
   // `said`: words of the app, already translated (t()).
-  type UnderPart = { kind: 'pendingHost'; sats: bigint } | { kind: 'pendingSide'; amount: string } | { kind: 'said'; said: string; way: boolean };
+  type UnderPart = { kind: 'pendingHost'; sats: bigint } | { kind: 'pendingSide'; amount: string } | { kind: 'private'; amount: string } | { kind: 'said'; said: string; way: boolean };
   /** The short line under a chain's balance (compact): what is pending, on its way, and how many assets. */
   function underParts(e: ChainEntry): UnderPart[] {
     const out: UnderPart[] = [];
@@ -88,8 +88,13 @@
       if (waiting && /[1-9]/.test(waiting)) out.push({ kind: 'pendingSide', amount: waiting });
     }
     for (const m of extras(e)) out.push({ kind: 'said', said: m.said, way: m.tone === 'way' });
-    const assets = e.host ? 0 : (chainState.summaries[e.id]?.assets?.length ?? 0);
+    const s = e.host ? undefined : chainState.summaries[e.id];
+    const assets = s?.assets?.length ?? 0;
     if (assets) out.push({ kind: 'said', said: assets === 1 ? t('1 asset') : t('%1 assets', String(assets)), way: false });
+    // zSide: its private (shielded) coins beside its transparent ones; BitNames: the names held.
+    if (s?.shielded && /[1-9]/.test(s.shielded.available)) out.push({ kind: 'private', amount: s.shielded.available });
+    const names = s?.names?.count ?? 0;
+    if (names) out.push({ kind: 'said', said: names === 1 ? t('1 name') : t('%1 names', String(names)), way: false });
     return out;
   }
 
@@ -127,7 +132,7 @@
         {#if compact}
           {@const parts = underParts(e)}
           {#if parts.length}
-            <span class="under">{#each parts as p, i (i)}{#if i > 0}<span class="dot-sep">{' · '}</span>{/if}{#if p.kind === 'pendingHost'}{t('pending')} <Amount sats={p.sats} showUnit={false} />{:else if p.kind === 'pendingSide'}{t('pending')} <ModuleAmount text={p.amount} coins />{:else}<span class:way={p.way}>{p.said}</span>{/if}{/each}</span>
+            <span class="under">{#each parts as p, i (i)}{#if i > 0}<span class="dot-sep">{' · '}</span>{/if}{#if p.kind === 'pendingHost'}{t('pending')} <Amount sats={p.sats} showUnit={false} />{:else if p.kind === 'pendingSide'}{t('pending')} <ModuleAmount text={p.amount} coins />{:else if p.kind === 'private'}<span title={t('Shielded: amounts and addresses hidden')} data-private-under>{t('private')} <ModuleAmount text={p.amount} coins /></span>{:else}<span class:way={p.way}>{p.said}</span>{/if}{/each}</span>
           {/if}
         {/if}
       </td>
@@ -143,7 +148,9 @@
               {#if assets.length > 2}<button type="button" class="link small" onclick={() => openModule(e.id, 'my-assets')}>{t('+%1 more', String(assets.length - 2))}</button>{/if}
             </span>
           {:else if s?.shielded}
-            <span class="small">{t('Shielded')} <ModuleAmount text={s.shielded.available} coins /></span>
+            <span class="small" title={t('Shielded: amounts and addresses hidden')} data-card-private>{t('Private')} <ModuleAmount text={s.shielded.available} coins /></span>
+          {:else if s?.names?.count || s?.names?.reservations}
+            <button type="button" class="link small" onclick={() => openModule(e.id, 'names')} data-card-names>{s.names.count === 1 ? t('1 name') : t('%1 names', String(s.names.count))}{#if s.names.reservations}<span class="dot-sep">{' · '}</span>{s.names.reservations === 1 ? t('1 reservation') : t('%1 reservations', String(s.names.reservations))}{/if}</button>
           {:else}<span class="faint">–</span>{/if}
         </td>
         <td class="end actions">
@@ -166,7 +173,7 @@
       <div class="panel-body">
         <table class="rows" class:compact>
           {#if !compact}
-            <thead><tr><th>{t('Chain')}</th><th class="end">{t('Available')}</th><th class="end">{t('Pending')}</th><th>{t('Assets')}</th><th class="end"><span class="sr-only">{t('Actions')}</span></th></tr></thead>
+            <thead><tr><th>{t('Chain')}</th><th class="end">{t('Available')}</th><th class="end">{t('Pending')}</th><th>{t('Also holds')}</th><th class="end"><span class="sr-only">{t('Actions')}</span></th></tr></thead>
           {/if}
           <tbody>{@render rows()}</tbody>
         </table>

@@ -71,7 +71,7 @@
     }
     try {
       if (plan.setDir) await sidechainHost.setDataDir(entry.stem, plan.setDir.dir, plan.setDir.move);
-      await sidechainHost.enable(entry.stem, plan.wallet);
+      await sidechainHost.enable(entry.stem, plan.wallet, plan.stake);
       phase = 'done';
     } catch (e) {
       error = errorText(e);
@@ -179,12 +179,12 @@
         </label>
       </fieldset>
     {:else if step === 'staking'}
-      <label class="choice" class:chosen={choices.stake}>
-        <input type="checkbox" bind:checked={choices.stake} disabled />
+      <label class="choice" class:chosen={choices.stake} data-wizard-stake>
+        <input type="checkbox" bind:checked={choices.stake} />
         <span>
-          <strong>Stake on this chain</strong>
-          <span class="muted">Lock some of your coins on <SafeText text={entry.name} /> to help make its blocks, and earn part of its fees. You can stop and get them back later.</span>
-          <span class="note"><Icon name="info" size={14} /> {t('Turn staking on from its Staking page once it runs (Staking, in the sidebar). Its validator key is made on this computer, never from your backup phrase.')}</span>
+          <strong>{t('Make this computer a validator')}</strong>
+          <span class="muted">{t('Your node takes turns making the blocks of %1 and earns part of their fees, once you stake some of your coins on its Staking page. You can stop at any time; staked coins come back after a waiting time.', entry.name)}</span>
+          <span class="note"><Icon name="key" size={14} /> {t('A validator key is made on this computer and kept with its data, never from your backup phrase. Your staked coins stay your wallet’s: your phrase brings them back, and another computer can be a validator with a key of its own.')}</span>
         </span>
       </label>
     {:else if step === 'review'}
@@ -194,7 +194,7 @@
         <dd class="path"><SafeText text={choices.storage === 'custom' ? choices.customPath : entry.defaultDataDir} /></dd>
         <dt>Wallet</dt>
         <dd>{ownOnly ? t('Its own wallet (its private funds need its own backup)') : choices.wallet === 'shared' ? (hasPhrase ? t('My backup phrase') : t('My backup phrase (keys of its own for now)')) : t('A separate wallet')}</dd>
-        {#if entry.staking}<dt>Staking</dt><dd>Off</dd>{/if}
+        {#if entry.staking}<dt>{t('Validator')}</dt><dd>{choices.stake || entry.validatorKey ? t('This computer, with a key made here') : t('Not this computer (you can make it one later on the Staking page)')}</dd>{/if}
         <dt>Takes</dt>
         <dd>{t(res.key, ...res.args)}</dd>
       </dl>

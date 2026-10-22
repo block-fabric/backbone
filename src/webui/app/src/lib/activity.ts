@@ -4,10 +4,24 @@
 import { formatUnits, parseUnits, type ManyChainTx } from './chains.svelte';
 import { t } from './i18n.svelte';
 
-/** A sidechain's coinbase pays the block's maker first, then the peg (deposits, refunds): category and output say which. */
-export function isReward(r: Pick<ManyChainTx, 'category' | 'vout' | 'chain'>, host: string): boolean {
+/** The label a chain that stakes gives the address its validator's share of a block's fees goes to (FastBlocks, Layers:
+ *  -validatorpayout, else a new address of its wallet so labelled), as the app's own validator key has it too. */
+export const VALIDATOR_PAYOUT = 'validator payout';
+
+/** The labels a sidechain's wallet gives the addresses the peg pays (getdepositaddress, createwithdrawal's refund). */
+const PEG_LABELS = new Set(['deposit', 'withdrawal refund']);
+
+/** A sidechain's coinbase output paid to the peg's addresses (a deposit credited, a withdrawal refunded): its label says it
+ *  (a row read without its label: by its place, after the block's maker). */
+function pegPaid(r: { vout: number; label?: string }): boolean {
+  return r.vout > 0 && (r.label === undefined || PEG_LABELS.has(r.label));
+}
+
+/** A sidechain's coinbase pays the block's maker first, then the peg (deposits, refunds), and on a chain that stakes the
+ *  validator's and the merged mining bidder's shares of the fees: whatever is not the peg's is a reward. */
+export function isReward(r: Pick<ManyChainTx, 'category' | 'vout' | 'chain'> & { label?: string }, host: string): boolean {
   if (r.chain === host) return r.category === 'mined';
-  return (r.category === 'generate' || r.category === 'immature' || r.category === 'orphan') && r.vout === 0;
+  return (r.category === 'generate' || r.category === 'immature' || r.category === 'orphan') && !pegPaid(r);
 }
 
 /** A merged mining bid this app's wallet paid (M8, for a sidechain's block): many, small, folded like the rewards. */
@@ -18,14 +32,14 @@ export function isBid(r: Pick<ManyChainTx, 'chain' | 'drivechain'>, host: string
 /** A row that says nothing to people, left out of the lists: a reward that pays nothing (a sidechain merged mined
  *  without a subsidy pays its maker only the fees, often none), or an output of no value of a drivechain transaction
  *  the wallet paid (the destination of its first deposit into a sidechain: the deposit is its other row). */
-export function isEmptyRow(r: Pick<ManyChainTx, 'category' | 'vout' | 'chain' | 'amount' | 'drivechain'>, host: string): boolean {
+export function isEmptyRow(r: Pick<ManyChainTx, 'category' | 'vout' | 'chain' | 'amount' | 'drivechain'> & { label?: string }, host: string): boolean {
   const zero = (parseUnits(r.amount.replace(/^-/, ''), 8) ?? 0n) === 0n;
   return zero && (isReward(r, host) || (r.chain === host && !!r.drivechain));
 }
 
 /** Coins of the peg a sidechain's coinbase paid this wallet (a deposit credited, or a withdrawal refunded). */
-export function isPegIn(r: Pick<ManyChainTx, 'category' | 'vout' | 'chain'>, host: string): boolean {
-  return r.chain !== host && (r.category === 'generate' || r.category === 'immature') && r.vout > 0;
+export function isPegIn(r: Pick<ManyChainTx, 'category' | 'vout' | 'chain'> & { label?: string }, host: string): boolean {
+  return r.chain !== host && (r.category === 'generate' || r.category === 'immature') && pegPaid(r);
 }
 
 export interface ActivityTx {

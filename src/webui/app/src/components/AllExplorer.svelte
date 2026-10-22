@@ -17,16 +17,19 @@
   import { go, nav } from '../lib/nav.svelte';
   import { productName } from '../lib/modules.svelte';
   import { mayBeAddress } from '../lib/explorer';
-  import { chainEntries, HOST, setSelectedChain } from '../lib/chains.svelte';
+  import { chainEntries, HOST, openName, searchChain, setSelectedChain } from '../lib/chains.svelte';
 
   interface Found {
     chain: string;
     name: string;
-    kind: 'block' | 'tx' | 'address';
+    kind: 'block' | 'tx' | 'address' | 'name';
     id: string;
     height?: number;
     mine?: boolean;
     confirmations?: number;
+    /** A name (BitNames): its number and its owner. */
+    seq?: string;
+    owner?: string;
   }
 
   const entries = $derived(chainEntries());
@@ -66,9 +69,8 @@
     const asks = shownIds.map((id) =>
       id === HOST
         ? searchHost(q)
-        : request<{ results: { kind: 'block' | 'tx' | 'address'; hash?: string; txid?: string; address?: string; height?: number; mine?: boolean; confirmations?: number }[] }>('host', 'chain.search', { stem: id, q }).then(
-            (r) =>
-              r.results.map((x) => ({ chain: id, name: entries.find((e) => e.id === id)?.name ?? id, kind: x.kind, id: x.hash ?? x.txid ?? x.address ?? '', height: x.height, mine: x.mine, confirmations: x.confirmations })),
+        : searchChain(id, q).then(
+            (r) => r.map((x) => ({ ...x, name: entries.find((e) => e.id === id)?.name ?? id })),
             () => [] as Found[],
           ),
     );
@@ -86,11 +88,13 @@
   });
 
   function open(f: Found) {
+    // A name: the chain's own directory, at it.
+    if (f.kind === 'name') return openName(f.chain, f.id);
     setSelectedChain(f.chain);
     if (f.chain === HOST) go('explorer', `${f.kind === 'block' ? 'block' : f.kind}:${f.id}`);
     else go('explorer', `search:${f.id}`);
   }
-  const kindText = (f: Found) => (f.kind === 'block' ? t('Block %1', formatCount(f.height ?? 0)) : f.kind === 'tx' ? t('Transaction') : t('Address'));
+  const kindText = (f: Found) => (f.kind === 'block' ? t('Block %1', formatCount(f.height ?? 0)) : f.kind === 'tx' ? t('Transaction') : f.kind === 'name' ? t('Name %1', f.id) : t('Address'));
 </script>
 
 <div class="page all-explorer">
@@ -98,7 +102,7 @@
   <form class="search" onsubmit={(e) => { e.preventDefault(); void search(); }}>
     <div class="box grow">
       <Icon name="search" size={17} />
-      <input type="search" class="mono" placeholder={t('Height, block hash, transaction id or address, on every chain')} spellcheck="false" autocomplete="off" bind:value={query} aria-label={t('Search every chain')} data-all-search />
+      <input type="search" class="mono" placeholder={chainEntries().some((e) => e.running && e.caps?.names) ? t('Height, block hash, transaction id, address or name, on every chain') : t('Height, block hash, transaction id or address, on every chain')} spellcheck="false" autocomplete="off" bind:value={query} aria-label={t('Search every chain')} data-all-search />
     </div>
     <button type="submit" class="btn primary" disabled={searching || !query.trim()}>{searching ? t('Searching…') : t('Search')}</button>
   </form>
@@ -118,7 +122,7 @@
                 <tr class="clickable" onclick={() => open(f)} data-found={`${f.chain}:${f.kind}`}>
                   <td><ChainBadge id={f.chain} name={f.name} /></td>
                   <td class="what">{kindText(f)}{#if f.mine}<span class="badge accent">{t('yours')}</span>{/if}{#if f.kind === 'tx' && f.confirmations === 0}<span class="badge">{t('waiting')}</span>{/if}</td>
-                  <td class="mono faint" translate="no"><SafeText text={shortHash(f.id, 10)} /></td>
+                  <td class="mono faint" translate="no">{#if f.kind === 'name'}<SafeText text={`#${f.seq ?? ''}${f.owner ? ` · ${shortHash(f.owner, 8)}` : ''}`} />{:else}<SafeText text={shortHash(f.id, 10)} />{/if}</td>
                   <td class="end"><span class="link">{t('Open')} <Icon name="arrow" size={14} /></span></td>
                 </tr>
               {/each}

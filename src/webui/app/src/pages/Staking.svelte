@@ -10,9 +10,13 @@
   import { t } from '../lib/i18n.svelte';
   import ChainBadge from '../components/ChainBadge.svelte';
   import ModuleEmbed from '../components/ModuleEmbed.svelte';
-  import { ALL, chainEntries, chainsWith, loadCapabilities, selectedChain, setSelectedChain, type ChainEntry } from '../lib/chains.svelte';
-  import { prefs, savePrefs } from '../lib/state.svelte';
+  import Icon from '../components/Icon.svelte';
+  import SafeText from '../components/SafeText.svelte';
+  import { ALL, chainEntries, chainHost, chainsWith, loadCapabilities, selectedChain, setSelectedChain, type ChainEntry } from '../lib/chains.svelte';
+  import { prefs, savePrefs, toast } from '../lib/state.svelte';
   import { describeState } from '../lib/unified';
+  import { confirm, errorText } from '../lib/dialogs.svelte';
+  import { refreshSidechains, sidechainHost } from '../lib/sidechains.svelte';
 
   $effect(() => {
     void loadCapabilities();
@@ -36,6 +40,47 @@
   }
   /** The tabs offered: those shown, or, with a chain selected that does not stake, the chains that do (a click away). */
   const offered = $derived(tabs.length ? tabs : stakers);
+
+  // This computer as a validator (doc/unified-app.md §24.2): whether the node of the chain shown has a validator key, read
+  // once when its tab is shown (getstakinginfo, by the adapter); without one, the app offers to make one here.
+  let validator = $state<Record<string, boolean>>({});
+  let making = $state('');
+  let keyError = $state('');
+  async function readValidator(stem: string): Promise<boolean | undefined> {
+    try {
+      const r = await chainHost.staking(stem);
+      const has = !!r.node?.validator;
+      validator[stem] = has;
+      return has;
+    } catch {
+      return undefined;
+    }
+  }
+  $effect(() => {
+    const e = shown;
+    if (e?.running && validator[e.id] === undefined) void readValidator(e.id);
+  });
+
+  async function makeKey(e: ChainEntry) {
+    keyError = '';
+    const yes = await confirm(t('Make this computer a validator of %1?', e.name), t('A validator key is made on this computer and kept with the data of %1: it is never made from your backup phrase, and never leaves this computer. %1 starts again with it; then stake some coins below so that your node takes turns making its blocks.', e.name), { yes: t('Make a validator key'), informative: t('Your staked coins stay your wallet’s: your backup phrase brings them back. Another computer can be a validator too, with a key of its own.') });
+    if (!yes) return;
+    making = e.id;
+    try {
+      await sidechainHost.validatorKey(e.id);
+      toast('success', t('%1 starts again as a validator', e.name), t('Its key was made on this computer.'));
+      void refreshSidechains();
+      // Its node starts again with the key: until it says so.
+      for (let i = 0; i < 60 && making === e.id; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (await readValidator(e.id)) break;
+      }
+    } catch (err) {
+      keyError = errorText(err);
+    } finally {
+      if (making === e.id) making = '';
+    }
+  }
 </script>
 
 <div class="page staking" data-staking-shown={shown?.id ?? ''}>
@@ -65,6 +110,24 @@
       <button type="button" class="btn ghost small" onclick={() => setSelectedChain(ALL)}>{t('All chains')}</button>
     </section>
   {:else}
+    {#if validator[shown.id] === false || making === shown.id}
+      <section class="panel validator-offer" data-validator-offer={shown.id}>
+        <span class="offer-icon" aria-hidden="true"><Icon name="key" size={18} /></span>
+        <div class="offer-text">
+          {#if making === shown.id}
+            <strong>{t('%1 starts again with its new validator key…', shown.name)}</strong>
+            <span class="muted">{t('Then stake some coins below, and turn staking on.')}</span>
+          {:else}
+            <strong>{t('This computer is not a validator of %1 yet', shown.name)}</strong>
+            <span class="muted">{t('A validator key is made here, kept with its data, never from your backup phrase. Then stake coins below.')}</span>
+          {/if}
+          {#if keyError}<span class="error" role="alert"><SafeText text={keyError} /></span>{/if}
+        </div>
+        <button type="button" class="btn primary small" disabled={!!making} onclick={() => makeKey(shown)} data-make-validator-key={shown.id}>
+          <Icon name="key" size={14} /> {t('Make a validator key…')}
+        </button>
+      </section>
+    {/if}
     {#key shown.id}
       <div class="embed" data-staking-chain={shown.id}>
         <ModuleEmbed stem={shown.id} page="staking" name={shown.name} height="calc(100vh - 12.6rem)" bare headless />
@@ -144,6 +207,32 @@
   }
   .note p {
     margin: 0;
+  }
+  .validator-offer {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.8rem 1.1rem;
+  }
+  .offer-icon {
+    display: grid;
+    place-items: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+    flex: none;
+  }
+  .offer-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1;
+    min-width: 0;
+  }
+  .offer-text .error {
+    color: var(--negative);
   }
   .embed {
     display: flex;

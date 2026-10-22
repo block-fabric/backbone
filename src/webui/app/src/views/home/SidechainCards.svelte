@@ -78,7 +78,8 @@
     <dl class="pairs">
       <dt>{t('Pending')}</dt><dd><ModuleAmount text={b.waiting} coins /></dd>
       {#if summary?.assets?.length}<dt>{t('Assets')}</dt><dd>{formatCount(summary.assets.length)}</dd>{/if}
-      {#if summary?.shielded}<dt>{t('Shielded')}</dt><dd><ModuleAmount text={summary.shielded.available} coins /></dd>{/if}
+      {#if summary?.shielded}<dt title={t('Shielded: amounts and addresses hidden')}>{t('Private')}</dt><dd data-card-private><ModuleAmount text={summary.shielded.available} coins /></dd>{/if}
+      {#if summary?.names}<dt>{t('Names')}</dt><dd class="num" data-card-names>{formatCount(summary.names.count)}{#if summary.names.reservations}<span class="faint">{' + '}{tn('%n reservation(s)', summary.names.reservations)}</span>{/if}</dd>{/if}
       <dt>{t('Wallet')}</dt><dd class="wallet" translate="no"><SafeText text={summary?.wallet || '–'} /></dd>
     </dl>
     {#snippet actions()}

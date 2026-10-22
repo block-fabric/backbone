@@ -18,10 +18,20 @@ describe('activity', () => {
     expect(whatHappened(tx({ category: 'mined', amount: '25.00000000' }), HOST)).toBe('Mining reward');
     expect(whatHappened(tx({ category: 'sendOther', amount: '-0.00100000' }), HOST)).toBe('Payment sent');
     expect(whatHappened(tx({ category: 'recv' }), HOST)).toBe('Payment received');
-    const credit = tx({ chain: 'layers', category: 'generate', vout: 1 });
+    const credit = tx({ chain: 'layers', category: 'generate', vout: 1, label: 'deposit' });
     expect(isPegIn(credit, HOST)).toBe(true);
     expect(whatHappened(credit, HOST)).toBe('Coins in from %1');
     expect(isReward(tx({ chain: 'layers', category: 'generate', vout: 0 }), HOST)).toBe(true);
+    // A block of stake's share of its validator (FastBlocks, Layers): a reward wherever its output is, never coins in.
+    const payout = tx({ chain: 'fastblocks', category: 'generate', vout: 2, label: 'validator payout', amount: '0.00001770' });
+    expect(isReward(payout, HOST)).toBe(true);
+    expect(isPegIn(payout, HOST)).toBe(false);
+    expect(whatHappened(payout, HOST)).toBe('Mining reward');
+    expect(isEmptyRow({ ...payout, amount: '0.00000000' }, HOST)).toBe(true);
+    // The merged mining bidder's share of a chain that stakes (an address of no label, after the maker): a reward too; a
+    // refund of a withdrawal: coins in.
+    expect(isReward(tx({ chain: 'fastblocks', category: 'generate', vout: 3, label: '' }), HOST)).toBe(true);
+    expect(isPegIn(tx({ chain: 'layers', category: 'generate', vout: 2, label: 'withdrawal refund' }), HOST)).toBe(true);
   });
 
   it('folds the rewards of each chain into one row and leaves out those of no value', () => {

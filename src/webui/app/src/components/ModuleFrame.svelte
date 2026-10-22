@@ -3,7 +3,7 @@
   // chromeless: no border, the app's look, the size of the main area. The app owns where it is (the sidebar, back and
   // forward): it tells the frame the page to show; the frame tells it where a link of its pages went.
   import { packUrl, registerFrame, setFrameHidden, tellFrame, tellPhase } from '../lib/packs.svelte';
-  import { clearModal, currentLook, modules, moduleRoute, NODE_PAGE, type EmbedRect } from '../lib/modules.svelte';
+  import { clearModal, currentLook, frameMade, modules, moduleRoute, NODE_PAGE, type EmbedRect } from '../lib/modules.svelte';
 
   // rect: shown inside one of the app's pages (ModuleEmbed), laid over the place it keeps for it.
   let {
@@ -16,6 +16,9 @@
   }: { stem: string; name: string; running: boolean; visible: boolean; above?: boolean; rect?: EmbedRect | null } = $props();
   let frame: HTMLIFrameElement | undefined = $state();
   let loaded = $state(false);
+  // Made: its pages do not listen yet (a page asked meanwhile is told again at its first word).
+  // svelte-ignore state_referenced_locally
+  frameMade(stem);
 
   $effect(() => {
     const win = frame?.contentWindow ?? null;
@@ -26,6 +29,8 @@
 
   function onload() {
     loaded = true;
+    // Loaded (again): its pages start anew, not listening yet.
+    frameMade(stem);
     // Loaded again: whatever it said before (a dialog open) is gone with it.
     clearModal(stem);
     tellFrame(stem, 'look', currentLook());

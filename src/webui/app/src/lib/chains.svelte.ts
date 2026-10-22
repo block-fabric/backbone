@@ -13,7 +13,7 @@ import { untrack } from 'svelte';
 import { request } from './bridge';
 import { prefs, savePrefs, wallets } from './state.svelte';
 import { hub } from './sidechains.svelte';
-import { modules, productName, productUnit } from './modules.svelte';
+import { moduleTabOk, modules, openModule, productName, productUnit } from './modules.svelte';
 import type { SidechainEntry } from './unified';
 
 /** The id of this app's own chain in every list of chains. */
@@ -61,6 +61,8 @@ export interface ChainSummary {
   balances?: { trusted: string; pending: string; immature: string };
   assets?: ChainAsset[];
   shielded?: { available: string; spendable: string; pending: string };
+  /** BitNames: the names the wallet holds, and its reservations waiting to be registered. */
+  names?: { count: number; reservations: number };
   withdrawals?: { count: number; amount: string };
   errors?: Record<string, string>;
 }
@@ -153,6 +155,8 @@ export const chainHost = {
   send: (p: ChainSendParams) => request<{ stem: string; wallet: string; txid?: string }>('host', 'chain.send', { ...p }),
   withdraw: (stem: string, address: string, amount: string, fee?: string, wallet?: string, inputs?: Outpoint[]) =>
     request<{ txid?: string }>('host', 'chain.withdraw', { ...w(stem, wallet), address, amount, ...(fee ? { fee } : {}), ...(inputs?.length ? { inputs } : {}) }),
+  /** zSide: coins moved between the wallet's own transparent coins and its shielded account, the chain's own question. */
+  shield: (stem: string, direction: 'shield' | 'unshield', amount: string, wallet?: string) => request<{ txid?: string }>('host', 'chain.shield', { ...w(stem, wallet), direction, amount }),
   deposit: (stem: string, amount: string, wallet?: string, inputs?: Outpoint[]) => request<{ txid?: string; address: string }>('host', 'chain.deposit', { ...w(stem, wallet), amount, ...(inputs?.length ? { inputs } : {}) }),
   /** The coins of a chain's wallet a withdrawal may be paid with (coin control). */
   coins: (stem: string, wallet?: string) => request<{ stem: string; wallet: string; coins: { txid: string; vout: number; amount: string; confirmations: number; address: string; label: string }[] }>('host', 'chain.coins', w(stem, wallet)),
@@ -524,4 +528,29 @@ export function creditDeposits(stem: string, rows: Pick<ChainTxRow, 'address' | 
 
 export function pendingDeposits(stem?: string): PendingDeposit[] {
   return deposits.list.filter((d) => !d.credited && (!stem || d.stem === stem));
+}
+
+/** What a search finds on a sidechain (chain.search: reads only): blocks, transactions, addresses, names (BitNames). */
+export interface ChainFound {
+  chain: string;
+  kind: 'block' | 'tx' | 'address' | 'name';
+  id: string;
+  height?: number;
+  mine?: boolean;
+  confirmations?: number;
+  seq?: string;
+  owner?: string;
+}
+
+export async function searchChain(stem: string, q: string): Promise<ChainFound[]> {
+  const r = await request<{ results: { kind: ChainFound['kind']; hash?: string; txid?: string; address?: string; name?: string; seq?: string; owner?: string; height?: number; mine?: boolean; confirmations?: number }[] }>('host', 'chain.search', { stem, q });
+  return r.results.map((x) => ({ chain: stem, kind: x.kind, id: x.hash ?? x.txid ?? x.address ?? x.name ?? '', height: x.height, mine: x.mine, confirmations: x.confirmations, seq: x.seq, owner: x.owner }));
+}
+
+/** A name of a chain that keeps names, shown whole in that chain's own directory (its tab "name:<name>"). */
+export function openName(stem: string, name: string): void {
+  const tab = `name:${name}`;
+  if (!moduleTabOk(tab)) return;
+  setSelectedChain(stem);
+  openModule(stem, 'directory', tab);
 }

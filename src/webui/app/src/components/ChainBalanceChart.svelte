@@ -21,7 +21,8 @@
    * every chain changes a line or a figure of the legend, and the chart is the largest picture of the page.
    */
   const CHART_MS = 15000;
-  const shown = throttled(() => given, CHART_MS);
+  // The chains it shows followed at once (the selection of the top bar), their lines' changes at most every CHART_MS.
+  const shown = throttled(() => given, CHART_MS, () => given.map((s) => s.id).join(','));
   const series = $derived(shown.value);
 
   let box: HTMLDivElement | undefined = $state();

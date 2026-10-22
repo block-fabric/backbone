@@ -13,7 +13,7 @@
   import TxDetailsView from './TxDetailsView.svelte';
   import { ageText, shortHash } from '../lib/format';
   import { foldActivity, whatWords, type ActivityItem } from '../lib/activity';
-  import { chainHost, chainLabel, chainWallet, formatUnits, HOST, mergeTxs, setSelectedChain, sidechainTxs, slotLabel, type ManyChainTx } from '../lib/chains.svelte';
+  import { chainHost, chainLabel, chainState, chainWallet, formatUnits, HOST, mergeTxs, setSelectedChain, sidechainTxs, slotLabel, type ManyChainTx } from '../lib/chains.svelte';
   import { many, poll, refreshTxs } from '../lib/manychains.svelte';
   import { openModule, productName } from '../lib/modules.svelte';
   import { go } from '../lib/nav.svelte';
@@ -66,7 +66,8 @@
   // Shown again at most every RECENT_MS (doc/unified-app.md §21.3): a busy network changes the list with each payment
   // of any chain, and the ages of its rows with it.
   const RECENT_MS = 5000;
-  const shownItems = throttled(() => fresh, RECENT_MS);
+  // The chains it shows followed at once (the selection of the top bar), their rows' changes at most every RECENT_MS.
+  const shownItems = throttled(() => fresh, RECENT_MS, () => sides.join(','));
   const items = $derived(shownItems.value);
 
   let open = $state<ManyChainTx | null>(null);
@@ -90,7 +91,7 @@
         <button type="button" class="row" title={t('Show the transactions of %1', item.name)} onclick={() => showRewards(item.chain)} data-recent-rewards={item.chain} data-recent-folded={item.what}>
           <span class="icon" class:reward={item.what === 'rewards'} aria-hidden="true"><Icon name={item.what === 'rewards' ? 'mine' : 'sidechains'} size={15} /></span>
           <span class="what">
-            <span class="title">{item.what === 'rewards' ? t('Mining rewards') : t('Merged mining bids')} <span class="count num">{item.count}</span></span>
+            <span class="title">{item.what === 'rewards' ? (chainState.caps[item.chain]?.staking ? t('Staking and mining rewards') : t('Mining rewards')) : t('Merged mining bids')} <span class="count num">{item.count}</span></span>
             <span class="sub">{#if several}<ChainBadge id={item.chain} name={item.name} small /><span class="dot-sep">{' · '}</span>{/if}{t('latest %1', ageText(item.time, now))}</span>
           </span>
           <span class="amt"><ModuleAmount text={item.total} plus coins colored={item.what === 'rewards'} /></span>

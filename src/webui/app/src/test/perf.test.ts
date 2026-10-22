@@ -162,6 +162,34 @@ describe('the parts of a page that every block and payment changes (doc/unified-
     expect(text()).toBe('20');
   });
 
+  it('follow what they are of at once (another chain picked), their data still at most once a period', async () => {
+    vi.useFakeTimers();
+    const { render } = await import('@testing-library/svelte');
+    const { flushSync } = await import('svelte');
+    const { WARMUP_MS } = await import('../lib/throttle.svelte');
+    const Harness = (await import('./ThrottleHarness.svelte')).default;
+    const { component } = render(Harness, { ms: 10000, scoped: true });
+    const set = (n: number, scope?: string) => (component as unknown as { set: (n: number, scope?: string) => void }).set(n, scope);
+    const text = () => document.querySelector('[data-throttled]')!.textContent;
+    vi.advanceTimersByTime(WARMUP_MS);
+    set(1);
+    flushSync();
+    set(2);
+    flushSync();
+    expect(text()).toBe('1');
+    // Another chain picked: at once.
+    set(3, 'zside');
+    flushSync();
+    expect(text()).toBe('3');
+    // Its data: once a period again.
+    set(4);
+    flushSync();
+    expect(text()).toBe('3');
+    vi.advanceTimersByTime(10000);
+    flushSync();
+    expect(text()).toBe('4');
+  });
+
   it('a sidechain whose pages are not shown raises a notice at most every 30 s (the bell has them all)', async () => {
     const { allowHiddenRaise, HIDDEN_RAISE_MS } = await import('../lib/modules.svelte');
     expect(allowHiddenRaise('thunder', 1000)).toBe(true);

@@ -6,6 +6,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { setTransport, type BridgeRequest } from '../lib/bridge';
 import { nav } from '../lib/nav.svelte';
+import { answer, dialogs } from '../lib/dialogs.svelte';
 import { hub } from '../lib/sidechains.svelte';
 import { app, prefs, toasts, wallets } from '../lib/state.svelte';
 import { applyPrefs } from '../lib/state.svelte';
@@ -44,6 +45,7 @@ import SidechainReceive from '../components/SidechainReceive.svelte';
 import ChainWallets from '../components/ChainWallets.svelte';
 import ChainPeg from '../components/ChainPeg.svelte';
 import Staking from '../pages/Staking.svelte';
+import DialogHost from '../components/DialogHost.svelte';
 import Assets from '../pages/Assets.svelte';
 import Send from '../pages/Send.svelte';
 import Transactions from '../pages/Transactions.svelte';
@@ -87,6 +89,8 @@ const SILVER = 'dd'.repeat(32);
 let calls: BridgeRequest[];
 /** What chain.validate says of each address. */
 let wrong: Record<string, string>;
+/** The staking node of a chain without a validator key (the offer of the Staking page). */
+let noKey = false;
 
 function summary(stem: string) {
   const name = { layers: 'Layers', thunder: 'Thunder', bitassets: 'BitAssets' }[stem] ?? stem;
@@ -143,6 +147,7 @@ beforeEach(async () => {
   wallets.current = 'demo';
   calls = [];
   wrong = {};
+  noKey = false;
   setTransport(async (r) => {
     calls.push(r);
     const p = (r.params ?? {}) as Record<string, unknown>;
@@ -171,7 +176,11 @@ beforeEach(async () => {
         return { txid: 'ff'.repeat(32), address: 'rsc1qdep', stem: p.stem };
       case 'chain.withdraw':
         return { txid: '11'.repeat(32) };
+      case 'sidechains.validatorKey':
+        noKey = false;
+        return { pubkey: 'cd'.repeat(32), file: '/d/sidechains/layers/data/regtest/validator.key' };
       case 'chain.staking':
+        if (noKey) return { stem: p.stem, wallet: 'main', node: { validator: false, enabled: false }, errors: {} };
         return { stem: p.stem, wallet: 'main', node: { validator: true, enabled: true, stake: 5, totalstake: 5, blocksmade: 3 }, chain: { active: true, epoch: 2, slot: 9, staking: { bonded: '5.00000000' } }, set: { validators: [{ pubkey: 'ab'.repeat(32), stake: 5, slots: 8, local: true }] }, bonds: [{ validator: 'ab'.repeat(32), bonded: '5.00000000', inset: true }], errors: {} };
       case 'chain.transactions':
         return { stem: p.stem, wallet: 'main', rows: [{ txid: (p.stem === 'layers' ? 'a1' : 'b2').repeat(32), vout: 0, time: p.stem === 'layers' ? 200 : 100, category: 'receive', amount: '1.50000000', address: 'rsc1qdep', label: '', confirmations: 1, abandoned: false }] };
@@ -394,8 +403,32 @@ describe('Receive, wallets, coins in and out, staking, assets', () => {
     expect(document.querySelector('[data-staking-tab="layers"]')?.getAttribute('aria-selected')).toBe('true');
     expect(document.querySelector('[data-staking-tab="thunder"]')).toBeNull();
     expect(document.querySelector('[data-staking-chain="thunder"]')).toBeNull();
-    // Nothing asked of every chain: the chain's own page asks its node.
-    expect(calls.some((c) => c.method === 'chain.staking')).toBe(false);
+    // Nothing asked of every chain: the chain's own page asks its node; the app asks the chain shown, once, whether its node
+    // has a validator key (it has: no offer).
+    await waitFor(() => expect(calls.some((c) => c.method === 'chain.staking')).toBe(true));
+    expect(calls.filter((c) => c.method === 'chain.staking').every((c) => (c.params as Record<string, unknown>).stem === 'layers')).toBe(true);
+    expect(document.querySelector('[data-validator-offer]')).toBeNull();
+  });
+
+  it('Staking: a chain whose node has no validator key: the app offers to make one on this computer, asked first', async () => {
+    noKey = true;
+    render(Staking);
+    render(DialogHost);
+    await waitFor(() => expect(document.querySelector('[data-validator-offer="layers"]')).toBeTruthy());
+    expect(document.querySelector('[data-validator-offer="layers"]')?.textContent).toContain('never from your backup phrase');
+    await fireEvent.click(document.querySelector('[data-make-validator-key="layers"]') as HTMLElement);
+    // Asked first, in the page's own dialog: declined, nothing made.
+    await waitFor(() => expect(dialogs.queue.length).toBe(1));
+    expect(dialogs.queue[0].title).toContain('validator of Layers');
+    answer(dialogs.queue[0].id, { choice: 'no', checked: false });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.some((c) => c.method === 'sidechains.validatorKey')).toBe(false);
+    await fireEvent.click(document.querySelector('[data-make-validator-key="layers"]') as HTMLElement);
+    await waitFor(() => expect(dialogs.queue.length).toBe(1));
+    answer(dialogs.queue[0].id, { choice: 'yes', checked: false });
+    await waitFor(() => expect(calls.filter((c) => c.method === 'sidechains.validatorKey').map((c) => (c.params as Record<string, unknown>).stem)).toEqual(['layers']));
+    // Its node, started again with the key, says so: the offer goes.
+    await waitFor(() => expect(document.querySelector('[data-validator-offer]')).toBeNull(), { timeout: 5000 });
   });
 
   it('Assets: the assets of every chain that has them, each sent on its chain', async () => {

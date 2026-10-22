@@ -130,11 +130,15 @@ describe('the enable wizard', () => {
   it('asks the host to move the data only when the folder changes', () => {
     const e = entry('layers', { hasData: true });
     const c = defaultChoices(e);
-    expect(enablePlan(e, c)).toEqual({ setDir: null, wallet: 'shared' });
+    expect(enablePlan(e, c)).toEqual({ setDir: null, wallet: 'shared', stake: false });
     c.storage = 'custom';
     c.customPath = '/mnt/disk2/layers';
     c.wallet = 'separate';
-    expect(enablePlan(e, c)).toEqual({ setDir: { dir: '/mnt/disk2/layers', move: true }, wallet: 'separate' });
+    expect(enablePlan(e, c)).toEqual({ setDir: { dir: '/mnt/disk2/layers', move: true }, wallet: 'separate', stake: false });
+    // A validator of this computer: only for a chain that stakes, when chosen.
+    c.stake = true;
+    expect(enablePlan(entry('thunder', { staking: false }), c).stake).toBe(false);
+    expect(enablePlan(entry('fastblocks', { staking: true }), c).stake).toBe(true);
     // Already there: nothing to move; back to the default: null dir.
     const custom = entry('layers', { customDataDir: true, dataDir: '/mnt/disk2/layers' });
     expect(enablePlan(custom, defaultChoices(custom)).setDir).toBeNull();

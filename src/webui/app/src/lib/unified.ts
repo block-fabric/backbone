@@ -13,6 +13,8 @@ export interface SidechainEntry {
   diskGB: number;
   ramMB: number;
   staking: boolean;
+  /** A chain that stakes: whether its node runs with a validator key this app made on this computer (doc §24.2). */
+  validatorKey?: boolean;
   /** false: its wallet never comes from the backup phrase (zSide: its private funds need its own backup). */
   phraseKeys?: boolean;
   enabled: boolean;
@@ -189,11 +191,12 @@ export function previousStep(steps: EnableStep[], step: EnableStep): EnableStep 
 }
 
 /** What the host is asked to do when the user says "Turn it on". */
-export function enablePlan(e: SidechainEntry, c: EnableChoices): { setDir: { dir: string | null; move: boolean } | null; wallet: 'shared' | 'separate' } {
+export function enablePlan(e: SidechainEntry, c: EnableChoices): { setDir: { dir: string | null; move: boolean } | null; wallet: 'shared' | 'separate'; stake: boolean } {
   const wantCustom = c.storage === 'custom' ? c.customPath : null;
   const now = e.customDataDir ? e.dataDir : null;
   const setDir = wantCustom === now ? null : { dir: wantCustom, move: c.move && e.hasData };
-  return { setDir, wallet: e.phraseKeys === false ? 'separate' : c.wallet };
+  // Staking: a validator key of this computer, made before it starts (only a chain that stakes).
+  return { setDir, wallet: e.phraseKeys === false ? 'separate' : c.wallet, stake: !!e.staking && c.stake };
 }
 
 // ---- The first start of the app ----

@@ -153,8 +153,13 @@ export function frameShown(): boolean {
 
 const STEM = /^[a-z0-9]{1,32}$/;
 const PAGE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
-// A tab of a module's page, or a search handed to its explorer (a height, a hash, an address: letters, digits, "_").
-const TAB = /^(?:[a-z0-9/_-]{0,60}|search:[A-Za-z0-9_]{1,120})$/;
+// A tab of a module's page, a search handed to its explorer (a height, a hash, an address: letters, digits, "_"), or a
+// name handed to the directory of a chain of names (BitNames: a name, a subname, a number "#1739-0029").
+const TAB = /^(?:[a-z0-9/_-]{0,60}|search:[A-Za-z0-9_]{1,120}|name:[a-z0-9#][a-z0-9._#-]{0,119})$/;
+/** Whether a tab may be handed to a module's page (the same check as its routes coming back). */
+export function moduleTabOk(tab: string): boolean {
+  return TAB.test(tab);
+}
 /** An SVG path: commands and numbers only (it is put in a d attribute, nothing else). */
 const PATH = /^[MmLlHhVvCcSsQqTtAaZz0-9 .,eE+-]{0,2000}$/;
 /** Text of a frame: a bounded line, no control or format characters (bidi marks that turn text around). */
@@ -353,8 +358,35 @@ export function openChains(page: Parameters<typeof go>[0] = 'home', tab = ''): v
   go(page, tab);
 }
 
+// A frame is made at the first visit of one of its chain's pages (doc/unified-app.md §20.6) and its pages start listening a
+// moment after it loads: a page asked meanwhile (the palette's name, a link into a chain's directory) would be lost, and
+// the frame's first word (its home) taken for where it is. Until a frame has spoken, the page the app wants is told again
+// at its first word, and that word does not move the app.
+const listening: Record<string, boolean> = {};
+
+/** A frame of a module made (or loaded again): not listening yet. */
+export function frameMade(stem: string): void {
+  listening[stem] = false;
+}
+
+/** The page the app wants a frame to show (the one laid in an app's page, else its own place). */
+function wantedRoute(stem: string): { page: string; tab: string; headless?: boolean } | null {
+  if (modules.embed?.stem === stem) return { page: modules.embed.page, tab: modules.embed.tab, ...(modules.embed.headless ? { headless: true } : {}) };
+  const r = modules.routes[stem];
+  return r && r.page !== NODE_PAGE ? r : null;
+}
+
 /** What a frame says, once its frame is known to be that module's (lib/packs.svelte.ts). */
 export function onModuleMessage(stem: string, type: unknown, data: unknown): boolean {
+  if (listening[stem] === false) {
+    // Its first word: it listens now. The page the app wants, told again; its own first place not taken.
+    listening[stem] = true;
+    const want = wantedRoute(stem);
+    if (want) {
+      tellModule(stem, 'navigate', want);
+      if (type === 'route') return true;
+    }
+  }
   switch (type) {
     case 'manifest': {
       const m = parseManifest(data);
