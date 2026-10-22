@@ -251,6 +251,19 @@ and a headers sync with eCash's four seeds reached 973,880, tip `000000000000000
 - `test/functional/feature_ecash_safety_switch.py` and `ecash_tests/enforcer_safety_*`, `enforcer_message_limits`:
   the activation switch of our safety rules (above).
 
+## The sidechains' eCash branches (2026-10-22)
+
+Each sidechain of Backbone has one current eCash version, a public `block-fabric/backbone-<sidechain>`
+repository; the older eCash branches of our repositories are superseded and kept as history only:
+
+| Branch | Superseded by |
+|---|---|
+| `sidechain-template` `ecash` (83da63a786), `ecash-grpc` (a575f787c2) | `sidechain-template` `ecash-enforcer` (block-fabric/sidechain-template, branch `ecash-enforcer`): both merged into it; it is the eCash template, kept up to date with the template's main |
+| `layers` `ecash` (96272d00ce), `ecash-enforcer` (530bd83d79; lab-fixes 2f396b1847) | Flush, block-fabric/backbone-flush (Layers on eCash, renamed Starbase, then Flush) |
+| `thunder` `ecash` (a88d848e09, CHN Thunder on eCash) | block-fabric/backbone-thunder, the drop-in for thunder-rust |
+| `fastblocks` `ecash-enforcer` | block-fabric/backbone-fastblocks (its `main` continues that branch) |
+| BitNames | block-fabric/backbone-bitnames, the drop-in for plain-bitnames |
+
 ## Follow-ups
 
 1. eCash main network: the enforcer's mainnet preset (thresholds, activation height, opcode) when published;
