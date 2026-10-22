@@ -161,13 +161,14 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
             if (!value) throw std::runtime_error(strprintf("Invalid value (%s) for -testreplaylocktime.", *locktime));
             ecash.replay_locktime = *value;
         }
+        ecash.ecash_magic = ecash.ecash_regtest || args.GetBoolArg("-testecashmagic", false);
         for (const std::string& txid : args.GetArgs("-testrepurposetx")) {
             const auto hash{uint256::FromHex(txid)};
             if (!hash) throw std::runtime_error(strprintf("Invalid txid (%s) for -testrepurposetx.", txid));
             ecash.repurpose_txids.insert(*hash);
         }
-    } else if (args.IsArgSet("-testecashfork") || args.IsArgSet("-testreplaylocktime") || args.IsArgSet("-testrepurposetx")) {
-        throw std::runtime_error("-testecashfork, -testreplaylocktime and -testrepurposetx need -testecash (or -ecashregtest).");
+    } else if (args.IsArgSet("-testecashfork") || args.IsArgSet("-testreplaylocktime") || args.IsArgSet("-testrepurposetx") || args.IsArgSet("-testecashmagic")) {
+        throw std::runtime_error("-testecashfork, -testreplaylocktime, -testrepurposetx and -testecashmagic need -testecash (or -ecashregtest).");
     }
 
     HandleDeploymentArgs(args, options.dep_opts);

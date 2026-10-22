@@ -28,7 +28,7 @@ from test_framework.key import ECKey
 from test_framework.messages import COIN, CTransaction, CTxOut, hash256, sha256
 from test_framework.script import CScript, OP_RETURN
 from test_framework.test_framework import BitcoinTestFramework, SkipTest
-from test_framework.util import assert_equal, assert_greater_than, p2p_port, rpc_port, tor_port
+from test_framework.util import assert_equal, assert_greater_than, p2p_port
 
 SLOT = 7
 V = 'cusf.mainchain.v1.ValidatorService/'
@@ -43,12 +43,14 @@ HASH_ID_1, HASH_ID_2 = bytes(range(32)), bytes(range(20))
 
 def free_port():
     """A free port for the gRPC server, from those of p2p_port(0) on, 49000-49999 (not 49x54, 4966x, 497xx) on this machine."""
+    # Not the node's own ports (p2p_port(0) is free until the node starts: the gRPC server would then lose the bind
+    # to the P2P listener, and the client talk to the P2P port -- "Socket closed", about one run in three).
+    from test_framework.util import PORT_RANGE, rpc_port
+    taken = {f(n) for f in (p2p_port, rpc_port, lambda n: p2p_port(n) + 2 * PORT_RANGE) for n in range(12)}
     start = 49000 + p2p_port(0) % 1000
-    # Not the node's own ports (the framework's may be in this range too: TEST_RUNNER_PORT_MIN).
-    own = {p2p_port(0), rpc_port(0), tor_port(0)}
     for i in range(1000):
         port = 49000 + (start - 49000 + i) % 1000
-        if port % 100 == 54 or 49660 <= port <= 49669 or 49700 <= port <= 49799 or port in own:
+        if port % 100 == 54 or 49660 <= port <= 49669 or 49700 <= port <= 49799 or port in taken:
             continue
         with socket.socket() as s:
             try:
@@ -472,9 +474,26 @@ class EcashGrpcTest(BitcoinTestFramework):
         assert_equal((code, message), (INVALID_ARGUMENT, 'Missing field in message `cusf.mainchain.v1.GetBlockInfoRequest`: `block_hash`'))
         code, message, _ = self.grpc.call(V + 'GetBlockInfo', {'block_hash': {}, 'sidechain_id': u32(SLOT)})
         assert_equal((code, message), (INVALID_ARGUMENT, 'Missing field in message `cusf.common.v1.ReverseHex`: `hex`'))
-        code, message, _ = self.grpc.call(V + 'GetBlockInfo', {'block_hash': rh('zz'), 'sidechain_id': u32(SLOT)})
-        assert_equal(code, INVALID_ARGUMENT)
-        assert message.startswith('Invalid field value in field `block_hash` of message `cusf.mainchain.v1.GetBlockInfoRequest`: `zz`')
+        # The cause as the Rust crates word it (the texts the enforcer 17eb2ce gave on the lab server, 2026-10-21):
+        # ReverseHex and Hex through the hex crate, ConsensusHex through rust-bitcoin's lazy deserialize_hex.
+        prefix = 'Invalid field value in field `{}` of message `{}`: `{}`: '
+        for value, cause in (('zz', "Invalid character 'z' at position 0"), ('0z', "Invalid character 'z' at position 1"),
+                             ('\t0', "Invalid character '\\t' at position 0"), ('0\x7f', "Invalid character '\\u{7f}' at position 1"), ('\u00e9', "Invalid character '\u00c3' at position 0"),
+                             ('0', 'Odd number of digits'), ('00' * 31, 'IO error: I/O Error: UnexpectedEof'),
+                             ('00' * 33, 'parse failed: data not consumed entirely when explicitly deserializing')):
+            code, message, _ = self.grpc.call(V + 'GetBlockInfo', {'block_hash': rh(value), 'sidechain_id': u32(SLOT)})
+            assert_equal((code, message), (INVALID_ARGUMENT, prefix.format('block_hash', 'cusf.mainchain.v1.GetBlockInfoRequest', value) + cause))
+        for value, cause in (('', 'decoding error: invalid consensus encoding: IO error: I/O Error: UnexpectedEof'),
+                             ('000', 'odd length, failed to create bytes from hex: odd hex string length 3'),
+                             ('zz', 'decoding error: other decoding error: InvalidCharError { invalid: 122 }'),
+                             ('00' * 33, 'decoding error: attempted to decode object from an iterator that yielded too many bytes')):
+            code, message, _ = self.grpc.call('cusf.crypto.v1.CryptoService/Secp256k1SecretKeyToPublicKey', {'secret_key': rh(value)})
+            assert_equal((code, message), (INVALID_ARGUMENT, prefix.format('secret_key', 'cusf.crypto.v1.Secp256k1SecretKeyToPublicKeyRequest', value) + cause))
+        # A Vec<u8>: its compact size first (non-minimal: refused), then the bytes.
+        for value, cause in (('fd0000', 'decoding error: invalid consensus encoding: non-minimal varint'),
+                             ('00' * 32, 'decoding error: attempted to decode object from an iterator that yielded too many bytes')):
+            code, message, _ = self.grpc.call(V + 'GetCoinbasePSBT', {'propose_sidechains': [{'sidechain_number': u32(1), 'data': rh(value)}]})
+            assert_equal((code, message), (INVALID_ARGUMENT, prefix.format('data', 'cusf.mainchain.v1.GetCoinbasePSBTRequest.ProposeSidechain', value) + cause))
         code, message, _ = self.grpc.call(V + 'GetBlockInfo', {'block_hash': rh('00' * 32), 'sidechain_id': u32(256)})
         assert_equal(code, INVALID_ARGUMENT)
         assert message.startswith('Invalid field value in field `sidechain_id` of message `cusf.mainchain.v1.GetBlockInfoRequest`: `256`')
@@ -482,8 +501,11 @@ class EcashGrpcTest(BitcoinTestFramework):
         code, message, _ = self.grpc.call(V + 'GetWithdrawalBundleProposals', {})
         assert_equal((code, message), (INVALID_ARGUMENT, 'Missing field in message `cusf.mainchain.v1.GetTwoWayPegDataRequest`: `sidechain_id`'))
         # A slot never active: the enforcer's database has no entry (pending_m6ids().get()): INTERNAL.
-        code, _, _ = self.grpc.call(V + 'GetWithdrawalBundleProposals', {'sidechain_id': u32(3)})
+        # Its text is sneed's MissingValue (the database's path, the key in hex), as the lab compared byte for byte.
+        code, message, _ = self.grpc.call(V + 'GetWithdrawalBundleProposals', {'sidechain_id': u32(3)})
         assert_equal(code, INTERNAL)
+        db_path = os.path.join(self.node.chain_path, 'blocks', 'drivechain')
+        assert_equal(message, f'Missing value from db `active_sidechain_number_to_pending_m6ids` at `{db_path}` (key: 03)')
         # The wallet: an inactive sidechain, an empty address, no value (wallet/grpc.rs:259-308).
         deposit = {'sidechain_id': u32(3), 'address': {'value': 'x'}, 'value_sats': u32(1000), 'fee_sats': u32(1000)}
         code, message, _ = self.grpc.call(W + 'CreateDepositTransaction', deposit)

@@ -294,6 +294,17 @@ BOOST_AUTO_TEST_CASE(network_parameters)
     BOOST_CHECK(GetNetworkForMagic(main->MessageStart()) == ChainType::ECASH);
     BOOST_CHECK(GetNetworkForMagic(beta->MessageStart()) == ChainType::ECASH_BETANET);
     BOOST_CHECK(GetNetworkForMagic(test->MessageStart()) == ChainType::ECASH_TESTNET);
+    // Regtest under eCash's rules with -testecashmagic has the message start and port of eCash's client on
+    // regtest (ecash-com/bitcoin, branch betanet, CRegTestParams), so that the two peer; without it, regtest's.
+    CChainParams::RegTestOptions ecash_opts{};
+    ecash_opts.ecash.emplace();
+    BOOST_CHECK_EQUAL(HexStr(CChainParams::RegTest(ecash_opts)->MessageStart()), "c7e8c1da");
+    ecash_opts.ecash->ecash_magic = true;
+    const auto ecash_regtest{CChainParams::RegTest(ecash_opts)};
+    BOOST_CHECK_EQUAL(HexStr(ecash_regtest->MessageStart()), "eca5b134");
+    BOOST_CHECK_EQUAL(ecash_regtest->GetDefaultPort(), 18644);
+    BOOST_CHECK_EQUAL(HexStr(CChainParams::RegTest()->MessageStart()), "c7e8c1da");
+    BOOST_CHECK_EQUAL(CChainParams::RegTest()->GetDefaultPort(), 29555);
 }
 
 BOOST_AUTO_TEST_CASE(fork_difficulty_reset)

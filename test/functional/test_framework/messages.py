@@ -92,6 +92,7 @@ MAGIC_BYTES = {
     "mainnet": b"\xc7\xe8\xa9\xd5",  # Chains mainnet
     "testnet": b"\xc7\xe8\xb4\xf3",  # Chains testnet
     "regtest": b"\xc7\xe8\xc1\xda",
+    "regtest-ecash": b"\xec\xa5\xb1\x34",  # -testecashmagic: eCash's client on regtest
     "signet": b"\x6d\x64\x19\x4b",  # the default signet; derived from its challenge
 }
 

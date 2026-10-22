@@ -5173,12 +5173,23 @@ void Chainstate::SweepDrivechainUndo(const CBlockIndex& flushed)
     for (const uint256& hash : stale) db.EraseBlockDeposits(hash);
 }
 
+/** On the eCash networks: whether `index` is on a branch whose block of the fork height lacks the fork's difficulty
+ *  reset, i.e. Bitcoin's chain past the fork (bad-diffbits-ecash-da in ContextualCheckBlockHeader). */
+static bool IsBitcoinBranch(const Consensus::Params& consensus, const CBlockIndex& index)
+{
+    if (consensus.ecash_fork_height <= 0 || index.nHeight < consensus.ecash_fork_height) return false;
+    const CBlockIndex* fork{index.GetAncestor(consensus.ecash_fork_height)};
+    return fork && fork->nBits != consensus.ecash_fork_bits;
+}
+
 void Chainstate::ResetAllBlockFailureFlags()
 {
     AssertLockHeld(::cs_main);
     size_t reset{0};
+    const Consensus::Params& consensus{m_chainman.GetConsensus()};
     for (auto& [_, block_index] : m_blockman.m_block_index) {
-        if (block_index.nStatus & BLOCK_FAILED_VALID) {
+        // Bitcoin's chain past the eCash fork stays invalid: no drivechain rule made it so (LoadBlockIndex).
+        if ((block_index.nStatus & BLOCK_FAILED_VALID) && !IsBitcoinBranch(consensus, block_index)) {
             block_index.nStatus &= ~BLOCK_FAILED_VALID;
             m_blockman.m_dirty_blockindex.insert(&block_index);
             ++reset;
@@ -5780,9 +5791,30 @@ bool ChainstateManager::LoadBlockIndex()
         std::sort(vSortedByHeight.begin(), vSortedByHeight.end(),
                   CBlockIndexHeightOnlyComparator());
 
+        // eCash networks: a header of the fork height without the fork's bits is Bitcoin's chain. A data directory
+        // of a Bitcoin node (the cutover's: its block files with their magic rewritten, or a snapshot of one)
+        // carries the headers it had past the fork, which were never checked under these rules: invalid now,
+        // with their descendants (ContextualCheckBlockHeader's bad-diffbits-ecash-da), so that they are not the
+        // best header the node tries to sync to.
+        const Consensus::Params& consensus{GetConsensus()};
+        const auto bitcoin_branch{[&](const CBlockIndex* pindex) { return IsBitcoinBranch(consensus, *pindex); }};
+        int bitcoin_headers{0};
+        for (CBlockIndex* pindex : vSortedByHeight) {
+            if (!(pindex->nStatus & BLOCK_FAILED_VALID) && bitcoin_branch(pindex)) {
+                pindex->nStatus |= BLOCK_FAILED_VALID;
+                m_blockman.m_dirty_blockindex.insert(pindex);
+                ++bitcoin_headers;
+            }
+        }
+        if (bitcoin_headers > 0) {
+            LogInfo("Marked %d headers from the eCash fork height %d on invalid: a branch without the fork's difficulty reset (Bitcoin's chain)",
+                    bitcoin_headers, consensus.ecash_fork_height);
+        }
+
         for (CBlockIndex* pindex : vSortedByHeight) {
             if (m_interrupt) return false;
-            if (pindex->nStatus & BLOCK_FAILED_VALID && (!m_best_invalid || pindex->nChainWork > m_best_invalid->nChainWork)) {
+            // (Bitcoin's chain is not the "invalid chain with more work" of the fork warning: it is the other network.)
+            if (pindex->nStatus & BLOCK_FAILED_VALID && !bitcoin_branch(pindex) && (!m_best_invalid || pindex->nChainWork > m_best_invalid->nChainWork)) {
                 m_best_invalid = pindex;
             }
             if (pindex->IsValid(BLOCK_VALID_TREE) && (m_best_header == nullptr || CBlockIndexWorkComparator()(m_best_header, pindex)))

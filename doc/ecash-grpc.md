@@ -128,7 +128,8 @@ CryptoService (bitwindowd probes Ripemd160): Ripemd160, HmacSha512, Secp256k1Sec
   wrapper, `{}`), as the enforcer's buffa encoder writes them; requests are read leniently (any order, packed or
   not, unknown fields skipped).
 - Errors (INVALID_ARGUMENT): "Missing field in message \`M\`: \`f\`", "Invalid field value in field \`f\` of message
-  \`M\`: \`v\`" (then `: cause`, whose wording may differ from the Rust crates'). Others as in §2.
+  \`M\`: \`v\`" (then `: cause`, in the words of the Rust crates the enforcer decodes with: the hex crate for `ReverseHex` and `Hex`,
+  rust-bitcoin's lazy `deserialize_hex` for `ConsensusHex`; checked against the enforcer, §10). Others as in §2.
 
 ## 5. Differences, gaps
 
@@ -238,30 +239,27 @@ The codec (`src/grpc/protobuf.cpp`) reads the descriptors protoc writes, so the 
   and proto, the error texts, GenerateToAddress, GenerateBlocks, the security defaults, Stop.
 - `contrib/devtools/gen-grpc-descriptors.py --compare`: the definitions against the enforcer's.
 
-## 10. Live differential tests (awaiting approval: they run external code)
+## 10. Live differential tests
 
-Not run: building or running the enforcer or a LayerTwo sidechain needs the user's approval.
+Run on the lab server (2026-10-21, `~/skydoge/audit/2026-10-21-backbone-lab.md`): ecash-com/bitcoin `betanet`
+(`ca64033`) on regtest with the enforcer `17eb2ce` (`--op-drivechain=nop8 --enable-wallet
+--wallet-sync-source=disabled --enable-mempool --enable-block-template-server`), and backboned `-regtest -testecash
+-testecashmagic -testreplaylocktime=499999999 -grpc` peered with it (`-testecashmagic`: eCash's regtest message
+start, added for this). Blocks mined through the enforcer's `GenerateToAddress`. Harness `diffmain.py` (lab only):
 
-1. **Enforcer vs backboned on one eCash regtest chain.** ecash-com/bitcoin `betanet` built for regtest with the
-   enforcer (`--network-preset` none, `--op-drivechain nop8`, `--enable-wallet --enable-mempool
-   --enable-block-template-server`), and backboned `-regtest -testecash -grpc` peered with it. The scenario of
-   `interface_ecash_grpc.py` mined through the enforcer's GenerateToAddress (so both see the same blocks); at
-   every block, every read method of §2 called on both with the same requests and the replies compared **byte
-   for byte** (binary) and as JSON; SubscribeEvents on both compared event by event across reorgs
-   (`invalidateblock` on both); error replies compared code and leading text.
-2. **Betanet shadow.** backboned `-chain=ecashbeta -grpcport=8124` beside the betanet enforcer (8123) on the
-   server (not this PC): GetBlockInfo/GetTwoWayPegData/GetCtip/GetSidechains/GetSidechainProposals/
-   GetWithdrawalBundleProposals for every slot at every block from 967,680, compared; SubscribeEvents of both
-   compared for a week.
-3. **Thunder against backboned.** thunder-rust (`244e20fd`) on regtest with `--mainchain-grpc-url
-   http://127.0.0.1:50051` against backboned alone: health check, the GetChainTip/SubscribeEvents handshake,
-   initial GetBlockInfo batches, deposit (CreateDepositTransaction, credited), BMM mining (GenerateToAddress,
-   CreateBmmCriticalDataTransaction, the commitment in the next block), withdrawal (ProposeWithdrawalBundle, paid
-   out, the sidechain sees Succeeded), a mainchain reorg; then the same with plain-bitnames (BroadcastWithdrawalBundle,
-   GetBlockInfo walks), plain-bitassets (GenerateBlocks), zside-rust-deprecated (reflection ListServices,
-   GetTwoWayPegData, GetBmmHStarCommitment) and bitwindowd (Connect via its proxy, BlockProducer methods).
-4. **DATUM pool** (ours, `~/datumpool`) against backboned instead of the enforcer: GetCoinbasePSBT,
-   GetBlockProducerState, SetSidechainAck, GetSidechains over Connect/JSON.
+1. **Enforcer vs backboned, one regtest chain** — activation, deposits, BMM, a bundle paid and one failed, a reorg
+   of 3 blocks with a deposit and a BMM commitment (`invalidateblock` on both), the stale blocks: after every block
+   every read method of the ValidatorService with a set of requests (ancestors 0..2000, slots active and not,
+   2WPD windows), error requests, and the CryptoService: **7,536 replies, identical byte for byte**;
+   SubscribeEvents of both: **150 events, identical**. Malformed hex in `ReverseHex`, `Hex` and `ConsensusHex`
+   fields (`differrors.py`): **114 cases, same codes and texts**. Two differences found and fixed on the way: the
+   INTERNAL text of `GetWithdrawalBundleProposals` for a slot never active (sneed's `MissingValue`), and the
+   causes of malformed hex (§4).
+2. **Betanet shadow.** A pruned Backbone betanet node on the lab server (from a UTXO-snapshot datadir at 966,143,
+   magic rewritten) logs block by block whether eCash's public enforcer has its blocks and, at a common tip,
+   compares GetSidechains, GetSidechainProposals, GetCtip and GetWithdrawalBundleProposals. The full shadow beside
+   a local enforcer needs a full archive node (Bitcoin's history: ~750-900 GB).
+3. **LayerTwo's sidechains against backboned**, 4. **DATUM**: see the lab report.
 
 ## 11. Our sidechains
 

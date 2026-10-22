@@ -84,14 +84,119 @@ std::optional<std::string> WrappedHex(const Message& m, std::string_view field, 
     return hex->GetString("value");
 }
 
-std::optional<std::vector<unsigned char>> DecodeHex(const std::string& hex, std::string& cause)
+int HexValue(unsigned char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/** Rust's `{:?}` of a byte taken as a char (the hex crate's `byte as char`): quoted, escaped as char::escape_debug. */
+std::string RustCharDebug(unsigned char b)
+{
+    switch (b) {
+    case 0x00: return "'\\0'";
+    case '\t': return "'\\t'";
+    case '\n': return "'\\n'";
+    case '\r': return "'\\r'";
+    case '\'': return "'\\''";
+    case '\\': return "'\\\\'";
+    }
+    // Not printable (controls, DEL, the C1 controls, the soft hyphen): \u{..}.
+    if (b < 0x20 || (b >= 0x7f && b <= 0x9f) || b == 0xad) return strprintf("'\\u{%x}'", b);
+    if (b < 0x80) return strprintf("'%c'", static_cast<char>(b));
+    // U+0080..U+00FF in UTF-8.
+    return strprintf("'%c%c'", static_cast<char>(0xc0 | (b >> 6)), static_cast<char>(0x80 | (b & 0x3f)));
+}
+
+/**
+ * hex 0.4's hex::decode (FromHex for Vec<u8>, and for [u8; N] with `size`), which Hex and ReverseHex use
+ * (lib/proto.rs): an odd length first, then (arrays) the length, then the first character that is not hex.
+ */
+std::optional<std::vector<unsigned char>> DecodeHexCrate(const std::string& hex, std::optional<size_t> size, std::string& cause)
 {
     if (hex.size() % 2) {
-        cause = strprintf("odd number of hex digits (%u)", hex.size());
+        cause = "Odd number of digits";
         return std::nullopt;
     }
-    auto bytes{TryParseHex<unsigned char>(hex)};
-    if (!bytes) cause = "invalid hex character";
+    if (size && hex.size() / 2 != *size) {
+        cause = "Invalid string length";
+        return std::nullopt;
+    }
+    std::vector<unsigned char> bytes(hex.size() / 2);
+    for (size_t i{0}; i < hex.size(); ++i) {
+        const int v{HexValue(static_cast<unsigned char>(hex[i]))};
+        if (v < 0) {
+            cause = strprintf("Invalid character %s at position %u", RustCharDebug(static_cast<unsigned char>(hex[i])), i);
+            return std::nullopt;
+        }
+        bytes[i / 2] = static_cast<unsigned char>(i % 2 ? (bytes[i / 2] | v) : (v << 4));
+    }
+    return bytes;
+}
+
+/**
+ * rust-bitcoin 0.32's consensus::encode::deserialize_hex, which ConsensusHex uses (lib/proto.rs): the hex is
+ * decoded lazily as the object is read (hex-conservative's HexSliceToBytesIter in an IterReader), so the error
+ * is whichever comes first: a character that is not hex in a pair read, the end of the data, or a non-minimal
+ * compact size; then bytes left over. Texts as `{:#}` prints the error chain.
+ * `size`: a [u8; size]; nullopt: a Vec<u8> (compact size, then the bytes).
+ */
+std::optional<std::vector<unsigned char>> DecodeConsensusHex(const std::string& hex, std::optional<size_t> size, std::string& cause)
+{
+    if (hex.size() % 2) {
+        cause = strprintf("odd length, failed to create bytes from hex: odd hex string length %u", hex.size());
+        return std::nullopt;
+    }
+    const size_t pairs{hex.size() / 2};
+    // Decodable::consensus_decode reads through take(MAX_VEC_SIZE).
+    constexpr size_t MAX_VEC_SIZE{4'000'000};
+    size_t pos{0};
+    const auto pull{[&](unsigned char& out) -> bool {
+        if (pos >= pairs || pos >= MAX_VEC_SIZE) {
+            cause = "decoding error: invalid consensus encoding: IO error: I/O Error: UnexpectedEof";
+            return false;
+        }
+        const auto hi{static_cast<unsigned char>(hex[2 * pos])}, lo{static_cast<unsigned char>(hex[2 * pos + 1])};
+        const int h{HexValue(hi)}, l{HexValue(lo)};
+        if (h < 0 || l < 0) {
+            cause = strprintf("decoding error: other decoding error: InvalidCharError { invalid: %u }", h < 0 ? hi : lo);
+            return false;
+        }
+        out = static_cast<unsigned char>((h << 4) | l);
+        ++pos;
+        return true;
+    }};
+    std::vector<unsigned char> bytes;
+    uint64_t len{size.value_or(0)};
+    if (!size) {
+        unsigned char first;
+        if (!pull(first)) return std::nullopt;
+        len = first;
+        if (first >= 0xfd) {
+            const int n{first == 0xfd ? 2 : first == 0xfe ? 4 : 8};
+            len = 0;
+            for (int i{0}; i < n; ++i) {
+                unsigned char b;
+                if (!pull(b)) return std::nullopt;
+                len |= uint64_t{b} << (8 * i);
+            }
+            if (len < (first == 0xfd ? 0xfdU : first == 0xfe ? 0x10000U : 0x100000000ULL)) {
+                cause = "decoding error: invalid consensus encoding: non-minimal varint";
+                return std::nullopt;
+            }
+        }
+    }
+    for (uint64_t i{0}; i < len; ++i) {
+        unsigned char b;
+        if (!pull(b)) return std::nullopt;
+        bytes.push_back(b);
+    }
+    if (pos < pairs) {
+        cause = "decoding error: attempted to decode object from an iterator that yielded too many bytes";
+        return std::nullopt;
+    }
     return bytes;
 }
 
@@ -101,54 +206,36 @@ std::optional<std::vector<unsigned char>> ReadConsensusBytes(const Message& m, s
     const auto hex{WrappedHex(m, field, status)};
     if (!hex) return std::nullopt;
     std::string cause;
-    auto bytes{DecodeHex(*hex, cause)};
-    if (bytes) {
-        if (size) {
-            if (bytes->size() == *size) return bytes;
-            cause = bytes->size() < *size ? "unexpected end of data" : "data not consumed entirely when explicitly deserializing";
-        } else {
-            try {
-                DataStream ds{*bytes};
-                std::vector<unsigned char> out;
-                ds >> out;
-                if (ds.empty()) return out;
-                cause = "data not consumed entirely when explicitly deserializing";
-            } catch (const std::exception&) {
-                cause = "unexpected end of data";
-            }
-        }
-    }
+    if (auto bytes{DecodeConsensusHex(*hex, size, cause)}) return bytes;
     status = InvalidField(m.Desc().full_name, field, *hex, cause);
     return std::nullopt;
 }
 
-/** A ReverseHex of a 32 byte hash (a block hash, a txid): reversed, as explorers show it. */
+/** A ReverseHex of a 32 byte hash (a block hash, a txid): hex::decode, reversed, then consensus::deserialize. */
 std::optional<uint256> ReadReverseHash(const Message& m, std::string_view field, Status& status)
 {
     const auto hex{WrappedHex(m, field, status)};
     if (!hex) return std::nullopt;
     std::string cause;
-    auto bytes{DecodeHex(*hex, cause)};
+    auto bytes{DecodeHexCrate(*hex, std::nullopt, cause)};
     if (bytes && bytes->size() == 32) {
         std::reverse(bytes->begin(), bytes->end());
         uint256 hash;
         std::memcpy(hash.begin(), bytes->data(), 32);
         return hash;
     }
-    if (bytes) cause = bytes->size() < 32 ? "unexpected end of data" : "data not consumed entirely when explicitly deserializing";
+    if (bytes) cause = bytes->size() < 32 ? "IO error: I/O Error: UnexpectedEof" : "parse failed: data not consumed entirely when explicitly deserializing";
     status = InvalidField(m.Desc().full_name, field, *hex, cause);
     return std::nullopt;
 }
 
-/** A Hex: bytes as they are; of `size` bytes if given. */
+/** A Hex: bytes as they are (hex::FromHex); of `size` bytes ([u8; size]) if given. */
 std::optional<std::vector<unsigned char>> ReadRawHex(const Message& m, std::string_view field, std::optional<size_t> size, Status& status)
 {
     const auto hex{WrappedHex(m, field, status)};
     if (!hex) return std::nullopt;
     std::string cause;
-    auto bytes{DecodeHex(*hex, cause)};
-    if (bytes && (!size || bytes->size() == *size)) return bytes;
-    if (bytes) cause = "invalid string length";
+    if (auto bytes{DecodeHexCrate(*hex, size, cause)}) return bytes;
     status = InvalidField(m.Desc().full_name, field, *hex, cause);
     return std::nullopt;
 }
@@ -1089,8 +1176,12 @@ void ServicesImpl::RegisterValidator(Server& server)
         Message resp{ctx.New("cusf.mainchain.v1.GetWithdrawalBundleProposalsResponse")};
         LOCK(::cs_main);
         const drivechain::Slot* s{ctx.Chainman().ActiveChainstate().m_scdb.GetSlot(*slot)};
-        // The enforcer's pending_m6ids().get() of a slot never active: a database error, INTERNAL.
-        if (!s) return Fail(w, {Code::INTERNAL, strprintf("Missing value from database `active_sidechain_number_to_pending_m6ids` for sidechain %u", *slot)});
+        // The enforcer's pending_m6ids().get() of a slot never active: a database error, INTERNAL, in the words of
+        // sneed's db::error::Get::MissingValue (the database's path, here our drivechain database's; the key in hex).
+        if (!s) {
+            return Fail(w, {Code::INTERNAL, strprintf("Missing value from db `active_sidechain_number_to_pending_m6ids` at `%s` (key: %02x)",
+                                                      fs::PathToString(ctx.Chainman().m_options.datadir / "blocks" / "drivechain"), *slot)});
+        }
         for (const drivechain::Bundle& b : s->bundles) {
             Message& item{resp.Add("proposals")};
             SetHex(item, "m6id", HexStr(b.hash));
