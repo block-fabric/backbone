@@ -63,7 +63,9 @@
     // Coins into each sidechain, each the chain's own question (answered yes here).
     await desktop({ always: true });
     // At the hub's scale: enough for thousands of payments, 100 assets with logos and 90 markets.
-    const amounts = HUB ? { layers: '60', bitassets: '40', hivemind: '400' } : { layers: '20', thunder: '10', bitassets: '6', hivemind: '15' };
+    const amounts = HUB
+      ? { layers: '60', bitassets: '40', hivemind: '400', fastblocks: '40', thunder: '40', bitnames: '30', zside: '30' }
+      : { layers: '20', thunder: '10', bitassets: '6', hivemind: '15', fastblocks: '10', bitnames: '6', zside: '6' };
     for (const stem of SIDE) {
       const d = await host('chain.deposit', { stem, amount: amounts[stem] });
       await check(`a deposit into ${stem}`, /^[0-9a-f]{64}$/.test(d.txid || ''), JSON.stringify(d));
