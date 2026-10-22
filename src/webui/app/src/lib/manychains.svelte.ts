@@ -21,6 +21,8 @@ export interface ChainPosition {
   status?: string;
   answers?: string;
   price?: string;
+  /** The market's decisions in order (the state's bits), when it is about several or no longer trades (doc/unified-app.md §24). */
+  decisions?: { text?: string; scaled?: boolean; status?: string; outcome?: string }[];
 }
 
 export const many = $state({

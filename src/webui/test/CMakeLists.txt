@@ -111,6 +111,19 @@ if(WEBUI_TEST_HOOKS AND XVFB_RUN_EXECUTABLE AND Python3_Interpreter_FOUND)
           --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
       )
       set_tests_properties(webui_e2e_dex PROPERTIES TIMEOUT 1500 RUN_SERIAL TRUE)
+      # What Hivemind's markets came to (doc/unified-app.md §24): markets trading, voted on, partly decided and paid out (yes
+      # or no, a scale, several outcomes), Hivemind's pages and the app's. Needs hivemindd: -DWEBUI_E2E_HIVEMIND_BINDIR=<dir>.
+      set(WEBUI_E2E_HIVEMIND_BINDIR "" CACHE PATH "Folder with hivemindd, for the end-to-end test of the markets' results")
+      if(WEBUI_E2E_HIVEMIND_BINDIR)
+        add_test(NAME webui_e2e_hmresults
+          COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/e2e/run_hmresults.py
+            --app $<TARGET_FILE:chains-app>
+            --sidechain-bindir ${WEBUI_E2E_HIVEMIND_BINDIR}
+            --tmp ${CMAKE_CURRENT_BINARY_DIR}/e2e-hmresults
+            --shots ${CMAKE_CURRENT_BINARY_DIR}/e2e-shots
+        )
+        set_tests_properties(webui_e2e_hmresults PROPERTIES TIMEOUT 2400 RUN_SERIAL TRUE)
+      endif()
       # The pages of the sidechains in the app (doc/unified-app.md §13): Layers and Thunder, their spends through the
       # trusted dialog. Needs thunderd too: -DWEBUI_E2E_THUNDER_BINDIR=<thunder build>/bin.
       set(WEBUI_E2E_THUNDER_BINDIR "" CACHE PATH "Folder with thunderd, for the end-to-end test of the pages of the sidechains")

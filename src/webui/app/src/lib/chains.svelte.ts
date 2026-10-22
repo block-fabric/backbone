@@ -160,7 +160,8 @@ export const chainHost = {
   peg: (stem: string, wallet?: string) => request<ChainPeg>('host', 'chain.peg', w(stem, wallet)),
   assets: (stem: string, wallet?: string) => request<{ stem: string; wallet: string; assets: ChainAsset[] }>('host', 'chain.assets', w(stem, wallet)),
   names: (stem: string, wallet?: string) => request<{ stem: string; names: ChainName[] }>('host', 'chain.names', w(stem, wallet)),
-  markets: (stem: string) => request<{ stem: string; markets: ChainMarket[] }>('host', 'chain.markets', { stem }),
+  /** The markets, the decisions they are about (their outcomes once resolved) and the chain's clock of periods (doc/unified-app.md §24). */
+  markets: (stem: string) => request<ChainMarkets>('host', 'chain.markets', { stem }),
 };
 
 export interface ChainStaking {
@@ -209,7 +210,42 @@ export interface ChainMarket {
   status?: string;
   liquidity?: string;
   feebps?: number;
-  states?: { state?: number; answers?: string; price?: string }[];
+  height?: number;
+  tradinguntil?: number;
+  /** The ids of the decisions it is about. */
+  decisions?: string[];
+  /** Exact decimals as the node writes them; a market that paid out has no price, only its shares. */
+  states?: { state?: number; answers?: string; shares?: string; price?: string }[];
+}
+
+/** A decision of a market (listdecisions): its outcome once resolved (0 no, 1 yes, 0.5 a tie, the place on a scale). */
+export interface ChainDecision {
+  id?: string;
+  text?: string;
+  scaled?: boolean;
+  min?: number;
+  max?: number;
+  eventperiod?: number;
+  closeperiod?: number;
+  status?: string;
+  outcome?: string;
+  answer?: string | number;
+}
+
+/** The clock of a chain of markets (gethivemindinfo): the period, and how periods are counted. */
+export interface ChainMarketsInfo {
+  period?: number;
+  phase?: string;
+  periodblocks?: number;
+  periodseconds?: number;
+  starttime?: number;
+}
+
+export interface ChainMarkets {
+  stem: string;
+  markets: ChainMarket[];
+  decisions?: ChainDecision[];
+  info?: ChainMarketsInfo;
 }
 
 /** A chain of a list: this app's own, or a sidechain turned on. */

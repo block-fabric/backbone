@@ -11,6 +11,7 @@
   import { openChainItem, chainGroupItems } from '../lib/chaingroups';
   import { selectedWith, type ChainEntry } from '../lib/chains.svelte';
   import { many, poll, positionValue, refreshPositions, type ChainPosition } from '../lib/manychains.svelte';
+  import { optionTexts, titleWithoutCategory } from '../lib/marketresults';
 
   let { card = false }: { card?: boolean } = $props();
 
@@ -30,6 +31,23 @@
     if (a === 'N') return t('No');
     return a ? a.split('').join(' · ') : t('Outcome %1', String(p.state));
   }
+  /** The options of a market on several decisions the outcome answers yes (text of the chain), when its decisions are known. */
+  function options(p: ChainPosition): string[] | null {
+    const ds = p.decisions ?? [];
+    if (ds.length < 2 || ds.some((d) => typeof d.text !== 'string')) return null;
+    return optionTexts(ds.map((d) => d.text!)).filter((_, i) => ((p.state >> i) & 1) === 1);
+  }
+  /** Whether a decision the vote resolved answered against the outcome held: it pays nothing, whatever the others say. */
+  function ruledOut(p: ChainPosition): boolean {
+    return (p.decisions ?? []).some((d, i) => {
+      if (d.status !== 'resolved') return false;
+      const o = Number(d.outcome);
+      return (o === 0 || o === 1) && ((p.state >> i) & 1) !== o;
+    });
+  }
+  // A position is open while its market trades or waits for the vote ("Voting": trading closed, its price the last of its
+  // trading). Once the market pays out, the chain pays every share and keeps no position: it leaves this list, and its
+  // result shows on the Markets page and the chain's own pages (doc/unified-app.md §24).
   // The chain's own Portfolio (its group's item), else its Markets.
   function openMarkets(e: ChainEntry) {
     const items = chainGroupItems(e);
@@ -59,13 +77,26 @@
       </thead>
       <tbody>
         {#each rows.slice(0, card ? 5 : 200) as { e, p } (e.id + p.market + p.state + p.account)}
+          {@const named = options(p)}
+          {@const out = ruledOut(p)}
           <tr data-position={p.market}>
             {#if chains.length > 1}<td><ChainBadge id={e.id} name={e.name} small /></td>{/if}
-            <td class="market"><SafeText text={p.text || `${p.market.slice(0, 12)}…`} />{#if p.status && p.status !== 'trading'}{' '}<span class="badge"><SafeText text={p.status} /></span>{/if}</td>
-            <td><span class="badge accent">{outcome(p)}</span></td>
+            <td class="market"><SafeText text={titleWithoutCategory(p.text ?? '') || `${p.market.slice(0, 12)}…`} />{#if p.status === 'closed'}{' '}<span class="badge warning" data-position-status="closed">{t('Voting')}</span>{:else if p.status && p.status !== 'trading'}{' '}<span class="badge" data-position-status={p.status}><SafeText text={p.status} /></span>{/if}</td>
+            <td>
+              {#if named}
+                <span class="badge" class:accent={!out}>{#if named.length}{#each named as o, i (i)}{#if i > 0}{' + '}{/if}<SafeText text={o} />{/each}{:else}{t('None of them')}{/if}</span>
+              {:else}
+                <span class="badge" class:accent={!out}>{outcome(p)}</span>
+              {/if}
+            </td>
             <td class="num"><ModuleAmount text={p.shares} /></td>
-            <td class="num"><ModuleAmount text={p.price ?? null} /></td>
-            <td class="num"><strong><ModuleAmount text={positionValue(p) || null} unit={e.unit} coins /></strong></td>
+            {#if out}
+              <td class="num faint" data-ruled-out title={t('A decision the vote resolved answered against this outcome: it pays nothing')}>{t('Ruled out')}</td>
+              <td class="num"><strong><ModuleAmount text="0" unit={e.unit} coins /></strong></td>
+            {:else}
+              <td class="num" title={p.status === 'closed' ? t('Trading closed: its last price, until the vote decides what a share pays') : undefined}><ModuleAmount text={p.price ?? null} />{#if p.status === 'closed' && p.price}<span class="final faint">{t('final')}</span>{/if}</td>
+              <td class="num"><strong><ModuleAmount text={positionValue(p) || null} unit={e.unit} coins /></strong></td>
+            {/if}
           </tr>
         {:else}
           <tr><td colspan="6" class="muted">{chains.length ? t('No open positions: shares bought on a market show here.') : t('No chain of markets is shown.')}</td></tr>
@@ -129,5 +160,11 @@
   }
   .more {
     margin: 0.5rem 0 0;
+  }
+  .final {
+    margin-left: 0.35rem;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
   }
 </style>

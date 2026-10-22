@@ -71,6 +71,8 @@ struct Nodes {
     bool second_pool{false};
     //! The node says its pool kinds apply (dex-curves).
     bool curves_active{false};
+    //! A Hivemind node of before listdecisions and gethivemindinfo were the pages' (they answer an error).
+    bool old_hivemind{false};
     //! What the chain's host gives for a logo.
     std::string logo{R"({"asset":")" + ASSET + R"(","hash":")" + std::string(64, 'f') + R"(","mime":"image/png","size":4,"url":"data:image/png;base64,iVBORw0KGgo="})"};
 
@@ -147,9 +149,27 @@ struct Nodes {
         } else if (method == "listwithdrawals") {
             result = Json(R"([{"txid":")" + TXID + R"(","vout":0,"amount":1.25000000,"refundaddress":"rsc1qlayersown00","status":"waiting"},{"txid":")" + TXID + R"(","vout":1,"amount":3,"refundaddress":"rsc1qsomeoneelse","status":"bundled"}])");
         } else if (method == "getwalletpositions") {
-            result = Json(R"([{"market":")" + MARKET + R"(","account":"rsc1qhmown0","state":1,"shares":12.5},{"market":"zz","state":0,"shares":1}])");
+            result = Json(R"([{"market":")" + MARKET + R"(","account":"rsc1qhmown0","state":1,"shares":12.5},{"market":"zz","state":0,"shares":1},)"
+                          R"({"market":")" + std::string(64, '9') + R"(","account":"rsc1qhmown1","state":1,"shares":1.00000000}])");
         } else if (method == "listmarkets") {
-            result = Json(R"([{"id":")" + MARKET + R"(","text":"Rain tomorrow?","status":"trading","states":[{"state":0,"answers":"N","price":0.25},{"state":1,"answers":"Y","price":0.75000000}]}])");
+            // One trading; one paid out as the node says it: no price, its shares kept, its decision by id (one id that is
+            // not one, dropped); one on a scale.
+            result = Json(R"([{"id":")" + MARKET + R"(","text":"Rain tomorrow?","status":"trading","decisions":[")" + std::string(64, '1') + R"("],"tradinguntil":4,"states":[{"state":0,"answers":"N","price":0.25},{"state":1,"answers":"Y","price":0.75000000}]},)"
+                          R"({"id":")" + std::string(64, 'f') + R"(","text":"The bridge","status":"settled","liquidity":1.00000000,"decisions":[")" + std::string(64, '2') + R"(","nothex"],"states":[{"state":0,"answers":"N","shares":1.00000000},{"state":1,"answers":"Y","shares":3.00000000}]},)"
+                          R"({"id":")" + std::string(64, 'd') + R"(","text":"Goals","status":"settled","liquidity":1.00000000,"decisions":[")" + std::string(64, '3') + R"("],"states":[{"state":0,"answers":"N","shares":1.00000000},{"state":1,"answers":"Y","shares":0.50000000}]},)"
+                          R"({"id":")" + std::string(64, '9') + R"(","text":"The marathon","status":"closed","liquidity":2.00000000,"decisions":[")" + std::string(64, '5') + R"(",")" + std::string(64, '6') + R"("],"states":[{"state":0,"answers":"NN","shares":0,"price":0.2},{"state":1,"answers":"YN","shares":1,"price":0.4},{"state":2,"answers":"NY","shares":0,"price":0.2},{"state":3,"answers":"YY","shares":0,"price":0.2}]}])");
+        } else if (method == "listdecisions") {
+            if (old_hivemind) throw std::runtime_error{"The interface does not call listdecisions"};
+            // The three the markets are about, one no market is about (not passed on), one of nested data (only its plain fields).
+            result = Json(R"([{"id":")" + std::string(64, '1') + R"(","text":"Will it rain tomorrow?","scaled":false,"eventperiod":4,"voteperiods":1,"closeperiod":5,"status":"open","author":"rsc1qauthor"},)"
+                          R"({"id":")" + std::string(64, '2') + R"(","text":"Did the bridge open?","scaled":false,"eventperiod":0,"closeperiod":1,"status":"resolved","outcome":1.00000000,"answer":"yes","votes":[{"voter":"x"}]},)"
+                          R"({"id":")" + std::string(64, '3') + R"(","text":"How many goals?","scaled":true,"min":0,"max":10,"eventperiod":0,"closeperiod":1,"status":"resolved","outcome":0.40000000,"answer":4},)"
+                          R"({"id":")" + std::string(64, '5') + R"(","text":"Who wins the marathon? — Carl","scaled":false,"eventperiod":0,"closeperiod":1,"status":"resolved","outcome":0.00000000,"answer":"no"},)"
+                          R"({"id":")" + std::string(64, '6') + R"(","text":"Who wins the marathon? — Dan","scaled":false,"eventperiod":0,"closeperiod":3,"status":"voting"},)"
+                          R"({"id":")" + std::string(64, '4') + R"(","text":"Unrelated","scaled":false,"status":"open"}])");
+        } else if (method == "gethivemindinfo") {
+            if (old_hivemind) throw std::runtime_error{"The interface does not call gethivemindinfo"};
+            result = Json(R"({"period":3,"phase":"seal","periodblocks":6,"decisions":4,"markets":3,"voters":2,"reputation":100,"voterpot":0.0042})");
         } else if (method == "getrawmempool") {
             result = Json(R"({")" + std::string(64, '1') + R"(":{"time":5,"vsize":141,"fees":{"base":0.00000141}},")" + std::string(64, '2') + R"(":{"time":9,"vsize":200,"fees":{"base":0.0000025}},"bad":{"time":99}})");
         } else if (method == "listunspent") {
@@ -389,17 +409,76 @@ BOOST_AUTO_TEST_CASE(positions_of_the_wallet_with_their_market)
     const UniValue out{adapter.Positions(P(R"({"stem":"hivemind"})"))};
     const UniValue& rows{out.find_value("positions")};
     // The row with a market that is not one is dropped.
-    BOOST_REQUIRE_EQUAL(rows.size(), 1U);
+    BOOST_REQUIRE_EQUAL(rows.size(), 2U);
     BOOST_CHECK_EQUAL(rows[0].find_value("text").get_str(), "Rain tomorrow?");
     BOOST_CHECK_EQUAL(rows[0].find_value("answers").get_str(), "Y");
     BOOST_CHECK_EQUAL(rows[0].find_value("price").get_str(), "0.75000000");
     BOOST_CHECK_EQUAL(rows[0].find_value("shares").get_str(), "12.5");
     BOOST_CHECK_EQUAL(rows[0].find_value("status").get_str(), "trading");
+    // A market that no longer trades: its decisions in order, plain fields (what the vote made of them rules an outcome out).
+    BOOST_CHECK_EQUAL(rows[1].find_value("status").get_str(), "closed");
+    const UniValue& ds{rows[1].find_value("decisions")};
+    BOOST_REQUIRE_EQUAL(ds.size(), 2U);
+    BOOST_CHECK_EQUAL(ds[0].find_value("text").get_str(), "Who wins the marathon? — Carl");
+    BOOST_CHECK_EQUAL(ds[0].find_value("outcome").get_str(), "0.00000000");
+    BOOST_CHECK_EQUAL(ds[1].find_value("status").get_str(), "voting");
+    BOOST_CHECK(rows[0].find_value("decisions").isNull() || rows[0].find_value("decisions")[0].find_value("text").get_str() == "Will it rain tomorrow?");
     // Reads of the chain's own pages' policy, with the wallet; never on a chain without markets.
     BOOST_CHECK(std::ranges::any_of(nodes.rpcs, [](const auto& r) { return r.method == "webuihost" && r.params[0].find_value("method").get_str() == "getwalletpositions" && r.params[0].find_value("wallet").get_str() == "main"; }));
     BOOST_CHECK_EQUAL(Code([&] { adapter.Positions(P(R"({"stem":"layers"})")); }), BRIDGE_INVALID_REQUEST);
     nodes.read_asks = true;
     BOOST_CHECK_EQUAL(Code([&] { adapter.Positions(P(R"({"stem":"hivemind"})")); }), BRIDGE_INVALID_REQUEST);
+}
+
+BOOST_AUTO_TEST_CASE(markets_with_their_decisions_and_the_clock)
+{
+    Nodes nodes;
+    nodes.up = {"layers", "thunder", "hivemind"};
+    ChainAdapter adapter{nodes.Hooks()};
+    const UniValue out{adapter.Markets(P(R"({"stem":"hivemind"})"))};
+    const UniValue& rows{out.find_value("markets")};
+    BOOST_REQUIRE_EQUAL(rows.size(), 4U);
+    // Each market with the ids of its decisions (an id that is not one dropped), its shares kept exactly: a market that
+    // paid out has no price, its result is in its decisions.
+    BOOST_CHECK_EQUAL(rows[0].find_value("tradinguntil").getInt<int>(), 4);
+    BOOST_CHECK_EQUAL(rows[1].find_value("status").get_str(), "settled");
+    BOOST_REQUIRE_EQUAL(rows[1].find_value("decisions").size(), 1U);
+    BOOST_CHECK_EQUAL(rows[1].find_value("decisions")[0].get_str(), std::string(64, '2'));
+    BOOST_CHECK_EQUAL(rows[1].find_value("states")[1].find_value("shares").get_str(), "3.00000000");
+    BOOST_CHECK(rows[1].find_value("states")[1].find_value("price").isNull());
+    BOOST_CHECK_EQUAL(rows[1].find_value("liquidity").get_str(), "1.00000000");
+    // Only the decisions the markets are about, their plain fields (no votes), outcomes exactly as the node wrote them.
+    const UniValue& ds{out.find_value("decisions")};
+    BOOST_REQUIRE_EQUAL(ds.size(), 5U);
+    BOOST_CHECK(std::ranges::none_of(ds.getValues(), [](const UniValue& d) { return d.find_value("text").get_str() == "Unrelated"; }));
+    BOOST_CHECK_EQUAL(ds[1].find_value("outcome").get_str(), "1.00000000");
+    BOOST_CHECK_EQUAL(ds[1].find_value("answer").get_str(), "yes");
+    BOOST_CHECK(ds[1].find_value("votes").isNull() && ds[1].find_value("author").isNull());
+    BOOST_CHECK_EQUAL(ds[2].find_value("answer").getInt<int>(), 4);
+    BOOST_CHECK_EQUAL(ds[2].find_value("max").getInt<int>(), 10);
+    // The clock: the period and how periods are counted.
+    BOOST_CHECK_EQUAL(out.find_value("info").find_value("period").getInt<int>(), 3);
+    BOOST_CHECK_EQUAL(out.find_value("info").find_value("periodblocks").getInt<int>(), 6);
+    BOOST_CHECK(out.find_value("info").find_value("voterpot").isNull());
+    // Reads of the chain's own pages' policy, no wallet; the methods the app's user is given at that daemon.
+    for (const char* m : {"listmarkets", "listdecisions", "gethivemindinfo"}) {
+        BOOST_CHECK_MESSAGE(std::ranges::any_of(nodes.rpcs, [&](const auto& r) { return r.method == "webuihost" && r.params[0].find_value("method").get_str() == m && r.params[0].find_value("wallet").isNull(); }), m);
+        BOOST_CHECK_MESSAGE(std::ranges::count(ChainAdapter::MethodsUsed("hivemind"), std::string{m}) == 1, m);
+    }
+    // A node of before those reads: the markets as they were, no decisions, no clock.
+    nodes.old_hivemind = true;
+    const UniValue old{adapter.Markets(P(R"({"stem":"hivemind"})"))};
+    BOOST_CHECK_EQUAL(old.find_value("markets").size(), 4U);
+    BOOST_CHECK_EQUAL(old.find_value("decisions").size(), 0U);
+    BOOST_CHECK(old.find_value("info").isNull());
+    // A read that asks is refused, not asked; never on a chain without markets, nor on one whose node is not running.
+    nodes.old_hivemind = false;
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Markets(P(R"({"stem":"layers"})")); }), BRIDGE_INVALID_REQUEST);
+    nodes.read_asks = true;
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Markets(P(R"({"stem":"hivemind"})")); }), BRIDGE_INVALID_REQUEST);
+    nodes.read_asks = false;
+    nodes.up = {"layers"};
+    BOOST_CHECK_EQUAL(Code([&] { adapter.Markets(P(R"({"stem":"hivemind"})")); }), BRIDGE_NOT_READY);
 }
 
 BOOST_AUTO_TEST_CASE(activity_of_a_chain_its_blocks_and_mempool)

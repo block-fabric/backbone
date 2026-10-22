@@ -125,7 +125,9 @@ std::vector<std::string> ChainAdapter::MethodsUsed(std::string_view stem)
     }
     if (caps->staking) add({"getposinfo", "getstakinginfo", "getvalidators", "listbonds"});
     if (caps->names) add({"listmynames"});
-    if (caps->markets) add({"listmarkets", "getwalletpositions"});
+    // Markets: the markets, their decisions (what the vote made of them: a market that paid out shows its result) and the
+    // chain's clock of periods (when a market paid); the wallet's positions.
+    if (caps->markets) add({"listmarkets", "listdecisions", "gethivemindinfo", "getwalletpositions"});
     if (caps->shielded) add({"getshieldedbalance", "getshieldedaddress", "sendshielded"});
     std::ranges::sort(m);
     m.erase(std::unique(m.begin(), m.end()), m.end());
@@ -1097,8 +1099,18 @@ UniValue ChainAdapter::Markets(const UniValue& params) const
     if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
     const UniValue list{PageRead(stem, "listmarkets", UniValue{UniValue::VARR}, "")};
     UniValue rows{UniValue::VARR};
+    std::set<std::string> referenced;
     for (size_t i{0}; list.isArray() && i < list.size() && i < 200; ++i) {
-        UniValue row{PlainFields(list[i], {"id", "text", "status", "liquidity", "feebps", "height", "treasury", "fees"})};
+        UniValue row{PlainFields(list[i], {"id", "text", "status", "liquidity", "feebps", "height", "treasury", "fees", "tradinguntil"})};
+        // The decisions it is about (at most 4 on the chain), by id: what the vote made of them is the market's result.
+        UniValue ids{UniValue::VARR};
+        const UniValue& d{list[i].find_value("decisions")};
+        for (size_t j{0}; d.isArray() && j < d.size() && j < 4; ++j) {
+            if (!d[j].isStr() || !IsHex64(d[j].get_str())) continue;
+            ids.push_back(d[j].get_str());
+            referenced.insert(d[j].get_str());
+        }
+        row.pushKV("decisions", std::move(ids));
         UniValue states{UniValue::VARR};
         const UniValue& s{list[i].find_value("states")};
         for (size_t j{0}; s.isArray() && j < s.size() && j < 16; ++j) states.push_back(PlainFields(s[j], {"state", "answers", "shares", "price"}));
@@ -1108,6 +1120,29 @@ UniValue ChainAdapter::Markets(const UniValue& params) const
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
     out.pushKV("markets", std::move(rows));
+    // The decisions of those markets, with their outcome once resolved: a market that paid out has no price any more, its
+    // result is there (a node without them leaves the markets as they were: their prices).
+    UniValue decisions{UniValue::VARR};
+    if (!referenced.empty()) {
+        try {
+            const UniValue all{PageRead(stem, "listdecisions", UniValue{UniValue::VARR}, "")};
+            for (size_t i{0}; all.isArray() && i < all.size() && i < 5000 && decisions.size() < referenced.size(); ++i) {
+                if (!referenced.contains(Str(all[i], "id"))) continue;
+                decisions.push_back(PlainFields(all[i], {"id", "text", "scaled", "min", "max", "eventperiod", "closeperiod", "status", "outcome", "answer"}));
+            }
+        } catch (const HostError&) {
+            throw;
+        } catch (const std::exception&) {
+        }
+    }
+    out.pushKV("decisions", std::move(decisions));
+    // The clock of the periods: when a market that paid out was paid (a height where periods are counted in blocks).
+    try {
+        out.pushKV("info", PlainFields(PageRead(stem, "gethivemindinfo", UniValue{UniValue::VARR}, ""), {"period", "phase", "periodblocks", "periodseconds", "starttime"}));
+    } catch (const HostError&) {
+        throw;
+    } catch (const std::exception&) {
+    }
     return out;
 }
 
@@ -1122,6 +1157,26 @@ UniValue ChainAdapter::Positions(const UniValue& params) const
     std::map<std::string, const UniValue*> by_id;
     for (size_t i{0}; markets.isArray() && i < markets.size() && i < 1000; ++i) {
         if (IsHex64(Str(markets[i], "id"))) by_id.emplace(Str(markets[i], "id"), &markets[i]);
+    }
+    // The decisions of the markets held in, when one is about several (its outcome named by their options) or no longer
+    // trades (a decision resolved may rule the outcome held out, doc/unified-app.md §24): read once, plain fields only.
+    std::map<std::string, UniValue> decisions;
+    const bool want_decisions{std::ranges::any_of(held.isArray() ? held.getValues() : std::vector<UniValue>{}, [&](const UniValue& p) {
+        const auto it{by_id.find(Str(p, "market"))};
+        if (it == by_id.end()) return false;
+        const UniValue& ds{it->second->find_value("decisions")};
+        return Str(*it->second, "status") != "trading" || (ds.isArray() && ds.size() > 1);
+    })};
+    if (want_decisions) {
+        try {
+            const UniValue all{PageRead(stem, "listdecisions", UniValue{UniValue::VARR}, "")};
+            for (size_t i{0}; all.isArray() && i < all.size() && i < 5000; ++i) {
+                if (IsHex64(Str(all[i], "id"))) decisions.emplace(Str(all[i], "id"), PlainFields(all[i], {"text", "scaled", "status", "outcome"}));
+            }
+        } catch (const HostError&) {
+            throw;
+        } catch (const std::exception&) {
+        }
     }
     UniValue rows{UniValue::VARR};
     for (size_t i{0}; held.isArray() && i < held.size() && rows.size() < 200; ++i) {
@@ -1144,6 +1199,16 @@ UniValue ChainAdapter::Positions(const UniValue& params) const
                 row.pushKV("answers", Line(Str(states[j], "answers"), 16));
                 if (Param(states[j], "price").isNum()) row.pushKV("price", AmountText(Param(states[j], "price")));
                 break;
+            }
+            // Its decisions, in order (the state's bits), when they were read.
+            const UniValue& ids{m.find_value("decisions")};
+            if (!decisions.empty() && ids.isArray() && ids.size() <= 4) {
+                UniValue ds{UniValue::VARR};
+                for (const UniValue& d : ids.getValues()) {
+                    const auto found{d.isStr() ? decisions.find(d.get_str()) : decisions.end()};
+                    ds.push_back(found != decisions.end() ? found->second : UniValue{UniValue::VOBJ});
+                }
+                row.pushKV("decisions", std::move(ds));
             }
         }
         rows.push_back(std::move(row));
