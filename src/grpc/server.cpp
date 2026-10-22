@@ -734,6 +734,8 @@ private:
         bool trailers_sent{false};
         //! Since when its replies wait for a flow-control window the client does not open.
         std::optional<NodeClock::time_point> blocked_since;
+        //! Counted among the streams reset (Connection::Impl::m_abandoned), once.
+        bool counted{false};
     };
 
     bool Flush()
@@ -863,10 +865,10 @@ private:
     static int OnFrameRecv(nghttp2_session* session, const nghttp2_frame* frame, void* user)
     {
         auto& self{*static_cast<Http2*>(user)};
-        // Every stream the client resets counts (Rapid Reset: a call cancelled as soon as asked is work for nothing).
-        if (frame->hd.type == NGHTTP2_RST_STREAM) ++self.m_abandoned;
         const auto it{self.m_streams.find(frame->hd.stream_id)};
         if (it == self.m_streams.end()) return 0;
+        // Every stream the client resets counts (Rapid Reset: a call cancelled as soon as asked is work for nothing).
+        if (frame->hd.type == NGHTTP2_RST_STREAM) self.CountReset(it->second);
         Request& r{it->second.request};
         if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
             BeginCall(self.m_server, r, /*http2=*/true);
@@ -928,11 +930,22 @@ private:
         return 0;
     }
 
-    static int OnStreamClose(nghttp2_session*, int32_t id, uint32_t, void* user)
+    void CountReset(Stream& stream)
+    {
+        if (stream.counted) return;
+        stream.counted = true;
+        ++m_abandoned;
+    }
+
+    static int OnStreamClose(nghttp2_session*, int32_t id, uint32_t error_code, void* user)
     {
         auto& self{*static_cast<Http2*>(user)};
         const auto it{self.m_streams.find(id)};
         if (it == self.m_streams.end()) return 0;
+        // A stream closed before its call was over counts as reset, whoever reset it: a client can make the server
+        // reset streams (malformed or oversized frames, flow-control errors: MadeYouReset) as well as reset them.
+        const Request& r{it->second.request};
+        if (!r.ended || error_code != NGHTTP2_NO_ERROR || (r.call && !r.call->GetState().finished)) self.CountReset(it->second);
         if (it->second.request.call) it->second.request.call->Cancel();
         self.m_buffered -= it->second.buffered;
         self.m_server.Release(it->second.buffered);
@@ -1274,6 +1287,10 @@ bool Server::Start(const std::vector<CService>& binds, const std::vector<CSubNet
         return false;
     }
     for (const std::string& e : errors) LogWarning("gRPC: %s", e);
+    // nghttp2 fixed MadeYouReset (CVE-2025-8671) in 1.66; the limit on streams reset here stands either way.
+    if (const nghttp2_info* info{nghttp2_version(0)}; info && info->version_num < 0x014200) {
+        LogWarning("gRPC: nghttp2 %s is older than 1.66 (without its MadeYouReset fix, CVE-2025-8671); the node bounds streams reset itself, an update of libnghttp2 is advised", info->version_str);
+    }
     m_workers = std::make_unique<ThreadPool>("grpc");
     m_workers->Start(std::max(1, m_options.threads));
     m_accept_thread = std::thread(&util::TraceThread, "grpcaccept", [this] { AcceptLoop(); });
