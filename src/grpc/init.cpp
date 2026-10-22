@@ -133,6 +133,10 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
     options.max_abandoned_requests = 100;
     // Above the 256 MiB a SubscribeEvents subscriber may let pile up before it is ended (as the enforcer's).
     options.max_call_buffer = 320 << 20;
+    // A slow reader: what a connection holds of replies at most (a call's bound and what waits for the socket), and at
+    // least 4 KiB a second taken of them while they wait (or all of them), counted over the 30 s.
+    options.max_reply_buffer = 384 << 20;
+    options.min_read_bytes_per_second = 4 << 10;
     options.request_timeout_seconds = 15;
     options.idle_timeout_seconds = 30;
     options.allowed_origins = args.GetArgs("-grpcallowedorigin");

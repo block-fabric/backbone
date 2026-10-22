@@ -896,6 +896,91 @@ struct H2Bytes {
 };
 } // namespace
 
+BOOST_AUTO_TEST_CASE(slow_reader_bounded)
+{
+    // A client that takes a byte now and then (slow reads) used to keep its connection open with the server moving
+    // every reply into its unsent bytes, without bound. Now: backpressure (no more taken from the call above
+    // REPLY_HIGH_WATER waiting), the call ends at its own bound, and the client is closed for reading too little.
+    grpcsrv::Options options;
+    options.write_timeout_seconds = 1;
+    options.min_read_bytes_per_second = 64 << 10;
+    // A call's bound above what the loopback sockets hold, so that replies keep waiting on the server's side.
+    options.max_call_buffer = 16 << 20;
+    options.max_reply_buffer = 32 << 20;
+    options.idle_timeout_seconds = 30;
+    options.threads = 2;
+    grpcsrv::Server server{Pool(), options};
+    constexpr size_t MESSAGES{4096}, MESSAGE_HEX{64 << 10};
+    std::atomic<size_t> written{0};
+    std::atomic<bool> refused{false};
+    // A server stream that would write 256 MiB as fast as it can.
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "SubscribeEvents", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        Message resp{New("cusf.crypto.v1.Ripemd160Response")};
+        SetWrapped(resp, "digest", std::string(MESSAGE_HEX, 'a'));
+        for (size_t i{0}; i < MESSAGES; ++i) {
+            if (!w->Write(resp)) {
+                refused = true;
+                break;
+            }
+            ++written;
+        }
+        w->Finish({});
+    }));
+    // A server stream of small events, a few a second, as SubscribeEvents is in use.
+    BOOST_REQUIRE(server.Register("cusf.mainchain.v1.ValidatorService", "SubscribeHeaderSyncProgress", [&](const Message&, const std::shared_ptr<grpcsrv::Writer>& w) {
+        Message resp{New("cusf.crypto.v1.Ripemd160Response")};
+        SetWrapped(resp, "digest", std::string(40, 'b'));
+        for (int i{0}; i < 100 && w->Write(resp); ++i) std::this_thread::sleep_for(25ms);
+        w->Finish({});
+    }));
+    std::string error;
+    BOOST_REQUIRE_MESSAGE(server.Start({*Assert(Lookup("127.0.0.1", 0, /*fAllowLookup=*/false))}, {}, error), error);
+    const CService to{server.Bound().at(0)};
+    const auto ask{[](const std::string& method) {
+        const std::string body{Envelope("{}")};
+        return strprintf("POST /cusf.mainchain.v1.ValidatorService/%s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/connect+json\r\nContent-Length: %u\r\n\r\n", method, body.size()) + body;
+    }};
+    {
+        RawClient c{to};
+        BOOST_REQUIRE(c.Send(ask("SubscribeEvents")));
+        const auto start{NodeClock::now()};
+        // One byte every 50 ms for 4 s: 20 bytes a second, far under 64 KiB.
+        while (!c.closed && NodeClock::now() - start < 4s) {
+            Sock::Event occurred{0};
+            if (!c.sock->Wait(50ms, Sock::RecvEvent, &occurred)) break;
+            if (occurred & Sock::RecvEvent) {
+                char b;
+                const ssize_t n{c.sock->Recv(&b, 1, 0)};
+                if (n <= 0) {
+                    c.closed = true;
+                    break;
+                }
+                c.in.push_back(b);
+            }
+            std::this_thread::sleep_for(50ms);
+        }
+        // Closed by then for reading too little: what the sockets still hold comes, then the end.
+        BOOST_CHECK(c.closed || c.ReadFor(10s));
+        // What the server took from the call stayed bounded: its own bound, what waits for the socket and what the
+        // sockets hold; not the 256 MiB the call would write.
+        BOOST_CHECK(refused.load());
+        BOOST_CHECK_MESSAGE(written.load() * MESSAGE_HEX < size_t{48} << 20, written.load() * MESSAGE_HEX);
+    }
+    {
+        // A client that reads as the events come is not cut: all of them, then the end of the stream.
+        RawClient c{to};
+        BOOST_REQUIRE(c.Send(ask("SubscribeHeaderSyncProgress")));
+        const auto start{NodeClock::now()};
+        while (!c.closed && NodeClock::now() - start < 10s && c.in.find("0\r\n\r\n") == std::string::npos) c.ReadFor(100ms);
+        BOOST_CHECK(c.in.starts_with("HTTP/1.1 200"));
+        BOOST_CHECK(c.in.find("0\r\n\r\n") != std::string::npos);
+        size_t events{0};
+        for (size_t at{0}; (at = c.in.find(std::string(40, 'b'), at)) != std::string::npos; at += 40) ++events;
+        BOOST_CHECK_EQUAL(events, 100U);
+    }
+    server.Stop();
+}
+
 BOOST_AUTO_TEST_CASE(flow_control_and_rapid_reset)
 {
     grpcsrv::Options options;

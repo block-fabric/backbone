@@ -187,9 +187,11 @@ the same for the ValidatorService. What is added, from the security review of 20
    stream from its own HEADERS), else the connection is closed; a connection with no call running that began or
    completed no request for 30 s is closed, over HTTP/2 with a GOAWAY first (gRPC clients open another; a call
    sent meanwhile is above its last stream id, so retried); bytes alone are not activity (PINGs, SETTINGS); a
-   client that takes no byte of its replies for 30 s is closed (slow reads: replies waiting in the socket, in a
-   call or behind HTTP/2 flow control all count; a stream whose window stays closed 30 s is reset); a call's
-   unsent replies are at most 320 MiB (then RESOURCE_EXHAUSTED; SubscribeEvents ends its subscriber at 256 MiB
+   client whose replies wait must take at least 4 KiB a second of them (or all that waited) over each 30 s, else
+   it is closed: a byte now and then does not keep it open (slow reads: replies waiting in the socket, in a call
+   or behind HTTP/2 flow control all count; a stream whose window stays closed 30 s is reset); above 1 MiB
+   waiting for the socket nothing more is taken from the calls (backpressure), and a connection holding more than
+   384 MiB of replies in all is closed; a call's unsent replies are at most 320 MiB (then RESOURCE_EXHAUSTED; SubscribeEvents ends its subscriber at 256 MiB
    first, as the enforcer); past 100 streams reset before their call was over, by the client (Rapid Reset, stream
    rotation) or by the server because of the client (MadeYouReset, CVE-2025-8671: oversized or malformed
    frames), each counted once, the connection is closed with a GOAWAY (nghttp2's own reset rate limit too; depends

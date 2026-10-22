@@ -78,6 +78,9 @@ using Handler = std::function<void(const pb::Message& request, const std::shared
 /** A check of each call (its path and headers, names in lower case) before it runs; a status refuses it. */
 using Guard = std::function<std::optional<Status>(const std::string& path, const std::map<std::string, std::string>& headers)>;
 
+//! Reply bytes waiting for the socket above which a connection takes nothing more from its calls (backpressure).
+inline constexpr size_t REPLY_HIGH_WATER{1 << 20};
+
 struct Options {
     //! Largest request message, in bytes.
     size_t max_request_bytes{16 << 20};
@@ -96,8 +99,16 @@ struct Options {
     std::vector<CSubNet> per_ip_exempt;
     //! IPv6 clients are counted by this prefix (a client usually has a /64 to rotate addresses in); IPv4 by address.
     int ipv6_prefix{64};
-    //! Close a connection whose replies the peer took no byte of for this long (slow reads); 0: never.
+    //! Close a connection whose replies the peer took no byte of for this long (slow reads); 0: never. With
+    //! min_read_bytes_per_second, over each such window it must take at least that many bytes a second (or all that
+    //! was waiting when the window began, if less).
     int write_timeout_seconds{0};
+    size_t min_read_bytes_per_second{0};
+    //! Reply bytes one connection may hold at once (0: no bound): those not sent to the socket yet, those of the
+    //! protocol layer and those its calls wrote and did not hand over; past it the connection is closed. Above
+    //! REPLY_HIGH_WATER bytes waiting for the socket, nothing more is taken from the calls (backpressure: their own
+    //! bound, max_call_buffer, then ends them).
+    size_t max_reply_buffer{0};
     //! Past this many requests (0: no bound), a connection takes no new one (HTTP/2: GOAWAY) and is closed once its
     //! calls are over; past this many streams the client reset (Rapid Reset), it is closed at once.
     uint64_t max_requests_per_connection{0};
@@ -200,6 +211,10 @@ public:
     std::optional<NodeClock::time_point> OldestRequest() const;
     /** Reply bytes the calls wrote and the connection has not taken yet (HTTP/2: held back by flow control). */
     size_t Undelivered() const;
+    /** Every reply byte the connection holds: Undelivered, and what the protocol layer made and TakeOutput did not take. */
+    size_t Buffered() const;
+    /** Take nothing more from the calls while `hold` (backpressure: the socket does not take what is waiting). */
+    void Hold(bool hold);
     /** Take no new request (HTTP/2: GOAWAY); the running calls go on. */
     void Drain();
     /** Requests begun, all in, and streams the client reset. */
