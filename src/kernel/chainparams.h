@@ -186,6 +186,9 @@ public:
             uint32_t fork_bits{0};
             uint32_t replay_locktime{499'999'998};
             std::set<uint256> repurpose_txids{};
+            //! -ecashregtest: the network identity of eCash's regtest (message start eca5b134, port 18644,
+            //! bech32 prefix bcrt), so that this node peers with ecash-com/bitcoin -regtest.
+            bool ecash_regtest{false};
         };
         std::optional<EcashOptions> ecash{};
     };

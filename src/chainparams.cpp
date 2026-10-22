@@ -131,8 +131,23 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
         options.drivechain_params.emplace_back(arg.substr(0, found), *value);
     }
     // Regtest under eCash's rules, for the tests of the eCash networks.
-    if (args.GetBoolArg("-testecash", false)) {
+    // -ecashregtest: the regtest of eCash's own node (same message start, port, address prefix and replay rule).
+    std::optional<uint32_t> ecash_regtest_locktime;
+    if (const auto build{args.GetArg("-ecashregtest")}; build && !args.IsArgNegated("-ecashregtest")) {
+        if (*build == "betanet" || *build == "" || *build == "1") {
+            ecash_regtest_locktime = 499'999'999; // LOCKTIME_THRESHOLD - 1: the betanet branch of ecash-com/bitcoin
+        } else if (*build == "ecash" || *build == "main") {
+            ecash_regtest_locktime = 499'999'998; // LOCKTIME_THRESHOLD - 2: tag ecash-v1.0.0-core31.1
+        } else {
+            throw std::runtime_error(strprintf("Invalid value (%s) for -ecashregtest (betanet or ecash).", *build));
+        }
+    }
+    if (args.GetBoolArg("-testecash", false) || ecash_regtest_locktime) {
         auto& ecash{options.ecash.emplace()};
+        if (ecash_regtest_locktime) {
+            ecash.ecash_regtest = true;
+            ecash.replay_locktime = *ecash_regtest_locktime;
+        }
         if (const auto fork{args.GetArg("-testecashfork")}) {
             const auto found{fork->find('@')};
             const auto height{found == std::string::npos ? std::nullopt : ToIntegral<int32_t>(fork->substr(0, found))};
@@ -152,7 +167,7 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
             ecash.repurpose_txids.insert(*hash);
         }
     } else if (args.IsArgSet("-testecashfork") || args.IsArgSet("-testreplaylocktime") || args.IsArgSet("-testrepurposetx")) {
-        throw std::runtime_error("-testecashfork, -testreplaylocktime and -testrepurposetx need -testecash.");
+        throw std::runtime_error("-testecashfork, -testreplaylocktime and -testrepurposetx need -testecash (or -ecashregtest).");
     }
 
     HandleDeploymentArgs(args, options.dep_opts);
