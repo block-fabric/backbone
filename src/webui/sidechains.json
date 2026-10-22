@@ -10,17 +10,17 @@
     {
       "stem": "fastblocks",
       "repo": "fastblocks",
-      "commit": "09480adaad4deb202c68596a832605c3b30879a7"
+      "commit": "bb4c7078f5fd3c03e3f5c198369955194670d39a"
     },
     {
       "stem": "thunder",
       "repo": "thunder",
-      "commit": "8debdcf853df4869ec0473d6984717e4c3fa8f60"
+      "commit": "5f698d6a25e979631085262ba0d3a6faf699ac88"
     },
     {
       "stem": "bitnames",
       "repo": "bitnames",
-      "commit": "95ce568299c96a1f10ddcb9b4adde9832ac99581"
+      "commit": "49e06a02a2e21391d4590b35bc63988cf0a9099e"
     },
     {
       "stem": "bitassets",
@@ -30,7 +30,7 @@
     {
       "stem": "zside",
       "repo": "zside",
-      "commit": "8c327a20e81cbfbd89abfdf2ee6f20b9890ad92d"
+      "commit": "28b3e6da8fbe8883d38b39eb4627517999c2892d"
     },
     {
       "stem": "hivemind",
