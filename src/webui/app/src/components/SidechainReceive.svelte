@@ -21,6 +21,8 @@
   let label = $state('');
   let shielded = $state(false);
   let address = $state('');
+  /** Whether the address shown is a private (shielded) one: what it was made as, not what the box says now. */
+  let shownShielded = $state(false);
   let deposit = $state('');
   let busy = $state(false);
   let error = $state('');
@@ -44,7 +46,9 @@
     busy = true;
     error = '';
     try {
-      address = (await chainHost.receive(stem, wallet || undefined, label.trim(), shielded)).address;
+      const asked = shielded;
+      address = (await chainHost.receive(stem, wallet || undefined, label.trim(), asked)).address;
+      shownShielded = asked;
     } catch (e) {
       error = errorText(e);
     } finally {
@@ -101,7 +105,7 @@
     <div class="address" data-receive-address={address}>
       <QrCode text={address} size={180} label={t('QR code of the address')} />
       <div class="stack">
-        <span class="muted small">{t('Your %1 address', name)}<span class="dot-sep">{' · '}</span><span translate="no"><SafeText text={wallet} /></span></span>
+        <span class="muted small">{shownShielded ? t('Your private %1 address', name) : t('Your %1 address', name)}<span class="dot-sep">{' · '}</span><span translate="no"><SafeText text={wallet} /></span></span>
         <span class="mono break big"><SafeText text={address} /></span>
         <CopyButton text={address} label={t('Copy address')} iconOnly={false} />
         <span class="muted small">{t('Only for coins on %1: coins sent from another chain would not arrive.', name)}</span>

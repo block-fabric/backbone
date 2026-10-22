@@ -27,8 +27,13 @@
   async function shot(name) {
     $$('.toast button[aria-label="Dismiss"]').forEach((b) => b.click());
     if (T().toasts) T().toasts.list.splice(0);
+    // The notices of the mining wallet (the runner mines a block every few seconds) kept out of the pictures.
+    const hide = document.createElement('style');
+    hide.textContent = '.toasts { visibility: hidden !important; }';
+    document.head.appendChild(hide);
     await sleep(500);
     await snapshot(name);
+    hide.remove();
   }
   /** A picture in Midnight, then the same in a light theme. */
   async function shots(name, settle = 1200) {

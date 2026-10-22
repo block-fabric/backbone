@@ -253,7 +253,7 @@
 
       // Settings → Wallet → Backup phrase.
       T().go('settings', 'wallet');
-      await waitFor('the backup phrase panel', () => $$('[data-seed-settings] [data-seed-chains] li').length === 3, 30000);
+      await waitFor('the backup phrase panel', () => $$('[data-seed-settings] [data-seed-chains] li').length === 3 + EXTRA.length, 30000);
       await shot('seed-settings');
       // The passphrase changed: on seed.dat and the app's own wallet; Layers' wallet keeps its own, so a payment there
       // with the new one still goes through.
@@ -425,7 +425,7 @@
       }, 300000).catch(() => null);
       await check('restore: the same balance on every chain (Chains, Layers, Thunder)', got.chains === S.balances.chains && got.layers === S.balances.layers && got.thunder === S.balances.thunder, JSON.stringify({ got, noted: S.balances }));
       T().go('settings', 'wallet');
-      await waitFor('the backup phrase panel', () => $$('[data-seed-settings] [data-seed-chains] li').length === 3, 30000);
+      await waitFor('the backup phrase panel', () => $$('[data-seed-settings] [data-seed-chains] li').length === 3 + EXTRA.length, 30000);
       await shot('seed-restore-settings');
     } else if (S.phase === 'migrate') {
       // A wallet of before (made by the app before this version: "main"), with coins.

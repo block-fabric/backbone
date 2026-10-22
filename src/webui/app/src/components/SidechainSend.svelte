@@ -34,7 +34,7 @@
   let busy = $state(false);
   let error = $state('');
   let sent = $state<{ txid?: string } | null>(null);
-  let check = $state<{ address: string; state: 'idle' | 'checking' | 'ok' | 'bad'; text: string; own?: boolean }>({ address: '', state: 'idle', text: '' });
+  let check = $state<{ address: string; state: 'idle' | 'checking' | 'ok' | 'bad'; text: string; own?: boolean; shielded?: boolean }>({ address: '', state: 'idle', text: '' });
 
   // A link (Send on Layers, an asset's Send): taken once.
   $effect(() => {
@@ -89,7 +89,7 @@
     const timer = setTimeout(() => {
       chainHost.validate(stem, a, wallet || undefined, sh).then(
         (r) => {
-          if (address.trim() === a) check = { address: a, state: 'ok', text: r.own ? t('An address of this wallet') : '', own: r.own };
+          if (address.trim() === a) check = { address: a, state: 'ok', text: r.own ? t('An address of this wallet') : '', own: r.own, shielded: !!r.shielded };
         },
         (e) => {
           if (address.trim() === a) check = { address: a, state: 'bad', text: errorText(e) };
@@ -231,7 +231,7 @@
       {:else if check.state === 'checking'}
         <span class="muted small">{t('Checking…')}</span>
       {:else if check.state === 'ok'}
-        <span class="ok small" data-address-ok><Icon name="check" size={14} /> {t('A %1 address', name)}{#if check.own}<span class="dot-sep">{' · '}</span>{t('one of yours')}{/if}</span>
+        <span class="ok small" data-address-ok><Icon name="check" size={14} /> {check.shielded ? t('A private %1 address', name) : t('A %1 address', name)}{#if check.own}<span class="dot-sep">{' · '}</span>{t('one of yours')}{/if}</span>
       {:else}
         <span class="muted small">{t('Addresses of other chains are refused.')}</span>
       {/if}
