@@ -7,6 +7,7 @@
   import CommandPalette from '../components/CommandPalette.svelte';
   import TitleStrip from '../components/TitleStrip.svelte';
   import TxNotifier from '../components/TxNotifier.svelte';
+  import SeedFlows from '../components/SeedFlows.svelte';
   import { closeDetail, detail } from '../lib/detail.svelte';
   import { go, nav } from '../lib/nav.svelte';
   import { prefs, wallets } from '../lib/state.svelte';
@@ -74,6 +75,7 @@
     {/if}
   </div>
 </div>
+<SeedFlows />
 {#if dimmed}
   <!-- The app's own way out, whatever the module's pages do: a click on the dim, or Escape, lifts it (and a module
        cannot dim again for a few seconds). The app's trusted dialog is a window of its own, above all of this. -->

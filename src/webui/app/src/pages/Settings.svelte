@@ -17,6 +17,7 @@
   import SafeText from '../components/SafeText.svelte';
   import ThemeEditor from '../components/ThemeEditor.svelte';
   import SidechainSettings from '../components/SidechainSettings.svelte';
+  import SeedSettings from '../components/SeedSettings.svelte';
   import { effectiveColors } from '../lib/customthemes';
   import { frame } from '../lib/windowframe.svelte';
 
@@ -296,6 +297,7 @@
       </div>
     </section>
   {:else if tab === 'wallet' && options}
+    <SeedSettings />
     <section class="panel">
       <div class="panel-body form">
         <label class="check">

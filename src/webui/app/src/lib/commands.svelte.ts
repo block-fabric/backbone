@@ -1,6 +1,7 @@
 // Every action of the main window in one list: the pages, and the items of the menu bar of
 // chains-qt (bitcoingui.cpp createMenuBar), which the layouts put in tabs, sidebars, an
 // overflow menu and the command palette (doc/webui-layouts.md maps each one).
+import { seed } from './seed.svelte';
 import { hub } from './sidechains.svelte';
 import { modules, openChains, openModule, productName } from './modules.svelte';
 import { t } from './i18n.svelte';
@@ -111,6 +112,7 @@ export function buildCommands(): Command[] {
   const menus: Command[] = [
     // Your wallet
     { id: 'wallet.create', group: 'Your wallet', label: 'Create wallet…', run: to('wallets', 'create'), keywords: 'new', tip: 'Create a new wallet' },
+    { id: 'wallet.phrase', group: 'Your wallet', label: 'Backup phrase…', run: to('settings', 'wallet'), keywords: 'seed words mnemonic restore bip39 recovery', tip: 'Your backup phrase: each chain\u2019s wallet made from it, show it, change its passphrase' },
     { id: 'wallet.open', group: 'Your wallet', label: 'Open wallet…', run: to('wallets', 'open'), keywords: 'load', tip: 'Open a wallet' },
     { id: 'wallet.close', group: 'Your wallet', label: 'Close wallet…', run: to('wallets', 'close'), disabled: noWallet, keywords: 'unload', tip: 'Close wallet' },
     { id: 'wallet.closeAll', group: 'Your wallet', label: 'Close all wallets…', run: to('wallets', 'close-all'), disabled: noWallet, tip: 'Close all wallets' },
@@ -136,6 +138,7 @@ export function buildCommands(): Command[] {
     { id: 'banking.psbtClipboard', group: 'Banking', label: 'Load PSBT from clipboard…', run: to('psbt', 'clipboard'), disabled: noWallet, keywords: 'partially signed paste', tip: 'Load Partially Signed Chains Transaction from clipboard' },
     // Chains: what concerns the chain, before the tools
     { id: 'use.sidechains', group: 'Chains', label: 'Sidechains', run: to('sidechains'), shortcut: 'Alt+5', keywords: 'deposit', tip: 'Deposit to sidechains, and manage sidechain proposals and withdrawal votes' },
+    { id: 'use.moveGuide', group: 'Chains', label: 'Move coins, step by step…', run: () => (seed.open = 'move'), keywords: 'deposit withdraw sidechain guide wizard', tip: 'Move coins into a sidechain, or back, one step at a time' },
     { id: 'chains.run', group: 'Chains', label: 'Run sidechains', run: to('settings', 'sidechains'), keywords: 'nodes start stop enable layers thunder', tip: 'Turn on the sidechains this app runs, with their pages' },
     { id: 'chains.mine', group: 'Chains', label: 'Solo mine', run: to('mine'), tip: 'Mine blocks with the processor of this computer' },
     { id: 'chains.proposals', group: 'Chains', label: 'Sidechain proposals', run: to('sidechains', 'proposals'), keywords: 'ack acknowledge vote', tip: 'Propose sidechains, acknowledge proposals and vote on withdrawals in the blocks this node mines' },

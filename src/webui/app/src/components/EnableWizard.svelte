@@ -10,6 +10,8 @@
   import { errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
   import { refreshSidechains, selectChain, sidechainHost } from '../lib/sidechains.svelte';
+  import { refreshSeed, seed, seedHost } from '../lib/seed.svelte';
+  import SeedChainList from './SeedChainList.svelte';
   import { canContinue, defaultChoices, diskCheck, enablePlan, enableSteps, nextStep, previousStep, resources, type EnableStep, type SidechainEntry } from '../lib/unified';
 
   let { entry, onclose }: { entry: SidechainEntry; onclose: () => void } = $props();
@@ -39,10 +41,31 @@
     }
   }
 
+  const hasPhrase = $derived(!!seed.status?.exists);
+  $effect(() => {
+    if (!seed.status) void refreshSeed();
+  });
+
   async function turnOn() {
     phase = 'working';
     error = '';
     const plan = enablePlan(entry, choices);
+    // Its keys come from the backup phrase: the passphrase is asked once now (in the app's own window), the keys are made
+    // as soon as its node answers (doc §23).
+    if (plan.wallet === 'shared' && hasPhrase && !seed.status?.unlocked) {
+      try {
+        const r = await seedHost.unlock([entry.stem]);
+        if (r.cancelled) {
+          error = t('Its keys are made from your backup phrase with your passphrase: turn it on when you are ready, or choose a separate wallet.');
+          phase = 'asking';
+          return;
+        }
+      } catch (e) {
+        error = errorText(e);
+        phase = 'asking';
+        return;
+      }
+    }
     try {
       if (plan.setDir) await sidechainHost.setDataDir(entry.stem, plan.setDir.dir, plan.setDir.move);
       await sidechainHost.enable(entry.stem, plan.wallet);
@@ -75,7 +98,11 @@
       <div class="done">
         <span class="big" aria-hidden="true"><Icon name="check" size={28} /></span>
         <h3><SafeText text={entry.name} /> is on</h3>
-        <p>{t('Its node is starting in the background. It catches up with %1 by itself; that can take a while the first time. It is a module of this app now: switch to it at the top of the sidebar.', productName())}</p>
+        <p>{t('Its node is starting in the background. It catches up with %1 by itself; that can take a while the first time. It is in the chain selector at the top, and in the sidebar under Chain.', productName())}</p>
+        {#if choices.wallet === 'shared' && hasPhrase}
+          {@const mine = (seed.status?.chains ?? []).filter((c) => c.id === entry.stem)}
+          {#if mine.length}<SeedChainList chains={mine} />{/if}
+        {/if}
       </div>
     {:else if step === 'about'}
       <h3><SafeText text={entry.name} /></h3>
@@ -94,7 +121,7 @@
         <label class="choice" class:chosen={choices.storage === 'default'}>
           <input type="radio" name="storage" checked={choices.storage === 'default'} onchange={() => (choices.storage = 'default')} />
           <span>
-            <strong>With the data of Chains</strong> <span class="badge accent">recommended</span>
+            <span class="title"><strong>With the data of Chains</strong> <span class="badge accent">recommended</span></span>
             <span class="path"><SafeText text={entry.defaultDataDir} /></span>
             <span class="muted">One place for everything: easy to back up and to find.</span>
           </span>
@@ -124,16 +151,20 @@
         <label class="choice" class:chosen={choices.wallet === 'shared'}>
           <input type="radio" name="wallet" checked={choices.wallet === 'shared'} onchange={() => (choices.wallet = 'shared')} />
           <span>
-            <strong>Use my backup phrase</strong> <span class="badge accent">recommended</span>
-            <span class="muted">One backup phrase for Chains and every sidechain: if this computer is lost, the phrase brings all of them back.</span>
-            <span class="note"><Icon name="info" size={14} /> In this preview <SafeText text={entry.name} /> still gets keys of its own; the one phrase for all chains comes in a later version, and takes them over then.</span>
+            <span class="title"><strong>{t('Use my backup phrase')}</strong> <span class="badge accent">{t('recommended')}</span></span>
+            <span class="muted">{t('One backup phrase for %1 and every sidechain: if this computer is lost, the phrase brings all of them back.', productName())}</span>
+            {#if hasPhrase}
+              <span class="note"><Icon name="key" size={14} /> {t('Its keys are made from your phrase as it starts: you type your wallet passphrase once, in the app’s own window.')}</span>
+            {:else}
+              <span class="note"><Icon name="info" size={14} /> {t('You have no backup phrase yet (Settings → Wallet → Backup phrase): until you make one, %1 gets a wallet of its own.', entry.name)}</span>
+            {/if}
           </span>
         </label>
         <label class="choice" class:chosen={choices.wallet === 'separate'}>
           <input type="radio" name="wallet" checked={choices.wallet === 'separate'} onchange={() => (choices.wallet = 'separate')} />
           <span>
             <strong>A separate wallet for <SafeText text={entry.name} /></strong>
-            <span class="muted">Its own keys, apart from Chains. It needs its own backup.</span>
+            <span class="muted">{t('Its own keys, apart from %1 and your phrase. It needs its own backup.', productName())}</span>
           </span>
         </label>
       </fieldset>
@@ -143,7 +174,7 @@
         <span>
           <strong>Stake on this chain</strong>
           <span class="muted">Lock some of your coins on <SafeText text={entry.name} /> to help make its blocks, and earn part of its fees. You can stop and get them back later.</span>
-          <span class="note"><Icon name="info" size={14} /> Staking from the Chains app comes with sending on sidechains, in a later version. For now, leave it off: you can start staking from its page then.</span>
+          <span class="note"><Icon name="info" size={14} /> {t('Turn staking on from its Staking page once it runs (Staking, in the sidebar). Its validator key is made on this computer, never from your backup phrase.')}</span>
         </span>
       </label>
     {:else if step === 'review'}
@@ -353,5 +384,11 @@
   .error {
     color: var(--negative);
     overflow-wrap: anywhere;
+  }
+  .title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
   }
 </style>

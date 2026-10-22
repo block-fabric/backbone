@@ -12,6 +12,7 @@ import { modules, NODE_PAGE, openModule } from '../lib/modules.svelte';
 import { dispatch, setTransport, type BridgeRequest } from '../lib/bridge';
 import { nav } from '../lib/nav.svelte';
 import { hub, refreshSidechains, selectChain } from '../lib/sidechains.svelte';
+import { seed } from '../lib/seed.svelte';
 import { app, prefs } from '../lib/state.svelte';
 import { deliver, installPackRoute, onFrameMessage, packs, packUrl, registerFrame, route, wrap } from '../lib/packs.svelte';
 import {
@@ -409,8 +410,10 @@ describe('the wizards render their steps', () => {
     expect((document.querySelector('[data-action="next"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('the first-start guide: a new wallet needs the words written down; sidechains picked are turned on', async () => {
+  it('the first-start guide: with a phrase made already (Setup guide of Settings), straight on; sidechains picked are turned on', async () => {
     hub.list = structuredClone(state);
+    // The phrase itself is made in the host's own window (test/seed.test.ts): here it exists, unlocked.
+    seed.status = { exists: true, unlocked: true, nodeReady: true, firstRun: false, offer: false, minPassphrase: 8, chains: [] };
     render(FirstRunWizard, { onclose: () => {} });
     const wizard = () => document.querySelector('[data-wizard="firstrun"]') as HTMLElement;
     const next = () => document.querySelector('[data-action="next"]') as HTMLButtonElement;
@@ -418,8 +421,7 @@ describe('the wizards render their steps', () => {
     await fireEvent.click(next());
     await fireEvent.click(next());
     expect(wizard().dataset.step).toBe('backup');
-    expect(next().disabled).toBe(true);
-    await fireEvent.click(screen.getByText(/I wrote the words down/));
+    expect(wizard().textContent).toContain('You have a backup phrase on this computer');
     await fireEvent.click(next());
     expect(wizard().dataset.step).toBe('network');
     expect(wizard().textContent).toContain('regtest');
