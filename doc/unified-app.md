@@ -4,7 +4,8 @@ One app for Chains and its sidechains. Status: **one branch, `unified-main`** (�
 (supervisor, switcher, wizards) and phase 2 (the sidechains' own pages in the app, spends through the app's trusted dialog,
 §13); sidechains as modules of one shell (§14) and their programs downloaded from GitHub releases (§15); the app's own
 pages over every chain (§18); one chain selector (§19); the quality pass (§20); the hub's scale (§21); Trade, the DEX as a
-page of the app (§22); and **phase 3, the single seed (§23)**. Not merged into `main`, not pushed.
+page of the app (§22); **phase 3, the single seed (§23)**; and **every chain of the catalog first-class (§25, branch
+`unified-allchains`)**. Not merged into `main`, not pushed.
 Written 2026-10-20; phase 2 in §13; ideas taken from BitWindow in §16.
 
 ## 0. What the user decided (2026-10-20)
@@ -37,7 +38,8 @@ they were (nothing is deleted), and new work goes on `unified-main`.
 | `unified-ux2` | a8a81b5d70 | `~/skydoge/chains-ux2` | §20 | the quality pass, coin control, performance | ✓ |
 | `unified-ux3` | 5d5cddcfca | `~/skydoge/chains-ux3` | §21 | the hub's scale, Hivemind's menu, Staking whole, strips | ✓ |
 | `unified-dex` | 664feacb06 | `~/skydoge/chains-dex` | §22 | Trade (the DEX page), pools by id | ✓ |
-| **`unified-main`** | (this branch) | `~/skydoge/chains-unified` | §0.1, §23 | all of the above, then phase 3 | — |
+| **`unified-main`** | | `~/skydoge/chains-unified` | §0.1, §23 | all of the above, then phase 3 | ✓ |
+| **`unified-allchains`** | (this branch) | `~/skydoge/chains-allchains` | §25 | every chain first-class; the drop-ins' interface | — |
 
 Checked when consolidated: every branch above is an ancestor of `unified-dex` (`git merge-base --is-ancestor`), no worktree
 had changes left uncommitted, and each pinned pack of `src/webui/sidechains.json` is a commit of its sidechain's branch
@@ -633,6 +635,11 @@ sidechain by hand, downloads from the app (phase 4).
 | 61 | **No password, by choice** (§23.11) | A password is recommended, never forced: without one, said plainly before anything is made ("anyone with access to this computer can spend your coins … and read your backup phrase"), in Settings, the status bar, the sidebar and Manage wallets ("no password"); seed.dat says it in its own words. The wallets of the phrase are still encrypted from their first moment (their passphrase made from the seed, kept open by the app): no protection on this computer, but a password can be **added and removed** without making a wallet again — Core cannot take encryption away, and encrypting a wallet once its keys are in makes it generate random keys of its own and make them active (`SetupWalletGeneration` after `importdescriptors` cleared the blank flag), which the phrase would not bring back | seed_tests `without_a_password_then_one_added_then_removed`, seed.test.ts, run_seed nopass |
 | 62 | **Adding or removing the password** | Asked in the app's window (twice; removing: its consequences said, a box ticked, the password typed); the app's wallet's passphrase changed first, then seed.dat, or neither (a refusal changes nothing; a failed write changes the wallet back); adding locks every wallet of the phrase at once, removing keeps them open; the sidechains' wallets keep their passphrases (made from the seed), so no sidechain sees the password. **Found by review (MEDIUM, fixed):** the app opening a wallet by itself (KeepOpen) looked at the mode then opened, so a password added in between could be followed by a late open of a wallet just locked, and an import begun without a password kept its wallet open at its end: now the mode is looked at and the wallet opened under the lock adding or removing a password holds (`m_protect_mutex`; one waits for the other, a wallet opened before is locked by AddPassword), an import's end looks again under it, no password is added or removed while keys are being made and no import starts meanwhile, and a sidechain's question asked without a field sends nothing if a password came meanwhile. **Residual:** as #53, a crash between the wallet and seed.dat leaves them out of step | seed_tests (a refusal changes nothing; `a_password_added_while_wallets_are_opened_leaves_them_locked`: fails 5/5 without the lock), sidechainpages_tests, run_seed nopass (locked then open, checked by the runner on each node) |
 | 63 | **zSide's private funds** (§23.13) | Never from the phrase (the catalog's `phrase_keys`, the supervisor's wallet mode, the enable wizard): its shielded keys are not made from it. Said wherever the phrase is said to cover the sidechains (the first start, the picker, the enable wizard, Settings → Backup phrase, the restore), with its own backup offered right there (and, in a restore, its own restore) | supervisor_tests `zside_keeps_its_own_wallet`, seed_tests `zside_is_never_from_the_phrase`, seed.test.ts, run_seed nopass |
+| 65 | **A validator key made by the app** (§25.2) | Random, never the phrase, written once 0600 in the chain's network folder, never sent; kept when there; its payout an address of the chain's wallet (plain text only); not callable by packs | supervisor_tests `validator_key_made_on_this_computer`, run_allchains |
+| 66 | **Shield and unshield built by the app** (§25.4) | Two directions, an exact amount, the wallet's own accounts only; the chain's own question with the fee of its own estimate | chainadapter_tests, zSide local_tests, run_allchains |
+| 67 | **Names looked up** (§25.3) | Reads of the chain's own policy (`getname`) only, the text classified first, chains with names only, answers bounded | chainadapter_tests, allchains.test.ts |
+| 68 | **A name handed to a frame** | The tab's pattern checked both ways; looked up as text by the directory | allchains.test.ts, bitnames.test.ts |
+| 69 | **A new frame's first word** | Its first route not taken over the page the app asked (told to it again); a frame's chain only | allchains.test.ts |
 
 ### 13.6 Coverage per chain
 
@@ -646,8 +653,8 @@ sidechain by hand, downloads from the app (phase 4).
 | zSide | pack pinned (built in) | shielded sends, shield/unshield, melt/cast, fee bump; the viewing key export asks too | rpc_describeconfirmation_zside.py |
 | FastBlocks | pack pinned (built in) | bonds, unbonds, staking off, proofs of possession | rpc_describeconfirmation_fastblocks.py |
 
-The five last are built in and routed exactly as Layers and Thunder; their own end-to-end runs through the
-app (deposit, a spend of each kind, pictures) are not done yet.
+The five last are built in and routed exactly as Layers and Thunder. Since §25 every one of the seven is driven end to end
+through the app (`run_allchains.py`: a deposit, a payment, an address, a withdrawal started, and what each is for).
 
 ### 13.7 Windows and macOS
 
@@ -1118,7 +1125,7 @@ Pictures (Midnight) in `~/skydoge/media/unified-app/integrated/`: `integrated-ov
 - **Legacy (base58) addresses refused on sidechains** from the app's pages (they cannot say their chain). A user who
   needs one sends from the chain's own pages.
 - **BitAssets, BitNames, Hivemind, zSide, FastBlocks** are mapped (table, reads, sends, embeds) and unit-tested, not
-  driven end to end; the e2e drives Layers and Thunder.
+  driven end to end; the e2e drives Layers and Thunder. (Done in §25: all seven driven end to end.)
 - **Pending deposits** are tracked for deposits made from the app's pages in this run (until the chain's wallet shows a
   payment to the credited address); a deposit made elsewhere shows as the chain's pending balance only.
 - Embedded pages are laid over their place (`position: fixed`); a page of the app that moves without scroll or resize
@@ -2097,6 +2104,18 @@ committed. What the merge does not do by itself (the adaptations to make when th
 7. **The wallet fix of this branch** (932491ff04, a drivechain spend from an encrypted wallet signs under `cs_wallet`) is
    needed on `ecash` too (and `main`, `lab-fixes`, `regtest-link`): the same code is there.
 
+Added with §25 (2026-10-22), the clean path for the Backbone suite's drop-in chains (their interface in §25.7):
+
+8. **A second kind of chain in the catalog** (`Spec::kind` template | dropin, its program's name, its family's slot and
+   ports): the drop-ins exist on eCash networks only (`ecash`, `ecashbeta`, `ecashtest`, and regtest with `-ecashregtest`),
+   so their rows are in the `ecash` family's catalog alone; Chains' networks keep the template chains.
+9. **The supervisor's arguments and health for a drop-in**: their CLI flags, `--mainchain-grpc-url` to the app's own gRPC,
+   their RPC address; `getblockcount` for health; `stop` by RPC (their private API) then SIGTERM.
+10. **Backbone's gRPC started late** (as `AppStartServersLate` for RPC) when the first drop-in is turned on, its wallet the
+    one that pays merged mining.
+11. **The RPC users of a drop-in** (§25.7 item 3) and its pack's host over RPC (item 4), from the drop-in's `app` branch.
+12. **Keys from the phrase** for a drop-in (§25.7 item 7: a BIP85 mnemonic per chain), in `SeedKeeper`.
+
 ### 23.9 End-to-end run and the test set (2026-10-21)
 
 `run_seed.py --app build_app/bin/chains-app --sidechain-bindir <layers and thunder bin> --tmp … --shots …` (ctest
@@ -2315,3 +2334,193 @@ and the pictures of §23.10 taken again.
 - **A sidechain restarted from a new genesis** gets a new account and wallet only when its keys are made again (Settings:
   [Make its keys…]); nothing tells the user of the restart yet.
 - **The wallet fix** (932491ff04) to carry to `main`, `ecash`, `lab-fixes` and `regtest-link`.
+
+## 25. Every chain of the catalog first-class (2026-10-22, branch `unified-allchains`)
+
+User: "regarding unified wallet, did we make it work with fastblocks, thunder, bitnames and zside as well? we want to
+integrate this before converting to backbone/ecash." Before this round Layers and Thunder were driven end to end, BitAssets
+and Hivemind ran on the hub, and FastBlocks, BitNames and zSide were mapped and unit-tested only (§13.6, §18.7). The end
+game the user then set: **(A) the Chains suite**, Chains and every template sidechain (Layers, FastBlocks, Thunder,
+BitNames, BitAssets, zSide, Hivemind) with all seven first-class in the unified app; **(B) the Backbone suite**,
+backbone-app on eCash with Flush, FastBlocks and the drop-in clients of LayerTwo's chains (Thunder, BitNames, zSide,
+BitAssets, Hivemind) as packs (§25.7). This branch is (A), and lays down the interface of (B).
+
+### 25.1 What each chain does in the app's own pages
+
+| | Home (one chain) | Home, Overview (all) | Send | Receive | Its own (the app's pages) |
+|---|---|---|---|---|---|
+| FastBlocks | Balance, Node, Peg, **Staking** (validating, bonded, its stake, blocks made) | its line, withdrawals on their way | coins | address, deposit address | Staking: this computer as a validator (§25.2), bonds through its own page, under the app's title |
+| Thunder | Balance, Node, Peg, Merged mining | its line | coins | address | its group: Batch pay, Payments, Throughput |
+| BitNames | Balance with **Names** (held, reservations waiting) | "1 name" under its balance, *Also holds* on Overview (a link to My names) | coins | address | names found by the palette and the explorer, opened in its directory (§25.3); its group: Get a name, My names, Name directory, Paymail, DNS |
+| zSide | Balance with **Private** (its shielded coins) | "private 10.00000000" under its balance, *Also holds* on Overview | **what to send: its coins or its private coins; to someone, or to yourself (shield, unshield)**; a memo from the private coins (§25.4) | address, or a private (shielded) one | its group: Private, Memos, Private activity, Melt & cast, Shielded pool |
+| Layers, BitAssets, Hivemind | as before (§18–§22); Layers' validator key from the Staking page (§25.2) | | | | |
+
+Every chain: its strip in the explorer and a block of it opened under the strips; its rows in Transactions with the Chain
+column; Move coins (the panel and the guide step by step) in and out; its group in the sidebar; its option in the top bar's
+selector, in the catalog's order. The capabilities table (§18.3) is unchanged: the chains' own pages do what is theirs.
+
+### 25.2 This computer as a validator (FastBlocks, Layers)
+
+Before: the enable wizard's "Stake on this chain" was greyed ("comes with sending on sidechains"), and the chain's own
+Staking page said a validator runs "with -validatorkeyfile": nothing in the app made a key, so nobody could stake from it.
+
+```
+Turn on FastBlocks → … → Staking: [x] Make this computer a validator
+     "A validator key is made on this computer and kept with its data, never from your backup phrase. Your staked coins
+      stay your wallet's: your phrase brings them back, and another computer can be a validator with a key of its own."
+   → Ready: Validator  This computer, with a key made here
+Staking ( ● Layers ● FastBlocks )   (a chain whose node has no key:)
+  ┌ 🔑 This computer is not a validator of Layers yet                         [Make a validator key…] ┐
+  │    A validator key is made here, kept with its data, never from your backup phrase. Then stake below. │
+  └────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  (the chain's own Staking page, headless: bond, unbond, staking on or off …)
+```
+
+- **The key** (decision 4 of §12): `SidechainSupervisor::MakeValidatorKey` makes a secp256k1 secret of 32 random bytes
+  (`CKey::MakeNewKey`), writes it once, owner-only (`WriteSecretFile`, 0600) to `<its data>/<network>/validator.key`, and the
+  daemon is started with `-validatorkeyfile` (setting `validator`), again if it runs. Never from the phrase, never copied,
+  never sent anywhere; a key there already is kept and used (its bonds and its `.protection` file go with it). Each computer
+  makes its own: two never share one (a double signature is slashed).
+- **Its payout**: the producer's share of the fees goes to an address of the chain's **wallet** (`-validatorpayout`, label
+  "validator payout"), asked of its node by the app's user as soon as its wallet is there (from the phrase: it comes back
+  with it); without it FastBlocks paid the share to the key's own address, which no wallet sees. A key made before the
+  wallet exists (the wizard) gets its payout at the first start, and the node starts once more with it.
+- **Bonds stay the wallet's**: the wallet that bonds owns the bond (`createbond`'s owner), only it unbonds, and the phrase
+  brings it back; a lost computer loses its key, not the coins.
+- The Staking page asks the shown chain's node once whether it has a key (`chain.staking`: `getstakinginfo.validator`) and
+  offers to make one (a question of the page first); the chain's own pages, in the app's module mode, point to it instead of
+  `-validatorkeyfile` (FastBlocks `allchains`). Home's Staking card says "Validating".
+- **Blocks of stake rows**: a block of stake that pays its validator nothing (no fees: one a slot) is no longer a row of
+  Transactions (`ChainAdapter::TransactionRows`, any reward of no value), and a payout that pays something is a reward of
+  the chain ("Staking and mining rewards" when folded), never "Coins in from Chains" (`lib/activity.ts`).
+
+### 25.3 BitNames: names held, found, opened
+
+- `chain.summary` counts the wallet's names and reservations (`listmynames`); Home and Overview say them.
+- **Search** (`chain.search`, `ChainAdapter::IsNameText`): a text that may be a name (a name, a subname `blog.core`, its
+  domain `core.x`, a number `#1739-0029`; never digits alone, a height) is looked up on each chain with names by its own
+  `getname` (a read of its pages' policy): its number, its owner, whether it is the wallet's. The explorer's search over
+  every chain lists it ("Name alice · yours · #… · owner"), and the **palette (Ctrl+K)** looks a name up as it is typed (a
+  moment after the typing stops, only on chains with names): "alice — a name on BitNames · #… · yours" first, its Enter
+  opens the chain's Name directory at it.
+- The directory takes the name as the tab `name:<name>` (BitNames `allchains`: looked up and shown whole); the app checks
+  the tab (`[a-z0-9#][a-z0-9._#-]{0,119}`) both ways (§13.5 #37).
+- **A frame made at its first visit** (§20.6) did not hear a page asked before its pages listened (the palette's name opened
+  BitNames' Home): the app now tells a new frame the page it wants at its first word, and that first word (its home) does
+  not move the app (`frameMade`, `onModuleMessage`).
+
+### 25.4 zSide: its coins and its private coins
+
+- **Send**: "What to send" is two pills, its coins and its *Private* coins (what each can spend now); "Pay to" has
+  *Someone* or *Yourself*: from the coins, *Yourself: shield* (into the wallet's shielded account), from the private coins
+  *Yourself: unshield* (back to a new address of the wallet); a memo goes with a private payment. The button says what it
+  does (Send…, Shield…, Unshield…); done, the form pays someone again.
+- **The adapter** (`chain.shield`): built from typed fields only (two directions, an exact amount), `shieldcoins [amount]`
+  or `unshieldcoins [amount, null, false, fee]`; a private payment `sendshielded [{address: amount}, memo, fee]`. **Found**:
+  zSide's own questions require the fee (its audit 7 E-ZS3: the dialog shows what is paid), which the adapter did not give:
+  every private payment from the app's Send was refused. The fee is now the chain's own estimate (`estimateshieldedfee`,
+  a read of its policy) for exactly that payment. zSide's shielding had the generic question ("Command shieldcoins /
+  amount"): now its own (to this wallet's shielded account, the amount, the memo; zSide `allchains`).
+- Receive: a private address ("Shielded (private)"). Overview: *Also holds: Private* (its shielded coins). Its wallet stays
+  its own (§23.13): never from the phrase, its notices as before.
+
+### 25.5 The sidechains' programs and pages of this round
+
+Each chain's branch **`allchains`** = its `main` (the remote host's security fixes, §23.14) with the template's `ux3`
+merged (the kit's module mode and headless pages, SafeText's direction once, and `createwithdrawal`'s coins, `inputs`,
+which Move coins' coin control sends), plus this round's fixes:
+
+| Chain | Branch, commit | Fixes | Pack pinned |
+|---|---|---|---|
+| FastBlocks | `allchains` bb4c7078f5 (main + its `ux3`) | unbonding time at the mainchain's pace; no key: "Make a validator key" in the app | ✓ |
+| Thunder | `allchains` 5f698d6a25 (main + template `ux3`) | — | ✓ |
+| BitNames | `allchains` f79f189289 (main + template `ux3`) | the directory opens `name:<name>` | ✓ |
+| zSide | `allchains` 28b3e6da8f (main + template `ux3`) | shieldcoins' own question | ✓ |
+
+Their daemons are built into **`~/skydoge/tools/unified-bin.next`** (with COMMITS.txt and SHA256SUMS.txt): fastblocksd,
+thunderd, bitnamesd (new: unified-bin had none), zsided and their CLIs. Layers, BitAssets and Hivemind stay those of
+`unified-bin` (the hub runs them). The tests below run with `--sidechain-bindir unified-bin.next --sidechain-bindir
+unified-bin` (the first folder that has a program wins).
+
+### 25.6 Security (rows #65–#69 of §13.5)
+
+| # | Threat | What holds | Test |
+|---|---|---|---|
+| 65 | **A validator key** made by the app | Random (never the phrase), written once 0600 in the chain's own network folder, never read back but for its public key, never sent; a key there is never replaced; the payout an address its node gave (letters and digits only before it is an argument); `sidechains.validatorKey` refused to packs (prefix `sidechains.`); the page asks first | supervisor_tests `validator_key_made_on_this_computer`, chains.test.ts, run_allchains (the node's arguments, the file's mode, read by the runner) |
+| 66 | **Shield and unshield** built by the app | Two directions only, an amount exact (no sign, exponent, float), to the wallet's own accounts only (no address given), the chain's own question in the trusted dialog with its mark; the fee its own estimate, shown in its question | chainadapter_tests `names_found_and_held_and_private_coins_moved`, zSide `local_tests`, `rpc_describeconfirmation_zside.py`, run_allchains |
+| 67 | **Names looked up** | Reads only, of the chain's own pages' policy (`getname`); the text classified before any call (`IsNameText`), only on chains with names; answers bounded (`Line`) | chainadapter_tests, allchains.test.ts |
+| 68 | **A name handed to a frame** | The tab checked by the app's pattern before it is sent and when a frame says its place; taken by the directory as text to look up, never markup | allchains.test.ts, BitNames `bitnames.test.ts` |
+| 69 | **The first word of a new frame** | Only a route of the frame's own chain is ever taken (§13.5 #10); its first one is not taken over the page the app asked, which is told to it again | allchains.test.ts |
+
+### 25.7 Drop-in chains (the Backbone suite): the interface
+
+Decided by the user (2026-10-22): on Backbone (eCash), Thunder, BitNames, zSide, BitAssets and Hivemind are our drop-in
+clients of LayerTwo's chains (`backbone-thunder`, `backbone-bitnames`; zSide on thunder-orchard, BitAssets, Hivemind on
+truthcoin: consensus-, P2P- and RPC-compatible with theirs), each with its own UI: a standalone app **and a pack for the
+unified app**, served by the drop-in itself (its branch `app`, another agent's). FastBlocks and Flush (Layers) stay on our
+template. Nothing of this is in the Chains suite's code (the drop-ins exist on eCash networks only); this is what the
+unified app on Backbone needs from a drop-in, for that agent and the port (§23.8 items 8–12):
+
+1. **Program and flags** (their CLI): `<program> --datadir <data>/sidechains/<stem>/data --network <regtest|signet|betanet>
+   --mainchain-grpc-url http://127.0.0.1:<grpc>` (BitNames: `--mainchain-grpc-host/port` or `--bt-mainchain-grpc-url`)
+   `--rpc-addr 127.0.0.1:<port> --net-addr <p2p> --headless`, plus `--bt-no-seeds` in tests. The catalog gets per family
+   (`chains` | `ecash`, §23.8 item 2) a row with `kind: dropin`, its program name (not `<stem>d`), its slot on eCash
+   (Thunder 9, BitNames 2, …) and its own default ports.
+2. **The mainchain's gRPC**: Backbone's own `-grpc` (cusf.mainchain.v1), started late like the RPC server (§1.4) when the
+   first drop-in is turned on, on 127.0.0.1; its wallet (`-grpcwallet`) the one that pays merged mining (§23.12). Their
+   `mine` asks it for a BMM bid; the app (or the drop-in's own app layer) calls it as `setbmm` does for a template chain.
+3. **RPC and its users**: their JSON-RPC 2.0 has no authentication. The app needs, as with a template daemon (§13.5 #11,
+   #59), a user of its own limited to what it uses: proposed `--bt-rpc-auth=<user>:<salt>$<hmac>` and
+   `--bt-rpc-whitelist=<user>:<methods>` (the app's user) and a cookie file (the full user, for the wallet setup). Until
+   then a drop-in's wallet is spendable by any local process, as with their own app (said in the doc and the UI).
+4. **The pack's host over RPC**: `webuihost`, `webuievents`, `describeconfirmation`, `webuichosenfile` at hostApi 1 (§13.1:
+   one-time tokens bound to request, question and wallet, 5 minutes), so that the same `SidechainPages`, trusted dialog and
+   packs (`chains-pack://<stem>/`) serve them. Their questions are their own describers (option B).
+5. **The app's own pages** (`ChainAdapter`) read the kit's surface: `getblockcount`, `getbestblockhash`, `getblockhash`,
+   `getblockheader` (time, nTx), `getblock` (verbosity 1), `getmainchaininfo`, `listwallets` (one: `main`), `getbalances`
+   (`mine.trusted`, `untrusted_pending`, `immature`), `listtransactions`, `getdepositaddress`, `validateaddress`,
+   `getaddressinfo` (`ismine`), `listwithdrawals`, `getrawmempool`, and the host methods `wallet.send.prepare/commit/discard`,
+   `wallet.newAddress`, `wallet.transaction`, `rpc.confirmed createwithdrawal`. A drop-in whose pack is made on our kit has
+   these already; its own reads (names, assets, markets, shielded) as §18.3 maps them (`getname`, `listmynames`,
+   `getshieldedbalance`, …) or as its own capabilities row says.
+6. **Deposits**: their deposit addresses are `s<slot>_<base58>_<checksum>` (format_deposit_address): Backbone's
+   `createsidechaindeposit` must take that form for those slots (the app's own payment, Chains' own question, §13.3).
+7. **Keys from the backup phrase**: their wallets are BIP39 mnemonics (`set_seed_from_mnemonic`; Thunder's keys at
+   m/43'/1899'/0'/9'/0'/i over ristretto255, BitNames' BIP32-Ed25519). Proposed: a mnemonic of its own per chain derived
+   from the phrase by **BIP85** (`m/83696968'/39'/0'/12'/I'`, 12 English words; `I` = BE32(SHA-256("sidechain/mnemonic/v1"
+   0x00 stem 0x00 network))[0..4] & 0x7fffffff: per chain and network, a standard any BIP85 tool re-derives), given once to
+   its node by its full user right after its wallet is made (never over the app's user, never logged), checked against the
+   node's first address before anything is paid to it. Their wallet files are not encrypted: the password of §23.11 does not
+   protect them (said, as zSide's own wallet is). Their shielded keys (thunder-orchard) come from the same mnemonic, so zSide
+   on Backbone could be from the phrase too. The drop-in agent decides; the app's side is `SeedKeeper` (a third kind of chain
+   key besides the template's descriptors and zSide's own wallet).
+
+### 25.8 Tests
+
+- **Host** (`test_chains-app`): supervisor_tests `validator_key_made_on_this_computer` (made 0600 in the network's folder,
+  passed, kept when made again, one per computer, a payout passed only as plain text, the list says it, not for a chain that
+  does not stake); chainadapter_tests `names_found_and_held_and_private_coins_moved` (names as search texts, a name found
+  with its owner and number, not asked of a chain without names, names and reservations held; shield and unshield with the
+  fee of the chain's estimate, a private payment's fee and memo, refusals before anything is asked; the methods in the
+  whitelist), a reward of no value not a row.
+- **Pages** (vitest): `allchains.test.ts` (zSide's two accounts, shield, a private payment with a memo, unshield; names held
+  on Overview; the palette's name and its directory; the explorer's name; a new frame's first word); `chains.test.ts` (the
+  Staking page's offer, asked first, made, gone; only the shown chain asked); `unified.test.ts` (the wizard's plan with
+  `stake`); `activity.test.ts` (a validator's payout a reward); `perf.test.ts` (a change of the chains shown followed at once,
+  their data still throttled).
+- **The sidechains**: FastBlocks' and BitNames' vitest and svelte-check; zSide `local_tests`, `rpc_describeconfirmation_zside.py`.
+- **End to end**: `run_allchains.py` + `allchains.js` (§25.9); `run_seed.py` with FastBlocks and BitNames from the phrase;
+  `run_integrated.py`, `run_dex.py`, `run_startup.py`; the hub-scale cost with all seven on.
+
+### 25.9 End-to-end run and the test set
+
+RESULTS_PLACEHOLDER
+
+### 25.10 Open
+
+- **What a sidechain's row is**: a bond (FastBlocks, Layers) and a withdrawal both read "Payment sent" (an output of no
+  address); naming them needs the chain's own description of its outputs (its txinfo), not the app's guess.
+- **zSide's private history** is its own page (Private activity); the app's Transactions lists its transparent rows.
+- **Blocks of stake on regtest** come every second (FastBlocks' 1 s slots) once a bond is in the set: the explorer's strip
+  and Home follow them, at their usual cost.
+- **Drop-in chains** (§25.7): to build on the `ecash` branch with that agent's packs.
