@@ -196,6 +196,22 @@ public:
     };
 
 private:
+    /**
+     * While a password is added or removed: refused (HostError) when an import runs, and no import starts until it ends
+     * (StartJob): a wallet is never made in the mode being left.
+     */
+    class ChangingProtection
+    {
+    public:
+        explicit ChangingProtection(SeedKeeper& keeper);
+        ~ChangingProtection();
+        ChangingProtection(const ChangingProtection&) = delete;
+        ChangingProtection& operator=(const ChangingProtection&) = delete;
+
+    private:
+        SeedKeeper& m_keeper;
+    };
+
     struct Session {
         seed::Secret secret;
         SecureString passphrase;
@@ -230,8 +246,13 @@ private:
     void StartJob(const std::string& id) EXCLUSIVE_LOCKS_REQUIRED(m_mutex);
     void RunJob(const std::string& id, seed::Secret secret, SecureString passphrase, int64_t timestamp);
     void ExpireLoop();
-    /** Without a password: the wallet of the phrase on a chain kept open (walletpassphrase with its passphrase, for good). */
-    void KeepOpen(const std::string& id);
+    /**
+     * Without a password: the wallet of the phrase on a chain kept open (walletpassphrase with its passphrase, for good).
+     * The mode is checked and the wallet opened under m_protect_mutex, which AddPassword and RemovePassword hold while they
+     * change it: a wallet is never opened once a password was added (it is locked by AddPassword, or not opened at all).
+     */
+    void KeepOpen(const std::string& id) EXCLUSIVE_LOCKS_REQUIRED(!m_protect_mutex);
+    void KeepOpenLocked(const std::string& id) EXCLUSIVE_LOCKS_REQUIRED(m_protect_mutex);
     void KeepOpenLater(const std::string& id) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /** The passphrase of a chain's wallet of the phrase, made from the seed (the app's own: an empty stem). */
     static SecureString ChainWalletPassphrase(const seed::Secret& secret, const std::string& id, const std::string& genesis);
@@ -258,6 +279,11 @@ private:
     bool m_stopping GUARDED_BY(m_mutex){false};
     //! The chains whose wallet of the phrase is to be kept open (no password): done by the expiry thread, one at a time.
     std::set<std::string> m_keep_open GUARDED_BY(m_mutex);
+    //! Held while the password is added or removed (the wallets' passphrases, seed.dat, their locks) and while a wallet is
+    //! opened for want of one (KeepOpen, the end of an import): never both at once. Taken before m_mutex.
+    Mutex m_protect_mutex ACQUIRED_BEFORE(m_mutex);
+    //! A password is being added or removed: no import starts meanwhile (and neither starts while one runs).
+    bool m_changing_protection GUARDED_BY(m_mutex){false};
     //! A dialog of the phrase is open (one flow at a time: create, restore, show, change).
     std::atomic<bool> m_busy{false};
 };

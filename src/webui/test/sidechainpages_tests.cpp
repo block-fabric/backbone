@@ -371,6 +371,19 @@ BOOST_AUTO_TEST_CASE(a_phrase_without_a_password_asks_none)
     BOOST_CHECK(d.asked[1].passphrase);
     BOOST_CHECK_EQUAL(d.calls.back().params[2].get_str(), "its own");
     pages.Stop();
+
+    // A password added while the question was shown: nothing is sent with the passphrase made from the seed.
+    Daemon e;
+    e.answers = {Confirm(true)};
+    e.said = {Yes()};
+    auto hooks2{e.Hooks()};
+    int asked_without{0};
+    hooks2.phrase_wallet = [](const std::string&) { return std::string{"main"}; };
+    hooks2.passphrase_without = [&](const std::string&, const std::string&) { return ++asked_without == 1 ? SecureString{"made-from-the-seed"} : SecureString{}; };
+    SidechainPages later{hooks2};
+    BOOST_CHECK_EXCEPTION(later.Call("layers", SEND), HostError, [](const HostError& err) { return err.code == BRIDGE_CANCELLED; });
+    later.Stop();
+    BOOST_CHECK_EQUAL(e.HostCalls(), 1);
 }
 
 BOOST_AUTO_TEST_CASE(app_answers_for_the_frame)

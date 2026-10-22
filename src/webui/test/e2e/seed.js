@@ -168,7 +168,8 @@
       await shot('seed-firstrun-6-done');
       const st1 = await seedStatus();
       await check('every chain\'s wallet from the phrase: Chains "main" (account 0), Layers and Thunder "main" of their own accounts', ['chains', 'layers', 'thunder'].every((id) => { const c = st1.chains.find((x) => x.id === id); return c && c.state === 'ready' && c.wallet === 'main'; }) && st1.chains.find((c) => c.id === 'chains').account === 0 && st1.chains.find((c) => c.id === 'layers').account !== st1.chains.find((c) => c.id === 'thunder').account, JSON.stringify(st1.chains));
-      await check('the phrase\'s status says no word', !words.some((w) => JSON.stringify(st1).includes(`"${w}"`)));
+      // (Words that are words of the status itself, "seed" a wallet's name, "own" a mode, are not looked for.)
+      await check('the phrase\'s status says no word', !words.filter((w) => !['seed', 'own', 'ready', 'error', 'off', 'main'].includes(w)).some((w) => JSON.stringify(st1).includes(`"${w}"`)));
       $('[data-action="done"]').click();
       // The runner: each chain's addresses against the words (apart from the app's code), each wallet its account alone, a
       // sidechain's wallet opened by its own passphrase made from the seed and not by the user's.

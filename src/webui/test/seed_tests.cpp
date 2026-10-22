@@ -439,9 +439,18 @@ struct FakeNodes {
     //! id -> wallet -> how long it was last opened for (walletpassphrase), 0 when locked.
     std::map<std::string, std::map<std::string, int64_t>> opened_for;
     bool running{true};
+    //! Imports wait while this is set (a rescan that takes long).
+    std::atomic<bool> hold_imports{false};
+    //! How long a request to open a wallet takes to reach the node (a busy node): the window between looking at the mode
+    //! and the wallet opened.
+    std::atomic<int> slow_open_ms{0};
 
     UniValue Call(const std::string& id, const std::string& method, const UniValue& params, const std::string& wallet)
     {
+        if (method == "importdescriptors") {
+            while (hold_imports.load()) std::this_thread::sleep_for(5ms);
+        }
+        if (method == "walletpassphrase" && slow_open_ms.load()) std::this_thread::sleep_for(std::chrono::milliseconds{slow_open_ms.load()});
         std::lock_guard lock{mutex};
         calls[id].emplace_back(method + (wallet.empty() ? "" : "@" + wallet), params);
         if (method == "getblockhash") return genesis.contains(id) ? genesis[id] : std::string{REGTEST_GENESIS};
@@ -702,7 +711,11 @@ BOOST_FIXTURE_TEST_CASE(create_makes_every_chains_wallet_from_the_phrase, Keeper
 
     // The status says which wallet and how: never a word, a key or the seed.
     const std::string status{keeper.Status().write()};
-    for (const auto& w : words) BOOST_CHECK(status.find("\"" + w + "\"") == std::string::npos);
+    // (Words that are also words of the status itself, "seed" a wallet's name, "own" a mode, are not looked for.)
+    for (const auto& w : words) {
+        if (w == "seed" || w == "own" || w == "ready" || w == "error" || w == "off" || w == "main") continue;
+        BOOST_CHECK_MESSAGE(status.find("\"" + w + "\"") == std::string::npos, w);
+    }
     BOOST_CHECK(status.find("prv") == std::string::npos);
     BOOST_CHECK(status.find(HexStr(seed_bytes)) == std::string::npos);
     BOOST_CHECK(keeper.Status().find_value("unlocked").isTrue());
@@ -1062,6 +1075,90 @@ BOOST_FIXTURE_TEST_CASE(without_a_password_then_one_added_then_removed, KeeperFi
     BOOST_CHECK_EQUAL(nodes.PassphraseOf("chains", "main"), app_pass);
     BOOST_CHECK_EQUAL(nodes.PassphraseOf("layers", "main"), layers_pass);
     again.Stop();
+}
+
+namespace {
+//! Whether a call to open a wallet came after the last call that locked it (the order the node saw them in).
+bool OpenedAfterLastLock(FakeNodes& nodes, const std::string& id, const std::string& wallet)
+{
+    const auto methods{nodes.Methods(id)};
+    const auto lock{std::find(methods.rbegin(), methods.rend(), "walletlock@" + wallet)};
+    if (lock == methods.rend()) return true;
+    return std::find(methods.rbegin(), lock, "walletpassphrase@" + wallet) != lock;
+}
+} // namespace
+
+BOOST_FIXTURE_TEST_CASE(a_password_added_while_wallets_are_opened_leaves_them_locked, KeeperFixture)
+{
+    // Found by review: without a password the app opens the wallets of the phrase by itself (a node started again, a
+    // spend); a password added meanwhile must leave every one of them locked, whatever the order (KeepOpen checks the mode
+    // and opens under the lock adding a password holds). And no password is added while a chain's keys are being made
+    // (its wallet would be made in the mode being left); no import starts while one is added.
+    std::vector<std::string> words;
+    answer = [&](const Window::ConfirmDialog& d) -> dialog::Answer {
+        if (d.kind == "seed-words") {
+            for (const auto& w : *d.words) words.push_back(Text(w));
+            return Accept();
+        }
+        if (d.kind == "seed-check") {
+            std::map<std::string, std::string> typed;
+            for (const auto& f : d.fields) typed[f.id] = words[std::stoi(f.id.substr(5)) - 1];
+            return Accept(typed);
+        }
+        if (d.kind == "seed-add-password") return Accept({{"passphrase", "correct horse"}, {"repeat", "correct horse"}});
+        BOOST_FAIL("unexpected question " + d.kind);
+        return {};
+    };
+    SeedKeeper keeper{Hooks()};
+    UniValue params{UniValue::VOBJ};
+    params.pushKV("password", false);
+    keeper.Create(params);
+    WaitReady(keeper, "chains");
+    WaitReady(keeper, "layers");
+
+    // A chain whose keys are being made (its import waits): a password is refused meanwhile, then added once it is done.
+    shared = {"layers", "thunder"};
+    nodes.hold_imports = true;
+    keeper.ChainReady("thunder");
+    const auto created{[&] {
+        const auto methods{nodes.Methods("thunder")};
+        return std::ranges::find(methods, "createwallet") != methods.end();
+    }};
+    for (int i{0}; i < 200 && !created(); ++i) std::this_thread::sleep_for(10ms);
+    BOOST_REQUIRE(created());
+    BOOST_CHECK_THROW(keeper.AddPassword(), HostError);
+    BOOST_CHECK(!keeper.HasPassword());
+    nodes.hold_imports = false;
+    WaitReady(keeper, "thunder");
+
+    // The wallets opened again and again by the app (as a node started again, a spend would) while the password is added;
+    // a request to open slow to reach the node widens the window between looking at the mode and opening.
+    nodes.slow_open_ms = 20;
+    std::atomic<bool> stop{false};
+    std::thread opener{[&] {
+        while (!stop) {
+            {
+                std::lock_guard lock{nodes.mutex};
+                nodes.opened_for["chains"]["main"] = 0;
+                nodes.opened_for["layers"]["main"] = 0;
+            }
+            keeper.OpenWithoutPassword("main");
+            keeper.ChainReady("layers");
+            (void)keeper.PassphraseWithout("layers", "main");
+        }
+    }};
+    std::this_thread::sleep_for(50ms);
+    BOOST_CHECK(keeper.AddPassword().find_value("added").isTrue());
+    std::this_thread::sleep_for(50ms);
+    stop = true;
+    opener.join();
+    // What was queued to be opened has had its turn: nothing opened after the password locked it.
+    std::this_thread::sleep_for(300ms);
+    BOOST_CHECK(keeper.HasPassword());
+    for (const char* id : {"chains", "layers", "thunder"}) BOOST_CHECK_MESSAGE(!OpenedAfterLastLock(nodes, id, "main"), id);
+    BOOST_CHECK(!keeper.OpenWithoutPassword("main"));
+    BOOST_CHECK(keeper.PassphraseWithout("layers", "main").empty());
+    keeper.Stop();
 }
 
 BOOST_FIXTURE_TEST_CASE(a_mining_wallet_from_the_phrase_pays_the_bids, KeeperFixture)

@@ -315,6 +315,11 @@ UniValue SidechainPages::Daemon(const std::string& stem, const UniValue& request
         }
         dialog::Answer said{m_hooks.ask(dialog)};
         if (!said.accepted) throw HostError(BRIDGE_CANCELLED, strprintf("%s: declined.", dialog.title));
+        // Still without a password now that it is answered (one may have been added while the question was shown): else
+        // nothing is sent, and the user sends again (then asked for it).
+        if (!without.empty() && (!m_hooks.passphrase_without || m_hooks.passphrase_without(stem, phrase).empty())) {
+            throw HostError(BRIDGE_CANCELLED, "Your wallet has a password now: nothing was sent. Send again to type it.");
+        }
         // The user's own phrase password is never sent to the node: that chain's wallet passphrase made from the seed is.
         const SecureString sent{!without.empty() ? without : dialog.passphrase && m_hooks.passphrase ? m_hooks.passphrase(stem, said.passphrase) : said.passphrase};
         std::string passphrase{sent.begin(), sent.end()};

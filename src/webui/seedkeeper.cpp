@@ -199,6 +199,21 @@ void SeedKeeper::ExpireLoop()
     }
 }
 
+SeedKeeper::ChangingProtection::ChangingProtection(SeedKeeper& keeper) : m_keeper{keeper}
+{
+    LOCK(m_keeper.m_mutex);
+    for (const auto& [id, job] : m_keeper.m_jobs) {
+        if (!job->done) throw HostError("The keys of a chain are being made from your backup phrase: try again once they are (Settings → Wallet says when).");
+    }
+    m_keeper.m_changing_protection = true;
+}
+
+SeedKeeper::ChangingProtection::~ChangingProtection()
+{
+    LOCK(m_keeper.m_mutex);
+    m_keeper.m_changing_protection = false;
+}
+
 void SeedKeeper::KeepOpenLater(const std::string& id)
 {
     {
@@ -231,8 +246,15 @@ bool SeedKeeper::HasPassword() const
 
 void SeedKeeper::KeepOpen(const std::string& id)
 {
+    LOCK(m_protect_mutex);
+    KeepOpenLocked(id);
+}
+
+void SeedKeeper::KeepOpenLocked(const std::string& id)
+{
     // Without a password only: the wallet is then as open as an unencrypted one would be (its passphrase comes from a seed
-    // anyone using this computer can read); with one, wallets stay locked but for each spend.
+    // anyone using this computer can read); with one, wallets stay locked but for each spend. Checked under
+    // m_protect_mutex: a password being added waits for this, then locks what it opened; one added already is seen here.
     if (HasPassword()) return;
     const auto record{RecordOf(Records(), id)};
     if (!record || !record->imported || !Running(id)) return;
@@ -278,6 +300,7 @@ bool SeedKeeper::OpenWithoutPassword(const std::string& wallet)
 
 SecureString SeedKeeper::PassphraseWithout(const std::string& stem, const std::string& wallet)
 {
+    LOCK(m_protect_mutex);
     if (!Exists() || HasPassword()) return {};
     const auto record{RecordOf(Records(), stem)};
     if (!record || !record->imported || (!wallet.empty() && wallet != record->wallet)) return {};
@@ -673,7 +696,8 @@ void SeedKeeper::StartWaiting()
 
 void SeedKeeper::StartJob(const std::string& id)
 {
-    if (!m_session) return;
+    // Not while a password is added or removed (that chain waits; its keys are made at the next unlock or start).
+    if (!m_session || m_changing_protection) return;
     if (const auto it{m_jobs.find(id)}; it != m_jobs.end()) {
         if (!it->second->done) return;
         if (it->second->thread.joinable()) m_finished.push_back(std::move(it->second->thread));
@@ -809,14 +833,20 @@ void SeedKeeper::RunJob(const std::string& id, seed::Secret secret, SecureString
         job->error = error;
     }
     const bool failed{WITH_LOCK(m_mutex, return !job->error.empty())};
-    if (unlocked && (!passphrase.empty() || failed)) {
-        try {
-            ChainRpc(id, "walletlock", UniValue{UniValue::VARR}, wallet, 30s);
-        } catch (const std::exception&) {
+    {
+        // The mode as it is now, not as it was when the import started (a password cannot be added meanwhile:
+        // m_changing_protection; checked again all the same, under the lock that adding one takes).
+        LOCK(m_protect_mutex);
+        const bool open{passphrase.empty() && !failed && !HasPassword()};
+        if (unlocked && !open) {
+            try {
+                ChainRpc(id, "walletlock", UniValue{UniValue::VARR}, wallet, 30s);
+            } catch (const std::exception&) {
+            }
         }
+        // Without a password: kept open, as an unencrypted wallet would be.
+        if (open) KeepOpenLocked(id);
     }
-    // Without a password: kept open, as an unencrypted wallet would be.
-    if (passphrase.empty() && !failed) KeepOpen(id);
     {
         LOCK(m_mutex);
         job->done = true;
@@ -1312,6 +1342,10 @@ UniValue SeedKeeper::AddPassword()
         }
         seed::Opened opened{seed::Decrypt(*text, "")};
         if (!opened.secret) throw HostError(opened.error);
+        // No import under way (its wallet would be made in the old mode), and none starts until this is done; nothing is
+        // opened for want of a password meanwhile (m_protect_mutex), and what was is locked below.
+        const ChangingProtection changing{*this};
+        LOCK(m_protect_mutex);
         // The app's wallet first (its passphrase made from the seed becomes the password), then seed.dat; seed.dat not
         // written: the wallet is changed back.
         const SecureString derived{app_wallet ? ChainWalletPassphrase(*opened.secret, std::string{APP_CHAIN}, record->genesis) : SecureString{}};
@@ -1414,6 +1448,8 @@ UniValue SeedKeeper::RemovePassword()
             d.fields[0].error = "That is not the password of your wallet.";
             continue;
         }
+        const ChangingProtection changing{*this};
+        LOCK(m_protect_mutex);
         // The app's wallet first (the password becomes its passphrase made from the seed), then seed.dat; or neither.
         const SecureString derived{app_wallet ? ChainWalletPassphrase(*opened.secret, std::string{APP_CHAIN}, record->genesis) : SecureString{}};
         const auto change{[&](const SecureString& from, const SecureString& to) {
