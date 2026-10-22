@@ -98,10 +98,14 @@ struct Options {
     int ipv6_prefix{64};
     //! Close a connection whose replies the peer took no byte of for this long (slow reads); 0: never.
     int write_timeout_seconds{0};
-    //! Close a connection (once no call runs, with a GOAWAY) past this many requests (0: no bound), or at once past
-    //! this many requests given up before they were all in (HTTP/2 streams reset; each restarts the idle time).
+    //! Past this many requests (0: no bound), a connection takes no new one (HTTP/2: GOAWAY) and is closed once its
+    //! calls are over; past this many streams the client reset (Rapid Reset), it is closed at once.
     uint64_t max_requests_per_connection{0};
     uint64_t max_abandoned_requests{0};
+    //! Reply bytes a call may have written and not handed to its connection (0: no bound); past it the call ends with
+    //! RESOURCE_EXHAUSTED. A client that takes nothing for write_timeout_seconds is closed (HTTP/2: a stream whose
+    //! window stays closed so long is reset).
+    size_t max_call_buffer{0};
     //! Close a connection whose request (its headers and body) is not all in this long after its first byte, however
     //! slowly it keeps coming (slow clients holding connections); 0: never. Calls running on a worker are not counted.
     int request_timeout_seconds{0};
@@ -194,7 +198,11 @@ public:
     void Goodbye();
     /** HTTP/2: when the oldest request still being read began (each stream timed on its own); else nothing. */
     std::optional<NodeClock::time_point> OldestRequest() const;
-    /** Requests begun, all in, and given up before they were all in. */
+    /** Reply bytes the calls wrote and the connection has not taken yet (HTTP/2: held back by flow control). */
+    size_t Undelivered() const;
+    /** Take no new request (HTTP/2: GOAWAY); the running calls go on. */
+    void Drain();
+    /** Requests begun, all in, and streams the client reset. */
     struct Counts {
         uint64_t begun{0}, completed{0}, abandoned{0};
     };

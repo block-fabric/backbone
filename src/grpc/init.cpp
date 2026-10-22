@@ -120,8 +120,9 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
     // Slow clients (slowloris): a request must be all in within 15 s of its first byte however slowly it trickles;
     // a connection with no running call that begins or completes no request for 30 s is closed (GOAWAY first over
     // HTTP/2; a server stream such as SubscribeEvents is a running call; PINGs are not activity); one whose replies
-    // the peer takes no byte of for 30 s too (slow reads); one past 10,000 requests once no call runs, or past 100
-    // streams given up before their request was in; 16 connections per address beyond this machine (IPv6 by /64,
+    // the peer takes no byte of for 30 s too (slow reads, also held back by HTTP/2 flow control: such a stream is
+    // reset); past 10,000 requests no new one (GOAWAY) and closed once its calls are over; past 100 streams the
+    // client reset closed at once (Rapid Reset); a call's unsent replies at most 320 MiB; 16 connections per address beyond this machine (IPv6 by /64,
     // -grpcipv6prefix), 256 in all.
     options.max_connections = 256;
     options.max_connections_per_ip = 16;
@@ -130,6 +131,8 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
     options.write_timeout_seconds = 30;
     options.max_requests_per_connection = 10000;
     options.max_abandoned_requests = 100;
+    // Above the 256 MiB a SubscribeEvents subscriber may let pile up before it is ended (as the enforcer's).
+    options.max_call_buffer = 320 << 20;
     options.request_timeout_seconds = 15;
     options.idle_timeout_seconds = 30;
     options.allowed_origins = args.GetArgs("-grpcallowedorigin");
