@@ -80,7 +80,8 @@ BOOST_AUTO_TEST_CASE(choose_and_translate)
     BOOST_CHECK_EQUAL(webui::TranslateCore(message.c_str()), message);
 
     BOOST_CHECK_EQUAL(webui::NormalizeMessage("Loading wallet..."), "Loading wallet…");
-    BOOST_CHECK_EQUAL(webui::NormalizeMessage("Bitcoin Core is running"), "Chains is running");
+    BOOST_CHECK_EQUAL(webui::NormalizeMessage("Bitcoin Core is running"), "{product} is running");
+    BOOST_CHECK_EQUAL(webui::NormalizeMessage("Invalid Bitcoin address"), "Invalid {chain} address");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

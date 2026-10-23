@@ -5,6 +5,7 @@
   // the latest blocks and the peers, with the actions of each row. A row opens the detail panel;
   // Send and Receive open the side panel (components/QuickPanel.svelte).
   import { every } from '../../lib/poll';
+  import { chainName } from '../../lib/brand.svelte';
   import { t } from '../../lib/i18n.svelte';
   import SafeText from '../../components/SafeText.svelte';
   import { untrack } from 'svelte';
@@ -397,13 +398,13 @@
       </div>
     </section>
 
-    <Card title="Blind merged mining" icon="nodes" open={() => go('sidechains', 'nodes')} openLabel="Open the sidechain nodes">
+    <Card title="Blind merged mining" icon="nodes" open={() => go('sidechains')} openLabel="Open the sidechains">
       {#if simple && !bmmDetails}
         <!-- Simple mode: one line, the meters on demand (user decision). -->
         <p class="bmm-line" data-testid="bmm-line">
           {#if sidechains.length === 0}No sidechain is active yet.{:else}Sidechains are <Term id="bmm">merge-mined</Term>: {bmmActive} of {sidechains.length} active.{/if}
         </p>
-        <p class="muted small">The miners of Chains also make the blocks of its sidechains, so the sidechains need no miners of their own.</p>
+        <p class="muted small">The miners of {chainName()} also make the blocks of its sidechains, so the sidechains need no miners of their own.</p>
       {:else}
       <p class="muted small">Blocks of the last {bmmWindow} that committed to a block of each sidechain.</p>
       {#if sidechains.length === 0}
@@ -428,7 +429,7 @@
         {#if simple}
           <button type="button" class="btn" aria-expanded={bmmDetails} onclick={() => (bmmDetails = !bmmDetails)}>{bmmDetails ? 'Fewer details' : 'Details'}</button>
         {/if}
-        <button type="button" class="btn" onclick={() => go('sidechains', 'nodes')}>Sidechain nodes</button>
+        <button type="button" class="btn" onclick={() => go('sidechains')}>Sidechains</button>
       {/snippet}
     </Card>
   </div>

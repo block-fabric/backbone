@@ -3,10 +3,12 @@
 // fonts and dialog.html, nothing of the main page (dialog::Serves).
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+// The name of the product (CMakeLists.txt CLIENT_NAME): __CLIENT_NAME__, %CLIENT_NAME%.
+import product from './scripts/product.mjs';
 
 export default defineConfig({
   // The runes of the modules it shares with the interface (lib/i18n.svelte.ts).
-  plugins: [svelte()],
+  plugins: [product(), svelte()],
   base: '/',
   build: {
     outDir: 'dist',

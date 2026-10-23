@@ -3,6 +3,7 @@
   // settings.json as chains-qt keeps them; the window; the look. A change that only takes effect
   // after a restart says so, and the app can restart at once.
   import Icon from '../components/Icon.svelte';
+  import { product } from '../lib/brand.svelte';
   import { confirm, errorText, inform } from '../lib/dialogs.svelte';
   import { nav } from '../lib/nav.svelte';
   import { host, type NodeOptions, type NodeOptionValues } from '../lib/rpc';
@@ -12,7 +13,7 @@
 
   const draftBaselineLang = () => draft.baseline?.lang ?? '';
   import { clampFontAdjust, FONTS, MAX_FONT_ADJUST, MIN_FONT_ADJUST, THEMES, type FontChoice, type ThemeId } from '../lib/themes';
-  import { UNITS, type Unit } from '../lib/units';
+  import { ticker, UNITS, type Unit } from '../lib/units';
   import LayoutPicker from '../components/LayoutPicker.svelte';
   import SafeText from '../components/SafeText.svelte';
   import ThemeEditor from '../components/ThemeEditor.svelte';
@@ -155,7 +156,7 @@
   }
 
   async function restart() {
-    if (!(await confirm(t('Restart'), t('%1 will stop and start again with the new settings. Restart now?', app.info?.name ?? t('Chains')), { yes: 'Restart' }))) return;
+    if (!(await confirm(t('Restart'), t('%1 will stop and start again with the new settings. Restart now?', product()), { yes: 'Restart' }))) return;
     if (pending > 0 && (await applyChanges(options)) === null) return;
     try {
       await host.restart();
@@ -246,9 +247,9 @@
         {#if app.info?.platform !== 'macos'}
           <label class="check">
             <input type="checkbox" checked={options.startAtLogin} onchange={(e) => set('startAtLogin', (e.currentTarget as HTMLInputElement).checked)} />
-            <span>Start {app.info?.name ?? 'Chains'} on system login</span>
+            <span>Start {product()} on system login</span>
           </label>
-          <p class="hint">Automatically start {app.info?.name ?? 'Chains'} after logging in to the system.</p>
+          <p class="hint">Automatically start {product()} after logging in to the system.</p>
         {/if}
 
         <div class="field-row" title={ignored('prune') ? overriddenTip : undefined}>
@@ -454,7 +455,7 @@
               <option value="embedded">Embedded (the font of the theme)</option>
               <option value="system">Default system monospaced font</option>
             </select>
-            <span class="hint">Sample: <span class="num sample">21 000 000.00000000 CHN</span></span>
+            <span class="hint">Sample: <span class="num sample">21 000 000.00000000 {ticker()}</span></span>
           </div>
         </div>
 
@@ -478,9 +479,9 @@
           </label>
           <span class="hint" role="status">
             {#if frame.restartNeeded}
-              Applies after a restart of Chains.
+              Applies after a restart of {product()}.
             {:else}
-              Instead of the title bar of Chains, with its own minimize, maximize and close buttons.
+              Instead of the title bar of {product()}, with its own minimize, maximize and close buttons.
             {/if}
           </span>
         {/if}

@@ -8,6 +8,7 @@
   // palette; remembered in the preferences (prefs.sidebarCollapsed). Folded, every item says its name and
   // what it is for in its tooltip. A narrow window keeps the drawer, never folded.
   import { t } from '../lib/i18n.svelte';
+  import { product } from '../lib/brand.svelte';
   import Brand from './Brand.svelte';
   import Icon from './Icon.svelte';
   import MenuButton from './MenuButton.svelte';
@@ -159,11 +160,11 @@
           class="entry leave-entry"
           disabled={c.disabled}
           title={c.shortcut ? `${t(c.label)} (${c.shortcut})` : t(c.label)}
-          aria-label={collapsed ? (c.id === 'node.exit' ? t('Quit Chains') : t('Close wallet')) : undefined}
+          aria-label={collapsed ? (c.id === 'node.exit' ? t('Quit %1', product()) : t('Close wallet')) : undefined}
           onclick={() => c.run()}
         >
           <Icon name={c.id === 'node.exit' ? 'power' : 'logout'} size={18} />
-          <span class="grow">{c.id === 'node.exit' ? 'Quit Chains' : 'Close wallet'}</span>
+          <span class="grow">{c.id === 'node.exit' ? t('Quit %1', product()) : 'Close wallet'}</span>
         </button>
       {/each}
     </div>

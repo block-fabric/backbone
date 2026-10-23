@@ -7,7 +7,6 @@ export type PageId =
   | 'receive'
   | 'transactions'
   | 'sidechains'
-  | 'sidechain-nodes'
   | 'mine'
   | 'explorer'
   | 'node'
@@ -55,7 +54,6 @@ export const PAGES: Record<PageId, PageInfo> = {
   receive: { id: 'receive', title: 'Receive', icon: 'receive', summary: 'Request payments, with an address, a QR code and a payment link; the receiving addresses', simpleSummary: 'Get paid: your address and QR code', parity: ['H01', 'H02', 'H03', 'J02'], wallet: true, ready: true, shortcut: 'Alt+3' },
   transactions: { id: 'transactions', title: 'Transactions', simpleTitle: 'Activity', simpleSummary: 'Every payment in and out', icon: 'history', summary: 'Every transaction of the wallet, to search, sort and export', parity: ['I01', 'I02', 'I03', 'I04', 'I05', 'I06'], wallet: true, ready: true, shortcut: 'Alt+4' },
   sidechains: { id: 'sidechains', title: 'Sidechains', simpleTitle: 'Move coins', simpleSummary: 'Send coins to a sidechain', icon: 'sidechains', summary: 'Deposit to sidechains, ack proposals and vote on withdrawals', parity: ['L01', 'L02', 'L03'], shortcut: 'Alt+5', ready: true },
-  'sidechain-nodes': { id: 'sidechain-nodes', title: 'Sidechain nodes', icon: 'nodes', summary: 'Install, start and stop the nodes of sidechains, and watch them', parity: ['L04'], ready: true, tabOf: { page: 'sidechains', tab: 'nodes' } },
   mine: { id: 'mine', title: 'Mine', icon: 'mine', summary: 'Mine blocks with the processor of this computer', parity: ['L05'], ready: true, advanced: true },
   explorer: { id: 'explorer', title: 'Block explorer', icon: 'explorer', summary: 'Browse blocks and the transactions waiting to be mined', parity: ['L06'], ready: true },
   node: { id: 'node', title: 'Node window', icon: 'terminal', summary: 'Information, console, network traffic and peers of this node', parity: ['M01', 'M02', 'M03', 'M04', 'M05'], ready: true, shortcut: 'Ctrl+Shift+D', advanced: true },

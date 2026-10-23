@@ -140,8 +140,10 @@ static bool ProcessInitCommands(interfaces::Init& init, ArgsManager& args)
     if (HelpRequested(args) || args.GetBoolArg("-version", false)) {
         std::string strUsage = CLIENT_NAME " daemon version " + FormatFullVersion();
         if (const char* exe_name{init.exeName()}) {
+            // The program as it is installed: backboned, not bitcoind (the name of the process to the IPC).
+            std::string_view exe{exe_name};
             strUsage += " ";
-            strUsage += exe_name;
+            strUsage += exe.starts_with("bitcoin") ? CLIENT_NAME_LOWER + std::string{exe.substr(7)} : std::string{exe};
         }
         strUsage += "\n";
 

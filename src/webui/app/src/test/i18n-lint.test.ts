@@ -19,7 +19,7 @@ export const TEXT_FIELDS = new Set(['label', 'title', 'name', 'description', 'me
 export const UNTRUSTED_FIELDS = new Set(['memo', 'comment', 'subver', 'subversion', 'uri']);
 const TRANSLATE = new Set(['t', 'tn']);
 /** Functions that give words of the app already in the language shown (made with t() / tn()). */
-const SELF_TRANSLATED = new Set(['typeText', 'statusText', 'voteText', 'summaryText', 'signersText', 'pingText', 'rangeText', 'rateText', 'noWalletText', 'nodeWords', 'addressTypeText', 'pageTitle', 'outputKindText', 'voteFormText', 'voteEntryText', 'bundleStateText', 'scriptKindText']);
+const SELF_TRANSLATED = new Set(['typeText', 'statusText', 'voteText', 'summaryText', 'signersText', 'pingText', 'rangeText', 'rateText', 'noWalletText', 'nodeWords', 'addressTypeText', 'pageTitle', 'outputKindText', 'voteFormText', 'voteEntryText', 'bundleStateText', 'scriptKindText', 'groupTitle']);
 /** Where a toast or a dialog of the app takes its words: the arguments (by place) and the fields of an object argument. */
 const MESSAGE_CALLS: Record<string, { args: number[]; props: string[] }> = {
   toast: { args: [1, 2], props: [] },
@@ -29,8 +29,8 @@ const MESSAGE_CALLS: Record<string, { args: number[]; props: string[] }> = {
   ask: { args: [], props: ['title', 'message', 'informative'] },
   warn: { args: [0], props: [] },
 };
-/** The name of the app (from the host), put in sentences of the app: not text from outside. */
-const ALLOWED = new Set(["app.info?.name ?? 'Chains'", "app.info?.name ?? 'Backbone'"]);
+/** The names of the product (from the host), of the chain and of its coin (lib/brand.svelte.ts), put in sentences of the app: not text from outside. */
+const ALLOWED = new Set(['product()', 'chainName()', 'ticker()', 'productInitial()']);
 
 interface Finding {
   file: string;

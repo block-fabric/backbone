@@ -4,7 +4,7 @@
   import { t } from '../lib/i18n.svelte';
   import Icon, { type IconName } from './Icon.svelte';
   import { css } from '../lib/actions';
-  import type { Command } from '../lib/commands.svelte';
+  import { groupTitle, type Command } from '../lib/commands.svelte';
   import { statusTip } from '../lib/state.svelte';
 
   let {
@@ -123,8 +123,8 @@
 {#if open}
   <div class="menu" id={menuId} role="menu" aria-label={label} tabindex="-1" bind:this={menu} {onkeydown} use:css={{ left: `${pos.left}px`, top: `${pos.top}px`, 'max-height': `${pos.maxHeight}px` }}>
     {#each sections as section (section.title)}
-      <div class="section" role="group" aria-label={t(section.title)}>
-        <div class="title" aria-hidden="true">{t(section.title)}</div>
+      <div class="section" role="group" aria-label={groupTitle(section.title)}>
+        <div class="title" aria-hidden="true">{groupTitle(section.title)}</div>
         {#each section.items as c (c.id)}
           {#if c.separator}<div class="sep" role="separator"></div>{/if}
           <button

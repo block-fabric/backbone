@@ -4,6 +4,8 @@
 
 #include <webui/i18n.h>
 
+#include <bitcoin-build-config.h> // IWYU pragma: keep
+
 #ifdef WIN32
 #include <windows.h>
 #endif
@@ -35,8 +37,10 @@ std::string NormalizeMessage(const std::string& message)
 {
     std::string s{message};
     ReplaceAll(s, "...", "…");
-    ReplaceAll(s, "Bitcoin Core", "Chains");
-    ReplaceAll(s, "Bitcoin", "Chains");
+    // The names are not written into the messages: the product's ({product}) and the chain's ({chain}), put in as
+    // the message is shown (scripts/i18n.mjs normalizes the catalogs so).
+    ReplaceAll(s, "Bitcoin Core", "{product}");
+    ReplaceAll(s, "Bitcoin", "{chain}");
     return s;
 }
 
@@ -119,7 +123,13 @@ std::string TranslateCore(const char* message)
     }
     if (!core) return message;
     const auto it{core->find(NormalizeMessage(message))};
-    return it == core->end() ? std::string{message} : it->second;
+    if (it == core->end()) return message;
+    // The node's messages name the product with %s, not the chain: a translation that names the chain is not one of
+    // them; the English message stands.
+    if (it->second.find("{chain}") != std::string::npos) return message;
+    std::string translated{it->second};
+    ReplaceAll(translated, "{product}", CLIENT_NAME);
+    return translated;
 }
 
 } // namespace webui

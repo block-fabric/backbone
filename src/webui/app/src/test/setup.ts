@@ -7,4 +7,8 @@ import { beforeEach } from 'vitest';
 beforeEach(async () => {
   const { prefs } = await import('../lib/state.svelte');
   prefs.uiMode = 'advanced';
+  // The coin of the network of the tests (regtest, a Chains network: CHN), as the page names it once the host says
+  // the network (setCurrency); the tests of the eCash networks set theirs (brand.test.ts).
+  const { setCurrency } = await import('../lib/units');
+  setCurrency('regtest');
 });

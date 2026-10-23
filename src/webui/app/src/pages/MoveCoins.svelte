@@ -4,6 +4,7 @@
   // Advanced (createsidechaindeposit), and how the coins come back (from the sidechain's own app).
   // Slots, proposals and the votes on withdrawals stay in Advanced.
   import { t } from '../lib/i18n.svelte';
+  import { chainName } from '../lib/brand.svelte';
   import Amount from '../components/Amount.svelte';
   import AmountInput from '../components/AmountInput.svelte';
   import Icon from '../components/Icon.svelte';
@@ -17,7 +18,7 @@
   import { go } from '../lib/nav.svelte';
   import { app, noWalletText, prefs, wallets } from '../lib/state.svelte';
   import { host } from '../lib/rpc';
-  import { formatAmount, satsToCoins } from '../lib/units';
+  import { formatAmount, satsToCoins, ticker } from '../lib/units';
   import { setUiMode } from '../lib/uimode.svelte';
   import { depositFeeEstimate } from '../lib/wallet';
 
@@ -140,7 +141,7 @@
 
 <div class="move">
   <section class="panel wizard" aria-labelledby="move-title">
-    <div class="panel-head"><h2 id="move-title">Move CHN to a sidechain</h2></div>
+    <div class="panel-head"><h2 id="move-title">Move {ticker()} to a sidechain</h2></div>
     <div class="panel-body">
       {#if done}
         <div class="done" role="status">
@@ -180,7 +181,7 @@
             </div>
           {/if}
         {:else if step === 1 && chosen}
-          <p class="lead">How much CHN should go to <SafeText text={chosen.title} />?</p>
+          <p class="lead">How much {ticker()} should go to <SafeText text={chosen.title} />?</p>
           {#key amountKey}<AmountInput id="move-amount" bind:value={amount} label="Amount" max={available ?? undefined} />{/key}
           {#if available !== null}<p class="muted small">You have <Amount sats={available} /> available.</p>{/if}
           <div class="nav">
@@ -232,11 +233,10 @@
       <ol class="how">
         <li>Open the app of the sidechain, and its <strong>Drivechains</strong> page.</li>
         <li>Choose <strong>Withdraw</strong>, and enter an address of this wallet (Receive gives you one) and the amount.</li>
-        <li>The miners of Chains approve <Term id="withdrawal">withdrawals</Term> together, in a <Term id="bundle">bundle</Term>.
+        <li>The miners of {chainName()} approve <Term id="withdrawal">withdrawals</Term> together, in a <Term id="bundle">bundle</Term>.
           {#if dc}That takes at least {niceTimeOffset(dc.info.withdrawalminscore * spacing)}; then the coins arrive here.{:else}That takes a while; then the coins arrive here.{/if}</li>
       </ol>
       <p class="muted small">Want to follow the votes on withdrawals, or the slots of sidechains? They are in <button type="button" class="link" onclick={() => setUiMode('advanced')}>Advanced mode</button>.</p>
-      <button type="button" class="btn" onclick={() => go('sidechains', 'nodes')}><Icon name="nodes" size={15} /> Sidechain apps</button>
     </div>
   </section>
 </div>

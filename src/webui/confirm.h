@@ -39,6 +39,9 @@ std::string Coins(CAmount amount);
 //! The network of the node, as the dialogs name it ("Main network", "Testnet", "Signet", "Regtest").
 std::string NetworkName();
 
+/** The name of the chain of the network and of its coin, as messages say it: "eCash" on the eCash networks, "Chains" on the others. */
+std::string ChainName();
+
 //! A row (dialog::Row) of the dialog.
 dialog::Row Text(std::string label, std::string value);
 dialog::Row Destination(std::string label, std::string value);

@@ -30,13 +30,12 @@
   import { formatCount, formatTime, shortHash } from '../lib/format';
   import { detail, showDetail } from '../lib/detail.svelte';
   import { nav, takeFocus } from '../lib/nav.svelte';
-  import SidechainNodes from './SidechainNodes.svelte';
   import MoveCoins from './MoveCoins.svelte';
   import Term from '../components/Term.svelte';
   import { simpleMode } from '../lib/uimode.svelte';
   import { host, rpc } from '../lib/rpc';
   import { node, noWalletText, prefs, toast, wallets } from '../lib/state.svelte';
-  import { coinsToSats, formatAmount, satsToCoins, unitInfo } from '../lib/units';
+  import { coinsToSats, formatAmount, satsToCoins, unitInfo, ticker } from '../lib/units';
   import { depositFeeEstimate } from '../lib/wallet';
   import { depositAgain, isDropped, makeDepositAgain } from '../lib/deposits.svelte';
   import { current } from '../lib/walletdata.svelte';
@@ -45,15 +44,14 @@
     { id: 'sidechains', label: 'Sidechains' },
     { id: 'proposals', label: 'Proposals' },
     { id: 'withdrawals', label: 'Withdrawals' },
-    // The nodes of sidechains last (user decision).
-    { id: 'nodes', label: 'Nodes' },
+    // No tab of the nodes of sidechains (user decision 2026-10-23): their management comes with the unified wallet.
   ];
   const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'sidechains');
-  // Simple mode (lib/uimode.svelte.ts): the first tab moves coins (MoveCoins), the nodes are the apps of the
-  // sidechains; proposals and withdrawals are Advanced's, shown only when asked for (the palette, a link).
+  // Simple mode (lib/uimode.svelte.ts): the first tab moves coins (MoveCoins); proposals and withdrawals are
+  // Advanced's, shown only when asked for (the palette, a link).
   const simple = $derived(simpleMode());
-  const SIMPLE_LABELS: Record<string, string> = { sidechains: 'Move coins', nodes: 'Sidechain apps' };
-  const tabs = $derived(simple ? TABS.filter((tb) => tb.id === 'sidechains' || tb.id === 'nodes' || tb.id === tab).map((tb) => ({ ...tb, label: SIMPLE_LABELS[tb.id] ?? tb.label })) : TABS);
+  const SIMPLE_LABELS: Record<string, string> = { sidechains: 'Move coins' };
+  const tabs = $derived(simple ? TABS.filter((tb) => tb.id === 'sidechains' || tb.id === tab).map((tb) => ({ ...tb, label: SIMPLE_LABELS[tb.id] ?? tb.label })) : TABS);
 
   let dc = $state<DrivechainState | null>(null);
   let loadError = $state('');
@@ -351,7 +349,7 @@
 <div class="page sidechains">
   <header class="page-head"><h1>Sidechains</h1></header>
   {#if simple}
-    <p class="summary muted">Move CHN to a <Term id="sidechain">sidechain</Term> to use what it adds (markets, names, private payments…), and bring it back when you are done.</p>
+    <p class="summary muted">Move {ticker()} to a <Term id="sidechain">sidechain</Term> to use what it adds (markets, names, private payments…), and bring it back when you are done.</p>
   {:else if dc}
     <p class="summary muted">{summaryText(dc.info, formatAmount(escrowTotal, prefs.unit, { withUnit: true }))}</p>
   {:else}
@@ -367,10 +365,7 @@
     {/each}
   </div>
 
-  {#if tab === 'nodes'}
-    <!-- The nodes of sidechains run from here (chains-qt's Sidechain Nodes window), as a tab of this page. -->
-    <SidechainNodes embedded />
-  {:else if simple && tab === 'sidechains'}
+  {#if simple && tab === 'sidechains'}
     <MoveCoins {dc} {refresh} />
   {:else if dc && tab === 'sidechains'}
     <section class="stats">

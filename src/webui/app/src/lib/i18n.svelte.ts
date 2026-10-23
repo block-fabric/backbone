@@ -20,6 +20,8 @@
 // the node): such text is shown as it is. A message of the app that has values in it is written with
 // its own placeholders, t('%1 behind', duration), where it is made.
 import { on, request } from './bridge';
+import { chainName, product } from './brand.svelte';
+import { ticker } from './units';
 
 export type Message = string | string[];
 
@@ -52,7 +54,8 @@ interface Resolved {
 }
 const templateCache = new Map<string, Resolved | null>();
 
-const HOLDER = /%[0-9n]/g;
+// The placeholders: %1, %2... and %n, and the names of the product, of the chain and of its coin (lib/brand.svelte.ts).
+const HOLDER = /%[0-9n]|\{product\}|\{chain\}|\{coin\}/g;
 
 /** Use a catalog (null: English). */
 export function setCatalog(locale: Locale | null): void {
@@ -124,6 +127,11 @@ export function isolate(value: string): string {
   return FSI + out + PDI.repeat(open) + PDI;
 }
 
+/** The names a message may hold: {product}, {chain}, {coin}. */
+function names(): Record<string, string> {
+  return { '{product}': product(), '{chain}': chainName(), '{coin}': ticker() };
+}
+
 /** Put the values in place of the placeholders, in one pass: what the values hold is not looked at again. */
 function fill(text: string, values: Record<string, string>): string {
   return text.replace(HOLDER, (h) => values[h] ?? h);
@@ -161,7 +169,7 @@ function template(source: string): Resolved | null {
  */
 export function t(source: string, ...args: unknown[]): string {
   void i18n.version;
-  const values: Record<string, string> = Object.fromEntries(args.map((a, i) => [`%${i + 1}`, a === null || a === undefined ? '' : isolate(String(a))]));
+  const values: Record<string, string> = { ...names(), ...Object.fromEntries(args.map((a, i) => [`%${i + 1}`, a === null || a === undefined ? '' : isolate(String(a))])) };
   const found = template(source);
   if (!found) return fill(source, values);
   const form = choose(found.value, () => numberOf(fill(found.values['%n'] ?? '0', values)));
@@ -171,7 +179,7 @@ export function t(source: string, ...args: unknown[]): string {
 /** A message with plural forms (%n), in the language shown. */
 export function tn(source: string, n: number, ...args: unknown[]): string {
   void i18n.version;
-  const values: Record<string, string> = { '%n': String(n), ...Object.fromEntries(args.map((a, i) => [`%${i + 1}`, a === null || a === undefined ? '' : isolate(String(a))])) };
+  const values: Record<string, string> = { ...names(), '%n': String(n), ...Object.fromEntries(args.map((a, i) => [`%${i + 1}`, a === null || a === undefined ? '' : isolate(String(a))])) };
   const found = template(source);
   // In English (or without the message), "(s)" is "s" but for one, as the English forms of chains-qt.
   if (!found) return fill(source.replace(/\(s\)/g, n === 1 ? '' : 's'), values);

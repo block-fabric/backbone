@@ -58,7 +58,7 @@ static std::optional<int> WalletAppInit(ArgsManager& args, int argc, char* argv[
     }
     const bool missing_args{argc < 2};
     if (missing_args || HelpRequested(args) || args.GetBoolArg("-version", false)) {
-        std::string strUsage = strprintf("%s bitcoin-wallet utility version", CLIENT_NAME) + " " + FormatFullVersion() + "\n";
+        std::string strUsage = strprintf("%s %s-wallet utility version", CLIENT_NAME, CLIENT_NAME_LOWER) + " " + FormatFullVersion() + "\n";
 
         if (args.GetBoolArg("-version", false)) {
             strUsage += FormatParagraph(LicenseInfo());

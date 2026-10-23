@@ -16,6 +16,7 @@
 #include <webui/icontint.h>
 #include <webui/window.h>
 
+#include <bitcoin-build-config.h> // IWYU pragma: keep
 #include <logging.h>
 #include <support/cleanse.h>
 #include <univalue.h>
@@ -1130,7 +1131,7 @@ private:
             return 0;
         case WM_QUERYENDSESSION:
             // As chains-qt (WinShutdownMonitor): the node stops cleanly before Windows ends the session.
-            ShutdownBlockReasonCreate(m_hwnd, L"Chains is shutting down. Do not interrupt it.");
+            ShutdownBlockReasonCreate(m_hwnd, widen_string(std::string{CLIENT_NAME} + " is shutting down. Do not interrupt it.").c_str());
             if (m_callbacks.session_ending) m_callbacks.session_ending();
             return FALSE;
         case WM_TIMER: {
@@ -1392,7 +1393,7 @@ private:
         nid.uCallbackMessage = WM_APP_TRAY;
         if (!m_tray_icon) m_tray_icon = AppIcon(GetSystemMetrics(SM_CXSMICON), m_tint);
         nid.hIcon = m_tray_icon;
-        const std::string tip{m_tray.tooltip.empty() ? std::string{"Chains"} : m_tray.tooltip};
+        const std::string tip{m_tray.tooltip.empty() ? std::string{CLIENT_NAME} : m_tray.tooltip};
         wcsncpy(nid.szTip, widen_string(tip).c_str(), std::size(nid.szTip) - 1);
         if (m_tray_added) {
             Shell_NotifyIconW(NIM_MODIFY, &nid);
@@ -1574,8 +1575,8 @@ std::unique_ptr<Window> Window::Create(const Options& options, Callbacks callbac
     } catch (const webview::exception& e) {
         LogError("webui: cannot show the interface: %s", e.what());
         // No WebView2 Runtime (Windows 10 before 2021, or removed).
-        if (e.error().code() == WEBVIEW_ERROR_MISSING_DEPENDENCY && MessageBoxW(nullptr, L"Chains cannot show its interface: the Microsoft Edge WebView2 Runtime is missing.\n\nOpen its download page?",
-                        L"Chains", MB_YESNO | MB_ICONERROR) == IDYES) {
+        if (e.error().code() == WEBVIEW_ERROR_MISSING_DEPENDENCY && MessageBoxW(nullptr, widen_string(std::string{CLIENT_NAME} + " cannot show its interface: the Microsoft Edge WebView2 Runtime is missing.\n\nOpen its download page?").c_str(),
+                        widen_string(CLIENT_NAME).c_str(), MB_YESNO | MB_ICONERROR) == IDYES) {
             ShellExecuteW(nullptr, L"open", L"https://go.microsoft.com/fwlink/p/?LinkId=2124703", nullptr, nullptr, SW_SHOWNORMAL);
         }
         throw std::runtime_error(std::string{"WebView2: "} + e.what());

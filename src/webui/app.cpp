@@ -7,6 +7,7 @@
 #include <webui/app.h>
 
 #include <chainparams.h>
+#include <policy/feerate.h>
 #include <clientversion.h>
 #include <common/args.h>
 #include <common/init.h>
@@ -91,11 +92,12 @@ int64_t SteadySeconds()
 
 std::string NetworkLabel(const std::string& network)
 {
-    // eCash's main network is the product's; the others are named, Chains' as such.
+    // eCash's main network is the default one: no label (the window title, the badge); the others are named by
+    // their chain (the Chains networks of -devnetworks as such).
     if (network == "ecash") return "";
     if (network == "ecashbeta") return "eCash betanet";
     if (network == "ecashtest") return "eCash testnet";
-    if (network == "main") return "Chains main";
+    if (network == "main") return "Chains mainnet";
     if (network == "test") return "Chains testnet";
     if (network == "signet") return "Chains signet";
     return network;
@@ -105,15 +107,15 @@ std::string NetworkLabel(const std::string& network)
 std::vector<std::pair<ChainType, std::string>> IntroNetworks(const ArgsManager& args)
 {
     std::vector<std::pair<ChainType, std::string>> networks{
-        {ChainType::ECASH, "eCash Mainnet"},
-        {ChainType::ECASH_BETANET, "eCash Betanet"},
-        {ChainType::ECASH_TESTNET, "eCash Testnet"},
+        {ChainType::ECASH, "eCash mainnet"},
+        {ChainType::ECASH_BETANET, "eCash betanet"},
+        {ChainType::ECASH_TESTNET, "eCash testnet"},
     };
     if (args.GetBoolArg("-devnetworks", false)) {
         networks.insert(networks.end(), {{ChainType::MAIN, "Chains (CHN) main network"},
                                          {ChainType::TESTNET, "Chains (CHN) testnet"},
                                          {ChainType::SIGNET, "Chains (CHN) signet"},
-                                         {ChainType::REGTEST, "Regtest"}});
+                                         {ChainType::REGTEST, "regtest"}});
     }
     return networks;
 }
@@ -228,6 +230,11 @@ UniValue App::Info()
     }
     info.pushKV("datadir", datadir);
     if (configured) info.pushKV("blockSpacing", Params().GetConsensus().nPowTargetSpacing);
+    // The chain of the network and its coin, as the interface names them (eCash, ECX on the eCash networks).
+    if (configured) {
+        info.pushKV("chainName", IsEcashChain(Params().GetChainType()) ? "eCash" : "Chains");
+        info.pushKV("coin", CURRENCY_UNIT);
+    }
     // The weight a block of this chain and network may have (the explorer draws how full blocks are against it).
     if (configured) info.pushKV("blockWeight", Params().GetConsensus().max_block_weight);
 #ifdef ENABLE_WALLET
@@ -1108,7 +1115,7 @@ void App::RegisterHostMethods()
     });
     b.RegisterHost("app.help", [this](const UniValue&) {
         UniValue out{UniValue::VOBJ};
-        out.pushKV("usage", "Usage: chains-app [options] [URI]");
+        out.pushKV("usage", strprintf("Usage: %s-app [options] [URI]", CLIENT_NAME_LOWER));
         out.pushKV("options", m_args.GetHelpMessage());
         return out;
     });

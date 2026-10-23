@@ -179,7 +179,7 @@ std::string PurposeName(AddressPurpose purpose)
 
 std::string FormatCoins(CAmount amount)
 {
-    return FormatMoney(amount) + " CHN";
+    return FormatMoney(amount) + " " + CURRENCY_UNIT;
 }
 
 std::string EncodePsbt(const PartiallySignedTransaction& psbtx)
@@ -231,7 +231,7 @@ CCoinControl MakeCoinControl(const UniValue& params)
     for (const COutPoint& o : OutpointsParam(params, "selected")) cc.Select(o);
     if (const std::string change{OptStr(params, "changeAddress")}; !change.empty()) {
         const CTxDestination dest{DecodeDestination(change)};
-        if (!IsValidDestination(dest)) throw HostError(WalletApi::SEND_REFUSED, "Warning: Invalid Chains address (custom change address)");
+        if (!IsValidDestination(dest)) throw HostError(WalletApi::SEND_REFUSED, strprintf("Warning: Invalid %s address (custom change address)", confirm::ChainName()));
         cc.destChange = dest;
     }
     if (const auto fee_rate{OptInt(params, "feeRate")}) {
@@ -1686,7 +1686,7 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file, guard::AskFn ask) : m_nod
         const std::string address{Str(params, "address")};
         // One line (audit 7 #4): a label never holds line breaks to push the address out of sight.
         const std::string label{ShownLabel(OptStr(params, "label"))};
-        if (!IsValidDestinationString(address)) throw HostError(WalletApi::SEND_REFUSED, strprintf("The entered address \"%s\" is not a valid Chains address.", address));
+        if (!IsValidDestinationString(address)) throw HostError(WalletApi::SEND_REFUSED, strprintf("The entered address \"%s\" is not a valid %s address.", address, confirm::ChainName()));
         const CTxDestination dest{DecodeDestination(address)};
         if (w->getAddress(dest, /*name=*/nullptr, /*purpose=*/nullptr)) throw HostError(WalletApi::SEND_REFUSED, duplicate_warning(*w, address, true));
         w->setAddressBook(dest, label, AddressPurpose::SEND);
@@ -1708,7 +1708,7 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file, guard::AskFn ask) : m_nod
             // Only sending addresses can change their address.
             if (!sending) throw HostError("The address of a receiving address cannot be changed");
             const CTxDestination dest{DecodeDestination(new_address)};
-            if (std::get_if<CNoDestination>(&dest)) throw HostError(WalletApi::SEND_REFUSED, strprintf("The entered address \"%s\" is not a valid Chains address.", new_address));
+            if (std::get_if<CNoDestination>(&dest)) throw HostError(WalletApi::SEND_REFUSED, strprintf("The entered address \"%s\" is not a valid %s address.", new_address, confirm::ChainName()));
             if (w->getAddress(dest, nullptr, nullptr)) throw HostError(WalletApi::SEND_REFUSED, duplicate_warning(*w, new_address, true));
             // The label stays, the address behind it changes: what the user pays to by that name from now on. On the user's
             // word given to the desktop, old and new address whole (audit 7 #6).

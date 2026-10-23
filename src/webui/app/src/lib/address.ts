@@ -1,3 +1,4 @@
+import { nameTokens } from './brand.svelte';
 // Addresses of Chains, checked as they are typed (the node checks them again
 // with validateaddress before anything is sent).
 
@@ -158,7 +159,7 @@ export async function checkAddress(text: string, network: string): Promise<Addre
   // A bech32 address of another network.
   const other = Object.values(NETWORKS).find((p) => address.toLowerCase().startsWith(p.hrp + '1'));
   if (other) return { valid: false, error: 'This address is for another network' };
-  return { valid: false, error: 'This is not an address of Chains' };
+  return { valid: false, error: nameTokens('This is not an address of {chain}') };
 }
 
 /** An example address of a network, for placeholders. */

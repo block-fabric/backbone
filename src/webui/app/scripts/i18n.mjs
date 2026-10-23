@@ -11,7 +11,8 @@
 // A catalog keeps the messages of the interface (the "gui" part) that the interface of chains-app shows
 // (the text of its sources, and of the host in src/webui), and the messages of the node ("core", the
 // context bitcoin-core) that chains-app shows through G_TRANSLATION_FUN. Messages are normalized as
-// chains-app writes them: no mnemonic "&", "…" for "...", "Chains" for "Bitcoin". A message with plural
+// chains-app writes them: no mnemonic "&", "…" for "...", "{product}" for "Bitcoin Core" and "{chain}" for "Bitcoin" (the
+// interface puts the names in, lib/brand.svelte.ts). A message with plural
 // forms (%n) keeps them all, in the order of the CLDR categories of the language.
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -33,15 +34,15 @@ function unescapeXml(s) {
     .replace(/&amp;/g, '&');
 }
 
-/** As chains-app writes a message: no mnemonic, an ellipsis, Chains. */
+/** As chains-app writes a message: no mnemonic, an ellipsis, the names as {product} and {chain} (lib/brand.svelte.ts). */
 export function normalize(s) {
   return s
     .replace(/&&/g, '\u0000')
     .replace(/&(?=\S)/g, '')
     .replace(/\u0000/g, '&')
     .replace(/\.\.\./g, '…')
-    .replace(/\bBitcoin Core\b/g, 'Chains')
-    .replace(/\bBitcoin\b/g, 'Chains')
+    .replace(/\bBitcoin Core\b/g, '{product}')
+    .replace(/\bBitcoin\b/g, '{chain}')
     .replace(/\bbitcoin:/g, 'chains:')
     .trim();
 }

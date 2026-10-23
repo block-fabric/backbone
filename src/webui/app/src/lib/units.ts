@@ -1,5 +1,5 @@
 // Amounts: satoshis as bigint, shown and typed in the unit the user chose
-// (the units of chains-qt: CHN, mCHN, bits, sat).
+// (the units of chains-qt, named after the coin of the network: ECX, mECX, bits, sat on the eCash networks).
 
 export type Unit = 'CHN' | 'mCHN' | 'bits' | 'sat';
 
@@ -14,9 +14,9 @@ export interface UnitInfo {
 
 // (The ids stay those of the settings; the names are those of the network's coin, see setCurrency.)
 export const UNITS: readonly UnitInfo[] = [
-  { id: 'CHN', short: 'CHN', long: 'Chains', decimals: 8 },
-  { id: 'mCHN', short: 'mCHN', long: 'Milli-Chains (1 / 1 000)', decimals: 5 },
-  { id: 'bits', short: 'bits', long: 'Micro-Chains (bits) (1 / 1 000 000)', decimals: 2 },
+  { id: 'CHN', short: 'ECX', long: 'eCash', decimals: 8 },
+  { id: 'mCHN', short: 'mECX', long: 'Milli-eCash (1 / 1 000)', decimals: 5 },
+  { id: 'bits', short: 'bits', long: 'Micro-eCash (bits) (1 / 1 000 000)', decimals: 2 },
   { id: 'sat', short: 'sat', long: 'Satoshi (sat) (1 / 100 000 000)', decimals: 0 },
 ];
 
@@ -25,9 +25,12 @@ export function isEcashNetwork(network: string | undefined): boolean {
   return network === 'ecash' || network === 'ecashbeta' || network === 'ecashtest';
 }
 
-/** Name the units after the coin of the network: eCash (ECX) on the eCash networks, Chains (CHN) on the others. */
+/**
+ * Name the units after the coin of the network: eCash (ECX) on the eCash networks, Chains (CHN) on the others;
+ * eCash before the network is known (the default network).
+ */
 export function setCurrency(network: string | undefined): void {
-  const ecash = isEcashNetwork(network);
+  const ecash = !network || isEcashNetwork(network);
   const [coin, milli, micro] = UNITS as UnitInfo[];
   coin.short = ecash ? 'ECX' : 'CHN';
   coin.long = ecash ? 'eCash' : 'Chains';
@@ -70,7 +73,7 @@ export interface FormatOptions {
   minDecimals?: number;
 }
 
-/** An amount in satoshis, in a unit: "1 234.56780000 CHN". */
+/** An amount in satoshis, in a unit: "1 234.56780000 ECX". */
 export function formatAmount(sats: bigint | number, unit: Unit, options: FormatOptions = {}): string {
   const value = typeof sats === 'bigint' ? sats : BigInt(Math.round(sats));
   const { decimals, short } = unitInfo(unit);

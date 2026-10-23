@@ -158,8 +158,10 @@ endif()
 set_target_properties(chains-app PROPERTIES OUTPUT_NAME ${CLIENT_NAME_LOWER}-app)
 install_binary_component(chains-app)
 if(NOT WIN32 AND NOT APPLE)
-  # The desktop entry: the app in the menus of the desktop, and the handler of chains: links (BIP 21).
-  install(FILES ${PROJECT_SOURCE_DIR}/share/chains-app.desktop
+  # The desktop entry: the app in the menus of the desktop, and the handler of chains: links (BIP 21); named
+  # after the product (CLIENT_NAME), its program (backbone-app).
+  configure_file(${PROJECT_SOURCE_DIR}/share/chains-app.desktop ${CMAKE_CURRENT_BINARY_DIR}/chains-app.desktop @ONLY)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/chains-app.desktop
     DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
     COMPONENT chains-app
   )

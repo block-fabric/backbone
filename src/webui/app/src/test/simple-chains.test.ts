@@ -87,7 +87,8 @@ describe('Move coins (the Sidechains page in Simple mode)', () => {
     render(Sidechains);
     // The tabs of Simple mode: no proposals nor withdrawals.
     expect(screen.getByRole('tab', { name: 'Move coins' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Sidechain apps' })).toBeTruthy();
+    // No tab of the sidechain apps: the unified wallet will manage them (user decision 2026-10-23).
+    expect(screen.queryByRole('tab', { name: 'Sidechain apps' })).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Proposals' })).toBeNull();
     expect(document.querySelector('.slots')).toBeNull();
     // 1: the sidechain, by its name.

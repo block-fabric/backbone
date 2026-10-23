@@ -386,7 +386,7 @@ BOOST_AUTO_TEST_CASE(send_receive_and_history)
     BOOST_CHECK_EQUAL(question.title, "Send coins");
     BOOST_CHECK(question.passphrase);
     BOOST_CHECK_EQUAL(RowValue(question, "Wallet"), "alice");
-    BOOST_CHECK_EQUAL(RowValue(question, "Network"), "Regtest");
+    BOOST_CHECK_EQUAL(RowValue(question, "Network"), "regtest");
     BOOST_CHECK_EQUAL(RowValue(question, "Pay to"), b1);
     BOOST_CHECK(question.rows[RowOf(question, "Pay to")].kind == webui::dialog::Row::Kind::ADDRESS);
     BOOST_CHECK(RowOf(question, "Pay to") < RowOf(question, "Amount") && RowOf(question, "Amount") < RowOf(question, "Label"));

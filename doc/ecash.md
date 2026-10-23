@@ -232,6 +232,27 @@ Bitcoin Core 28.99/29.1/30.2 testnet4 peers had the same block; no block was ref
 and a headers sync with eCash's four seeds reached 973,880, tip `00000000000000001f8d…06e4` and fork block
 967,680 `00000000000000030101…4042` (bits `19044b7e`), the hashes of eCash's esplora.
 
+## The interface (backbone-app)
+
+The names it shows are never written into it (src/webui/app/src/lib/brand.svelte.ts):
+
+- the product's: the host's `CLIENT_NAME` (`app.info.name`; before the host answers, the build's, read from
+  CMakeLists.txt by scripts/product.mjs: `__CLIENT_NAME__`, `%CLIENT_NAME%` in the `<title>`): the window
+  title, the sidebar's brand, About, Quit, the splash, the first steps, the settings, the console;
+- the chain's and its coin's: the network's (`app.info.chainName`, `app.info.coin`; eCash and ECX on the
+  eCash networks, Chains and CHN on the Chains networks of `-devnetworks`, which keep their names);
+- the networks: eCash mainnet (no badge, the default), eCash betanet, eCash testnet; regtest.
+
+Messages name them with `{product}`, `{chain}` and `{coin}`, which `t()` fills; the catalogs of the
+translations are written so (scripts/i18n.mjs: "Bitcoin Core" is `{product}`, "Bitcoin" `{chain}`), and the
+host's messages too (webui/i18n.cpp). The product has no logo: its mark is its initial on a tile (Brand.svelte,
+and the icon of the window, the tray and the desktop entry, app/scripts/appicon.py). src/test/brand.test.ts
+fails if "Chains" or "CHN" shows on an eCash network, or is written into what the sources show.
+
+The Sidechains page has no Nodes tab (nor the Sidechain nodes page and command): managing the nodes of the
+sidechains comes with the port of the unified wallet from Chains (user decision 2026-10-23). The host's
+`sidechainNodes.*` methods stay for it.
+
 ## Tests
 
 - `src/test/ecash_tests.cpp`: parameters, the reset at the retarget boundary and the first retarget after it,
@@ -284,8 +305,9 @@ repository; the older eCash branches of our repositories are superseded and kept
    the cluster limits, the wallet's and the miner's checks), so per-network values are not a small change;
    until then a transaction between 392,000 and 400,000 weight, standard on eCash's node, is not relayed by
    ours (no consensus effect).
-6. The split-coins helper above; the app's remaining "CHN" texts (first steps, tools, multisig) and the
-   `chains:` URI scheme (eCash's Electrum uses `ecx:`).
+6. The split-coins helper above; the `chains:` URI scheme (eCash's Electrum uses `ecx:`); the identifiers that
+   keep the old name (the settings file `chains-app.json` in its `Chains` folder, the desktop entry's file and
+   window class `chains-app`, the Windows startup link `Chains.lnk`).
 7. Renames outside this repository: the GitHub repositories (block-fabric/backbone, block-fabric/backbone-<sidechain>),
    the unified-app supervisor, `~/skydoge/tools/build.sh` users, the release scripts (`chainsd.exe`…), the
    testnet tooling (`chainsd -testnet`), the explorer, the sidechains' mainchain client.

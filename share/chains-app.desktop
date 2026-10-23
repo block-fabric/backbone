@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Chains
-GenericName=Chains node and wallet
-Comment=The node of Chains, with its wallet and its sidechains, in one program
-Exec=chains-app %u
+Name=@CLIENT_NAME@
+GenericName=@CLIENT_NAME@ node and wallet
+Comment=The node of @CLIENT_NAME@, with its wallet and its sidechains, in one program
+Exec=@CLIENT_NAME_LOWER@-app %u
 Icon=chains
 Terminal=false
 Categories=Office;Finance;Network;

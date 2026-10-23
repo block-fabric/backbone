@@ -7,7 +7,6 @@ import StatusBar from '../components/StatusBar.svelte';
 import Crypto from '../pages/Crypto.svelte';
 import Explorer from '../pages/Explorer.svelte';
 import Settings from '../pages/Settings.svelte';
-import SidechainNodes from '../pages/SidechainNodes.svelte';
 import Sidechains from '../pages/Sidechains.svelte';
 import Timestamp from '../pages/Timestamp.svelte';
 import { setTransport, type BridgeRequest } from '../lib/bridge';
@@ -500,81 +499,6 @@ describe('tools', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Find the stamp of this file' }));
     await waitFor(() => screen.getByText(/This file was stamped in block 60/));
     expect(document.body.textContent).toContain('f2'.repeat(32));
-  });
-
-  it('lists the sidechain nodes and starts one with the wallet of this node', async () => {
-    wallets.current = 'w';
-    const calls = host({
-      'sidechainNodes.list': () => ({
-        server: false,
-        network: 'regtest',
-        sidechains: [{ name: 'Thunder', stem: 'thunder', slot: 2, description: 'Large blocks, for volume', builtin: true, dir: '/opt/thunder', installed: true, programs: '/opt/thunder', dataDir: '/d/thunder' }],
-      }),
-      'sidechainNodes.status': () => ({ stem: 'thunder', installed: true, running: false }),
-      'sidechainNodes.start': () => ({ log: ['Thunder: node started'] }),
-    });
-    render(DialogHost);
-    render(SidechainNodes);
-    await waitFor(() => screen.getByText('Thunder'));
-    expect(document.getElementById('sidechain-nodes-notice')?.textContent).toContain('This node does not accept RPC connections');
-    await waitFor(() => screen.getByText('stopped'));
-    await fireEvent.click(screen.getByRole('radio', { name: /Thunder/ }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Start node' }));
-    await waitFor(() => expect(document.getElementById('sidechain-nodes-log')?.textContent).toContain('Thunder: node started'));
-    expect(calls.find((c) => c.method === 'sidechainNodes.start')?.params).toEqual({ stem: 'thunder', wallet: 'w' });
-  });
-
-  const thunderEntry = { name: 'Thunder', stem: 'thunder', slot: 2, description: '', builtin: true, dir: '', installed: false, programs: '', dataDir: '/d/thunder' };
-
-  it('downloads the release built into the app without an address from the page (security audit 2026-10-14, 2a)', async () => {
-    const calls = host({
-      'sidechainNodes.list': () => ({ server: true, network: 'regtest', sidechains: [{ ...thunderEntry, release: { version: '1.0', url: 'https://example.invalid/t.tar.gz', sha256: 'b'.repeat(64) } }] }),
-      'sidechainNodes.download': () => ({ log: ['Thunder: the download was not accepted.'] }),
-    });
-    render(DialogHost);
-    render(SidechainNodes);
-    await waitFor(() => screen.getByText('Thunder'));
-    await fireEvent.click(screen.getByRole('radio', { name: /Thunder/ }));
-    await fireEvent.click(screen.getByRole('button', { name: /Download/ }));
-    await waitFor(() => expect(calls.find((c) => c.method === 'sidechainNodes.download')?.params).toEqual({ stem: 'thunder', release: true }));
-  });
-
-  it('asks for an address and a hash when no release is built in; the host refuses http (security audit 2026-10-14, 2a)', async () => {
-    const calls = host({
-      'sidechainNodes.list': () => ({ server: true, network: 'regtest', sidechains: [thunderEntry] }),
-      // The host refuses what is not https.
-      'sidechainNodes.download': (r) => {
-        const { url } = r.params as { url: string };
-        if (!url.startsWith('https:')) throw { code: -1, message: 'The address of a release starts with https://' };
-        return { log: [] };
-      },
-    });
-    render(DialogHost);
-    render(SidechainNodes);
-    await waitFor(() => screen.getByText('Thunder'));
-    await fireEvent.click(screen.getByRole('radio', { name: /Thunder/ }));
-    await fireEvent.click(screen.getByRole('button', { name: /Download/ }));
-    const dialog = await waitFor(() => {
-      const d = document.querySelector('dialog[open]') as HTMLElement | null;
-      expect(d?.querySelector('input')).toBeTruthy();
-      return d!;
-    });
-    const input = dialog.querySelector('input') as HTMLInputElement;
-    input.value = 'http://example.invalid/t.tar.gz';
-    await fireEvent.input(input);
-    await fireEvent.click([...dialog.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'OK')!);
-    // The hash is asked for next; then the host says no.
-    const hashDialog = await waitFor(() => {
-      const d = document.querySelector('dialog[open]') as HTMLElement | null;
-      if (!d?.textContent?.includes('SHA-256')) throw new Error('no hash prompt');
-      return d;
-    });
-    const hash = hashDialog.querySelector('input') as HTMLInputElement;
-    hash.value = 'a'.repeat(64);
-    await fireEvent.input(hash);
-    await fireEvent.click([...hashDialog.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'OK')!);
-    await waitFor(() => expect(document.body.textContent).toContain('The address of a release starts with https://'));
-    expect(calls.find((c) => c.method === 'sidechainNodes.download')?.params).toEqual({ stem: 'thunder', url: 'http://example.invalid/t.tar.gz', sha256: 'a'.repeat(64) });
   });
 });
 

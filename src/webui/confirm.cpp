@@ -31,15 +31,20 @@ std::string Coins(CAmount amount)
 std::string NetworkName()
 {
     switch (Params().GetChainType()) {
-    case ChainType::ECASH: return "eCash main network";
+    case ChainType::ECASH: return "eCash mainnet";
     case ChainType::ECASH_BETANET: return "eCash betanet";
     case ChainType::ECASH_TESTNET: return "eCash testnet";
-    case ChainType::MAIN: return "Chains main network";
+    case ChainType::MAIN: return "Chains mainnet";
     case ChainType::TESTNET: return "Chains testnet";
     case ChainType::SIGNET: return "Chains signet";
-    case ChainType::REGTEST: return "Regtest";
+    case ChainType::REGTEST: return "regtest";
     default: return ChainTypeToString(Params().GetChainType());
     }
+}
+
+std::string ChainName()
+{
+    return IsEcashChain(Params().GetChainType()) ? "eCash" : "Chains";
 }
 
 dialog::Row Text(std::string label, std::string value) { return {std::move(label), std::move(value), dialog::Row::Kind::TEXT}; }

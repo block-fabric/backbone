@@ -43,7 +43,7 @@ void SetCoreCatalog(std::optional<UniValue> catalog);
 /** A message of the node in the language chosen, or as it is. What G_TRANSLATION_FUN of chains-app does. */
 std::string TranslateCore(const char* message);
 
-/** A message as the catalogs key it: "…" for "...", "Chains" for "Bitcoin". */
+/** A message as the catalogs key it: "…" for "...", "{product}" for "Bitcoin Core", "{chain}" for "Bitcoin". */
 std::string NormalizeMessage(const std::string& message);
 
 } // namespace webui

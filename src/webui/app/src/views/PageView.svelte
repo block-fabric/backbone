@@ -11,7 +11,6 @@
   import Receive from '../pages/Receive.svelte';
   import Send from '../pages/Send.svelte';
   import Settings from '../pages/Settings.svelte';
-  import SidechainNodes from '../pages/SidechainNodes.svelte';
   import Sidechains from '../pages/Sidechains.svelte';
   import Transactions from '../pages/Transactions.svelte';
   import Wallets from '../pages/Wallets.svelte';
@@ -38,8 +37,6 @@
     <Kit />
   {:else if nav.page === 'sidechains'}
     <Sidechains />
-  {:else if nav.page === 'sidechain-nodes'}
-    <SidechainNodes />
   {:else if nav.page === 'mine'}
     <Mine />
   {:else if nav.page === 'explorer'}

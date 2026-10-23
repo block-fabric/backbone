@@ -3553,7 +3553,7 @@ static RPCMethod loadtxoutset()
     NodeContext& node = EnsureAnyNodeContext(request.context);
     // The drivechain state (sidechains, treasuries, bundles) is not in a UTXO snapshot: a node
     // started from one would not know the sidechains, and would judge their blocks wrongly.
-    throw JSONRPCError(RPC_MISC_ERROR, "Loading a UTXO snapshot is not supported on Chains: the snapshot does not hold the drivechain state");
+    throw JSONRPCError(RPC_MISC_ERROR, "Loading a UTXO snapshot is not supported on drivechains: the snapshot does not hold the drivechain state");
     ChainstateManager& chainman = EnsureChainman(node);
     const fs::path path{AbsPathForConfigVal(EnsureArgsman(node), fs::u8path(self.Arg<std::string_view>("path")))};
 

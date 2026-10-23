@@ -1,6 +1,7 @@
 // A pretend host, for working on the interface in a browser (npm run dev) and for the tests.
 // Never part of the build of chains-app (only loaded when import.meta.env.DEV is set).
 import { dispatch, setTransport, type BridgeRequest } from './bridge';
+import { BUILD_PRODUCT } from './brand.svelte';
 
 export interface MockOptions {
   phase?: string;
@@ -21,10 +22,10 @@ export function installMock(options: MockOptions = {}): void {
       phase: options.phase ?? 'ready',
       phaseData: {},
       dialogs: [],
-      info: { name: 'Chains', version: 'v32.0.0-dev (preview)', bugreport: '', network: 'regtest', networkLabel: 'regtest', datadir: '/tmp/preview', walletEnabled: true, devtools: true, test: false, platform: 'browser', blockSpacing: 600 },
+      info: { name: BUILD_PRODUCT, version: 'v32.0.0-dev (preview)', bugreport: '', network: 'regtest', networkLabel: 'regtest', datadir: '/tmp/preview', walletEnabled: true, devtools: true, test: false, platform: 'browser', blockSpacing: 600 },
     }),
-    'app.help': () => ({ usage: 'Usage: chains-app [options] [URI]', options: 'Options:\n\n  -?\n       Print this help message and exit' }),
-    'app.about': () => ({ name: 'Chains', version: 'preview', license: 'Distributed under the MIT software license.' }),
+    'app.help': () => ({ usage: `Usage: ${BUILD_PRODUCT.toLowerCase()}-app [options] [URI]`, options: 'Options:\n\n  -?\n       Print this help message and exit' }),
+    'app.about': () => ({ name: BUILD_PRODUCT, version: 'preview', license: 'Distributed under the MIT software license.' }),
     'prefs.get': () => prefs,
     'prefs.set': (p) => Object.assign(prefs, p),
     'node.state': () => ({
@@ -91,12 +92,12 @@ export function installMock(options: MockOptions = {}): void {
       return { height: h, time: start - (height - h) * 600, nTx: (h * 7) % 13 + 1, previousblockhash: h > 0 ? hash(h - 1) : undefined };
     },
     getblockchaininfo: () => ({ chain: 'regtest', blocks: height, headers: height, time: start, size_on_disk: 3_200_000, pruned: false }),
-    getnetworkinfo: () => ({ subversion: '/Chains:32.0.0/', connections: 8, connections_in: 2, connections_out: 6, localaddresses: [] }),
+    getnetworkinfo: () => ({ subversion: `/${BUILD_PRODUCT}:32.0.0/`, connections: 8, connections_in: 2, connections_out: 6, localaddresses: [] }),
     getmempoolinfo: () => ({ size: 3, usage: 4096 }),
     uptime: () => 3600,
     validateaddress: (p) => ({ isvalid: String(p[0]).startsWith('rchn1') }),
     getpeerinfo: () =>
-      [1, 2, 3, 4].map((id) => ({ id, addr: `203.0.113.${id * 11}:38333`, inbound: id === 3, pingtime: 0.02 * id, synced_blocks: height, network: 'ipv4', connection_type: 'outbound-full-relay', subver: '/Chains:32.0.0/', version: 70016, startingheight: 1, synced_headers: height, bytessent: 1, bytesrecv: 2, conntime: start, lastsend: start, lastrecv: start })),
+      [1, 2, 3, 4].map((id) => ({ id, addr: `203.0.113.${id * 11}:38333`, inbound: id === 3, pingtime: 0.02 * id, synced_blocks: height, network: 'ipv4', connection_type: 'outbound-full-relay', subver: `/${BUILD_PRODUCT}:32.0.0/`, version: 70016, startingheight: 1, synced_headers: height, bytessent: 1, bytesrecv: 2, conntime: start, lastsend: start, lastrecv: start })),
     getmininginfo: () => ({ blocks: height, difficulty: 4.6565e-10, networkhashps: 12.4, pooledtx: 3 }),
     getnetworkhashps: (p) => 12.4 * (1 + 0.2 * Math.sin((Number(p[1]) < 0 ? height : Number(p[1])) / 50)),
     getdrivechaininfo: () => ({ activesidechains: 2, proposals: 1, pendingbundles: 1, escrowtotal: 7.25, withdrawalperiod: 100 }),

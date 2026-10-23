@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte';
+  import { ticker } from '../lib/units';
   // Proof of funds (ProofOfFundsDialog of chains-qt): a statement signed with every address of the
   // wallet that holds coins, and the check of such a proof against the chain as it is now. Optionally
   // (user decision, 2026-10-15) only some of them: chosen by address, or by coin (the coins are then listed
@@ -211,7 +212,7 @@
         const check = checkProofCoins(parsed.coins, now, valid);
         coinsGood = check.good.length;
         coinsBad = parsed.coins.length - coinsGood;
-        report += `\nCoins listed in the proof: ${parsed.coins.length}. Unspent now, on addresses that signed: ${check.good.length}, holding ${unitsToCoins(check.total)} CHN.\n`;
+        report += `\nCoins listed in the proof: ${parsed.coins.length}. Unspent now, on addresses that signed: ${check.good.length}, holding ${unitsToCoins(check.total)} ${ticker()}.\n`;
         for (const c of check.spent) report += `SPENT or not on the chain: ${proofCoinLine(c)}\n`;
         for (const c of check.unsigned) report += `NOT ON A SIGNED ADDRESS: ${proofCoinLine(c)} (paid to ${c.address || 'no address'})\n`;
         for (const c of check.wrongAmount) report += `WRONG AMOUNT: ${proofCoinLine(c)} (it holds ${unitsToCoins(c.now)})\n`;

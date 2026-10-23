@@ -3,6 +3,7 @@
   // and the requests made before (RecentRequestsTableModel), kept in the wallet. Its Addresses tab: the
   // receiving addresses of the wallet (there is no Addresses page: user decision, 2026-10-15).
   import { t } from '../lib/i18n.svelte';
+  import { chainName } from '../lib/brand.svelte';
   import SafeText from '../components/SafeText.svelte';
   import Amount from '../components/Amount.svelte';
   import AmountInput from '../components/AmountInput.svelte';
@@ -17,7 +18,7 @@
   import { host } from '../lib/rpc';
   import { prefs, toast, wallets } from '../lib/state.svelte';
   import type { Column } from '../lib/table';
-  import { formatAmount } from '../lib/units';
+  import { formatAmount, unitInfo } from '../lib/units';
   import { formatPaymentUri } from '../lib/uri';
   import { ADDRESS_TYPES, walletApi, type ReceiveRequest } from '../lib/wallet';
   import { current, refreshInfo } from '../lib/walletdata.svelte';
@@ -106,7 +107,7 @@
     { key: 'date', label: 'Date', value: (r) => r.time, width: '10rem' },
     { key: 'label', label: 'Label', value: (r) => r.label || '(no label)', width: 'minmax(9rem, 1fr)' },
     { key: 'message', label: 'Message', value: (r) => r.message || '(no message)', width: 'minmax(9rem, 1fr)' },
-    { key: 'amount', label: `Requested (${prefs.unit})`, value: (r) => r.amount, width: '11rem', align: 'end' },
+    { key: 'amount', label: `Requested (${unitInfo(prefs.unit).short})`, value: (r) => r.amount, width: '11rem', align: 'end' },
   ]);
 
   async function remove() {
@@ -172,7 +173,7 @@
               type="text"
               bind:value={message}
               autocomplete="off"
-              title="An optional message to attach to the payment request, which will be displayed when the request is opened. Note: The message will not be sent with the payment over the Chains network."
+              title="An optional message to attach to the payment request, which will be displayed when the request is opened. Note: The message will not be sent with the payment over the {chainName()} network."
             />
           </div>
           <div class="field">

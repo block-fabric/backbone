@@ -1,5 +1,6 @@
 <script lang="ts">
   import { every } from '../lib/poll';
+  import { product as productName } from '../lib/brand.svelte';
   import { t } from '../lib/i18n.svelte';
   // Wallets (WalletController and its activities, the wallet menu of chains-qt): create, open, close,
   // restore, migrate; encrypt, change the passphrase, unlock for a while, back up, export watch-only.
@@ -25,7 +26,7 @@
   const name = $derived(walletState.current);
   const summary = $derived(walletState.list.find((w) => w.name === name) ?? null);
   const info = $derived(current.info);
-  const product = $derived(app.info?.name ?? 'Chains');
+  const product = $derived(productName());
 
   async function loadDir() {
     try {

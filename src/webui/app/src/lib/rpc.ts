@@ -131,6 +131,10 @@ export interface AppInfo {
   bugreport: string;
   network: string;
   networkLabel: string;
+  /** The name of the chain of the network and of its coin ("eCash", "Chains"), once the network is known. */
+  chainName?: string;
+  /** The ticker of the coin of the network ("ECX", "CHN"), once the network is known. */
+  coin?: string;
   datadir: string;
   walletEnabled: boolean;
   devtools: boolean;
@@ -171,7 +175,7 @@ export interface IntroNetwork {
 }
 
 export interface IntroData {
-  //! The networks to choose from (eCash's; Chains' too with -devnetworks), and the one chosen so far.
+  //! The networks to choose from (eCash's; the Chains networks too with -devnetworks), and the one chosen so far.
   networks?: IntroNetwork[];
   network?: string;
   //! The network was given on the command line: no choice.

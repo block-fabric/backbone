@@ -1,28 +1,27 @@
 <script lang="ts">
-  // The mark of Chains, its name and the network (testnet, signet, regtest).
+  // The mark of the product, its name and the network (betanet, testnet...). The product has no logo: its mark is
+  // its initial on a tile (a text mark), its name the host's (lib/brand.svelte.ts).
+  import { product, productInitial } from '../lib/brand.svelte';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
 
-  let {
-    name = true,
-    onclick,
-    label = 'Chains: home',
-  }: { name?: boolean; onclick?: () => void; label?: string } = $props();
+  let { name = true, onclick, label }: { name?: boolean; onclick?: () => void; label?: string } = $props();
+  const shownLabel = $derived(label ?? t('%1: home', product()));
 </script>
 
 {#snippet content()}
-  <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-    <rect x="3" y="9" width="12" height="14" rx="3.5" />
-    <rect x="17" y="9" width="12" height="14" rx="3.5" />
-    <path d="M11 16h10" />
+  <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" data-testid="brand-mark">
+    <rect x="3.2" y="3.2" width="25.6" height="25.6" rx="7" />
+    <text x="16" y="16.6" text-anchor="middle" dominant-baseline="middle">{productInitial()}</text>
   </svg>
   {#if name}
-    <span class="name">Chains</span>
+    <span class="name" translate="no">{product()}</span>
     {#if app.info?.networkLabel}<span class="badge warning net">{app.info.networkLabel}</span>{/if}
   {/if}
 {/snippet}
 
 {#if onclick}
-  <button type="button" class="brand" {onclick} aria-label={label} title={label}>{@render content()}</button>
+  <button type="button" class="brand" {onclick} aria-label={shownLabel} title={shownLabel}>{@render content()}</button>
 {:else}
   <div class="brand">{@render content()}</div>
 {/if}
@@ -49,9 +48,17 @@
     width: 1.9rem;
     height: 1.9rem;
     flex: none;
+  }
+  .mark rect {
     fill: none;
     stroke: var(--accent);
     stroke-width: 2.4;
+  }
+  .mark text {
+    fill: var(--accent);
+    font-size: 17px;
+    font-weight: 800;
+    font-family: inherit;
   }
   .name {
     font-size: 1.15rem;

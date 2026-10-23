@@ -4,6 +4,7 @@
   // type, whether they were used, what they received and when last; search, copy, QR code, a new
   // label, and a new address with its label and type.
   import { t } from '../lib/i18n.svelte';
+  import { unitInfo } from '../lib/units';
   import SafeText from './SafeText.svelte';
   import Amount from './Amount.svelte';
   import ContextMenu, { type ContextItem } from './ContextMenu.svelte';
@@ -63,7 +64,7 @@
     { key: 'address', label: 'Address', value: (r) => r.address, width: 'minmax(16rem, 2fr)', mono: true },
     { key: 'type', label: 'Type', value: (r) => addressTypeText(r.type), width: '10rem', words: true },
     { key: 'used', label: 'Status', value: (r) => (r.used ? t('Used') : t('Unused')), width: '6rem', words: true },
-    { key: 'received', label: `Received (${prefs.unit})`, value: (r) => r.received, width: '9.5rem', align: 'end', noFilter: true },
+    { key: 'received', label: `Received (${unitInfo(prefs.unit).short})`, value: (r) => r.received, width: '9.5rem', align: 'end', noFilter: true },
     { key: 'lastUsed', label: 'Last used', value: (r) => r.lastUsed, width: '9rem', noFilter: true },
   ]);
 

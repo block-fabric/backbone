@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '../lib/i18n.svelte';
+  import { chainName } from '../lib/brand.svelte';
   import SafeText from '../components/SafeText.svelte';
   // Sign and verify messages (SignVerifyMessageDialog).
   import AddressPicker from '../components/AddressPicker.svelte';
@@ -108,7 +109,7 @@
         <div class="field">
           <label for="sign-address">Address</label>
           <div class="row">
-            <input id="sign-address" type="text" class="mono grow" placeholder="The Chains address to sign the message with" spellcheck="false" autocomplete="off" bind:value={signAddress} aria-invalid={signStatus.text && !signStatus.ok && signStatus.text.includes('address') ? 'true' : undefined} />
+            <input id="sign-address" type="text" class="mono grow" placeholder="The {chainName()} address to sign the message with" spellcheck="false" autocomplete="off" bind:value={signAddress} aria-invalid={signStatus.text && !signStatus.ok && signStatus.text.includes('address') ? 'true' : undefined} />
             <button type="button" class="btn icon" title="Choose previously used address" aria-label="Choose previously used address" onclick={() => (signPicker = true)}><Icon name="book" /></button>
             <button type="button" class="btn icon" title="Paste address from clipboard" aria-label="Paste address from clipboard" onclick={() => paste('sign')}><Icon name="paste" /></button>
           </div>
@@ -154,7 +155,7 @@
         <div class="field">
           <label for="verify-address">Address</label>
           <div class="row">
-            <input id="verify-address" type="text" class="mono grow" placeholder="The Chains address the message was signed with" spellcheck="false" autocomplete="off" bind:value={verifyAddress} aria-invalid={verifyStatus.field === 'address' ? 'true' : undefined} />
+            <input id="verify-address" type="text" class="mono grow" placeholder="The {chainName()} address the message was signed with" spellcheck="false" autocomplete="off" bind:value={verifyAddress} aria-invalid={verifyStatus.field === 'address' ? 'true' : undefined} />
             <button type="button" class="btn icon" title="Paste address from clipboard" aria-label="Paste address from clipboard" onclick={() => paste('verify')}><Icon name="paste" /></button>
           </div>
         </div>

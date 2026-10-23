@@ -1,5 +1,6 @@
 <script lang="ts">
   import SafeText from '../components/SafeText.svelte';
+  import { product } from '../lib/brand.svelte';
   import { t } from '../lib/i18n.svelte';
   // The first start: where the node keeps its data, and whether it keeps every block (intro.cpp).
   import { host, type IntroData, type Space } from '../lib/rpc';
@@ -31,7 +32,7 @@
     if (data.pruneForced !== undefined) prune = data.pruneForced;
   });
 
-  // The network decides the default data directory (Backbone's or Chains') and the room the chain takes.
+  // The network decides the default data directory (the product's, or the Chains networks') and the room the chain takes.
   const defaultDir = $derived(choice?.defaultDir ?? data?.defaultDir ?? '');
   const blockchainGB = $derived(choice?.blockchainGB ?? data?.blockchainGB ?? 0);
   const chainstateGB = $derived(choice?.chainstateGB ?? data?.chainstateGB ?? 0);
@@ -81,7 +82,7 @@
 
 <main class="intro">
   <div class="card">
-    <h1>Welcome to {app.info?.name ?? 'Backbone'}</h1>
+    <h1>Welcome to {product()}</h1>
     <p class="lead">
       This is the first start of the app{app.info?.networkLabel ? ` on ${app.info.networkLabel}` : ''}. It will download and store a copy of
       the block chain of the network you choose; the wallet is stored with it. Choose where.

@@ -614,52 +614,7 @@
     await waitFor('the notification', async () => (await host('test.notifications')).some((n) => /transaction/.test(n.title) && n.body.includes('Amount:')), 30000);
     await check('notifications: a new transaction', true);
 
-    // --- Sidechain nodes, with pretend programs ---
-    await go('sidechain-nodes');
-    await waitFor('the list', () => $$('.card').length >= 4, 30000);
-    await click('Add sidechain');
-    await answerPrompt('Sidechain Nodes', 'Fake chain');
-    await answerPrompt('Sidechain Nodes', 'fakechain');
-    await answerPrompt('Sidechain Nodes', '5');
-    const card = await waitFor('the added sidechain', () => $$('.card').find((c) => c.textContent.includes('Fake chain')), 30000);
-    card.click();
-    await host('test.fileAnswer', { path: BIN });
-    await click('Locate programs');
-    await waitFor('located', () => text('#sidechain-nodes-log').includes(`Fake chain: programs in ${BIN}`), 30000);
-    await waitFor('stopped', () => $$('.card').find((c) => c.textContent.includes('Fake chain')).textContent.includes('stopped'), 30000);
-    await check('sidechain nodes: programs located', true);
-    await click('Start node');
-    await waitFor('started', () => text('#sidechain-nodes-log').includes('Fake chain: node started'), 30000);
-    await waitFor('running', () => $$('.card').find((c) => c.textContent.includes('Fake chain')).textContent.includes('running'), 30000);
-    await check('sidechain nodes: node started, and running', $$('.card').find((c) => c.textContent.includes('Fake chain')).textContent.includes('yes, at block'));
-    // Merged mining, and one block for an offer: on the desktop's word, the offer first (audit 7 #2).
-    await desktop({ yes: true });
-    await click('Auto mining on / off');
-    await waitFor('mining on', () => text('#sidechain-nodes-log').includes('automatic mining turned on; fees go to sideaddress'), 30000);
-    await desktop({ yes: true });
-    await click('Mine one block');
-    await answerPrompt('Sidechain Nodes', '0.0002');
-    await waitFor('one block asked', () => text('#sidechain-nodes-log').includes('asked for one block with 1 transactions, offering 0.0002'), 30000);
-    q = await lastAsked();
-    await check('sidechain nodes: one block asked on the desktop, the offer first', q && q.title === 'Mine one block of Fake chain' && q.message.startsWith('Offer: 0.0002 CHN'), JSON.stringify(q));
-    await click('Mine one block');
-    await answerPrompt('Sidechain Nodes', '0.5');
-    await waitFor('the cap', () => text('#sidechain-nodes-log').includes('at most 0.01') || /at most 0\.01/.test(text('dialog[open]')), 30000);
-    if (openDialog()) await answerDialog(openDialog().querySelector('h2').textContent.trim(), 'OK');
-    await check('sidechain nodes: an offer above 0.01 is refused', true);
-    await check('sidechain nodes: mining', true);
-    await snapshot('sidechain-nodes-light');
-    both.push({ name: 'sidechain-nodes', page: 'sidechain-nodes', tab: '' });
-    await click('Stop');
-    await waitFor('stopping', () => text('#sidechain-nodes-log').includes('Fake chain: stopping'), 30000);
-    await waitFor('stopped again', () => $$('.card').find((c) => c.textContent.includes('Fake chain')).textContent.includes('stopped'), 30000);
-    await click('Log');
-    await waitFor('the log', () => text('#sidechain-nodes-log').includes('fake log line'), 30000);
-    await check('sidechain nodes: stopped, and its log', true);
-    await click('Remove');
-    await answerDialog('Sidechain Nodes', 'Remove');
-    await waitFor('removed', () => !$$('.card').some((c) => c.textContent.includes('Fake chain')), 30000);
-    await check('sidechain nodes: an added sidechain removed', true);
+    // (No Sidechain nodes page: the unified wallet will manage the nodes of sidechains, user decision 2026-10-23.)
 
     // --- The overview with the latest transactions, and the sync overlay ---
     await rpc('sendtoaddress', [payTo, 0.1], 'miner');

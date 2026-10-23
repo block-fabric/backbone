@@ -243,7 +243,7 @@ bool NodeOptions::SetStartAtLogin(ArgsManager& args, bool start)
     const ChainType chain{args.GetChainType()};
     file << "[Desktop Entry]\n";
     file << "Type=Application\n";
-    file << (chain == ChainType::MAIN ? std::string{"Name=Chains\n"} : strprintf("Name=Chains (%s)\n", ChainTypeToString(chain)));
+    file << (chain == ChainType::MAIN ? strprintf("Name=%s\n", CLIENT_NAME) : strprintf("Name=%s (%s)\n", CLIENT_NAME, ChainTypeToString(chain)));
     file << "Exec=" << exe << strprintf(" -min -chain=%s\n", ChainTypeToString(chain));
     file << "Terminal=false\n";
     file << "Hidden=false\n";

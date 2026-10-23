@@ -5,9 +5,11 @@ import { svelteTesting } from '@testing-library/svelte/vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 // The words of the templates, opted in to translation (src/lib/i18n.svelte.ts).
 import i18nPreprocess from './scripts/i18n-preprocess.mjs';
+// The name of the product (CMakeLists.txt CLIENT_NAME): __CLIENT_NAME__, %CLIENT_NAME%.
+import product from './scripts/product.mjs';
 
 export default defineConfig({
-  plugins: [svelte({ preprocess: [i18nPreprocess()] }), svelteTesting()],
+  plugins: [product(), svelte({ preprocess: [i18nPreprocess()] }), svelteTesting()],
   base: '/',
   build: {
     outDir: 'dist',

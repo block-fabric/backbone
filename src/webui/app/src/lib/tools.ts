@@ -2,6 +2,7 @@
 // the search of the block explorer, the payload of a file stamp.
 
 import { t } from './i18n.svelte';
+import { ticker } from './units';
 
 // --- Proof of funds (proofoffundsdialog.cpp) ---
 
@@ -127,9 +128,9 @@ export function checkProofCoins(coins: readonly ProofCoin[], now: readonly (TxOu
 
 /** The verdict of a check: valid, partly valid, or not valid, with the amount on the addresses now. */
 export function proofVerdict(valid: number, invalid: number, total: string): string {
-  if (invalid === 0 && valid > 0) return `VALID. The holder of ${valid} address(es), with ${total} CHN on them now, signed this statement:`;
+  if (invalid === 0 && valid > 0) return `VALID. The holder of ${valid} address(es), with ${total} ${ticker()} on them now, signed this statement:`;
   if (valid === 0) return 'NOT VALID. No signature of the proof is good. The statement was:';
-  return `PARTLY VALID. ${valid} signature(s) are good, covering ${total} CHN now, and ${invalid} are not. The statement was:`;
+  return `PARTLY VALID. ${valid} signature(s) are good, covering ${total} ${ticker()} now, and ${invalid} are not. The statement was:`;
 }
 
 // --- Multisig lounge (multisigdialog.cpp) ---
@@ -200,9 +201,9 @@ export function psbtStatus(decoded: DecodedPsbt): string {
   }
   // A PSBT of version 2 lists its outputs itself; an older one carries a transaction.
   const outputs = decoded.tx ? decoded.tx.vout.map((o) => ({ amount: o.value, address: o.scriptPubKey.address })) : (decoded.outputs ?? []).map((o) => ({ amount: o.amount ?? 0, address: o.script?.address }));
-  const payments = outputs.map((o) => `${o.amount.toFixed(8)} CHN to ${o.address ?? '(no address)'}`);
+  const payments = outputs.map((o) => `${o.amount.toFixed(8)} ${ticker()} to ${o.address ?? '(no address)'}`);
   const fee = decoded.fee !== undefined ? decoded.fee.toFixed(8) : '?';
-  return `${final ? 'Fully signed, ready to send.' : `Signatures: ${signatures} of the ${needed} needed.`} Pays ${payments.join(', and ')}. Fee: ${fee} CHN.`;
+  return `${final ? 'Fully signed, ready to send.' : `Signatures: ${signatures} of the ${needed} needed.`} Pays ${payments.join(', and ')}. Fee: ${fee} ${ticker()}.`;
 }
 
 // --- Block explorer (blockexplorer.cpp) ---

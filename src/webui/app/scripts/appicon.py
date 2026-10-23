@@ -10,9 +10,9 @@ a 32 grid, stroked) in white on a rounded tile of the chain's colour, and writes
   src/webui/res/icons/app.ico        the program, its window and its tray icon on Windows (chains-app-res.rc),
                                      the installer
 
-Run it after a change of brand.mark or brand.color (from the root of the repository; Chains, which has no
-chain.json, passes its mark of components/Brand.svelte with --brand):
-  python3 src/webui/app/scripts/appicon.py [--brand '{"mark": [...], "color": "#..."}']
+Run it after a change of brand.mark or brand.color (from the root of the repository). Backbone, which has no
+chain.json and no logo, passes its text mark (its initial, as components/Brand.svelte shows it) with --brand:
+  python3 src/webui/app/scripts/appicon.py --brand '{"mark": ["M10.5 6V26", "M10.5 6H16.5A5 5 0 0 1 16.5 16H10.5", "M10.5 16H17.5A5 5 0 0 1 17.5 26H10.5"], "color": "#3b4a5c"}'
 Needs Pillow. The paths may use M L H V C A Z, absolute or relative, with implicit repeats.
 """
 import argparse

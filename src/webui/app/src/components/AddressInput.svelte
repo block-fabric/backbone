@@ -1,6 +1,7 @@
 <script lang="ts">
   // Typing or pasting an address of Chains: checked at once offline, then by the node.
   import Icon from './Icon.svelte';
+  import { chainName } from '../lib/brand.svelte';
   import { checkAddress, exampleAddress } from '../lib/address';
   import { host, rpc } from '../lib/rpc';
   import { app } from '../lib/state.svelte';
@@ -77,7 +78,7 @@
       class="mono grow"
       autocomplete="off"
       spellcheck="false"
-      placeholder={`Enter an address of Chains (${exampleAddress(network)})`}
+      placeholder={`Enter an address of ${chainName()} (${exampleAddress(network)})`}
       bind:value
       onblur={() => (touched = true)}
       aria-invalid={error ? 'true' : undefined}

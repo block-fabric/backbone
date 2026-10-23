@@ -8,6 +8,7 @@
 #include <webui/tray_gtk.h>
 #include <webui/icontint.h>
 
+#include <bitcoin-build-config.h> // IWYU pragma: keep
 #include <logging.h>
 #include <webui/assets.h>
 
@@ -505,7 +506,7 @@ void DesktopNotify(const std::string& title, const std::string& body, const std:
     // of the chain in it cannot make a link, load an image or hide the rest (audit 7 #16). The summary is plain text.
     gchar* escaped{g_markup_escape_text(body.c_str(), -1)};
     g_dbus_connection_call(bus, "org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify",
-                           g_variant_new("(susssasa{sv}i)", "Chains", 0u, "", title.c_str(), escaped, &actions, &hints, -1),
+                           g_variant_new("(susssasa{sv}i)", CLIENT_NAME, 0u, "", title.c_str(), escaped, &actions, &hints, -1),
                            nullptr, G_DBUS_CALL_FLAGS_NONE, 5000, nullptr,
                            +[](GObject* source, GAsyncResult* result, gpointer) {
                                GError* call_error{nullptr};

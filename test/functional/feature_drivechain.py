@@ -500,7 +500,7 @@ class DrivechainTest(BitcoinTestFramework):
         # What the node was told to do as a miner is kept as well.
         queued = node.createsidechainproposal(7, "Kept across restarts")
         node.acksidechain("77" * 32, True, 5)
-        assert_raises_rpc_error(-1, "not supported on Chains", node.loadtxoutset, "snapshot.dat")
+        assert_raises_rpc_error(-1, "not supported on drivechains", node.loadtxoutset, "snapshot.dat")
         assert_raises_rpc_error(-8, "No proposal with this hash is pending", node.acksidechain, "78" * 32)
         node.setdefaultwithdrawalvote("downvote")
         bundle = CTransaction()

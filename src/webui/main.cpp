@@ -87,7 +87,7 @@ MAIN_FUNCTION
             return EXIT_FAILURE;
         }
         if (invalid_token) {
-            InitError(Untranslated(strprintf("Command line contains unexpected token '%s', see chains-app -h for a list of options.", arg)));
+            InitError(Untranslated(strprintf("Command line contains unexpected token '%s', see %s-app -h for a list of options.", arg, CLIENT_NAME_LOWER)));
             return EXIT_FAILURE;
         }
     }
@@ -97,8 +97,9 @@ MAIN_FUNCTION
         if (gArgs.GetBoolArg("-version", false)) {
             usage += FormatParagraph(LicenseInfo());
         } else {
-            usage += "\nThe node of Chains with its wallet and its interface in one program.\n\n"
-                     "Usage: chains-app [options] [URI]\n\n";
+            usage += strprintf("\nThe node of %s with its wallet and its interface in one program.\n\n"
+                               "Usage: %s-app [options] [URI]\n\n",
+                               CLIENT_NAME, CLIENT_NAME_LOWER);
             usage += gArgs.GetHelpMessage();
         }
         tfm::format(std::cout, "%s", usage);
