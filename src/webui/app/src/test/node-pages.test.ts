@@ -151,7 +151,7 @@ describe('the sidechain page', () => {
     const meter = screen.getByRole('progressbar', { name: 'Acks of Second' });
     expect(meter.getAttribute('aria-valuetext')).toBe('5 / 20');
     await fireEvent.click(screen.getByText('Second'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Stop acking' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'NACK' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'acksidechain')?.params).toEqual(['a7'.repeat(32), false]));
 
     await fireEvent.input(screen.getByLabelText('Slot'), { target: { value: '7' } });

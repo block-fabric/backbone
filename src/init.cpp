@@ -743,6 +743,10 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-blockreservedweight=<n>", strprintf("Reserve space for the fixed-size block header plus the largest coinbase transaction the mining software may add to the block. Only affects mining RPC clients, not IPC clients. (default: %d).", DEFAULT_BLOCK_RESERVED_WEIGHT), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
     argsman.AddArg("-blockmintxfee=<amt>", strprintf("Set lowest fee rate (in %s/kvB) for transactions to be included in block creation. (default: %s)", CURRENCY_UNIT, FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE)), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
     argsman.AddArg("-blockversion=<n>", "Override block version to test forking scenarios", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::BLOCK_CREATION);
+    argsman.AddArg("-defaultwithdrawalvote=<vote>", "How the blocks this node builds vote on sidechain withdrawal bundles without a vote of their own (as setdefaultwithdrawalvote): upvote, handed, follow, downvote or abstain. The default, upvote, upvotes the bundle a sidechain node handed to this node and, where no sidechain node spoke, the leading bundle of every sidechain, unchecked: a fraudulent one too, if it leads. Applied at startup and kept", ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
+    argsman.AddArg("-withdrawalvote=<slot>:<vote>", "The vote on the withdrawal bundles of one sidechain (as setwithdrawalvote): upvote (the leading bundle), abstain, downvote, or default. Applied at startup and kept. Can be specified multiple times", ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
+    argsman.AddArg("-sidechainackpolicy=<policy>", "Which sidechain proposals the blocks this node builds ack (as setsidechainackpolicy): all (the default), newslots or none. Applied at startup and kept", ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
+    argsman.AddArg("-sidechainack=<slot>:<ack>", "Ack or NACK every proposal of one slot over the policy (as setsidechainackpolicy with a slot): ack, nack or default. Applied at startup and kept. Can be specified multiple times", ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
 
 #ifdef ENABLE_GRPC
     AddGrpcOptions(argsman);
@@ -1385,6 +1389,73 @@ static std::optional<CService> CheckBindingConflicts(const CConnman::Options& co
 
 // A GUI user may opt to retry once with do_reindex set if there is a failure during chainstate initialization.
 // The function therefore has to support re-entry.
+
+//! The vote settings of the configuration (-defaultwithdrawalvote, -withdrawalvote, -sidechainackpolicy, -sidechainack).
+static void ApplyDrivechainVoteArgs(const ArgsManager& args, drivechain::MinerState& miner, int max_sidechains)
+{
+    using Mode = drivechain::MinerState::UpvoteMode;
+    using P = drivechain::MinerState::AckPolicy;
+    const auto bad{[](const std::string& option, const std::string& value) {
+        InitWarning(strprintf(_("Ignoring -%s=%s: not a setting it knows."), option, value));
+    }};
+    if (const auto v{args.GetArg("-defaultwithdrawalvote")}) {
+        if (*v == "upvote" || *v == "handed" || *v == "follow") {
+            miner.SetDefaultVote(drivechain::Vote::Type::UPVOTE);
+            miner.SetUpvoteMode(*v == "follow" ? Mode::FOLLOW : *v == "handed" ? Mode::HANDED : Mode::LEADING);
+        } else if (*v == "downvote") {
+            miner.SetDefaultVote(drivechain::Vote::Type::DOWNVOTE);
+        } else if (*v == "abstain") {
+            miner.SetDefaultVote(drivechain::Vote::Type::ABSTAIN);
+        } else {
+            bad("defaultwithdrawalvote", *v);
+        }
+    }
+    if (const auto v{args.GetArg("-sidechainackpolicy")}) {
+        if (*v == "all") miner.SetAckPolicy(P::ALL);
+        else if (*v == "newslots") miner.SetAckPolicy(P::NEW_SLOTS);
+        else if (*v == "none") miner.SetAckPolicy(P::NONE);
+        else bad("sidechainackpolicy", *v);
+    }
+    const auto slot_of{[&](const std::string& value, std::string& setting) -> std::optional<drivechain::SidechainId> {
+        const auto colon{value.find(':')};
+        if (colon == std::string::npos) return std::nullopt;
+        const auto slot{ToIntegral<int>(value.substr(0, colon))};
+        if (!slot || *slot < 0 || *slot >= max_sidechains) return std::nullopt;
+        setting = value.substr(colon + 1);
+        return static_cast<drivechain::SidechainId>(*slot);
+    }};
+    for (const std::string& value : args.GetArgs("-withdrawalvote")) {
+        std::string setting;
+        const auto slot{slot_of(value, setting)};
+        drivechain::Vote vote;
+        if (slot && setting == "default") {
+            miner.ClearVote(*slot);
+            continue;
+        } else if (slot && setting == "upvote") {
+            vote.type = drivechain::Vote::Type::UPVOTE; // without a bundle: the leading one
+        } else if (slot && setting == "abstain") {
+            vote.type = drivechain::Vote::Type::ABSTAIN;
+        } else if (slot && setting == "downvote") {
+            vote.type = drivechain::Vote::Type::DOWNVOTE;
+        } else {
+            bad("withdrawalvote", value);
+            continue;
+        }
+        miner.SetVote(*slot, vote);
+    }
+    for (const std::string& value : args.GetArgs("-sidechainack")) {
+        std::string setting;
+        const auto slot{slot_of(value, setting)};
+        if (slot && (setting == "ack" || setting == "nack")) {
+            miner.SetSlotAck(*slot, setting == "ack");
+        } else if (slot && setting == "default") {
+            miner.SetSlotAck(*slot, std::nullopt);
+        } else {
+            bad("sidechainack", value);
+        }
+    }
+}
+
 static ChainstateLoadResult InitAndLoadChainstate(
     NodeContext& node,
     bool do_reindex,
@@ -1445,6 +1516,7 @@ static ChainstateLoadResult InitAndLoadChainstate(
         if (!node.chainman->m_drivechain_miner.Load(args.GetDataDirNet() / "drivechain_miner.dat")) {
             InitWarning(_("The saved drivechain settings of this node (proposals, acks, votes and withdrawal bundles) could not be read and were reset."));
         }
+        ApplyDrivechainVoteArgs(args, node.chainman->m_drivechain_miner, node.chainman->GetConsensus().drivechain.max_sidechains);
     } catch (dbwrapper_error& e) {
         LogError("%s", e.what());
         return {ChainstateLoadStatus::FAILURE, _("Error opening block database")};

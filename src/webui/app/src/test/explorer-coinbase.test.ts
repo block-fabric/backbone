@@ -162,7 +162,7 @@ describe('the explorer of Chains', () => {
     await fireEvent.dblClick(row);
     const coinbase = await waitFor(() => screen.getByRole('region', { name: 'Coinbase' }));
     expect(coinbase.textContent).toContain('Block subsidy');
-    expect(coinbase.textContent).toContain('/chains pool/');
+    expect(coinbase.textContent).toContain("Miner's tagchains pool");
     // The outputs split in two: the payouts on one side, the messages and data on the other.
     const payouts = within(coinbase).getByRole('table', { name: 'Payouts' });
     const messages = within(coinbase).getByRole('table', { name: 'Messages and data' });

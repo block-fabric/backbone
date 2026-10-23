@@ -169,6 +169,7 @@ BASE_SCRIPTS = [
     'wallet_anchor.py',
     'feature_reindex.py',
     'feature_drivechain.py',
+    'feature_drivechain_defaultvote.py',
     'feature_ecash_fork.py',
     'feature_ecash_regtest.py',
     'feature_ecash_safety_switch.py',

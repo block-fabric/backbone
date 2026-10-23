@@ -267,7 +267,11 @@ std::optional<Window::ConfirmDialog> WithdrawalVote(const Call& call)
     dialog.accept = "Change the vote";
     dialog.rows = {Text("Network", NetworkName()), Text("Sidechain", SlotText(call, *slot))};
     const std::string type{vote.get_str()};
-    if (type == "upvote") {
+    if (type == "upvote" && call.Arg(2).isNull()) {
+        dialog.rows.push_back(Text("Vote", "Upvote the leading bundle of this sidechain"));
+        dialog.rows.push_back(Note("Whatever a sidechain node says, and whatever the bundle pays: a fraudulent bundle too, if it leads. Every other bundle of this sidechain is downvoted."));
+        dialog.level = dialog::Level::DANGER;
+    } else if (type == "upvote") {
         dialog.rows.push_back(Text("Vote", "Upvote this bundle"));
         dialog.rows.push_back(Destination("Bundle", ValueText(call.Arg(2))));
         // What the bundle pays, as this node knows it.
@@ -325,10 +329,31 @@ std::optional<Window::ConfirmDialog> DefaultVote(const Call& call)
     const std::string type{ValueText(vote)};
     dialog.rows = {Text("Network", NetworkName()), Text("Default vote", type)};
     if (type == "follow") dialog.rows.push_back(Note("Follow also upvotes, where no sidechain node of yours handed a bundle, the one that leads by 50 votes: it trusts the miners who check bundles."));
-    if (type == "upvote") dialog.rows.push_back(Note("Upvote votes for the bundle a sidechain node of yours handed to this node, and abstains where it was handed none."));
+    if (type == "upvote") dialog.rows.push_back(Note("Upvote (the default) votes for the bundle a sidechain node of yours handed to this node and, where no sidechain node is configured, for the leading bundle, unchecked: a fraudulent bundle too, if it leads."));
+    if (type == "handed") dialog.rows.push_back(Note("Handed votes only for the bundle a sidechain node of yours handed to this node, and abstains where it was handed none."));
     dialog.message = "The blocks this node builds vote so on the withdrawals of every sidechain it has no vote of its own for.\n\n"
                      "Change it only if you asked for it.";
-    dialog.level = type == "follow" ? dialog::Level::DANGER : dialog::Level::WARNING;
+    dialog.level = type == "follow" || type == "upvote" ? dialog::Level::DANGER : dialog::Level::WARNING;
+    return dialog;
+}
+
+std::optional<Window::ConfirmDialog> AckPolicy(const Call& call)
+{
+    const std::string policy{ValueText(call.Arg(0))};
+    Window::ConfirmDialog dialog;
+    dialog.title = "Change which sidechain proposals this node acks";
+    dialog.kind = "ack";
+    dialog.accept = "Change";
+    dialog.rows = {Text("Network", NetworkName())};
+    if (const auto slot{SlotArg(call.Arg(1))}) {
+        dialog.rows.push_back(Text("Slot", SlotText(call, *slot)));
+        dialog.rows.push_back(Text("Proposals of the slot", policy == "ack" ? "Ack" : policy == "nack" ? "NACK" : policy == "default" ? "Follow the ack policy" : policy));
+    } else {
+        dialog.rows.push_back(Text("Ack policy", policy == "all" ? "Ack every proposal" : policy == "newslots" ? "Ack proposals for empty slots" : policy == "none" ? "Ack only the proposals acked one by one" : policy));
+    }
+    dialog.message = "The blocks this node builds ack the sidechain proposals so from now on: with enough acks of miners, a sidechain activates "
+                     "in its slot, and one proposed for a slot in use replaces the sidechain there.\n\nChange it only if you asked for it.";
+    dialog.level = policy == "all" || policy == "ack" ? dialog::Level::DANGER : dialog::Level::WARNING;
     return dialog;
 }
 
@@ -367,14 +392,14 @@ std::optional<Window::ConfirmDialog> Ack(const Call& call)
     // Stopping only when the call says so in so many words (false).
     const bool on{!(ack.isBool() && !ack.get_bool())};
     Window::ConfirmDialog dialog;
-    dialog.title = on ? "Ack a sidechain proposal" : "Stop acking a sidechain proposal";
+    dialog.title = on ? "Ack a sidechain proposal" : "NACK a sidechain proposal";
     dialog.kind = "ack";
-    dialog.accept = on ? "Ack" : "Stop acking";
+    dialog.accept = on ? "Ack" : "NACK";
     dialog.rows = {Text("Network", NetworkName()), Destination("Proposal", hash)};
     ProposalRows(dialog.rows, ProposalOf(call, hash));
     if (!call.Arg(2).isNull()) dialog.rows.push_back(Text("In slot", ValueText(call.Arg(2))));
     dialog.message = on ? "The blocks this node builds ack this proposal from now on: with enough acks of miners, the sidechain activates in its slot."
-                        : "The blocks this node builds no longer ack this proposal.";
+                        : "The blocks this node builds never ack this proposal, whatever the ack policy.";
     dialog.message += "\n\nChange it only if you asked for it.";
     return dialog;
 }
@@ -438,6 +463,7 @@ std::map<std::string, Method> KitMethods()
         {"setwithdrawalvote", {NODE, Bridge::Thread::LONG, WithdrawalVote, false, 2}},
         {"setdefaultwithdrawalvote", {NODE, Bridge::Thread::LONG, DefaultVote, false, 1}},
         {"acksidechain", {NODE, Bridge::Thread::LONG, Ack, false, 1}},
+        {"setsidechainackpolicy", {NODE, Bridge::Thread::LONG, AckPolicy, false, 1}},
         {"createsidechainproposal", {NODE, Bridge::Thread::LONG, Propose, false, 2}},
         {"removesidechainproposal", {NODE, Bridge::Thread::LONG, RemoveProposal, false, 1}},
         // Mining with the processor: it loads the computer (and the rewards go to an address the page gives).

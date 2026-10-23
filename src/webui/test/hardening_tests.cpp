@@ -159,13 +159,13 @@ BOOST_AUTO_TEST_CASE(page_rpc_policy)
     // Audit 7 #1: what pays, signs, unlocks or changes the votes of the node is never the page's to call: the host decodes it
     // and asks on the desktop first (confirm.h, rpc.confirmed), the passphrase of a locked wallet typed there.
     for (const char* spends : {"send", "walletprocesspsbt", "sendrawtransaction", "createsidechaindeposit", "walletpassphrase", "setwithdrawalvote",
-                               "setdefaultwithdrawalvote", "acksidechain", "createsidechainproposal", "removesidechainproposal", "setgenerate", "signmessage"}) {
+                               "setdefaultwithdrawalvote", "acksidechain", "setsidechainackpolicy", "createsidechainproposal", "removesidechainproposal", "setgenerate", "signmessage"}) {
         BOOST_CHECK_MESSAGE(!webui::PageRpcPolicy(spends), spends);
         BOOST_CHECK_MESSAGE(!webui::KeyedWalletRpc(spends), spends);
     }
     using Kind = webui::confirm::Method::Kind;
     const auto& confirmed{webui::confirm::Methods()};
-    for (const char* node_method : {"setwithdrawalvote", "setdefaultwithdrawalvote", "acksidechain", "createsidechainproposal", "removesidechainproposal", "setgenerate"}) {
+    for (const char* node_method : {"setwithdrawalvote", "setdefaultwithdrawalvote", "acksidechain", "setsidechainackpolicy", "createsidechainproposal", "removesidechainproposal", "setgenerate"}) {
         BOOST_REQUIRE_MESSAGE(confirmed.contains(node_method), node_method);
         BOOST_CHECK(confirmed.at(node_method).kind == Kind::NODE);
     }

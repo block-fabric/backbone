@@ -38,7 +38,7 @@ function confirmed(): Map<string, string> {
 
 /** What pays, signs, unlocks or changes what the node votes for: never the page's to call. */
 const NEVER = ['send', 'sendtoaddress', 'sendmany', 'walletprocesspsbt', 'sendrawtransaction', 'createsidechaindeposit', 'walletpassphrase', 'setwithdrawalvote',
-  'setdefaultwithdrawalvote', 'acksidechain', 'createsidechainproposal', 'removesidechainproposal', 'setgenerate', 'signmessage', 'signrawtransactionwithwallet',
+  'setdefaultwithdrawalvote', 'acksidechain', 'setsidechainackpolicy', 'createsidechainproposal', 'removesidechainproposal', 'setgenerate', 'signmessage', 'signrawtransactionwithwallet',
   'bumpfee', 'psbtbumpfee', 'createbmmrequest', 'setbmm', 'requestbmmblock'];
 
 /** The methods named in a call of the RPC client, of walletRpc, or of withKeys. */
@@ -93,7 +93,7 @@ describe('the RPC methods of the pages', () => {
     const ok = allowed();
     expect(NEVER.filter((m) => ok.has(m))).toEqual([]);
     const host = confirmed();
-    for (const m of ['createsidechaindeposit', 'setwithdrawalvote', 'setdefaultwithdrawalvote', 'acksidechain', 'createsidechainproposal', 'removesidechainproposal', 'setgenerate', 'signmessage']) {
+    for (const m of ['createsidechaindeposit', 'setwithdrawalvote', 'setdefaultwithdrawalvote', 'acksidechain', 'setsidechainackpolicy', 'createsidechainproposal', 'removesidechainproposal', 'setgenerate', 'signmessage']) {
       expect(host.has(m), m).toBe(true);
     }
     expect(host.get('createsidechaindeposit')).toBe('SPEND');

@@ -79,7 +79,8 @@ class DrivechainRulesTest(BitcoinTestFramework):
         assert_equal(not_sent["sent"], False)
         assert "was not handed the bundle" in not_sent["reason"]
         assert_raises_rpc_error(-8, "vote must be upvote, downvote, abstain or default", node.setwithdrawalvote, SLOT, "yes")
-        assert_raises_rpc_error(-8, "An upvote needs the hash of the bundle", node.setwithdrawalvote, SLOT, "upvote")
+        # An upvote without a hash is of the leading bundle.
+        node.setwithdrawalvote(SLOT, "upvote")
         node.setwithdrawalvote(SLOT, "abstain")
         node.setwithdrawalvote(SLOT, "default")
         assert_raises_rpc_error(-8, "count must not be negative", node.listsidechaindeposits, SLOT, None, -1)

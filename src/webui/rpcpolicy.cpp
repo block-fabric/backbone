@@ -47,6 +47,7 @@ const std::map<std::string, Bridge::Thread>& Methods()
         {"listsidechaindeposits", WORKER},
         {"listsidechainproposals", WORKER},
         {"listwithdrawalbundles", WORKER},
+        {"getvotepolicy", WORKER},
         // Addresses, scripts and PSBTs (multisig lounge, proof of funds, crypto tools).
         {"createpsbt", WORKER},
         {"decodepsbt", WORKER},

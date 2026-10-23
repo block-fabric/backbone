@@ -94,7 +94,8 @@ export function feeTint(feeRate: number | null): 'low' | 'mid' | 'high' | 'none'
 
 /**
  * The text a miner put in the coinbase (its tag): the runs of 3 printable ASCII characters or more of
- * the script, after the height (BIP34), joined by a space. Text of the chain: shown with SafeText.
+ * the script, after the height (BIP34), joined by a space, each without the slashes that wrap it ("/ePool/" is
+ * "ePool", "/a/b/" is "a/b"). Text of the chain: shown with SafeText. The raw script stays in the raw view.
  */
 export function coinbaseTag(hex: string, max = 40): string {
   if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2) return '';
@@ -114,7 +115,10 @@ export function coinbaseTag(hex: string, max = 40): string {
     }
   }
   if (run.trim().length >= 3) runs.push(run.trim());
-  const text = runs.join(' ');
+  const text = runs
+    .map((r) => r.replace(/^\/+|\/+$/g, '').trim())
+    .filter((r) => r)
+    .join(' ');
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 

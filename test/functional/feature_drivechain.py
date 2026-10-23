@@ -96,9 +96,9 @@ class DrivechainTest(BitcoinTestFramework):
         assert_equal(pending["age"], 1)
         assert_equal(pending["ack"], True)
         assert_equal(pending["blocksleft"], ACTIVATION_PERIOD - 1)
-        # The other node sees the proposal in the chain but does not ack it itself.
+        # The other node sees the proposal in the chain and acks it too, by default (Backbone).
         self.sync_all()
-        assert_equal(self.nodes[1].listsidechainproposals()["pending"][0]["ack"], False)
+        assert_equal(self.nodes[1].listsidechainproposals()["pending"][0]["ack"], True)
 
         self.mine(ACTIVATION_PERIOD - 2)
         assert_equal(node.listactivesidechains(), [])
@@ -243,8 +243,9 @@ class DrivechainTest(BitcoinTestFramework):
         # A node without it leaves them out: unknown, not "pays nothing".
         assert "payouts" not in self.nodes[1].listwithdrawalbundles()[0]
         assert "payouts" not in self.nodes[1].getwithdrawalbundle(SLOT, bundle_hash)
-        assert_equal(self.nodes[1].listwithdrawalbundles()[0]["vote"], "abstain")
-        assert_raises_rpc_error(-8, "vote must be upvote, follow, downvote or abstain", node.setdefaultwithdrawalvote, "yes")
+        # Backbone's default upvotes the leading bundle where no sidechain node spoke.
+        assert_equal(self.nodes[1].listwithdrawalbundles()[0]["vote"], "upvote")
+        assert_raises_rpc_error(-8, "vote must be upvote, handed, follow, downvote or abstain", node.setdefaultwithdrawalvote, "yes")
         # Following the miners who check bundles is opt-in.
         assert_equal(node.getdrivechaininfo()["defaultwithdrawalvote"], "upvote")
         node.setdefaultwithdrawalvote("follow")
@@ -256,7 +257,11 @@ class DrivechainTest(BitcoinTestFramework):
         self.mine(2)
         assert_equal(node.listwithdrawalbundles()[0]["score"], 1)
 
-        assert_raises_rpc_error(-8, "needs the hash", node.setwithdrawalvote, SLOT, "upvote")
+        # An upvote without a hash is of the leading bundle, whatever the default.
+        node.setwithdrawalvote(SLOT, "upvote")
+        assert_equal(node.listwithdrawalbundles()[0]["vote"], "upvote")
+        assert_equal(node.getvotepolicy()["sidechains"][0]["override"], "leading")
+        node.setwithdrawalvote(SLOT, "default")
         # An upvote of a bundle that is not pending (one not proposed yet, say) casts no vote: the
         # blocks abstain, and the node says so rather than "downvote" for the bundles that are.
         node.setwithdrawalvote(SLOT, "upvote", "ab" * 32)
@@ -389,9 +394,9 @@ class DrivechainTest(BitcoinTestFramework):
         node.setdefaultwithdrawalvote("upvote")
         self.mine(WITHDRAWAL_MIN_SCORE)
         assert_equal(node.listwithdrawalbundles(SLOT)[0]["score"], WITHDRAWAL_MIN_SCORE)
-        # The pool was never handed the bundle: with no 50-vote lead to follow, it abstains.
+        # The pool was never handed the bundle: by default it upvotes the leading one, this one.
         self.sync_all()
-        assert_equal(pool.listwithdrawalbundles(SLOT)[0]["vote"], "abstain")
+        assert_equal(pool.listwithdrawalbundles(SLOT)[0]["vote"], "upvote")
 
         sent = node.sendwithdrawalbundle(SLOT, bundle_hash)
         assert_equal(sent["sent"], True)
@@ -530,6 +535,8 @@ class DrivechainTest(BitcoinTestFramework):
         assert_equal(bundles[0]["vote"], "upvote")
         # Back to a state the rest of the test does not have to care about.
         node.removesidechainproposal(queued["proposalhash"])
+        # It is acked by default: a NACK, so that it fails.
+        node.acksidechain(queued["proposalhash"], False)
         node.setdefaultwithdrawalvote("abstain")
         node.setwithdrawalvote(SLOT, "downvote")
         self.mine(ACTIVATION_MAX_FAILURES + 1)

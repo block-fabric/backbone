@@ -19,6 +19,15 @@ export interface DrivechainInfo {
   pendingbundles: number;
   escrowtotal: number;
   defaultwithdrawalvote: string;
+  sidechainackpolicy?: string;
+}
+
+/** How the blocks of this node vote on each sidechain and ack each proposal, and why (getvotepolicy). */
+export interface VotePolicy {
+  defaultwithdrawalvote: string;
+  sidechainackpolicy: string;
+  sidechains: { slot: number; vote: string; bundle?: string; override?: string; reason: string; why: string; ack?: string }[];
+  proposals: { slot: number; proposalhash: string; ack: boolean; reason: string }[];
 }
 
 export interface SidechainBase {
@@ -83,17 +92,22 @@ export interface DrivechainState {
   sidechains: ActiveSidechain[];
   proposals: Proposals;
   bundles: Bundle[];
+  /** Null from a node without getvotepolicy. */
+  policy?: VotePolicy | null;
 }
 
 /** Everything the sidechain page shows, fetched at once (SidechainPage::refresh). */
 export async function loadDrivechain(): Promise<DrivechainState> {
-  const [info, sidechains, proposals, bundles] = await Promise.all([
+  const [info, sidechains, proposals, bundles, policy] = await Promise.all([
     rpc.raw<DrivechainInfo>('getdrivechaininfo'),
     rpc.raw<ActiveSidechain[]>('listactivesidechains'),
     rpc.raw<Proposals>('listsidechainproposals'),
     rpc.raw<Bundle[]>('listwithdrawalbundles'),
+    Promise.resolve()
+      .then(() => rpc.raw<VotePolicy>('getvotepolicy'))
+      .catch(() => null),
   ]);
-  return { info, sidechains, proposals, bundles };
+  return { info, sidechains, proposals, bundles, policy: policy ?? null };
 }
 
 export type SlotState = 'active' | 'proposed' | 'queued' | 'free';

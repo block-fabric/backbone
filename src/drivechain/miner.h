@@ -72,8 +72,23 @@ public:
      * those for a slot without a sidechain, or all of them (also those that would replace one).
      */
     enum class AckPolicy : uint8_t { NONE = 0, NEW_SLOTS = 1, ALL = 2 };
+    //! Backbone acks every proposal by default; an operator opts out per proposal, per slot or here.
     void SetAckPolicy(AckPolicy policy) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     AckPolicy GetAckPolicy() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /**
+     * Never ack this proposal in this slot, whatever the policy (a NACK); false lifts it. An ack
+     * of SetAck(true) lifts it too, and SetAck(false) sets it.
+     */
+    void SetNack(SidechainId slot, const uint256& proposal_hash, bool nack) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    std::vector<std::pair<SidechainId, uint256>> GetNacks() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** Ack (true) or NACK (false) every proposal of a slot, over the policy; nullopt: the policy. */
+    void SetSlotAck(SidechainId slot, std::optional<bool> ack) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    std::map<SidechainId, bool> GetSlotAcks() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /**
+     * Whether the blocks of this node ack this proposal: its NACK, else its ack, else the override of
+     * its slot, else the policy (`slot_active`: whether the slot holds a sidechain, for NEW_SLOTS).
+     */
+    bool WantsAck(SidechainId slot, const uint256& proposal_hash, bool slot_active) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /** The votes of SetVote. */
     std::map<SidechainId, Vote> GetVotes() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
@@ -96,24 +111,51 @@ public:
     /** How to vote on the bundles of a sidechain. Sidechains without a vote get the default. */
     void SetVote(SidechainId slot, const Vote& vote) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void ClearVote(SidechainId slot) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /** Why ResolveVote votes as it does on a slot. */
+    enum class VoteReason : uint8_t {
+        OVERRIDE,   //!< the vote of SetVote for the slot
+        VERIFIED,   //!< the bundle a sidechain node handed to this node (receivewithdrawalbundle), pending
+        NO_BUNDLE,  //!< a sidechain node said its chain has no bundle: the pending ones are downvoted
+        MISMATCH,   //!< a sidechain node handed another bundle, not pending (yet): this node abstains
+        LEADING,    //!< no sidechain node spoke for the slot: the leading bundle is upvoted, unchecked
+        FOLLOW,     //!< no sidechain node spoke: the bundle leading by 50 is upvoted (follow)
+        NONE_PENDING, //!< nothing to upvote: no pending bundle, or none leading by 50
+        DEFAULT,    //!< the default vote is abstain or downvote, or to upvote only what was handed
+    };
     /**
-     * The vote on a sidechain with these pending bundles. Where the default
-     * applies and is to upvote, the bundle upvoted is the one a sidechain
-     * node handed to this node last (see AddBundle): a bundle it handed before
-     * is one its chain gave up, and is not upvoted even if it has more votes.
-     * There is none to upvote if the last one handed is not pending.
+     * Which pending bundle leads: the most votes (score), ties by the lowest hash (as shown, in hex).
+     * Bundles `skip` rejects are left out. @return nullptr if none.
      */
-    Vote ResolveVote(SidechainId slot, const std::vector<Bundle>& pending) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    static const Bundle* LeadingBundle(const std::vector<Bundle>& pending, const std::function<bool(const Bundle&)>& skip = {});
+    /**
+     * The vote on a sidechain with these pending bundles. A vote of SetVote comes first; an
+     * UPVOTE of it without a bundle (null hash) upvotes the leading bundle. Where the default
+     * applies and is to upvote, the bundle upvoted is the one a sidechain node handed to this
+     * node last (see AddBundle), verified by it: a bundle it handed before is one its chain gave
+     * up, and is not upvoted even if it has more votes; where it handed one that is not pending,
+     * or said there is none, no other bundle is upvoted. Where no node spoke, see UpvoteMode.
+     */
+    Vote ResolveVote(SidechainId slot, const std::vector<Bundle>& pending, VoteReason* reason = nullptr) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void SetDefaultVote(Vote::Type type) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     Vote::Type GetDefaultVote() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /**
      * Whether, where the default is to upvote and no sidechain node handed this
      * node a bundle, it follows the miners who check them: upvoting the bundle
      * that leads the next by LEADING_BY_50_MARGIN (BIP300 "leading by 50").
-     * Off unless the operator opts in, since it backs bundles this node cannot check.
+     * SetFollow(false) is UpvoteMode::HANDED, and GetFollow whether the mode is FOLLOW.
      */
     void SetFollow(bool follow) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     bool GetFollow() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    /**
+     * Which bundle the default vote UPVOTE upvotes on a slot no sidechain node spoke for:
+     * LEADING (Backbone's default) the leading bundle, whatever it pays -- a fraudulent bundle
+     * too, if it leads; FOLLOW the one leading by 50; HANDED none (only what a node handed).
+     * Where a sidechain node handed a bundle, that one is upvoted in every mode, and where it
+     * said there is none or handed another one, no other bundle is upvoted.
+     */
+    enum class UpvoteMode : uint8_t { HANDED = 0, FOLLOW = 1, LEADING = 2 };
+    void SetUpvoteMode(UpvoteMode mode) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    UpvoteMode GetUpvoteMode() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /** The height of the last block of the active chain that closed a bundle, if any (see Database::FindClosure). */
     using ClosureLookup = std::function<std::optional<int>(SidechainId, const uint256&)>;
@@ -177,10 +219,12 @@ private:
     std::map<std::pair<SidechainId, uint256>, BundleInfo> m_bundle_info GUARDED_BY(m_mutex);
     bool WasClosedLocked(SidechainId slot, const uint256& hash) const EXCLUSIVE_LOCKS_REQUIRED(m_mutex);
     std::map<SidechainId, Vote> m_votes GUARDED_BY(m_mutex);
-    //! To upvote is to upvote what the sidechain node of the operator vouches for, and nothing else.
+    //! To upvote is to upvote what the sidechain node of the operator vouches for, else the leading bundle.
     Vote::Type m_default_vote GUARDED_BY(m_mutex){Vote::Type::UPVOTE};
-    bool m_follow GUARDED_BY(m_mutex){false};
-    AckPolicy m_ack_policy GUARDED_BY(m_mutex){AckPolicy::NONE};
+    UpvoteMode m_upvote_mode GUARDED_BY(m_mutex){UpvoteMode::LEADING};
+    AckPolicy m_ack_policy GUARDED_BY(m_mutex){AckPolicy::ALL};
+    std::set<std::pair<SidechainId, uint256>> m_nacks GUARDED_BY(m_mutex);
+    std::map<SidechainId, bool> m_slot_acks GUARDED_BY(m_mutex);
 };
 
 } // namespace drivechain

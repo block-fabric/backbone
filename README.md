@@ -129,7 +129,8 @@ see the sidechain's README.
 Drivechains, on the node: `listactivesidechains`, `getsidechain`, `listsidechainproposals`,
 `createsidechainproposal`, `acksidechain`, `removesidechainproposal`, `listsidechaindeposits`,
 `getsidechainevents`, `listwithdrawalbundles`, `getwithdrawalbundle`, `receivewithdrawalbundle`,
-`sendwithdrawalbundle`, `setwithdrawalvote`, `setdefaultwithdrawalvote`, `verifybmm`,
+`sendwithdrawalbundle`, `setwithdrawalvote`, `setdefaultwithdrawalvote`, `setsidechainackpolicy`,
+`getvotepolicy`, `verifybmm`,
 `getdrivechaininfo`, `getaveragefee`.
 
 In the wallet: `createsidechaindeposit` (deposit to a sidechain), `createbmmrequest` (pay miners
@@ -145,9 +146,17 @@ Mining: `getblocktemplate` carries the drivechain messages in the coinbase it as
 - **Deposits** go into the slot's escrow output; the sidechain creates the coins.
 - **Withdrawals.** A sidechain node hands its node the bundle it wants paid
   (`receivewithdrawalbundle`). Miners vote on it for up to 129 600 blocks (90 days) on the main
-  network, 600 on the test network, and it pays out once it has the score. A node upvotes the
-  bundle its own sidechain node handed it and abstains on others; a pool that does not run every
-  sidechain can follow the miners who do, `setdefaultwithdrawalvote follow`.
+  network, 600 on the test network, and it pays out once it has the score.
+- **Default votes (Backbone).** By default a node acks every sidechain proposal (M2) and, on
+  every active sidechain, upvotes (M4) one bundle per block: the bundle its own sidechain node
+  handed it (verified), or, where no sidechain node is configured, the leading bundle (most votes,
+  ties by the lowest hash), unchecked. **That upvotes a fraudulent bundle too, if it leads.** Where
+  a sidechain node handed a different bundle, the node abstains; where it said its chain has no
+  bundle, the node downvotes. `getvotepolicy` (and the Sidechains page of the app) shows each
+  sidechain's vote and why. To opt out: per sidechain, `setwithdrawalvote <slot> abstain|downvote`
+  (or `-withdrawalvote=<slot>:abstain|downvote`); for all, `setdefaultwithdrawalvote handed|abstain|downvote`
+  (or `-defaultwithdrawalvote=`); proposals, `acksidechain <hash> false` (a NACK),
+  `setsidechainackpolicy nack <slot>` (or `-sidechainack=<slot>:nack`) or `setsidechainackpolicy none`.
 - **Blind merged mining.** A sidechain block exists only if a Chains block commits to it; the
   sidechain pays the miner a fee for that, in CHN.
 - The messages (M1 to M8) and the escrow script use the byte layouts of the LayerTwo Labs

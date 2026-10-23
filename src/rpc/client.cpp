@@ -74,6 +74,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "getsidechainevents", 1, "height" },
     { "getsidechainevents", 2, "count" },
     { "setwithdrawalvote", 0, "slot" },
+    { "setsidechainackpolicy", 1, "slot" },
     { "listsidechaindeposits", 0, "slot" },
     { "listsidechaindeposits", 2, "count" },
     { "verifybmm", 1, "slot" },

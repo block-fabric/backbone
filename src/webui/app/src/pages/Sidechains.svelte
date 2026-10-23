@@ -337,6 +337,16 @@
   async function defaultVote(v: string) {
     await call('setdefaultwithdrawalvote', [v]);
   }
+  // Per sidechain: the vote over the default (upvote is of the leading bundle), and the ack of its proposals.
+  async function slotVote(slot: number, v: 'upvote' | 'downvote' | 'abstain' | 'default') {
+    await call('setwithdrawalvote', [slot, v]);
+  }
+  async function slotAck(slot: number, v: string) {
+    await call('setsidechainackpolicy', [v, slot]);
+  }
+  async function ackPolicy(v: string) {
+    await call('setsidechainackpolicy', [v]);
+  }
 
   function sidechainTitle(slot: number): string {
     return dc?.sidechains.find((s) => s.slot === slot)?.title ?? `Slot ${slot}`;
@@ -511,9 +521,20 @@
       </section>
     {/if}
   {:else if dc && tab === 'proposals'}
-    <p class="muted">Proposals in the chain. A proposal activates if enough blocks ack it; blocks this node mines ack the proposals marked below.</p>
+    <p class="muted">Proposals in the chain. A proposal activates if enough blocks ack it; blocks this node mines ack the proposals marked below. By default this node acks every proposal: NACK one, or set a sidechain to NACK on the Withdrawals tab, to opt out.</p>
     <section class="panel list">
-      <div class="panel-head"><h2>Proposals in the chain</h2></div>
+      <div class="panel-head"><h2>Proposals in the chain</h2>
+        {#if dc.info.sidechainackpolicy}
+          <label class="row default-vote">
+            <span class="muted">Ack policy of this node</span>
+            <select value={dc.info.sidechainackpolicy} onchange={(e) => ackPolicy((e.currentTarget as HTMLSelectElement).value)} aria-label="Ack policy">
+              <option value="all">Ack every proposal (default)</option>
+              <option value="newslots">Ack proposals for empty slots</option>
+              <option value="none">Ack only the proposals acked here</option>
+            </select>
+          </label>
+        {/if}
+      </div>
       {#if dc.proposals.pending.length === 0}
         <p class="panel-body muted">No proposal is pending.</p>
       {:else}
@@ -539,7 +560,7 @@
       <div class="panel-body row">
         {#each [dc.proposals.pending.find((x) => x.proposalhash === selectedProposal)] as chosen (chosen?.proposalhash ?? '-')}
           <button type="button" class="btn" disabled={!chosen} onclick={() => chosen && setAck(chosen, true)}>Ack</button>
-          <button type="button" class="btn" disabled={!chosen} onclick={() => chosen && setAck(chosen, false)}>Stop acking</button>
+          <button type="button" class="btn" disabled={!chosen} onclick={() => chosen && setAck(chosen, false)}>NACK</button>
           {#if chosen}<CopyButton text={chosen.proposalhash} label="Copy the proposal hash" />{/if}
         {/each}
       </div>
@@ -597,13 +618,49 @@
     </section>
   {:else if dc && tab === 'withdrawals'}
     <p class="muted">Withdrawal bundles that miners are voting on. A bundle is paid out once its score reaches the minimum; upvoting one bundle of a sidechain downvotes its others.</p>
+    {#if dc.info.defaultwithdrawalvote === 'upvote'}
+      <p class="warn" role="note">By default this node upvotes, on every sidechain, the bundle a sidechain node of yours handed it (verified) and, where no sidechain node is configured, the leading bundle, unchecked: that includes a fraudulent bundle, if it leads. Switch a sidechain to Abstain or Downvote below to opt out.</p>
+    {/if}
+    {#if dc.policy && dc.policy.sidechains.length}
+      <section class="panel list">
+        <div class="panel-head"><h2>Votes of this node, per sidechain</h2></div>
+        <table class="grid" aria-label="Votes per sidechain">
+          <thead><tr><th>Slot</th><th>Vote</th><th>Why</th><th>Set for this sidechain</th><th>Proposals for this slot</th></tr></thead>
+          <tbody>
+            {#each dc.policy.sidechains as v (v.slot)}
+              <tr>
+                <td><span class="num">{v.slot}</span> <SafeText class="muted" text={sidechainTitle(v.slot)} /></td>
+                <td><span class="badge" class:accent={v.vote === 'upvote'} class:warning={v.vote === 'downvote'}>{voteText(v.vote)}</span>{#if v.bundle} <span class="mono">{shortHash(v.bundle)}</span>{/if}</td>
+                <td class="muted">{v.why}</td>
+                <td>
+                  <select value={v.override ? (v.override === 'leading' ? 'upvote' : v.override) : 'default'} onchange={(e) => slotVote(v.slot, (e.currentTarget as HTMLSelectElement).value as 'upvote' | 'downvote' | 'abstain' | 'default')} aria-label="Vote on sidechain {v.slot}">
+                    <option value="default">Default</option>
+                    <option value="upvote">Upvote the leading bundle</option>
+                    <option value="abstain">Abstain</option>
+                    <option value="downvote">Downvote</option>
+                  </select>
+                </td>
+                <td>
+                  <select value={v.ack ?? 'default'} onchange={(e) => slotAck(v.slot, (e.currentTarget as HTMLSelectElement).value)} aria-label="Acks of proposals for slot {v.slot}">
+                    <option value="default">Default</option>
+                    <option value="ack">Ack</option>
+                    <option value="nack">NACK</option>
+                  </select>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </section>
+    {/if}
     <section class="panel list">
       <div class="panel-head">
         <h2>Withdrawal bundles</h2>
         <label class="row default-vote">
           <span class="muted">Default vote of this node</span>
           <select value={dc.info.defaultwithdrawalvote} onchange={(e) => defaultVote((e.currentTarget as HTMLSelectElement).value)} aria-label="Default withdrawal vote">
-            <option value="upvote">Upvote the bundle a sidechain node gave this node</option>
+            <option value="upvote">Upvote verified bundles, else the leading one (default)</option>
+            <option value="handed">Upvote only the bundle a sidechain node gave this node</option>
             <option value="follow">Follow the miners who check bundles</option>
             <option value="abstain">Abstain</option>
             <option value="downvote">Downvote</option>

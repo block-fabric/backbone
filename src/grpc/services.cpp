@@ -1452,16 +1452,15 @@ void ServicesImpl::RegisterBlockProducer(Server& server)
         Reply(w, ctx.New("cusf.mainchain.v1.SetWithdrawalBundleAckResponse"));
     });
 
-    // NONE: abstain; KNOWN: upvote what this node's sidechain node handed it (our default); ALL: also follow
-    // the bundle leading by 50 (not the first pending bundle of anybody, which pays whatever is proposed);
-    // ALARM: downvote all.
+    // NONE: abstain; KNOWN: upvote what this node's sidechain node handed it; ALL (Backbone's default): that, and
+    // where no sidechain node spoke the leading bundle, unchecked; ALARM: downvote all.
     Add(server, svc, "SetWithdrawalBundlePolicy", [&ctx](const Message& req, const std::shared_ptr<Writer>& w) {
         const uint64_t policy{req.GetUInt("policy")};
         drivechain::MinerState& miner{ctx.Chainman().m_drivechain_miner};
         switch (policy) {
         case 1: miner.SetDefaultVote(drivechain::Vote::Type::ABSTAIN); miner.SetFollow(false); break;
         case 2: miner.SetDefaultVote(drivechain::Vote::Type::UPVOTE); miner.SetFollow(false); break;
-        case 3: miner.SetDefaultVote(drivechain::Vote::Type::UPVOTE); miner.SetFollow(true); break;
+        case 3: miner.SetDefaultVote(drivechain::Vote::Type::UPVOTE); miner.SetUpvoteMode(drivechain::MinerState::UpvoteMode::LEADING); break;
         case 4: miner.SetDefaultVote(drivechain::Vote::Type::DOWNVOTE); miner.SetFollow(false); break;
         default: return Fail(w, InvalidField(req.Desc().full_name, "policy", util::ToString(policy), "unknown policy"));
         }
@@ -1497,7 +1496,7 @@ void ServicesImpl::RegisterBlockProducer(Server& server)
         const P ack{miner.GetAckPolicy()};
         resp.SetUInt("ack_policy", ack == P::ALL ? 3 : ack == P::NEW_SLOTS ? 2 : 1);
         const auto vote{miner.GetDefaultVote()};
-        resp.SetUInt("withdrawal_bundle_policy", vote == drivechain::Vote::Type::ABSTAIN ? 1 : vote == drivechain::Vote::Type::DOWNVOTE ? 4 : miner.GetFollow() ? 3 : 2);
+        resp.SetUInt("withdrawal_bundle_policy", vote == drivechain::Vote::Type::ABSTAIN ? 1 : vote == drivechain::Vote::Type::DOWNVOTE ? 4 : miner.GetUpvoteMode() == drivechain::MinerState::UpvoteMode::HANDED ? 2 : 3);
         for (const auto& [slot, v] : miner.GetVotes()) {
             if (v.type != drivechain::Vote::Type::UPVOTE) continue;
             Message& a{resp.Add("explicit_bundle_acks")};

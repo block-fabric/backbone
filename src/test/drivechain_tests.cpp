@@ -846,8 +846,11 @@ BOOST_AUTO_TEST_CASE(follow_vote)
         b.score = score;
         return b;
     };
-    // Following is something to opt in to: by default a bundle nobody handed over gets no vote.
+    // Backbone's default upvotes the leading bundle; "handed" gives a bundle nobody handed over no vote.
     BOOST_CHECK(!miner.GetFollow());
+    BOOST_CHECK(miner.GetUpvoteMode() == MinerState::UpvoteMode::LEADING);
+    miner.SetFollow(false);
+    BOOST_CHECK(miner.GetUpvoteMode() == MinerState::UpvoteMode::HANDED);
     BOOST_CHECK(miner.ResolveVote(1, {bundle(1, 500)}).type == Vote::Type::ABSTAIN);
     miner.SetFollow(true);
     BOOST_CHECK(miner.ResolveVote(1, {bundle(1, 49)}).type == Vote::Type::ABSTAIN);
@@ -867,6 +870,84 @@ BOOST_AUTO_TEST_CASE(follow_vote)
     // Abstaining by default means abstaining.
     miner.SetDefaultVote(Vote::Type::ABSTAIN);
     BOOST_CHECK(miner.ResolveVote(1, {bundle(1, 80)}).type == Vote::Type::ABSTAIN);
+}
+
+BOOST_AUTO_TEST_CASE(default_vote_policy)
+{
+    // Backbone's default: upvote the bundle a sidechain node handed (verified), else the leading
+    // bundle of the slot, unchecked; where a sidechain node said otherwise, no other bundle.
+    using R = MinerState::VoteReason;
+    MinerState miner;
+    const auto bundle = [](uint8_t id, uint32_t score) {
+        Bundle b;
+        b.hash = uint256{id};
+        b.score = score;
+        return b;
+    };
+    R why{};
+    // No node spoke: the most votes, ties by the lowest hash (as shown: uint256{1} < uint256{2}).
+    Vote v{miner.ResolveVote(1, {bundle(2, 3), bundle(1, 3), bundle(3, 1)}, &why)};
+    BOOST_CHECK(v.type == Vote::Type::UPVOTE && v.bundle == uint256{1} && why == R::LEADING);
+    v = miner.ResolveVote(1, {bundle(2, 4), bundle(1, 3)}, &why);
+    BOOST_CHECK(v.bundle == uint256{2});
+    Bundle high{bundle(1, 3)}, low{bundle(1, 3)};
+    high.hash = uint256{"ff00000000000000000000000000000000000000000000000000000000000000"};
+    low.hash = uint256{"0100000000000000000000000000000000000000000000000000000000000001"};
+    BOOST_CHECK(miner.ResolveVote(1, {high, low}).bundle == low.hash);
+    BOOST_CHECK(miner.ResolveVote(1, {}, &why).type == Vote::Type::ABSTAIN && why == R::NONE_PENDING);
+
+    // A handed bundle, pending: verified, upvoted even if another leads.
+    CMutableTransaction blind{TestChain::BlindBundle(COIN, 1000)};
+    std::string error;
+    const auto handed{miner.AddBundle(1, blind, error)};
+    BOOST_REQUIRE_MESSAGE(handed, error);
+    v = miner.ResolveVote(1, {bundle(1, 80), Bundle{*handed, 0, 1}}, &why);
+    BOOST_CHECK(v.type == Vote::Type::UPVOTE && v.bundle == *handed && why == R::VERIFIED);
+    // Handed but not among the pending ones: they mismatch what the node says, abstain.
+    v = miner.ResolveVote(1, {bundle(1, 80)}, &why);
+    BOOST_CHECK(v.type == Vote::Type::ABSTAIN && why == R::MISMATCH);
+    // The node says its chain has no bundle: downvote.
+    BOOST_CHECK(miner.Vouch(1, std::nullopt));
+    v = miner.ResolveVote(1, {bundle(1, 80)}, &why);
+    BOOST_CHECK(v.type == Vote::Type::DOWNVOTE && why == R::NO_BUNDLE);
+    // Another slot, no node: the leader.
+    BOOST_CHECK(miner.ResolveVote(2, {bundle(5, 0)}).bundle == uint256{5});
+
+    // Overrides per slot: abstain, downvote, and upvote of the leading bundle whatever the node says.
+    Vote over;
+    over.type = Vote::Type::ABSTAIN;
+    miner.SetVote(2, over);
+    v = miner.ResolveVote(2, {bundle(5, 0)}, &why);
+    BOOST_CHECK(v.type == Vote::Type::ABSTAIN && why == R::OVERRIDE);
+    over.type = Vote::Type::DOWNVOTE;
+    miner.SetVote(2, over);
+    BOOST_CHECK(miner.ResolveVote(2, {bundle(5, 0)}).type == Vote::Type::DOWNVOTE);
+    over.type = Vote::Type::UPVOTE;
+    miner.SetVote(1, over);
+    v = miner.ResolveVote(1, {bundle(1, 80), bundle(2, 81)}, &why);
+    BOOST_CHECK(v.type == Vote::Type::UPVOTE && v.bundle == uint256{2} && why == R::OVERRIDE);
+    miner.ClearVote(1);
+    miner.ClearVote(2);
+    BOOST_CHECK(miner.ResolveVote(2, {bundle(5, 0)}).type == Vote::Type::UPVOTE);
+
+    // Proposals: acked by default; a NACK, a slot's setting and an ack of one, in that order.
+    BOOST_CHECK(miner.GetAckPolicy() == MinerState::AckPolicy::ALL);
+    const uint256 p{0x77};
+    BOOST_CHECK(miner.WantsAck(3, p, /*slot_active=*/true));
+    miner.SetSlotAck(3, false);
+    BOOST_CHECK(!miner.WantsAck(3, p, false));
+    miner.SetAck(3, p, true);
+    BOOST_CHECK(miner.WantsAck(3, p, false));
+    miner.SetNack(3, p, true);
+    BOOST_CHECK(!miner.WantsAck(3, p, false));
+    BOOST_CHECK(!miner.IsAcked(3, p));
+    miner.SetNack(3, p, false);
+    miner.SetSlotAck(3, std::nullopt);
+    BOOST_CHECK(miner.WantsAck(3, p, false));
+    miner.SetAckPolicy(MinerState::AckPolicy::NEW_SLOTS);
+    BOOST_CHECK(miner.WantsAck(3, p, false) && !miner.WantsAck(3, p, true));
+    miner.SetSlotAck(3, true);
+    BOOST_CHECK(miner.WantsAck(3, p, true));
 }
 
 namespace {
@@ -904,6 +985,8 @@ BOOST_AUTO_TEST_CASE(acks_are_per_slot)
     // and acks are dropped once the sidechain activates.
     TestChain chain;
     MinerState miner;
+    // Acks of SetAck, without Backbone's default policy of acking every proposal.
+    miner.SetAckPolicy(MinerState::AckPolicy::NONE);
     const Sidechain sidechain{MakeSidechain(2)};
     miner.AddProposal(sidechain);
     BOOST_CHECK(miner.IsAcked(2, sidechain.GetHash()));
@@ -1459,6 +1542,9 @@ BOOST_AUTO_TEST_CASE(miner_never_reproposes_a_closed_bundle)
     // Proposed again by someone else, it is not upvoted, by a miner that was just handed it either.
     BOOST_REQUIRE(chain.Connect({BundleScript(1, *hash)}));
     MinerState handed_again;
+    // (With the default, a bundle this node forgot is like any other where no sidechain node spoke:
+    // the leading one is upvoted, unchecked. Upvoting only what was handed, it is not.)
+    handed_again.SetFollow(false);
     BOOST_REQUIRE(handed_again.AddBundle(1, TestChain::BlindBundle(COIN, 1000), error));
     BOOST_CHECK(handed_again.ResolveVote(1, chain.scdb.GetSlot(1)->bundles).type == Vote::Type::UPVOTE);
     handed_again.Prune(chain.scdb, chain.height + 1, history);

@@ -245,8 +245,9 @@ class EcashGrpcTest(BitcoinTestFramework):
         state = self.grpc.unary(B + 'GetBlockProducerState')
         assert_equal(state['pending_proposals'], [{'sidechain_number': u32(SLOT), 'description_sha256d_hash': rh(desc_hash),
                                                    'declaration': declaration, 'description': rh(desc.hex())}])
-        assert_equal(state['ack_policy'], 1)
-        assert_equal(state['withdrawal_bundle_policy'], 2)
+        # Backbone's defaults: ack every proposal (ALL), upvote the handed bundle or else the leading one (ALL).
+        assert_equal(state['ack_policy'], 3)
+        assert_equal(state['withdrawal_bundle_policy'], 3)
 
         proposed_at = node.getblockcount() + 1
         self.mine()

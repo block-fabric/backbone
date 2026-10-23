@@ -72,10 +72,21 @@ describe('what a box shows', () => {
   it("the miner's tag: the text of the coinbase after the height", () => {
     // Height 120 (push of 1 byte), then "/my pool/" and an extranonce.
     const hex = '0178' + Buffer.from('/my pool/').toString('hex') + '00ff01';
-    expect(coinbaseTag(hex)).toBe('/my pool/');
+    expect(coinbaseTag(hex)).toBe('my pool');
     expect(coinbaseTag('0178' + '0001')).toBe('');
     expect(coinbaseTag('zz')).toBe('');
     expect(coinbaseTag('0178' + Buffer.from('x'.repeat(80)).toString('hex')).length).toBe(40);
+  });
+
+  it("the miner's tag without the slashes that wrap it", () => {
+    const tag = (text: string) => coinbaseTag('0178' + Buffer.from(text).toString('hex') + '00ff');
+    expect(tag('/ePool/')).toBe('ePool');
+    expect(tag('/a/b/')).toBe('a/b');
+    expect(tag('//x//')).toBe('x');
+    expect(tag('ePool')).toBe('ePool');
+    expect(tag('/ePool')).toBe('ePool');
+    expect(tag('///')).toBe('');
+    expect(coinbaseTag('0178' + Buffer.from('/one/').toString('hex') + '00' + Buffer.from('/two/').toString('hex'))).toBe('one two');
   });
 
   it('the expected time to the next block', () => {

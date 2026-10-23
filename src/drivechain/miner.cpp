@@ -9,13 +9,14 @@
 #include <util/fs_helpers.h>
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 
 namespace drivechain {
 
 namespace {
 //! Version of the file the state is kept in.
-constexpr uint32_t MINER_STATE_VERSION{6};
+constexpr uint32_t MINER_STATE_VERSION{7};
 } // namespace
 
 bool MinerState::Load(const fs::path& path)
@@ -27,21 +28,27 @@ bool MinerState::Load(const fs::path& path)
     try {
         uint32_t version;
         file >> version;
-        if (version != MINER_STATE_VERSION && version != 5 && version != 4 && version != 3) throw std::ios_base::failure("unknown version");
+        if (version != MINER_STATE_VERSION && version != 6 && version != 5 && version != 4 && version != 3) throw std::ios_base::failure("unknown version");
         std::vector<std::pair<std::pair<SidechainId, uint256>, CMutableTransaction>> bundles;
         uint64_t bundle_count;
         uint8_t default_vote;
+        uint8_t upvote_mode{0};
+        bool follow{false};
         if (version == 3) {
             // Acks were by proposal hash alone, in any slot: they are not carried over, since that
             // is the very thing that changed. Proposals of this node are acked again below.
             std::set<uint256> old_acks;
-            file >> m_proposals >> old_acks >> m_votes >> default_vote >> m_follow >> bundle_count;
+            file >> m_proposals >> old_acks >> m_votes >> default_vote >> follow >> bundle_count;
             m_acks.clear();
             for (const Sidechain& sidechain : m_proposals) m_acks.emplace(sidechain.slot, sidechain.GetHash());
             if (!old_acks.empty()) LogWarning("Acks of sidechain proposals are now by slot: %u acks were dropped, see acksidechain", old_acks.size());
+        } else if (version < 7) {
+            file >> m_proposals >> m_acks >> m_votes >> default_vote >> follow >> m_latest_bundle >> bundle_count;
         } else {
-            file >> m_proposals >> m_acks >> m_votes >> default_vote >> m_follow >> m_latest_bundle >> bundle_count;
+            file >> m_proposals >> m_acks >> m_votes >> default_vote >> upvote_mode >> m_latest_bundle >> bundle_count;
         }
+        if (version < 7) upvote_mode = static_cast<uint8_t>(follow ? UpvoteMode::FOLLOW : UpvoteMode::HANDED);
+        m_upvote_mode = upvote_mode <= static_cast<uint8_t>(UpvoteMode::LEADING) ? static_cast<UpvoteMode>(upvote_mode) : UpvoteMode::HANDED;
         m_default_vote = default_vote <= static_cast<uint8_t>(Vote::Type::UPVOTE) ? static_cast<Vote::Type>(default_vote) : Vote::Type::ABSTAIN;
         m_bundles.clear();
         for (uint64_t i{0}; i < bundle_count; ++i) {
@@ -60,6 +67,17 @@ bool MinerState::Load(const fs::path& path)
             file >> policy;
             m_ack_policy = policy <= static_cast<uint8_t>(AckPolicy::ALL) ? static_cast<AckPolicy>(policy) : AckPolicy::NONE;
         }
+        m_nacks.clear();
+        m_slot_acks.clear();
+        if (version >= 7) {
+            file >> m_nacks >> m_slot_acks;
+        } else if (m_default_vote == Vote::Type::UPVOTE && m_upvote_mode == UpvoteMode::HANDED && m_ack_policy == AckPolicy::NONE) {
+            // The defaults before version 7, which nobody could tell from a choice: Backbone's
+            // defaults now (upvote the leading bundle where no sidechain node spoke, ack every proposal).
+            m_upvote_mode = UpvoteMode::LEADING;
+            m_ack_policy = AckPolicy::ALL;
+            LogInfo("Drivechain votes: the old defaults become the new ones (upvote the leading bundle where no sidechain node spoke, ack every proposal); see setdefaultwithdrawalvote and setsidechainackpolicy");
+        }
     } catch (const std::exception& e) {
         LogError("Failed to read the drivechain miner state from %s: %s", fs::PathToString(path), e.what());
         m_proposals.clear();
@@ -69,8 +87,10 @@ bool MinerState::Load(const fs::path& path)
         m_latest_bundle.clear();
         m_bundle_info.clear();
         m_default_vote = Vote::Type::ABSTAIN;
-        m_follow = false;
+        m_upvote_mode = UpvoteMode::HANDED;
         m_ack_policy = AckPolicy::NONE;
+        m_nacks.clear();
+        m_slot_acks.clear();
         return false;
     }
     return true;
@@ -87,11 +107,11 @@ void MinerState::Save() const
         return;
     }
     try {
-        file << MINER_STATE_VERSION << m_proposals << m_acks << m_votes << static_cast<uint8_t>(m_default_vote) << m_follow << m_latest_bundle << uint64_t{m_bundles.size()};
+        file << MINER_STATE_VERSION << m_proposals << m_acks << m_votes << static_cast<uint8_t>(m_default_vote) << static_cast<uint8_t>(m_upvote_mode) << m_latest_bundle << uint64_t{m_bundles.size()};
         for (const auto& [key, tx] : m_bundles) {
             file << key.first << TX_NO_WITNESS(tx);
         }
-        file << m_bundle_info << static_cast<uint8_t>(m_ack_policy);
+        file << m_bundle_info << static_cast<uint8_t>(m_ack_policy) << m_nacks << m_slot_acks;
         if (!file.Commit()) throw std::runtime_error("commit failed");
         if (file.fclose() != 0) throw std::runtime_error("close failed");
         if (!RenameOver(tmp_path, m_path)) throw std::runtime_error("rename failed");
@@ -119,6 +139,50 @@ MinerState::AckPolicy MinerState::GetAckPolicy() const
 {
     LOCK(m_mutex);
     return m_ack_policy;
+}
+
+void MinerState::SetNack(SidechainId slot, const uint256& proposal_hash, bool nack)
+{
+    LOCK(m_mutex);
+    if (nack) {
+        m_nacks.emplace(slot, proposal_hash);
+        m_acks.erase({slot, proposal_hash});
+    } else {
+        m_nacks.erase({slot, proposal_hash});
+    }
+    Save();
+}
+
+std::vector<std::pair<SidechainId, uint256>> MinerState::GetNacks() const
+{
+    LOCK(m_mutex);
+    return {m_nacks.begin(), m_nacks.end()};
+}
+
+void MinerState::SetSlotAck(SidechainId slot, std::optional<bool> ack)
+{
+    LOCK(m_mutex);
+    if (ack) {
+        m_slot_acks[slot] = *ack;
+    } else {
+        m_slot_acks.erase(slot);
+    }
+    Save();
+}
+
+std::map<SidechainId, bool> MinerState::GetSlotAcks() const
+{
+    LOCK(m_mutex);
+    return m_slot_acks;
+}
+
+bool MinerState::WantsAck(SidechainId slot, const uint256& proposal_hash, bool slot_active) const
+{
+    LOCK(m_mutex);
+    if (m_nacks.contains({slot, proposal_hash})) return false;
+    if (m_acks.contains({slot, proposal_hash})) return true;
+    if (const auto it{m_slot_acks.find(slot)}; it != m_slot_acks.end()) return it->second;
+    return m_ack_policy == AckPolicy::ALL || (m_ack_policy == AckPolicy::NEW_SLOTS && !slot_active);
 }
 
 std::map<SidechainId, Vote> MinerState::GetVotes() const
@@ -155,6 +219,7 @@ void MinerState::SetAck(SidechainId slot, const uint256& proposal_hash, bool ack
     LOCK(m_mutex);
     if (ack) {
         m_acks.emplace(slot, proposal_hash);
+        m_nacks.erase({slot, proposal_hash});
     } else {
         m_acks.erase({slot, proposal_hash});
     }
@@ -233,16 +298,45 @@ void MinerState::ClearVote(SidechainId slot)
     if (m_votes.erase(slot) > 0) Save();
 }
 
-Vote MinerState::ResolveVote(SidechainId slot, const std::vector<Bundle>& pending) const
+const Bundle* MinerState::LeadingBundle(const std::vector<Bundle>& pending, const std::function<bool(const Bundle&)>& skip)
+{
+    const Bundle* leader{nullptr};
+    for (const Bundle& bundle : pending) {
+        if (skip && skip(bundle)) continue;
+        // Ties: the lowest hash as shown (hex, most significant byte first).
+        const auto lower_hash{[&] {
+            return std::lexicographical_compare(std::make_reverse_iterator(bundle.hash.end()), std::make_reverse_iterator(bundle.hash.begin()),
+                                                std::make_reverse_iterator(leader->hash.end()), std::make_reverse_iterator(leader->hash.begin()));
+        }};
+        if (!leader || bundle.score > leader->score || (bundle.score == leader->score && lower_hash())) leader = &bundle;
+    }
+    return leader;
+}
+
+Vote MinerState::ResolveVote(SidechainId slot, const std::vector<Bundle>& pending, VoteReason* reason) const
 {
     LOCK(m_mutex);
+    VoteReason dummy;
+    VoteReason& why{reason ? *reason : dummy};
+    const auto is_pending{[&](const uint256& hash) { return std::any_of(pending.begin(), pending.end(), [&](const Bundle& b) { return b.hash == hash; }); }};
+    const auto closed{[&](const Bundle& b) EXCLUSIVE_LOCKS_REQUIRED(m_mutex) { return WasClosedLocked(slot, b.hash); }};
     const auto it{m_votes.find(slot)};
     if (it != m_votes.end()) {
+        why = VoteReason::OVERRIDE;
+        if (it->second.type == Vote::Type::UPVOTE && it->second.bundle.IsNull()) {
+            // Upvote the leading bundle of the slot, whatever a sidechain node says.
+            Vote vote;
+            vote.type = Vote::Type::ABSTAIN;
+            if (const Bundle* leader{LeadingBundle(pending, closed)}) {
+                vote.type = Vote::Type::UPVOTE;
+                vote.bundle = leader->hash;
+            }
+            return vote;
+        }
         // An upvote of a bundle that is not pending (not proposed yet, or no longer pending) is no
         // vote at all: the block abstains. Said so here, so that what listwithdrawalbundles shows is
         // what the blocks cast.
-        if (it->second.type == Vote::Type::UPVOTE &&
-            std::none_of(pending.begin(), pending.end(), [&](const Bundle& b) { return b.hash == it->second.bundle; })) {
+        if (it->second.type == Vote::Type::UPVOTE && !is_pending(it->second.bundle)) {
             Vote abstain;
             abstain.type = Vote::Type::ABSTAIN;
             return abstain;
@@ -251,6 +345,7 @@ Vote MinerState::ResolveVote(SidechainId slot, const std::vector<Bundle>& pendin
     }
     Vote vote;
     vote.type = m_default_vote;
+    why = VoteReason::DEFAULT;
     if (m_default_vote != Vote::Type::UPVOTE) return vote;
     // A sidechain node only hands over the bundle its own chain commits to, so
     // having it is the word of a node the operator runs that the bundle is right.
@@ -262,23 +357,39 @@ Vote MinerState::ResolveVote(SidechainId slot, const std::vector<Bundle>& pendin
         // its chain gave up, or one nobody made -- down, so that it fails (idle_expiry_blocks).
         if (latest->second.IsNull()) {
             vote.type = pending.empty() ? Vote::Type::ABSTAIN : Vote::Type::DOWNVOTE;
+            why = pending.empty() ? VoteReason::NONE_PENDING : VoteReason::NO_BUNDLE;
             return vote;
         }
         // A bundle the chain closed once is not upvoted again, should it be proposed again (once
         // the chain forgot that it failed): the sidechain refunded its withdrawals.
         const bool closed_once{WasClosedLocked(slot, latest->second)};
-        if (!closed_once && std::any_of(pending.begin(), pending.end(), [&](const Bundle& b) { return b.hash == latest->second; })) {
+        if (!closed_once && is_pending(latest->second)) {
             vote.bundle = latest->second;
+            why = VoteReason::VERIFIED;
             return vote;
         }
-        // Handed but not pending yet (it is proposed in the next block), or no longer pending.
-        if (m_bundles.contains({slot, latest->second}) && !closed_once) {
+        // Handed but not pending yet (it is proposed in the next block), or no longer pending: the
+        // bundles pending are not the one the sidechain node vouches for.
+        if (m_bundles.contains({slot, latest->second}) && (!closed_once || m_upvote_mode == UpvoteMode::LEADING)) {
             vote.type = Vote::Type::ABSTAIN;
+            why = pending.empty() ? VoteReason::NONE_PENDING : VoteReason::MISMATCH;
             return vote;
         }
     }
-    if (!m_follow) {
+    if (m_upvote_mode == UpvoteMode::HANDED) {
         vote.type = Vote::Type::ABSTAIN;
+        return vote;
+    }
+    if (m_upvote_mode == UpvoteMode::LEADING) {
+        // No sidechain node spoke for the slot: upvote the leading bundle (Backbone's default),
+        // unchecked. One vote per slot per block (M4).
+        if (const Bundle* leader{LeadingBundle(pending, closed)}) {
+            vote.bundle = leader->hash;
+            why = VoteReason::LEADING;
+        } else {
+            vote.type = Vote::Type::ABSTAIN;
+            why = VoteReason::NONE_PENDING;
+        }
         return vote;
     }
     // A bundle no sidechain node vouched for to this node, and the operator
@@ -297,8 +408,10 @@ Vote MinerState::ResolveVote(SidechainId slot, const std::vector<Bundle>& pendin
     }
     if (leader && leader->score >= second + LEADING_BY_50_MARGIN) {
         vote.bundle = leader->hash;
+        why = VoteReason::FOLLOW;
     } else {
         vote.type = Vote::Type::ABSTAIN;
+        why = VoteReason::NONE_PENDING;
     }
     return vote;
 }
@@ -312,15 +425,26 @@ void MinerState::SetDefaultVote(Vote::Type type)
 
 void MinerState::SetFollow(bool follow)
 {
-    LOCK(m_mutex);
-    m_follow = follow;
-    Save();
+    SetUpvoteMode(follow ? UpvoteMode::FOLLOW : UpvoteMode::HANDED);
 }
 
 bool MinerState::GetFollow() const
 {
     LOCK(m_mutex);
-    return m_follow;
+    return m_upvote_mode == UpvoteMode::FOLLOW;
+}
+
+void MinerState::SetUpvoteMode(UpvoteMode mode)
+{
+    LOCK(m_mutex);
+    m_upvote_mode = mode;
+    Save();
+}
+
+MinerState::UpvoteMode MinerState::GetUpvoteMode() const
+{
+    LOCK(m_mutex);
+    return m_upvote_mode;
 }
 
 Vote::Type MinerState::GetDefaultVote() const
@@ -341,6 +465,7 @@ void MinerState::Prune(const SidechainDB& scdb, int height, const ClosureLookup&
     }};
     changed |= std::erase_if(m_proposals, [&](const Sidechain& s) { return active(s.slot, s.GetHash()); }) > 0;
     changed |= std::erase_if(m_acks, [&](const auto& ack) { return active(ack.first, ack.second); }) > 0;
+    changed |= std::erase_if(m_nacks, [&](const auto& nack) { return active(nack.first, nack.second); }) > 0;
     // What the chain did with each handed bundle: proposed it, closed it (and when).
     for (const auto& [key, tx] : m_bundles) {
         const auto& [slot, hash]{key};
@@ -435,11 +560,9 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
 
     // M2: one ack per slot.
     std::set<SidechainId> acked_slots;
-    const AckPolicy ack_policy{GetAckPolicy()};
     for (const Proposal& proposal : scdb.GetProposals()) {
         const uint256& hash{proposal.hash};
-        const bool by_policy{ack_policy == AckPolicy::ALL || (ack_policy == AckPolicy::NEW_SLOTS && !scdb.IsActive(proposal.sidechain.slot))};
-        if (!by_policy && !IsAcked(proposal.sidechain.slot, hash)) continue;
+        if (!WantsAck(proposal.sidechain.slot, hash, scdb.IsActive(proposal.sidechain.slot))) continue;
         // Never ack the sidechain a slot already has: it would replace itself.
         if (const Slot* slot{scdb.GetSlot(proposal.sidechain.slot)}; slot && slot->sidechain.GetHash() == hash) continue;
         if (!acked_slots.insert(proposal.sidechain.slot).second) continue;

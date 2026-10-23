@@ -52,6 +52,51 @@ SidechainId ParseSlot(const UniValue& value, const ChainstateManager& chainman)
     return static_cast<SidechainId>(slot);
 }
 
+std::string DefaultVoteName(const drivechain::MinerState& miner)
+{
+    using Mode = drivechain::MinerState::UpvoteMode;
+    switch (miner.GetDefaultVote()) {
+    case Vote::Type::DOWNVOTE: return "downvote";
+    case Vote::Type::ABSTAIN: return "abstain";
+    case Vote::Type::UPVOTE: break;
+    }
+    switch (miner.GetUpvoteMode()) {
+    case Mode::HANDED: return "handed";
+    case Mode::FOLLOW: return "follow";
+    case Mode::LEADING: break;
+    }
+    return "upvote";
+}
+
+std::string AckPolicyName(drivechain::MinerState::AckPolicy policy)
+{
+    using P = drivechain::MinerState::AckPolicy;
+    return policy == P::ALL ? "all" : policy == P::NEW_SLOTS ? "newslots" : "none";
+}
+
+//! Why this node votes as it does on a slot: a code, and the words.
+std::pair<std::string, std::string> VoteReasonText(drivechain::MinerState::VoteReason reason, const Vote& vote)
+{
+    using R = drivechain::MinerState::VoteReason;
+    switch (reason) {
+    case R::OVERRIDE: return {"override", "set for this slot by the operator (setwithdrawalvote)"};
+    case R::VERIFIED: return {"verified", "verified by the sidechain node that handed this bundle to this node"};
+    case R::NO_BUNDLE: return {"flagged", "flagged invalid: the sidechain node says its chain has no bundle, so the pending ones are downvoted"};
+    case R::MISMATCH: return {"flagged", "flagged invalid: the sidechain node handed another bundle, which is not pending; abstaining"};
+    case R::LEADING: return {"leading", "no sidechain node configured: upvoting the leading bundle, unchecked (also a fraudulent one)"};
+    case R::FOLLOW: return {"follow", "no sidechain node configured: upvoting the bundle leading by 50"};
+    case R::NONE_PENDING: return {"nothing", "no bundle to upvote"};
+    case R::DEFAULT: break;
+    }
+    return {"default", vote.type == Vote::Type::DOWNVOTE ? "the default vote is to downvote" :
+                       vote.type == Vote::Type::ABSTAIN ? "the default vote is to abstain, or to upvote only what a sidechain node handed" : "the default vote"};
+}
+
+std::string VoteTypeName(Vote::Type type)
+{
+    return type == Vote::Type::UPVOTE ? "upvote" : type == Vote::Type::DOWNVOTE ? "downvote" : "abstain";
+}
+
 UniValue SidechainToJSON(const Sidechain& sidechain)
 {
     UniValue obj(UniValue::VOBJ);
@@ -138,7 +183,8 @@ RPCMethod getdrivechaininfo()
             {RPCResult::Type::NUM, "pendingbundles", "Number of withdrawal bundles being voted on"},
             {RPCResult::Type::STR_AMOUNT, "escrowtotal", "Coins held in escrow by all sidechains"},
             {RPCResult::Type::STR_HEX, "statehash", "Hash committing to the whole sidechain database"},
-            {RPCResult::Type::STR, "defaultwithdrawalvote", "How this node votes on bundles it has no specific vote for: upvote, follow, downvote or abstain (see setdefaultwithdrawalvote)"},
+            {RPCResult::Type::STR, "defaultwithdrawalvote", "How this node votes on bundles it has no specific vote for: upvote, handed, follow, downvote or abstain (see setdefaultwithdrawalvote)"},
+            {RPCResult::Type::STR, "sidechainackpolicy", "Which sidechain proposals this node acks without a vote of its own for them: all, newslots or none (see setsidechainackpolicy)"},
         }},
         RPCExamples{HelpExampleCli("getdrivechaininfo", "") + HelpExampleRpc("getdrivechaininfo", "")},
         [&](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
@@ -181,10 +227,8 @@ RPCMethod getdrivechaininfo()
     obj.pushKV("pendingbundles", bundles);
     obj.pushKV("escrowtotal", ValueFromAmount(escrow));
     obj.pushKV("statehash", scdb.GetHash().GetHex());
-    const Vote::Type default_vote{chainman.m_drivechain_miner.GetDefaultVote()};
-    obj.pushKV("defaultwithdrawalvote", default_vote == Vote::Type::DOWNVOTE ? "downvote" :
-                                        default_vote == Vote::Type::ABSTAIN  ? "abstain" :
-                                        chainman.m_drivechain_miner.GetFollow() ? "follow" : "upvote");
+    obj.pushKV("defaultwithdrawalvote", DefaultVoteName(chainman.m_drivechain_miner));
+    obj.pushKV("sidechainackpolicy", AckPolicyName(chainman.m_drivechain_miner.GetAckPolicy()));
     return obj;
 },
     };
@@ -280,7 +324,9 @@ RPCMethod listsidechainproposals()
         obj.pushKV("failures", SidechainDB::Failures(proposal, height));
         obj.pushKV("blocksleft", SidechainDB::BlocksUntilActivation(proposal, replacement, height, params));
         obj.pushKV("replacement", replacement);
-        obj.pushKV("ack", chainman.m_drivechain_miner.IsAcked(proposal.sidechain.slot, proposal.hash));
+        const Slot* holder{scdb.GetSlot(proposal.sidechain.slot)};
+        obj.pushKV("ack", chainman.m_drivechain_miner.WantsAck(proposal.sidechain.slot, proposal.hash, replacement) &&
+                              !(holder && holder->sidechain.GetHash() == proposal.hash));
         pending.push_back(std::move(obj));
     }
 
@@ -364,14 +410,15 @@ RPCMethod acksidechain()
 {
     return RPCMethod{
         "acksidechain",
-        "Ack, or stop acking, a sidechain proposal in the blocks this node builds.\n"
+        "Ack or NACK a sidechain proposal in the blocks this node builds, over the ack policy (setsidechainackpolicy).\n"
+        "By default Backbone acks every proposal; false is a NACK: the proposal is not acked whatever the policy.\n"
         "An ack is for the proposal in one slot: the same sidechain proposed in another slot later is not acked by it.\n"
         "Without a slot, the proposal is acked in the slots where it is pending now.\n"
         "A proposal of the sidechain a slot already has is never acked, since it would replace the sidechain\n"
         "with itself and fail its pending withdrawals; acks of a sidechain are dropped once it activates.",
         {
             {"proposalhash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The hash of the proposal"},
-            {"ack", RPCArg::Type::BOOL, RPCArg::Default{true}, "Whether to ack the proposal"},
+            {"ack", RPCArg::Type::BOOL, RPCArg::Default{true}, "true: ack the proposal; false: NACK it"},
             {"slot", RPCArg::Type::NUM, RPCArg::DefaultHint{"the slots where the proposal is pending"}, "The slot of the proposal"},
         },
         RPCResult{RPCResult::Type::ARR, "", "The slots the ack applies to", {{RPCResult::Type::NUM, "", "slot"}}},
@@ -394,15 +441,16 @@ RPCMethod acksidechain()
         for (const Sidechain& sidechain : chainman.m_drivechain_miner.GetProposals()) {
             if (sidechain.GetHash() == hash) slots.insert(sidechain.slot);
         }
-        if (slots.empty() && ack) throw JSONRPCError(RPC_INVALID_PARAMETER, "No proposal with this hash is pending: give the slot to ack it before it is proposed");
-        if (!ack) {
-            chainman.m_drivechain_miner.ClearAcks(hash);
-            return UniValue{UniValue::VARR};
-        }
+        if (slots.empty()) throw JSONRPCError(RPC_INVALID_PARAMETER, "No proposal with this hash is pending: give the slot to ack or NACK it before it is proposed");
     }
+    if (!ack) chainman.m_drivechain_miner.ClearAcks(hash);
     UniValue result(UniValue::VARR);
     for (const SidechainId slot : slots) {
-        chainman.m_drivechain_miner.SetAck(slot, hash, ack);
+        if (ack) {
+            chainman.m_drivechain_miner.SetAck(slot, hash, true);
+        } else {
+            chainman.m_drivechain_miner.SetNack(slot, hash, true);
+        }
         result.push_back(slot);
     }
     return result;
@@ -775,8 +823,8 @@ RPCMethod setwithdrawalvote()
         "Set how this node votes on the withdrawal bundles of a sidechain in the blocks it builds.",
         {
             {"slot", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sidechain slot number"},
-            {"vote", RPCArg::Type::STR, RPCArg::Optional::NO, "\"upvote\" (requires the hash of a bundle), \"downvote\", \"abstain\", or \"default\" to follow the default vote"},
-            {"hash", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The hash of the bundle to upvote; the other bundles of the sidechain are downvoted"},
+            {"vote", RPCArg::Type::STR, RPCArg::Optional::NO, "\"upvote\" (a bundle, or without a hash the leading one), \"downvote\", \"abstain\", or \"default\" to follow the default vote"},
+            {"hash", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The hash of the bundle to upvote; the other bundles of the sidechain are downvoted. Without it, the leading bundle (most votes, ties by the lowest hash) is upvoted, whatever a sidechain node says"},
         },
         RPCResult{RPCResult::Type::NONE, "", ""},
         RPCExamples{HelpExampleCli("setwithdrawalvote", "0 upvote \"hash\"") + HelpExampleCli("setwithdrawalvote", "0 downvote")},
@@ -787,9 +835,8 @@ RPCMethod setwithdrawalvote()
     const std::string type{request.params[1].get_str()};
     Vote vote;
     if (type == "upvote") {
-        if (request.params[2].isNull()) throw JSONRPCError(RPC_INVALID_PARAMETER, "An upvote needs the hash of the bundle");
         vote.type = Vote::Type::UPVOTE;
-        vote.bundle = ParseHashV(request.params[2], "hash");
+        if (!request.params[2].isNull()) vote.bundle = ParseHashV(request.params[2], "hash");
     } else if (type == "downvote") {
         vote.type = Vote::Type::DOWNVOTE;
     } else if (type == "abstain") {
@@ -811,31 +858,167 @@ RPCMethod setdefaultwithdrawalvote()
     return RPCMethod{
         "setdefaultwithdrawalvote",
         "Set how this node votes on the withdrawal bundles of sidechains it has no specific vote for.\n"
-        "A new node upvotes: it votes for the bundle that a sidechain node handed to it with receivewithdrawalbundle,\n"
-        "which is the bundle the sidechain node of its operator holds to be right, and abstains where it was handed none.\n"
-        "\"follow\" also upvotes, where it was handed no bundle, the one that leads the next by 50 votes (BIP300\n"
-        "\"leading by 50\"): for miners, such as pools, that do not run every sidechain and back what the miners\n"
-        "who check the bundles back. It trusts those miners, so it is something to opt in to.",
+        "\"upvote\" (Backbone's default) upvotes, on each sidechain, the bundle a sidechain node handed to this node\n"
+        "(receivewithdrawalbundle, vouchwithdrawalbundle): verified. Where a sidechain node said its chain has no bundle,\n"
+        "the pending ones are downvoted; where it handed another bundle, not pending, the node abstains (flagged invalid).\n"
+        "Where no sidechain node spoke, it upvotes the leading bundle (most votes, ties by the lowest hash), unchecked:\n"
+        "a fraudulent bundle too, if it leads. Switch a sidechain to abstain or downvote with setwithdrawalvote.\n"
+        "\"handed\" upvotes only what a sidechain node handed, and abstains elsewhere. \"follow\" upvotes, where no\n"
+        "sidechain node spoke, the bundle that leads the next by 50 votes (BIP300 \"leading by 50\").\n"
+        "getvotepolicy shows what each sidechain gets, and why.",
         {
-            {"vote", RPCArg::Type::STR, RPCArg::Optional::NO, "\"upvote\", \"follow\", \"downvote\" or \"abstain\""},
+            {"vote", RPCArg::Type::STR, RPCArg::Optional::NO, "\"upvote\", \"handed\", \"follow\", \"downvote\" or \"abstain\""},
         },
         RPCResult{RPCResult::Type::NONE, "", ""},
         RPCExamples{HelpExampleCli("setdefaultwithdrawalvote", "downvote")},
         [&](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
 {
     ChainstateManager& chainman{EnsureAnyChainman(request.context)};
+    using Mode = drivechain::MinerState::UpvoteMode;
     const std::string type{request.params[0].get_str()};
-    if (type == "upvote" || type == "follow") {
+    if (type == "upvote" || type == "handed" || type == "follow") {
         chainman.m_drivechain_miner.SetDefaultVote(Vote::Type::UPVOTE);
-        chainman.m_drivechain_miner.SetFollow(type == "follow");
+        chainman.m_drivechain_miner.SetUpvoteMode(type == "follow" ? Mode::FOLLOW : type == "handed" ? Mode::HANDED : Mode::LEADING);
     } else if (type == "downvote") {
         chainman.m_drivechain_miner.SetDefaultVote(Vote::Type::DOWNVOTE);
     } else if (type == "abstain") {
         chainman.m_drivechain_miner.SetDefaultVote(Vote::Type::ABSTAIN);
     } else {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "vote must be upvote, follow, downvote or abstain");
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "vote must be upvote, handed, follow, downvote or abstain");
     }
     return UniValue::VNULL;
+},
+    };
+}
+
+RPCMethod setsidechainackpolicy()
+{
+    return RPCMethod{
+        "setsidechainackpolicy",
+        "Set which sidechain proposals the blocks this node builds ack (M2), one ack per slot per block.\n"
+        "Without a slot: the policy, \"all\" (Backbone's default: every proposal, also one that would replace a\n"
+        "sidechain), \"newslots\" (proposals for an empty slot) or \"none\". With a slot: \"ack\" or \"nack\" every\n"
+        "proposal of that slot over the policy, or \"default\" to follow it. An ack or NACK of one proposal\n"
+        "(acksidechain) comes before both.",
+        {
+            {"policy", RPCArg::Type::STR, RPCArg::Optional::NO, "all, newslots or none; with a slot, ack, nack or default"},
+            {"slot", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The slot the setting is for"},
+        },
+        RPCResult{RPCResult::Type::NONE, "", ""},
+        RPCExamples{HelpExampleCli("setsidechainackpolicy", "none") + HelpExampleCli("setsidechainackpolicy", "nack 3")},
+        [&](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
+{
+    ChainstateManager& chainman{EnsureAnyChainman(request.context)};
+    using P = drivechain::MinerState::AckPolicy;
+    const std::string policy{request.params[0].get_str()};
+    if (!request.params[1].isNull()) {
+        const SidechainId slot{ParseSlot(request.params[1], chainman)};
+        if (policy == "ack" || policy == "nack") {
+            chainman.m_drivechain_miner.SetSlotAck(slot, policy == "ack");
+        } else if (policy == "default") {
+            chainman.m_drivechain_miner.SetSlotAck(slot, std::nullopt);
+        } else {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "with a slot, policy must be ack, nack or default");
+        }
+        return UniValue::VNULL;
+    }
+    if (policy == "all") {
+        chainman.m_drivechain_miner.SetAckPolicy(P::ALL);
+    } else if (policy == "newslots") {
+        chainman.m_drivechain_miner.SetAckPolicy(P::NEW_SLOTS);
+    } else if (policy == "none") {
+        chainman.m_drivechain_miner.SetAckPolicy(P::NONE);
+    } else {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "policy must be all, newslots or none");
+    }
+    return UniValue::VNULL;
+},
+    };
+}
+
+RPCMethod getvotepolicy()
+{
+    return RPCMethod{
+        "getvotepolicy",
+        "How the blocks this node builds vote on the withdrawal bundles of each sidechain (M4) and ack the\n"
+        "sidechain proposals (M2), and why.",
+        {},
+        RPCResult{RPCResult::Type::OBJ, "", "",
+        {
+            {RPCResult::Type::STR, "defaultwithdrawalvote", "upvote, handed, follow, downvote or abstain (setdefaultwithdrawalvote)"},
+            {RPCResult::Type::STR, "sidechainackpolicy", "all, newslots or none (setsidechainackpolicy)"},
+            {RPCResult::Type::ARR, "sidechains", "Each active sidechain", {{RPCResult::Type::OBJ, "", "", {
+                {RPCResult::Type::NUM, "slot", "The slot"},
+                {RPCResult::Type::STR, "vote", "upvote, downvote or abstain"},
+                {RPCResult::Type::STR_HEX, "bundle", /*optional=*/true, "The bundle upvoted"},
+                {RPCResult::Type::STR, "override", /*optional=*/true, "The vote set for the slot (setwithdrawalvote): upvote, leading, downvote or abstain"},
+                {RPCResult::Type::STR, "reason", "override, verified, flagged, leading, follow, nothing or default"},
+                {RPCResult::Type::STR, "why", "The reason, in words"},
+                {RPCResult::Type::STR, "ack", /*optional=*/true, "The ack setting of the slot (setsidechainackpolicy): ack or nack"},
+            }}}},
+            {RPCResult::Type::ARR, "proposals", "Each pending proposal", {{RPCResult::Type::OBJ, "", "", {
+                {RPCResult::Type::NUM, "slot", "The slot"},
+                {RPCResult::Type::STR_HEX, "proposalhash", "The proposal"},
+                {RPCResult::Type::BOOL, "ack", "Whether the blocks of this node ack it"},
+                {RPCResult::Type::STR, "reason", "nack, ack (of this proposal), slot (its slot's setting), policy, or self (the sidechain the slot holds)"},
+            }}}},
+        }},
+        RPCExamples{HelpExampleCli("getvotepolicy", "") + HelpExampleRpc("getvotepolicy", "")},
+        [&](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
+{
+    ChainstateManager& chainman{EnsureAnyChainman(request.context)};
+    drivechain::MinerState& miner{chainman.m_drivechain_miner};
+    LOCK(::cs_main);
+    const SidechainDB& scdb{chainman.ActiveChainstate().m_scdb};
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("defaultwithdrawalvote", DefaultVoteName(miner));
+    result.pushKV("sidechainackpolicy", AckPolicyName(miner.GetAckPolicy()));
+    const auto overrides{miner.GetVotes()};
+    const auto slot_acks{miner.GetSlotAcks()};
+    UniValue sidechains(UniValue::VARR);
+    for (const auto& [id, slot] : scdb.GetSlots()) {
+        drivechain::MinerState::VoteReason reason{};
+        const Vote vote{miner.ResolveVote(id, slot.bundles, &reason)};
+        UniValue obj(UniValue::VOBJ);
+        obj.pushKV("slot", id);
+        obj.pushKV("vote", VoteTypeName(vote.type));
+        if (vote.type == Vote::Type::UPVOTE) obj.pushKV("bundle", vote.bundle.GetHex());
+        if (const auto it{overrides.find(id)}; it != overrides.end()) {
+            obj.pushKV("override", it->second.type == Vote::Type::UPVOTE && it->second.bundle.IsNull() ? "leading" : VoteTypeName(it->second.type));
+        }
+        const auto [code, why]{VoteReasonText(reason, vote)};
+        obj.pushKV("reason", code);
+        obj.pushKV("why", why);
+        if (const auto it{slot_acks.find(id)}; it != slot_acks.end()) obj.pushKV("ack", it->second ? "ack" : "nack");
+        sidechains.push_back(std::move(obj));
+    }
+    result.pushKV("sidechains", std::move(sidechains));
+    const auto nacks{miner.GetNacks()};
+    const auto acks{miner.GetAcks()};
+    UniValue proposals(UniValue::VARR);
+    for (const Proposal& proposal : scdb.GetProposals()) {
+        const auto key{std::make_pair(proposal.sidechain.slot, proposal.hash)};
+        const Slot* holder{scdb.GetSlot(proposal.sidechain.slot)};
+        const bool self_replacement{holder && holder->sidechain.GetHash() == proposal.hash};
+        std::string reason{"policy"};
+        if (self_replacement) {
+            reason = "self";
+        } else if (std::find(nacks.begin(), nacks.end(), key) != nacks.end()) {
+            reason = "nack";
+        } else if (std::find(acks.begin(), acks.end(), key) != acks.end()) {
+            reason = "ack";
+        } else if (slot_acks.contains(proposal.sidechain.slot)) {
+            reason = "slot";
+        }
+        UniValue obj(UniValue::VOBJ);
+        obj.pushKV("slot", proposal.sidechain.slot);
+        obj.pushKV("proposalhash", proposal.hash.GetHex());
+        obj.pushKV("ack", !self_replacement && miner.WantsAck(proposal.sidechain.slot, proposal.hash, scdb.IsActive(proposal.sidechain.slot)));
+        obj.pushKV("reason", reason);
+        proposals.push_back(std::move(obj));
+    }
+    result.pushKV("proposals", std::move(proposals));
+    return result;
 },
     };
 }
@@ -1187,6 +1370,8 @@ void RegisterDrivechainRPCCommands(CRPCTable& t)
         {"drivechain", &sendwithdrawalbundle},
         {"drivechain", &setwithdrawalvote},
         {"drivechain", &setdefaultwithdrawalvote},
+        {"drivechain", &setsidechainackpolicy},
+        {"drivechain", &getvotepolicy},
         {"drivechain", &listsidechaindeposits},
         {"drivechain", &getsidechainevents},
         {"drivechain", &verifybmm},
