@@ -2355,6 +2355,69 @@ BOOST_AUTO_TEST_CASE(miner_state_formats)
     }
 }
 
+BOOST_AUTO_TEST_CASE(mainnet_vote_defaults)
+{
+    // On eCash's main network a node with nothing configured upvotes only the bundles its sidechain
+    // node handed it and acks only proposals for a free slot; betanet and the test networks keep
+    // upvoting the leading bundle and acking every proposal.
+    using Mode = MinerState::UpvoteMode;
+    using P = MinerState::AckPolicy;
+    const auto mainnet{DefaultVoteSettings(ChainType::ECASH)};
+    BOOST_CHECK(mainnet.upvote_mode == Mode::HANDED && mainnet.ack_policy == P::NEW_SLOTS);
+    for (const ChainType chain : {ChainType::ECASH_BETANET, ChainType::ECASH_TESTNET, ChainType::MAIN, ChainType::TESTNET, ChainType::SIGNET, ChainType::REGTEST}) {
+        const auto other{DefaultVoteSettings(chain)};
+        BOOST_CHECK(other.upvote_mode == Mode::LEADING && other.ack_policy == P::ALL);
+    }
+
+    Bundle unchecked;
+    unchecked.hash = uint256{1};
+    unchecked.score = 500;
+    const uint256 proposal{0x77};
+    const fs::path path{m_path_root / "mainnet_miner_state.dat"};
+    {
+        // Nothing saved: the defaults of the network.
+        MinerState miner;
+        miner.SetChainDefaults(mainnet.upvote_mode, mainnet.ack_policy);
+        BOOST_REQUIRE(miner.Load(path));
+        BOOST_CHECK(miner.GetDefaultVote() == Vote::Type::UPVOTE);
+        BOOST_CHECK(miner.GetUpvoteMode() == Mode::HANDED);
+        BOOST_CHECK(miner.GetAckPolicy() == P::NEW_SLOTS);
+        // A leading bundle nobody handed gets no vote; a handed one is upvoted.
+        BOOST_CHECK(miner.ResolveVote(1, {unchecked}).type == Vote::Type::ABSTAIN);
+        std::string error;
+        const auto mine{miner.AddBundle(1, TestChain::BlindBundle(COIN, 1000, 1), error)};
+        BOOST_REQUIRE(mine);
+        const Vote handed{miner.ResolveVote(1, {unchecked, Bundle{*mine, 0, 1}})};
+        BOOST_CHECK(handed.type == Vote::Type::UPVOTE && handed.bundle == *mine);
+        // A proposal for a free slot is acked, one that would replace a sidechain is not.
+        BOOST_CHECK(miner.WantsAck(3, proposal, /*slot_active=*/false));
+        BOOST_CHECK(!miner.WantsAck(3, proposal, /*slot_active=*/true));
+        // A choice is saved, and kept over the defaults.
+        miner.SetUpvoteMode(Mode::LEADING);
+        miner.SetAckPolicy(P::ALL);
+    }
+    {
+        MinerState miner;
+        miner.SetChainDefaults(mainnet.upvote_mode, mainnet.ack_policy);
+        BOOST_REQUIRE(miner.Load(path));
+        BOOST_CHECK(miner.GetUpvoteMode() == Mode::LEADING);
+        BOOST_CHECK(miner.GetAckPolicy() == P::ALL);
+    }
+    {
+        // A file from before version 7 with the old defaults takes those of the network.
+        WriteMinerState(path, 4, {}, {}, {}, {}, static_cast<uint8_t>(Vote::Type::UPVOTE), false, {}, {});
+        MinerState miner;
+        miner.SetChainDefaults(mainnet.upvote_mode, mainnet.ack_policy);
+        BOOST_REQUIRE(miner.Load(path));
+        BOOST_CHECK(miner.GetUpvoteMode() == Mode::HANDED);
+        BOOST_CHECK(miner.GetAckPolicy() == P::NEW_SLOTS);
+        MinerState beta;
+        BOOST_REQUIRE(beta.Load(path));
+        BOOST_CHECK(beta.GetUpvoteMode() == Mode::LEADING);
+        BOOST_CHECK(beta.GetAckPolicy() == P::ALL);
+    }
+}
+
 BOOST_AUTO_TEST_CASE(miner_state_save_failures)
 {
     // A miner state that cannot be saved is kept in memory, and the failure logged.

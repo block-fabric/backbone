@@ -157,6 +157,10 @@ Mining: `getblocktemplate` carries the drivechain messages in the coinbase it as
   (or `-withdrawalvote=<slot>:abstain|downvote`); for all, `setdefaultwithdrawalvote handed|abstain|downvote`
   (or `-defaultwithdrawalvote=`); proposals, `acksidechain <hash> false` (a NACK),
   `setsidechainackpolicy nack <slot>` (or `-sidechainack=<slot>:nack`) or `setsidechainackpolicy none`.
+  **On eCash's main network (`-chain=ecash`) the defaults are stricter:** the node upvotes only the
+  bundles its own sidechain node handed it (verified; `handed`) and abstains elsewhere, and acks
+  only proposals for a free slot (`newslots`), never one that would replace a sidechain in use. To
+  take the betanet defaults there: `-defaultwithdrawalvote=upvote -sidechainackpolicy=all`.
 - **Blind merged mining.** A sidechain block exists only if a Chains block commits to it; the
   sidechain pays the miner a fee for that, in CHN.
 - The messages (M1 to M8) and the escrow script use the byte layouts of the LayerTwo Labs

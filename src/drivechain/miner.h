@@ -13,6 +13,7 @@
 #include <serialize.h>
 #include <sync.h>
 #include <uint256.h>
+#include <util/chaintype.h>
 #include <util/fs.h>
 
 #include <functional>
@@ -45,11 +46,34 @@ class MinerState
 {
 public:
     /**
+     * Which proposals to ack without an ack of SetAck (the enforcer's AckAllProposalsPolicy): none,
+     * those for a slot without a sidechain, or all of them (also those that would replace one).
+     */
+    enum class AckPolicy : uint8_t { NONE = 0, NEW_SLOTS = 1, ALL = 2 };
+    /**
+     * Which bundle the default vote UPVOTE upvotes on a slot no sidechain node spoke for:
+     * LEADING (Backbone's default) the leading bundle, whatever it pays -- a fraudulent bundle
+     * too, if it leads; FOLLOW the one leading by 50; HANDED none (only what a node handed; the
+     * default on eCash's main network).
+     * Where a sidechain node handed a bundle, that one is upvoted in every mode, and where it
+     * said there is none or handed another one, no other bundle is upvoted.
+     */
+    enum class UpvoteMode : uint8_t { HANDED = 0, FOLLOW = 1, LEADING = 2 };
+
+    /**
      * Keep the state in this file: load what it holds, and write it back
      * whenever something changes.
      * @return false if the file exists but cannot be read
      */
     bool Load(const fs::path& path) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /**
+     * The vote settings of a node with nothing saved (and what a file from before version 7, which
+     * kept the old defaults, takes): set them before Load. The defaults of the network, see
+     * DefaultVoteSettings; a saved choice and the options (-defaultwithdrawalvote,
+     * -sidechainackpolicy) go over them.
+     */
+    void SetChainDefaults(UpvoteMode mode, AckPolicy policy) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /** Propose a sidechain in the next block this node builds. */
     void AddProposal(const Sidechain& sidechain) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
@@ -67,12 +91,8 @@ public:
     bool IsAcked(SidechainId slot, const uint256& proposal_hash) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /** The acks of SetAck. */
     std::vector<std::pair<SidechainId, uint256>> GetAcks() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
-    /**
-     * Which proposals to ack without an ack of SetAck (the enforcer's AckAllProposalsPolicy): none,
-     * those for a slot without a sidechain, or all of them (also those that would replace one).
-     */
-    enum class AckPolicy : uint8_t { NONE = 0, NEW_SLOTS = 1, ALL = 2 };
-    //! Backbone acks every proposal by default; an operator opts out per proposal, per slot or here.
+    //! Backbone acks every proposal by default (only new slots on eCash's main network, see
+    //! DefaultVoteSettings); an operator opts out per proposal, per slot or here.
     void SetAckPolicy(AckPolicy policy) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     AckPolicy GetAckPolicy() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /**
@@ -146,14 +166,7 @@ public:
      */
     void SetFollow(bool follow) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     bool GetFollow() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
-    /**
-     * Which bundle the default vote UPVOTE upvotes on a slot no sidechain node spoke for:
-     * LEADING (Backbone's default) the leading bundle, whatever it pays -- a fraudulent bundle
-     * too, if it leads; FOLLOW the one leading by 50; HANDED none (only what a node handed).
-     * Where a sidechain node handed a bundle, that one is upvoted in every mode, and where it
-     * said there is none or handed another one, no other bundle is upvoted.
-     */
-    enum class UpvoteMode : uint8_t { HANDED = 0, FOLLOW = 1, LEADING = 2 };
+    //! See UpvoteMode.
     void SetUpvoteMode(UpvoteMode mode) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     UpvoteMode GetUpvoteMode() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
@@ -223,9 +236,25 @@ private:
     Vote::Type m_default_vote GUARDED_BY(m_mutex){Vote::Type::UPVOTE};
     UpvoteMode m_upvote_mode GUARDED_BY(m_mutex){UpvoteMode::LEADING};
     AckPolicy m_ack_policy GUARDED_BY(m_mutex){AckPolicy::ALL};
+    //! SetChainDefaults: what a fresh state and a file from before version 7 take.
+    UpvoteMode m_chain_upvote_mode GUARDED_BY(m_mutex){UpvoteMode::LEADING};
+    AckPolicy m_chain_ack_policy GUARDED_BY(m_mutex){AckPolicy::ALL};
     std::set<std::pair<SidechainId, uint256>> m_nacks GUARDED_BY(m_mutex);
     std::map<SidechainId, bool> m_slot_acks GUARDED_BY(m_mutex);
 };
+
+/**
+ * The default vote settings of a network (MinerState::SetChainDefaults). On eCash's main network
+ * the blocks of a node with nothing configured upvote only the bundles a sidechain node handed it
+ * (verified), and ack only the proposals for a free slot: there, acking every proposal would also
+ * ack one that replaces a sidechain in use, and upvoting the leading bundle would upvote one nobody
+ * checked. Elsewhere (betanet, the test networks): upvote the leading bundle, ack every proposal.
+ */
+struct VoteSettings {
+    MinerState::UpvoteMode upvote_mode;
+    MinerState::AckPolicy ack_policy;
+};
+VoteSettings DefaultVoteSettings(ChainType chain);
 
 } // namespace drivechain
 

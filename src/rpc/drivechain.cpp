@@ -858,12 +858,12 @@ RPCMethod setdefaultwithdrawalvote()
     return RPCMethod{
         "setdefaultwithdrawalvote",
         "Set how this node votes on the withdrawal bundles of sidechains it has no specific vote for.\n"
-        "\"upvote\" (Backbone's default) upvotes, on each sidechain, the bundle a sidechain node handed to this node\n"
+        "\"upvote\" (the default on betanet and the test networks) upvotes, on each sidechain, the bundle a sidechain node handed to this node\n"
         "(receivewithdrawalbundle, vouchwithdrawalbundle): verified. Where a sidechain node said its chain has no bundle,\n"
         "the pending ones are downvoted; where it handed another bundle, not pending, the node abstains (flagged invalid).\n"
         "Where no sidechain node spoke, it upvotes the leading bundle (most votes, ties by the lowest hash), unchecked:\n"
         "a fraudulent bundle too, if it leads. Switch a sidechain to abstain or downvote with setwithdrawalvote.\n"
-        "\"handed\" upvotes only what a sidechain node handed, and abstains elsewhere. \"follow\" upvotes, where no\n"
+        "\"handed\" (the default on eCash's main network) upvotes only what a sidechain node handed, and abstains elsewhere. \"follow\" upvotes, where no\n"
         "sidechain node spoke, the bundle that leads the next by 50 votes (BIP300 \"leading by 50\").\n"
         "getvotepolicy shows what each sidechain gets, and why.",
         {
@@ -896,8 +896,9 @@ RPCMethod setsidechainackpolicy()
     return RPCMethod{
         "setsidechainackpolicy",
         "Set which sidechain proposals the blocks this node builds ack (M2), one ack per slot per block.\n"
-        "Without a slot: the policy, \"all\" (Backbone's default: every proposal, also one that would replace a\n"
-        "sidechain), \"newslots\" (proposals for an empty slot) or \"none\". With a slot: \"ack\" or \"nack\" every\n"
+        "Without a slot: the policy, \"all\" (every proposal, also one that would replace a sidechain: the default\n"
+        "on betanet and the test networks), \"newslots\" (proposals for an empty slot: the default on eCash's main\n"
+        "network) or \"none\". With a slot: \"ack\" or \"nack\" every\n"
         "proposal of that slot over the policy, or \"default\" to follow it. An ack or NACK of one proposal\n"
         "(acksidechain) comes before both.",
         {

@@ -521,15 +521,15 @@
       </section>
     {/if}
   {:else if dc && tab === 'proposals'}
-    <p class="muted">Proposals in the chain. A proposal activates if enough blocks ack it; blocks this node mines ack the proposals marked below. By default this node acks every proposal: NACK one, or set a sidechain to NACK on the Withdrawals tab, to opt out.</p>
+    <p class="muted">Proposals in the chain. A proposal activates if enough blocks ack it; blocks this node mines ack the proposals marked below. By default this node acks every proposal (on eCash's main network, only the proposals for an empty slot): NACK one, or set a sidechain to NACK on the Withdrawals tab, to opt out.</p>
     <section class="panel list">
       <div class="panel-head"><h2>Proposals in the chain</h2>
         {#if dc.info.sidechainackpolicy}
           <label class="row default-vote">
             <span class="muted">Ack policy of this node</span>
             <select value={dc.info.sidechainackpolicy} onchange={(e) => ackPolicy((e.currentTarget as HTMLSelectElement).value)} aria-label="Ack policy">
-              <option value="all">Ack every proposal (default)</option>
-              <option value="newslots">Ack proposals for empty slots</option>
+              <option value="all">Ack every proposal (default on betanet and the test network)</option>
+              <option value="newslots">Ack proposals for empty slots (default on the main network)</option>
               <option value="none">Ack only the proposals acked here</option>
             </select>
           </label>
@@ -659,8 +659,8 @@
         <label class="row default-vote">
           <span class="muted">Default vote of this node</span>
           <select value={dc.info.defaultwithdrawalvote} onchange={(e) => defaultVote((e.currentTarget as HTMLSelectElement).value)} aria-label="Default withdrawal vote">
-            <option value="upvote">Upvote verified bundles, else the leading one (default)</option>
-            <option value="handed">Upvote only the bundle a sidechain node gave this node</option>
+            <option value="upvote">Upvote verified bundles, else the leading one (default on betanet and the test network)</option>
+            <option value="handed">Upvote only the bundle a sidechain node gave this node (default on the main network)</option>
             <option value="follow">Follow the miners who check bundles</option>
             <option value="abstain">Abstain</option>
             <option value="downvote">Downvote</option>

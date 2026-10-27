@@ -8,6 +8,10 @@ By default a node acks every sidechain proposal (M2) and, on each sidechain, upv
 bundle a sidechain node handed to it (verified) or, where no sidechain node spoke, the leading
 bundle, unchecked. A bundle that mismatches what the sidechain node handed is not upvoted.
 
+On eCash's main network (-chain=ecash) the defaults are stricter: upvote only what a sidechain
+node handed (handed), ack only proposals for a free slot (newslots). The last part restarts
+node 1 on an empty datadir of that network, offline, to check them and that the options go over them.
+
 Node 0 runs the "sidechain node" (it is handed the bundles). Node 1 is a miner with the
 defaults and no sidechain node. Node 2 starts with per-slot overrides in its configuration.
 """
@@ -17,7 +21,7 @@ from test_framework.messages import COIN, CTransaction, CTxOut
 from test_framework.script import CScript, OP_RETURN
 from test_framework.address import address_to_scriptpubkey
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, assert_raises_rpc_error
+from test_framework.util import assert_equal, assert_raises_rpc_error, p2p_port, rpc_port
 
 # Regtest drivechain parameters, see CRegTestParams.
 ACTIVATION_PERIOD = 20
@@ -149,6 +153,42 @@ class DrivechainDefaultVoteTest(BitcoinTestFramework):
         for n in self.nodes:
             assert_equal(n.getwithdrawalbundle(SLOT, bundle), {"status": "paid"})
         assert_equal(pool.getreceivedbyaddress(payout_address, 1), Decimal(payout) / COIN)
+
+        self.test_mainnet_defaults()
+
+    def test_mainnet_defaults(self):
+        self.log.info("eCash's main network: upvote only handed bundles, ack only new slots")
+        self.stop_node(1)
+        pool = self.nodes[1]
+        regtest_conf = pool.bitcoinconf.read_text()
+        # The main network's data goes in the root of the datadir, beside regtest/. Offline, and
+        # no gRPC (whose default port on that network is the enforcer's, 50051).
+        pool.bitcoinconf.write_text(
+            "chain=ecash\n[ecash]\n"
+            f"port={p2p_port(1)}\nrpcport={rpc_port(1)}\n"
+            # (Pruned: a full main network's chain would not fit, which the node warns of.)
+            "server=1\nlisten=0\nconnect=0\ndnsseed=0\nfixedseeds=0\ngrpc=0\nprune=10000\n"
+            "rpcservertimeout=99000\nrpcthreads=2\nprinttoconsole=0\n"
+        )
+        pool.chain = ""
+        try:
+            for extra, expected in (
+                ([], ("handed", "newslots")),
+                (["-defaultwithdrawalvote=upvote", "-sidechainackpolicy=all"], ("upvote", "all")),
+                # The options are kept: a restart without them keeps the choice.
+                ([], ("upvote", "all")),
+            ):
+                self.start_node(1, extra_args=extra)
+                info = pool.getdrivechaininfo()
+                assert_equal(pool.getblockchaininfo()["chain"], "main")
+                assert_equal((info["defaultwithdrawalvote"], info["sidechainackpolicy"]), expected)
+                self.stop_node(1)
+        finally:
+            pool.chain = self.chain
+            pool.bitcoinconf.write_text(regtest_conf)
+        self.start_node(1)
+        info = pool.getdrivechaininfo()
+        assert_equal((info["defaultwithdrawalvote"], info["sidechainackpolicy"]), ("upvote", "all"))
 
 
 if __name__ == '__main__':

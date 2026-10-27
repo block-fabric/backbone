@@ -19,6 +19,19 @@ namespace {
 constexpr uint32_t MINER_STATE_VERSION{7};
 } // namespace
 
+VoteSettings DefaultVoteSettings(ChainType chain)
+{
+    if (chain == ChainType::ECASH) return {MinerState::UpvoteMode::HANDED, MinerState::AckPolicy::NEW_SLOTS};
+    return {MinerState::UpvoteMode::LEADING, MinerState::AckPolicy::ALL};
+}
+
+void MinerState::SetChainDefaults(UpvoteMode mode, AckPolicy policy)
+{
+    LOCK(m_mutex);
+    m_chain_upvote_mode = m_upvote_mode = mode;
+    m_chain_ack_policy = m_ack_policy = policy;
+}
+
 bool MinerState::Load(const fs::path& path)
 {
     LOCK(m_mutex);
@@ -74,9 +87,9 @@ bool MinerState::Load(const fs::path& path)
         } else if (m_default_vote == Vote::Type::UPVOTE && m_upvote_mode == UpvoteMode::HANDED && m_ack_policy == AckPolicy::NONE) {
             // The defaults before version 7, which nobody could tell from a choice: Backbone's
             // defaults now (upvote the leading bundle where no sidechain node spoke, ack every proposal).
-            m_upvote_mode = UpvoteMode::LEADING;
-            m_ack_policy = AckPolicy::ALL;
-            LogInfo("Drivechain votes: the old defaults become the new ones (upvote the leading bundle where no sidechain node spoke, ack every proposal); see setdefaultwithdrawalvote and setsidechainackpolicy");
+            m_upvote_mode = m_chain_upvote_mode;
+            m_ack_policy = m_chain_ack_policy;
+            LogInfo("Drivechain votes: the old defaults become the new ones of this network; see getvotepolicy, setdefaultwithdrawalvote and setsidechainackpolicy");
         }
     } catch (const std::exception& e) {
         LogError("Failed to read the drivechain miner state from %s: %s", fs::PathToString(path), e.what());
