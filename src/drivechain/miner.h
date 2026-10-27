@@ -247,6 +247,10 @@ private:
     //! SetChainDefaults: what a fresh state and a file from before version 7 take.
     UpvoteMode m_chain_upvote_mode GUARDED_BY(m_mutex){UpvoteMode::LEADING};
     AckPolicy m_chain_ack_policy GUARDED_BY(m_mutex){AckPolicy::ALL};
+    //! Whether the operator chose the upvote mode, the ack policy (SetUpvoteMode, SetAckPolicy: the RPCs and the
+    //! options); saved (version 8). What nobody chose follows the network's default (SetChainDefaults) at each load.
+    bool m_upvote_mode_chosen GUARDED_BY(m_mutex){false};
+    bool m_ack_policy_chosen GUARDED_BY(m_mutex){false};
     std::set<std::pair<SidechainId, uint256>> m_nacks GUARDED_BY(m_mutex);
     std::map<SidechainId, bool> m_slot_acks GUARDED_BY(m_mutex);
 };

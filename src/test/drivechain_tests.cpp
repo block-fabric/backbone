@@ -2404,6 +2404,62 @@ BOOST_AUTO_TEST_CASE(mainnet_vote_defaults)
         BOOST_CHECK(miner.GetAckPolicy() == P::ALL);
     }
     {
+        // Version 7 saved the defaults of the time (LEADING, ALL) as if chosen: on the main network they
+        // become its defaults; betanet and the test network keep them; anything else is a choice, kept.
+        const auto write_v7{[&](MinerState::UpvoteMode mode, MinerState::AckPolicy policy) {
+            AutoFile file{fsbridge::fopen(path, "wb")};
+            BOOST_REQUIRE(!file.IsNull());
+            const uint8_t none{0}; // an empty vector, set or map
+            file << uint32_t{7} << none << none << none << static_cast<uint8_t>(Vote::Type::UPVOTE) << static_cast<uint8_t>(mode)
+                 << none << uint64_t{0} << none << static_cast<uint8_t>(policy) << none << none;
+            BOOST_REQUIRE_EQUAL(file.fclose(), 0);
+        }};
+        write_v7(Mode::LEADING, P::ALL);
+        MinerState miner;
+        miner.SetChainDefaults(mainnet.upvote_mode, mainnet.ack_policy);
+        BOOST_REQUIRE(miner.Load(path));
+        BOOST_CHECK(miner.GetDefaultVote() == Vote::Type::UPVOTE);
+        BOOST_CHECK(miner.GetUpvoteMode() == Mode::HANDED);
+        BOOST_CHECK(miner.GetAckPolicy() == P::NEW_SLOTS);
+        for (const ChainType chain : {ChainType::ECASH_BETANET, ChainType::ECASH_TESTNET}) {
+            const auto other{DefaultVoteSettings(chain)};
+            MinerState beta;
+            beta.SetChainDefaults(other.upvote_mode, other.ack_policy);
+            BOOST_REQUIRE(beta.Load(path));
+            BOOST_CHECK(beta.GetUpvoteMode() == Mode::LEADING);
+            BOOST_CHECK(beta.GetAckPolicy() == P::ALL);
+        }
+        write_v7(Mode::FOLLOW, P::NONE);
+        MinerState chosen;
+        chosen.SetChainDefaults(mainnet.upvote_mode, mainnet.ack_policy);
+        BOOST_REQUIRE(chosen.Load(path));
+        BOOST_CHECK(chosen.GetUpvoteMode() == Mode::FOLLOW);
+        BOOST_CHECK(chosen.GetAckPolicy() == P::NONE);
+        // Saved again (version 8), the choice is kept as one; on betanet too.
+        chosen.SetAck(3, proposal, true);
+        MinerState reloaded, beta;
+        reloaded.SetChainDefaults(mainnet.upvote_mode, mainnet.ack_policy);
+        BOOST_REQUIRE(reloaded.Load(path) && beta.Load(path));
+        BOOST_CHECK(reloaded.GetUpvoteMode() == Mode::FOLLOW && reloaded.GetAckPolicy() == P::NONE);
+        BOOST_CHECK(beta.GetUpvoteMode() == Mode::FOLLOW && beta.GetAckPolicy() == P::NONE);
+    }
+    {
+        // Version 8: what nobody chose is saved as such, and follows the network it is loaded on.
+        fs::remove(path);
+        MinerState beta;
+        BOOST_REQUIRE(beta.Load(path));
+        beta.SetAck(3, proposal, true); // saved, with the betanet defaults unchosen
+        MinerState miner;
+        miner.SetChainDefaults(mainnet.upvote_mode, mainnet.ack_policy);
+        BOOST_REQUIRE(miner.Load(path));
+        BOOST_CHECK(miner.GetUpvoteMode() == Mode::HANDED && miner.GetAckPolicy() == P::NEW_SLOTS);
+        // An explicit choice equal to a default is a choice too.
+        miner.SetAckPolicy(P::NEW_SLOTS);
+        MinerState again;
+        BOOST_REQUIRE(again.Load(path)); // betanet's defaults
+        BOOST_CHECK(again.GetUpvoteMode() == Mode::LEADING && again.GetAckPolicy() == P::NEW_SLOTS);
+    }
+    {
         // A file from before version 7 with the old defaults takes those of the network.
         WriteMinerState(path, 4, {}, {}, {}, {}, static_cast<uint8_t>(Vote::Type::UPVOTE), false, {}, {});
         MinerState miner;

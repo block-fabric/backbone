@@ -16,7 +16,7 @@ namespace drivechain {
 
 namespace {
 //! Version of the file the state is kept in.
-constexpr uint32_t MINER_STATE_VERSION{7};
+constexpr uint32_t MINER_STATE_VERSION{8};
 } // namespace
 
 VoteSettings DefaultVoteSettings(ChainType chain)
@@ -41,7 +41,7 @@ bool MinerState::Load(const fs::path& path)
     try {
         uint32_t version;
         file >> version;
-        if (version != MINER_STATE_VERSION && version != 6 && version != 5 && version != 4 && version != 3) throw std::ios_base::failure("unknown version");
+        if (version != MINER_STATE_VERSION && version != 7 && version != 6 && version != 5 && version != 4 && version != 3) throw std::ios_base::failure("unknown version");
         std::vector<std::pair<std::pair<SidechainId, uint256>, CMutableTransaction>> bundles;
         uint64_t bundle_count;
         uint8_t default_vote;
@@ -82,15 +82,26 @@ bool MinerState::Load(const fs::path& path)
         }
         m_nacks.clear();
         m_slot_acks.clear();
-        if (version >= 7) {
-            file >> m_nacks >> m_slot_acks;
-        } else if (m_default_vote == Vote::Type::UPVOTE && m_upvote_mode == UpvoteMode::HANDED && m_ack_policy == AckPolicy::NONE) {
-            // The defaults before version 7, which nobody could tell from a choice: Backbone's
-            // defaults now (upvote the leading bundle where no sidechain node spoke, ack every proposal).
-            m_upvote_mode = m_chain_upvote_mode;
-            m_ack_policy = m_chain_ack_policy;
-            LogInfo("Drivechain votes: the old defaults become the new ones of this network; see getvotepolicy, setdefaultwithdrawalvote and setsidechainackpolicy");
+        if (version >= 7) file >> m_nacks >> m_slot_acks;
+        if (version >= 8) {
+            // Whether the operator chose them (an RPC, an option): what nobody chose is the network's default.
+            file >> m_upvote_mode_chosen >> m_ack_policy_chosen;
+        } else {
+            // Before version 8 a default was saved as if chosen: the defaults of the time (before
+            // version 7, upvote with HANDED and no ack policy; version 7, LEADING and ALL), which nobody
+            // could tell from a choice, are taken for defaults, anything else for a choice.
+            const bool old_defaults{version < 7 ? m_default_vote == Vote::Type::UPVOTE && m_upvote_mode == UpvoteMode::HANDED && m_ack_policy == AckPolicy::NONE
+                                                : m_upvote_mode == UpvoteMode::LEADING || m_ack_policy == AckPolicy::ALL};
+            if (version < 7) {
+                m_upvote_mode_chosen = m_ack_policy_chosen = !old_defaults;
+            } else {
+                m_upvote_mode_chosen = m_upvote_mode != UpvoteMode::LEADING;
+                m_ack_policy_chosen = m_ack_policy != AckPolicy::ALL;
+            }
+            if (old_defaults) LogInfo("Drivechain votes: the defaults saved by an older version become those of this network; see getvotepolicy, setdefaultwithdrawalvote and setsidechainackpolicy");
         }
+        if (!m_upvote_mode_chosen) m_upvote_mode = m_chain_upvote_mode;
+        if (!m_ack_policy_chosen) m_ack_policy = m_chain_ack_policy;
     } catch (const std::exception& e) {
         LogError("Failed to read the drivechain miner state from %s: %s", fs::PathToString(path), e.what());
         m_proposals.clear();
@@ -102,6 +113,8 @@ bool MinerState::Load(const fs::path& path)
         m_default_vote = Vote::Type::ABSTAIN;
         m_upvote_mode = UpvoteMode::HANDED;
         m_ack_policy = AckPolicy::NONE;
+        // Kept as chosen: the safe settings of a reset, not a network's defaults.
+        m_upvote_mode_chosen = m_ack_policy_chosen = true;
         m_nacks.clear();
         m_slot_acks.clear();
         return false;
@@ -124,7 +137,7 @@ void MinerState::Save() const
         for (const auto& [key, tx] : m_bundles) {
             file << key.first << TX_NO_WITNESS(tx);
         }
-        file << m_bundle_info << static_cast<uint8_t>(m_ack_policy) << m_nacks << m_slot_acks;
+        file << m_bundle_info << static_cast<uint8_t>(m_ack_policy) << m_nacks << m_slot_acks << m_upvote_mode_chosen << m_ack_policy_chosen;
         if (!file.Commit()) throw std::runtime_error("commit failed");
         if (file.fclose() != 0) throw std::runtime_error("close failed");
         if (!RenameOver(tmp_path, m_path)) throw std::runtime_error("rename failed");
@@ -143,8 +156,9 @@ std::vector<std::pair<SidechainId, uint256>> MinerState::GetAcks() const
 void MinerState::SetAckPolicy(AckPolicy policy)
 {
     LOCK(m_mutex);
-    if (m_ack_policy == policy) return;
+    if (m_ack_policy == policy && m_ack_policy_chosen) return;
     m_ack_policy = policy;
+    m_ack_policy_chosen = true;
     Save();
 }
 
@@ -451,6 +465,7 @@ void MinerState::SetUpvoteMode(UpvoteMode mode)
 {
     LOCK(m_mutex);
     m_upvote_mode = mode;
+    m_upvote_mode_chosen = true;
     Save();
 }
 
