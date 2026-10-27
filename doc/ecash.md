@@ -20,18 +20,29 @@ directory, the configuration file and the user agent (`/Backbone:32.0.0/`) are d
 | `main`, `test`, `signet`, `regtest` | the Chains (CHN) networks, unchanged | as before | as before | — | — | Chains' datadir |
 
 All eCash networks have Bitcoin's genesis (testnet4's for `ecashtest`), buried deployments, addresses
-(`bc1…`/`tb1…`, base58 0/5/128), 10-minute blocks with the 2016-block retarget, 4 MWU blocks, coinbase
+(`bc1…`/`tb1…`, base58 0/5/128), 10-minute blocks with the 2016-block retarget (every 288 blocks, dampened, from the fork on `ecash`), 4 MWU blocks, coinbase
 maturity 100, and Bitcoin Core v32's minimum chain work, assumevalid (block 966,143, before both forks) and
 assumeutxo snapshots. Seeds: eCash's DNS seeds (`seed.ecash.*` for main, `seed.beta.*` for betanet; no
 fixed seeds, as eCash).
 
-**eCash's main network.** Its parameters are published (tag `ecash-v1.0.0-core31.1`, 2026-09-08; ecash.com
-gives the fork for about 2026-10-31). Its DNS seeds did not resolve yet on 2026-10-20. The
-bip300301_enforcer has **no preset for eCash's main network** (its latest, commit `17eb2ce`, has alphanet
-and betanet): the drivechain thresholds of `ecash` are the enforcer's `Thresholds::MAINNET` (the BIP300
-specification's: an unused slot activates with more than 1,815 acks in 2,016 blocks), with the fork height as
-activation height and OP_NOP8. **They are provisional** and must be checked against the enforcer's mainnet
-preset once LayerTwo Labs publishes one (follow-up 1).
+**eCash's main network.** Its parameters are published (tag `ecash-v1.0.0-core31.1`, annotated tag `ee21d49bb3`,
+2026-10-11, at commit `6e582335d1`; ecash.com gives the fork for about 2026-10-31, at height 973,728). The
+current release is **`ecash-v1.1.0-core31.1`** (tag `c0413da023`, 2026-10-26, commit `5bd8690fab`, the one
+releases.ecash.com lists for `L1-ecash-bitcoin/mainnet`), which adds one consensus change, **a dampened
+retarget every 288 blocks from the fork block**: new target = (6 × old + measured) / 7, the measured time
+from the last block of the previous window (never before the fork block) to the last of this one, clamped
+to 4× either way of 288 × 10 minutes. Backbone has it on `ecash` (`consensus.ecash_retarget_interval`,
+`src/pow.cpp`); betanet and `ecashtest` keep Bitcoin's 2016-block retarget, as eCash's betanet client. Its five
+DNS seeds resolve (checked 2026-10-26): `seed.ecash.ninja` to 65.109.148.184 (and an IPv6 address), and
+`seed.ecash.drivecha.in`, `seed.ecash.zuexeuz.net`, `seed.ecash.eu.com` and `seed.bip300.xyz` all to one
+address, 67.68.165.91, which did not answer on 8533 then. 65.109.148.184:8533 answered as
+`/eCash Satoshi:31.1.0/` (at Bitcoin's height 973,326). With so few distinct nodes, a node that finds no
+peers can be given one: `-addnode=65.109.148.184:8533`. The drivechain thresholds of `ecash` (an unused slot
+activates with more than 1,815 acks in 2,016 blocks, a used one and a bundle with 13,150 in 26,300), with
+the fork height as activation height, OP_NOP8 and the replay locktime 499,999,998, are **confirmed against
+the bip300301_enforcer's mainnet support** (`Fork::Ecash`, branch `2026-10-12-mainnet`, commits `2c649af`
+and `a8b3dcd`). That branch is not merged: the enforcer's published build (`ceb608a`, "latest" of
+2026-10-16) has no eCash mainnet preset.
 
 **eCash's test network.** eCash runs no test network of its own: ecash-com/bitcoin's testnet3/testnet4 keep
 Bitcoin's DNS seeds, which list Bitcoin nodes (another message start), and eCash's FAQ names betanet as the
@@ -39,7 +50,9 @@ network to test on. The eCash seed hosts do not listen on 18533/48533. So `ecash
 testnet4 (the current Bitcoin test network; testnet3 is not offered). Its chain is Bitcoin testnet4's, which
 eCash's rules accept unchanged. Its replay locktime is that of eCash's release (499,999,998 on every network
 of that client). With no enforcer preset for it, BIP300/301 starts at 161,280 (2016 × 80, above the
-testnet4 history, which nobody scanned) with the enforcer's testnet thresholds (`Thresholds::SHORT`). To
+testnet4 history, which nobody scanned) with the enforcer's testnet thresholds (`Thresholds::SHORT`). The
+enforcer's mainnet branch (`2026-10-12-mainnet`) differs on this network: activation at 0, message start
+`ec a5 b1 24`. Backbone will follow whatever the enforcer ships; until then `ecashtest` is for our own tests. To
 run it with peers, see "Running the test network" below.
 
 ## Data directory and configuration
@@ -114,6 +127,16 @@ message is first in the coinbase; no bundle is upvoted or paid out that was paid
 pending when another bundle of its slot was paid out (single payout, paid-bundle memory); no bundle is
 proposed to a full queue (the pending cap); the vote message is in the canonical form. Idle and upvote expiry
 have no policy form beyond never upvoting what the sidechain node does not vouch for.
+A withdrawal (M6) from the mempool goes into the template only if its bundle still has the score once the
+block's own votes count and it is not out of time (`BlockAdditions::payable_bundles`; the enforcer's "keep
+unpayable mempool M6s out of served templates", `e08aae4`): the mempool checks withdrawals against the chain
+as it is, and the block's vote can take a bundle back to the threshold.
+
+**The default votes on `ecash`** (the main network) are `-defaultwithdrawalvote=handed` (upvote only the
+bundle a sidechain node handed this node, abstain elsewhere) and `-sidechainackpolicy=newslots` (no ack for a
+proposal that would replace a sidechain in use). On `ecashbeta` and `ecashtest` they stay `upvote` (the
+handed bundle, else the leading one) and `all`. A saved choice (`setdefaultwithdrawalvote`,
+`setsidechainackpolicy`) and the options go over them.
 
 ### Our safety rules for the enforcer: the activation switch
 
@@ -287,9 +310,9 @@ repository; the older eCash branches of our repositories are superseded and kept
 
 ## Follow-ups
 
-1. eCash main network: the enforcer's mainnet preset (thresholds, activation height, opcode) when published;
-   the main network's seeds once they resolve; a fork-day runbook (rewrite of a Bitcoin datadir's magic or
-   eCash's fork-point snapshot; the drivechain database with assumeutxo is untested).
+1. eCash main network: the enforcer's mainnet support is on an unmerged branch (`2026-10-12-mainnet`), whose
+   values Backbone matches; watch for its merge, and for `2026-10-03-aggregated-deposits`, which would change
+   the deposit and withdrawal rules. The fork-day runbook is in the v0.2.0 release notes.
 2. eCash's open pull requests: BIP94 on mainnet from the fork height (PR 4), ASERT (PR 2), a snapshot at
    967,000 (PR 3): follow them if merged.
 3. Live validation of the enforcer rules: a shadow run beside the bip300301_enforcer on a server (not this
