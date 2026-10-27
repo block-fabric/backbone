@@ -50,7 +50,7 @@ Var StartMenuGroup
 !insertmacro MUI_LANGUAGE English
 
 # Installer attributes
-InstallDir $PROGRAMFILES64\Chains
+InstallDir $PROGRAMFILES64\@CLIENT_NAME@
 CRCCheck force
 XPStyle on
 BrandingText " "
@@ -137,7 +137,7 @@ Section -un.post UNSEC0001
     Delete /REBOOTOK "$SMPROGRAMS\$StartMenuGroup\$(^Name).lnk"
     Delete /REBOOTOK "$SMPROGRAMS\$StartMenuGroup\@CLIENT_NAME@ (testnet).lnk"
     Delete /REBOOTOK "$SMPROGRAMS\$StartMenuGroup\@CLIENT_NAME@ (signet).lnk"
-    Delete /REBOOTOK "$SMSTARTUP\Chains.lnk"
+    Delete /REBOOTOK "$SMSTARTUP\@CLIENT_NAME@.lnk"
     Delete /REBOOTOK $INSTDIR\uninstall.exe
     DeleteRegValue HKCU "${REGKEY}" StartMenuGroup
     DeleteRegValue HKCU "${REGKEY}" Path

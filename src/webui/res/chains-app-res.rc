@@ -24,12 +24,12 @@ BEGIN
         BLOCK "040904E4" // U.S. English - multilingual (hex)
         BEGIN
             VALUE "CompanyName",        CLIENT_NAME " project"
-            VALUE "FileDescription",    CLIENT_NAME " (the node of Chains with its interface)"
+            VALUE "FileDescription",    CLIENT_NAME " (the eCash node and wallet with its interface)"
             VALUE "FileVersion",        VER_FILEVERSION_STR
-            VALUE "InternalName",       "chains-app"
+            VALUE "InternalName",       CLIENT_NAME_LOWER "-app"
             VALUE "LegalCopyright",     COPYRIGHT_STR
             VALUE "LegalTrademarks1",   "Distributed under the MIT software license, see the accompanying file COPYING or http://www.opensource.org/licenses/mit-license.php."
-            VALUE "OriginalFilename",   "chains-app.exe"
+            VALUE "OriginalFilename",   CLIENT_NAME_LOWER "-app.exe"
             VALUE "ProductName",        CLIENT_NAME
             VALUE "ProductVersion",     VER_PRODUCTVERSION_STR
         END
