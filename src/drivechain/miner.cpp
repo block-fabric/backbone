@@ -673,6 +673,7 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
 
     // M6: pay out the bundles that have the work score.
     for (const auto& [slot, state] : scdb.GetSlots()) {
+        bool paid{false};
         for (const Bundle& bundle : state.bundles) {
             if (enforcer) {
                 // The votes of the block count before its transactions, and bundles out of time fail before them.
@@ -696,6 +697,9 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
                         int64_t{height} - bundle.last_upvote >= params.upvote_expiry_blocks) continue;
                 }
             } else if (bundle.score < static_cast<uint32_t>(params.withdrawal_min_score)) continue;
+            additions.payable_bundles[slot].insert(bundle.hash);
+            // One withdrawal per sidechain per block: the next one needs the new escrow output.
+            if (paid) continue;
             const auto blind_tx{GetBundle(slot, bundle.hash)};
             if (!blind_tx) continue;
             const Slot* current{after.GetSlot(slot)};
@@ -709,8 +713,7 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
             if (!after.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason, rules_height)) continue;
             additions.withdrawals.push_back(tx);
             additions.withdrawal_fees.push_back(fee);
-            // One withdrawal per sidechain per block: the next one needs the new escrow output.
-            break;
+            paid = true;
         }
     }
 

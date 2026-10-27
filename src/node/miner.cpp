@@ -196,7 +196,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         // Room is kept for the withdrawals that can be paid out, so that a full mempool cannot keep
         // them out of the block, whatever their fee. Their weight does not depend on the escrow
         // output they spend.
-        std::tie(m_withdrawal_weight, m_withdrawal_sigops) = WithdrawalRoom(additions_for({}).withdrawals);
+        const drivechain::BlockAdditions before{additions_for({})};
+        std::tie(m_withdrawal_weight, m_withdrawal_sigops) = WithdrawalRoom(before.withdrawals);
+        m_payable_bundles = before.payable_bundles;
         m_mempool->StartBlockBuilding();
         addChunks();
         m_mempool->StopBlockBuilding();
@@ -212,6 +214,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         }
         m_withdrawal_weight = 0;
         m_withdrawal_sigops = 0;
+        m_payable_bundles.clear();
     }
 
     const drivechain::BlockAdditions drivechain_additions{additions_for(block_txs())};
@@ -363,8 +366,31 @@ bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>
         if (!m_options.include_bmm_requests && drivechain::GetBmmRequest(tx.get().GetTx())) {
             return false;
         }
+        // A withdrawal of a bundle this block's own votes (or its age) leave without the score would
+        // make the block invalid; it and what depends on it wait.
+        if (!WithdrawalPayable(tx.get().GetTx())) return false;
     }
     return true;
+}
+
+bool BlockAssembler::WithdrawalPayable(const CTransaction& tx) const
+{
+    // A withdrawal (M6): the treasury output its only input, the new treasury output 0, less in it.
+    if (tx.vin.size() != 1 || tx.vout.empty()) return true;
+    const auto slot{drivechain::ParseEscrowScript(tx.vout[0].scriptPubKey)};
+    if (!slot) return true;
+    const COutPoint& prevout{tx.vin[0].prevout};
+    std::optional<CTxOut> spent;
+    if (const CTransactionRef parent{m_mempool->get(prevout.hash)}) {
+        if (prevout.n < parent->vout.size()) spent = parent->vout[prevout.n];
+    } else if (const auto coin{m_chainstate.CoinsTip().GetCoin(prevout)}) {
+        spent = coin->out;
+    }
+    if (!spent || drivechain::ParseEscrowScript(spent->scriptPubKey) != slot || tx.vout[0].nValue >= spent->nValue) return true;
+    const auto bundle{drivechain::BlindWithdrawalHash(tx, spent->nValue)};
+    if (!bundle) return true; // not a withdrawal consensus would take either; the mempool has none such
+    const auto payable{m_payable_bundles.find(*slot)};
+    return payable != m_payable_bundles.end() && payable->second.contains(*bundle);
 }
 
 void BlockAssembler::AddToBlock(const CTxMemPoolEntry& entry)

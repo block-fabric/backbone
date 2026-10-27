@@ -34,6 +34,14 @@ struct BlockAdditions {
     std::vector<CTransactionRef> withdrawals;
     //! Fee of each of the withdrawals.
     std::vector<CAmount> withdrawal_fees;
+    /**
+     * The bundles a withdrawal (M6) of this block can pay, by slot: those with the score once the
+     * block's own votes count, and not out of time (in the enforcer's order: the coinbase, then
+     * the bundles that fail, then the transactions). A withdrawal from the mempool for any other
+     * bundle would make the block invalid, so it stays out of the template (as the enforcer's
+     * "keep unpayable mempool M6s out of served templates").
+     */
+    std::map<SidechainId, std::set<uint256>> payable_bundles;
 };
 
 /**

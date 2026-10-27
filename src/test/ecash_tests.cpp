@@ -897,6 +897,52 @@ uint16_t IndexOf(const EnforcerChain& chain, SidechainId slot, const uint256& ha
     return 0;
 }
 
+BOOST_AUTO_TEST_CASE(enforcer_unpayable_mempool_withdrawal)
+{
+    // The votes of a block count before its transactions: a withdrawal that is valid on the chain as it
+    // is (the mempool's view) can be invalid in the block this node builds, if the block's own vote takes
+    // its bundle back to the threshold. Such a withdrawal is not among the bundles the block can pay.
+    EnforcerChain chain;
+    chain.Activate(MakeSidechain(2));
+    BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+    const CMutableTransaction blind_a{EnforcerChain::BlindBundle(COIN, 1000, 1)};
+    const CMutableTransaction blind_b{EnforcerChain::BlindBundle(COIN, 1000, 2)};
+    const uint256 a{CTransaction{blind_a}.GetHash().ToUint256()};
+    const uint256 b{CTransaction{blind_b}.GetHash().ToUint256()};
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, a)}));
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, b)}));
+    while (chain.Score(2, a) <= static_cast<uint32_t>(chain.params.bundle_threshold)) {
+        BOOST_REQUIRE(chain.Connect({Votes({IndexOf(chain, 2, a)})}));
+    }
+    BOOST_REQUIRE_EQUAL(chain.Score(2, a), static_cast<uint32_t>(chain.params.bundle_threshold) + 1);
+    const CMutableTransaction withdrawal_a{chain.WithdrawalTx(2, blind_a, COIN, 1000)};
+
+    // A miner whose sidechain node handed it bundle B upvotes B, which takes A down to the threshold.
+    MinerState miner;
+    miner.SetChainDefaults(MinerState::UpvoteMode::HANDED, MinerState::AckPolicy::NEW_SLOTS);
+    std::string error;
+    BOOST_REQUIRE(miner.AddBundle(2, blind_b, error) == b);
+    miner.Prune(chain.scdb, chain.height + 1);
+    const auto additions{miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1)};
+    BOOST_CHECK(!additions.payable_bundles.contains(2) || !additions.payable_bundles.at(2).contains(a));
+    std::vector<CScript> scripts;
+    for (const CTxOut& out : additions.coinbase_outputs) scripts.push_back(out.scriptPubKey);
+    // With A's withdrawal, that block would be invalid.
+    BOOST_CHECK(!chain.Connect(scripts, {withdrawal_a}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-withdrawal-score");
+
+    // A miner that upvotes the leading bundle (A) can pay it, and the block that does is valid.
+    MinerState leading;
+    leading.Prune(chain.scdb, chain.height + 1);
+    const auto paying{leading.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1)};
+    BOOST_REQUIRE(paying.payable_bundles.contains(2));
+    BOOST_CHECK(paying.payable_bundles.at(2).contains(a));
+    BOOST_CHECK(!paying.payable_bundles.at(2).contains(b));
+    scripts.clear();
+    for (const CTxOut& out : paying.coinbase_outputs) scripts.push_back(out.scriptPubKey);
+    BOOST_CHECK(chain.Connect(scripts, {withdrawal_a}));
+}
+
 BOOST_AUTO_TEST_CASE(enforcer_safety_activation_block)
 {
     // Our withdrawal bundle safety rules for the enforcer (branch withdrawal-bundle-safety), from an

@@ -7,15 +7,19 @@
 #define BITCOIN_NODE_MINER_H
 
 #include <consensus/amount.h>
+#include <drivechain/sidechain.h>
+#include <kernel/cs_main.h>
 #include <node/mining_types.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <threadsafety.h>
 #include <txmempool.h>
+#include <uint256.h>
 #include <util/feefrac.h>
 #include <util/time.h>
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -78,6 +82,8 @@ private:
     uint64_t m_withdrawal_sigops{0};
     //! The mempool transactions in the block, for a second pass over the mempool.
     std::set<Txid> m_in_block;
+    //! The bundles a withdrawal of the block can pay (drivechain::BlockAdditions::payable_bundles).
+    std::map<drivechain::SidechainId, std::set<uint256>> m_payable_bundles;
 
     // Chain context for the block
     int nHeight;
@@ -119,7 +125,7 @@ private:
       *
       * @pre BlockAssembler::m_mempool must not be nullptr
     */
-    void addChunks() EXCLUSIVE_LOCKS_REQUIRED(m_mempool->cs);
+    void addChunks() EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
 
     // helper functions for addChunks()
     /** Test if a new chunk would "fit" in the block */
@@ -127,7 +133,9 @@ private:
     /** Perform locktime checks on each transaction in a chunk:
       * This check should always succeed, and is here
       * only as an extra check in case of a bug */
-    bool TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>& txs) const;
+    bool TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>& txs) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
+    /** Drivechain: false for a withdrawal (M6) of a bundle the block cannot pay (m_payable_bundles). */
+    bool WithdrawalPayable(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
 };
 
 /**
