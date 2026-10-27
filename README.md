@@ -1,37 +1,49 @@
-# Chains
+# Backbone
 
-Chains (CHN) is a proof-of-work coin with drivechains: sidechains that hold CHN, created by
-deposits from the mainchain and paid back to it by withdrawals that the miners vote on (BIP300),
-and whose blocks the miners of Chains mine blindly, for a fee (BIP301). The node enforces these
-rules itself; no separate enforcer is needed. It is Bitcoin Core v32 with drivechains, and its
-wallet runs sidechain nodes.
+Backbone is a full node, wallet and app for **eCash** (ECX), the drivechain fork of Bitcoin
+([ecash-com/bitcoin](https://github.com/ecash-com/bitcoin)). It enforces BIP300 (sidechain escrows and
+withdrawals) and BIP301 (blind merged mining) inside the node, the way LayerTwo Labs'
+[bip300301_enforcer](https://github.com/LayerTwo-Labs/bip300301_enforcer) does next to an eCash node, so no
+separate enforcer is needed. It also serves the enforcer's gRPC interface, so sidechain software made for
+"eCash node + enforcer" connects to Backbone unchanged.
 
-- SHA-256d, one-minute blocks, aserti3 difficulty (two-hour half-life).
-- 50 CHN per block, halving every 210 000 blocks, no premine. Coinbase maturity 360 blocks.
-- Blocks of up to 800,000 weight units, of which 400,000 for transactions (as much room per hour
-  as Bitcoin, most activity being on the sidechains); the rest is kept for the coinbase and the
-  drivechain messages.
-- Addresses `chn1…` (`tchn1…` on the test networks).
+- eCash's main network forks from Bitcoin at block **973,728**. Backbone follows eCash's current release
+  (`ecash-v1.1.0-core31.1`), including its dampened 288-block retarget from the fork.
+- Bitcoin's history and addresses (`bc1…`), 10-minute blocks, ECX as the coin.
+- Based on Bitcoin Core v32.
 
-The sidechains, each in a repository of its own:
+The details of each network, the rules and the enforcer interface are in [doc/ecash.md](doc/ecash.md).
+
+## The sidechains
+
+Every sidechain holds ECX that came in by a deposit on eCash, and sends it back by a withdrawal that eCash
+miners vote through. Each sidechain has its own node and app:
 
 | Sidechain | Slot | What it is |
 |---|---|---|
-| [Thunder](https://github.com/block-fabric/thunder) | 2 | Large blocks, for volume |
-| [BitNames](https://github.com/block-fabric/bitnames) | 3 | Names, with `.x` domains |
-| [BitAssets](https://github.com/block-fabric/bitassets) | 4 | Assets, pools and auctions |
-| [zSide](https://github.com/block-fabric/zside) | 6 | Private payments (Zcash Orchard) |
-| [Hivemind](https://github.com/block-fabric/hivemind) | 9 | Prediction markets |
+| [Flush](https://github.com/block-fabric/backbone-flush) | 46 (betanet: 99, temporary) | Tokens, assets and a DEX on a fast chain ([flush.markets](https://flush.markets)) |
+| [Thunder](https://github.com/block-fabric/backbone-thunder) | 9 | Payments at volume, on large blocks |
+| [BitNames](https://github.com/block-fabric/backbone-bitnames) | 2 | Names you own like coins |
+| [BitAssets](https://github.com/block-fabric/backbone-bitassets) | 4 | User-created assets, pools and auctions |
+| [zSide](https://github.com/block-fabric/backbone-zside) | 98 | Private payments with Zcash's Orchard |
+| [Hivemind](https://github.com/block-fabric/backbone-hivemind) | 13 | Prediction markets |
+| [Coinshift](https://github.com/block-fabric/backbone-coinshift) | 255 | Swaps with other chains |
+| [FastBlocks](https://github.com/block-fabric/backbone-fastblocks) | — | A template for fast chains of your own |
+
+Thunder, BitNames, BitAssets, zSide, Hivemind and Coinshift are drop-in C++ nodes
+([backbone-core](https://github.com/block-fabric/backbone-core)), consensus-compatible with LayerTwo Labs' clients.
+On the main network, a sidechain exists once its slot is proposed and activated there.
 
 ## Installing
 
-Builds for Linux (x86-64) are at https://blockfab.org/drivechains/. Unpack, check
-`sha256sum -c SHA256SUMS`, and run what is in `bin/`. The app, `chains-app`, needs the web view
-of the system (on Ubuntu 24.04: `sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0 libsqlite3-0`);
-the node and the tools need none of it.
+Builds for Linux (x86-64) and Windows (10 or 11, 64-bit) are on the
+[releases page](https://github.com/block-fabric/backbone/releases): `backbone-<version>-x86_64-linux-gnu.tar.gz`,
+`backbone-<version>-win64-setup.exe` and `backbone-<version>-win64.zip`, with `SHA256SUMS`.
 
-On Windows (10 or 11, 64-bit), run `chains-app-<version>-win64-setup.exe`, or unpack the zip of
-the same name. The app uses the WebView2 runtime that comes with Windows.
+- **Linux:** unpack, check `sha256sum -c SHA256SUMS`, and run what is in `bin/`. The node needs `libzmq5`. The app,
+  `backbone-app`, also needs the system's web view (on Ubuntu 24.04:
+  `sudo apt install libzmq5 libgtk-3-0 libwebkit2gtk-4.1-0 libsqlite3-0`).
+- **Windows:** run the installer, or unpack the zip. The app uses the WebView2 runtime that comes with Windows.
 
 ## Building from source
 
@@ -40,89 +52,64 @@ On Debian or Ubuntu (24.04):
 ```sh
 sudo apt install build-essential cmake pkgconf python3 libevent-dev libboost-dev \
     libsqlite3-dev libzmq3-dev libgtk-3-dev libwebkit2gtk-4.1-dev nodejs npm
-git clone https://github.com/block-fabric/chains-app.git
-cd chains-app
-cmake -B build
+git clone https://github.com/block-fabric/backbone.git
+cd backbone
+cmake -B build -DWITH_ZMQ=ON
 cmake --build build -j$(nproc)
 ```
 
-The first build runs `npm ci` for the interface (Svelte, TypeScript, Vite), so it needs the npm
-registry once. Add `-DBUILD_WEBUI=OFF` (and leave out GTK, WebKitGTK and npm) for a node without
-a window. Windows builds are cross-compiled with the depends system: `cmake --build build_win
---target deploy-app` makes the zip and the installer, see [doc/webui.md](doc/webui.md) and
-[doc/build-windows.md](doc/build-windows.md). Other systems and options:
-[doc/build-unix.md](doc/build-unix.md) and the other `doc/build-*.md`.
+- The first build runs `npm ci` for the interface (Svelte, TypeScript, Vite), so it needs the npm registry once.
+- Add `-DBUILD_WEBUI=OFF` (and leave out GTK, WebKitGTK and npm) for a node without a window.
+- Windows builds are cross-compiled with the depends system: `cmake --build build_win --target deploy-app` makes
+  the zip and the installer. See [doc/webui.md](doc/webui.md) and [doc/build-windows.md](doc/build-windows.md);
+  other systems and options are in the other `doc/build-*.md`.
 
 The programs, in `build/bin`:
 
 | Program | What it is |
 |---|---|
-| `chains-app` | the node and the wallet, with their window (an HTML interface in a native web view) |
-| `chainsd` | the node, without a window |
-| `chains-cli` | commands for a running node or wallet |
-| `chains-wallet`, `chains-tx`, `chains-util` | tools that work without a node |
+| `backbone-app` | the node and the wallet, with their window (an HTML interface in a native web view) |
+| `backboned` | the node, without a window |
+| `backbone-cli` | commands for a running node or wallet |
+| `backbone-wallet`, `backbone-tx`, `backbone-util` | tools that work without a node |
 
-Tests: `ctest --test-dir build` (unit tests, and the tests of the app: `test_chains-app`, its
-interface and, in a build with `-DWEBUI_TEST_HOOKS=ON`, the end-to-end tests) and
-`build/test/functional/test_runner.py`. How the app is made: [doc/webui.md](doc/webui.md).
+Tests: `ctest --test-dir build` and `build/test/functional/test_runner.py`.
 
 ## Running it
 
 ```sh
-chains-app                 # the main network
-chains-app -testnet        # the test network
-chains-app -regtest        # a private chain of your own, for trying things out
+backbone-app                     # eCash's main network (the default)
+backbone-app -chain=ecashbeta    # betanet, eCash's rehearsal network
+backboned -chain=ecashtest       # eCash's rules on Bitcoin's testnet4, without a window
 ```
 
-Data and the configuration file `chains.conf` are in `~/.chains` (on Windows
-`%LOCALAPPDATA%\Chains`, on macOS `~/Library/Application Support/Chains`); each network other
-than the main one has a subfolder (`testnet`, `signet`, `regtest`).
+Data and the configuration file `backbone.conf` live in `~/.backbone` (Windows: `%LOCALAPPDATA%\Backbone`;
+macOS: `~/Library/Application Support/Backbone`). Betanet's data is in `betanet/` and the test network's in
+`testnet4/`.
 
-| Network | P2P port | RPC port |
-|---|---|---|
-| main | 9555 | 9554 |
-| testnet | 19555 | 19554 |
-| signet | 39555 | 39554 |
-| regtest | 29555 | 29554 |
+| Network | `-chain=` | P2P port | RPC port |
+|---|---|---|---|
+| eCash main network | `ecash` | 8533 | 8532 |
+| betanet | `ecashbeta` | 8533 | 8532 |
+| test network | `ecashtest` | 48533 | 48532 |
 
-The networks have no DNS seeds: give the node a peer with `addnode`.
+Peers come from eCash's DNS seeds. A node that finds none can be given one with `-addnode=<host>:8533`.
 
-Pruning (`-prune=<MiB>`, or `prune=` in `chains.conf`) keeps a good history: the least target is
-10000 MiB (10 GB) of recent blocks and their undo data on the main network, testnet and signet, and a
-smaller value refuses to start ("Prune configured below the minimum of 10000 MiB"). `-prune=1` allows
-manual pruning with `pruneblockchain`, which also leaves 10000 MiB of block files there. Regtest keeps
-Bitcoin's minimum of 550 MiB. Sidechain nodes keep at least 10000 MiB too (see the sidechain's
-`doc/sidechain.md`).
+**Sidechain nodes** reach Backbone in one of two ways:
+- the enforcer's gRPC interface, on 127.0.0.1:50051 (`-grpc`, `-grpcport`);
+- JSON-RPC, with the cookie file in the data folder: run Backbone with `server=1`.
 
-A `~/.chains/chains.conf` for a node that runs sidechain nodes next to it:
-
-```ini
-# Commands over RPC: sidechain nodes and chains-cli use them (with the cookie file).
-server=1
-fallbackfee=0.0002
-
-# For the test network instead, uncomment:
-# testnet=1
-# [test]
-# addnode=<peer>:19555
-
-[main]
-addnode=<peer>:9555
-```
-
-A sidechain node reaches the Chains node over RPC, on the same computer by default, with the
-cookie file in the data folder. Run Chains with `server=1` (or `-server`) and then the sidechain;
-see the sidechain's README.
+For ZMQ (`-zmqpub…`), use a build with ZMQ (the releases have it). For `-txindex`, keep the full chain:
+`-txindex` doesn't work with pruning.
 
 ## Sidechains in the wallet
 
-- **Sidechains** page: the active sidechains and the proposals; deposits, to a deposit address
-  of the sidechain (`s<slot>_<address>_<checksum>`, checked before anything is sent); the
-  withdrawal bundles and how this node votes on them.
-- **Sidechain Nodes** page: installs, starts and stops sidechain nodes. **Locate programs…**
-  takes the `bin` folder of a sidechain build (through the file chooser of the desktop); then
-  **Start node** or **Open wallet**. Running a program always asks first, in a dialog of the
-  desktop.
+- **Sidechains** page:
+  - the active sidechains and the proposals;
+  - deposits to a sidechain's deposit address (`s<slot>_<address>_<checksum>`, checked before anything is sent);
+  - the withdrawal bundles and how this node votes on them.
+- **Sidechain Nodes** page: install, start and stop sidechain nodes. Running a program always asks first, in a
+  dialog of the desktop.
 
 ## Commands
 
@@ -130,49 +117,38 @@ Drivechains, on the node: `listactivesidechains`, `getsidechain`, `listsidechain
 `createsidechainproposal`, `acksidechain`, `removesidechainproposal`, `listsidechaindeposits`,
 `getsidechainevents`, `listwithdrawalbundles`, `getwithdrawalbundle`, `receivewithdrawalbundle`,
 `sendwithdrawalbundle`, `setwithdrawalvote`, `setdefaultwithdrawalvote`, `setsidechainackpolicy`,
-`getvotepolicy`, `verifybmm`,
-`getdrivechaininfo`, `getaveragefee`.
+`getvotepolicy`, `verifybmm`, `getdrivechaininfo`, `getaveragefee`.
 
-In the wallet: `createsidechaindeposit` (deposit to a sidechain), `createbmmrequest` (pay miners
-to commit to a sidechain block; sidechain nodes do this themselves).
+In the wallet:
+- `createsidechaindeposit`: deposit to a sidechain;
+- `createbmmrequest`: pay miners to commit to a sidechain block (sidechain nodes do this themselves).
 
-Mining: `getblocktemplate` carries the drivechain messages in the coinbase it asks for, and
-`setgenerate` mines on the CPU.
+Mining: `getblocktemplate` carries the drivechain messages in the coinbase.
 
-## Drivechains
+## Drivechains on eCash
 
-- **Activation.** A sidechain is proposed in a slot (`createsidechainproposal`) and activates once
-  enough blocks ack it: 7 200 blocks (five days) on the main network, 60 on the test network.
+- **Activation.** A sidechain is proposed in a slot (`createsidechainproposal`, M1) and activates once enough
+  blocks ack it (M2).
+  - **Main network:** more than 1,815 acks within 2,016 blocks for a free slot; 13,150 within 26,300 for a slot
+    already in use.
+  - **Betanet:** more than 1,008 for a free slot.
 - **Deposits** go into the slot's escrow output; the sidechain creates the coins.
-- **Withdrawals.** A sidechain node hands its node the bundle it wants paid
-  (`receivewithdrawalbundle`). Miners vote on it for up to 129 600 blocks (90 days) on the main
-  network, 600 on the test network, and it pays out once it has the score.
-- **Default votes (Backbone).** By default a node acks every sidechain proposal (M2) and, on
-  every active sidechain, upvotes (M4) one bundle per block: the bundle its own sidechain node
-  handed it (verified), or, where no sidechain node is configured, the leading bundle (most votes,
-  ties by the lowest hash), unchecked. **That upvotes a fraudulent bundle too, if it leads.** Where
-  a sidechain node handed a different bundle, the node abstains; where it said its chain has no
-  bundle, the node downvotes. `getvotepolicy` (and the Sidechains page of the app) shows each
-  sidechain's vote and why. To opt out: per sidechain, `setwithdrawalvote <slot> abstain|downvote`
-  (or `-withdrawalvote=<slot>:abstain|downvote`); for all, `setdefaultwithdrawalvote handed|abstain|downvote`
-  (or `-defaultwithdrawalvote=`); proposals, `acksidechain <hash> false` (a NACK),
-  `setsidechainackpolicy nack <slot>` (or `-sidechainack=<slot>:nack`) or `setsidechainackpolicy none`.
-  **On eCash's main network (`-chain=ecash`) the defaults are stricter:** the node upvotes only the
-  bundles its own sidechain node handed it (verified; `handed`) and abstains elsewhere, and acks
-  only proposals for a free slot (`newslots`), never one that would replace a sidechain in use. To
-  take the betanet defaults there: `-defaultwithdrawalvote=upvote -sidechainackpolicy=all`.
-- **Blind merged mining.** A sidechain block exists only if a Chains block commits to it; the
-  sidechain pays the miner a fee for that, in CHN.
-- The messages (M1 to M8) and the escrow script use the byte layouts of the LayerTwo Labs
-  `bip300301_enforcer`, so pools and tools made for it read Chains blocks.
-
-The sidechain side is in the sidechain repositories, `doc/sidechain.md`.
+- **Withdrawals.** A sidechain node hands Backbone the bundle it wants paid (`receivewithdrawalbundle`). Miners
+  vote on it (M4), and it pays out (M6) once it has more than 13,150 votes within 26,300 blocks.
+- **Default votes on the main network:**
+  - Backbone upvotes only the bundles its own sidechain node handed it (verified) and abstains elsewhere.
+  - It acks only proposals for a free slot, never one that would replace a sidechain in use.
+  - Betanet is more permissive. `getvotepolicy` shows each vote and why; the options and RPCs above change them.
+- **Blind merged mining** (BIP301). A sidechain block exists only if an eCash block commits to it; the sidechain
+  pays the miner a fee for that, in ECX.
+- The messages (M1 to M8) and the escrow script use the byte layouts of the `bip300301_enforcer`, so pools and
+  tools made for it read Backbone's blocks.
 
 ## Credits
 
-Chains is based on [Bitcoin Core](https://github.com/bitcoin/bitcoin) v32; its own README is
-in [doc/README-bitcoin-core.md](doc/README-bitcoin-core.md). Drivechains are Paul Sztorc's
-design (BIP300 and BIP301); the message layouts follow LayerTwo Labs.
+Backbone is based on [Bitcoin Core](https://github.com/bitcoin/bitcoin) v32; its own README is in
+[doc/README-bitcoin-core.md](doc/README-bitcoin-core.md). eCash's rules follow ecash-com/bitcoin. Drivechains are
+Paul Sztorc's design (BIP300 and BIP301); the message layouts and the gRPC interface follow LayerTwo Labs.
 
 ## License
 
