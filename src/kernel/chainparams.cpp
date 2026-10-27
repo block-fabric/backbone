@@ -407,7 +407,7 @@ static std::vector<AssumeutxoData> BitcoinMainSnapshots()
 
 /**
  * The main network of eCash (ECX): Bitcoin's chain, forked at block 973,728 (ecash-com/bitcoin, tag
- * ecash-v1.0.0-core31.1, branch master).
+ * ecash-v1.1.0-core31.1, branch master: v1.0.0 and the dampened 288-block retarget after the fork).
  */
 class CEcashMainParams : public CChainParams {
 public:
@@ -418,6 +418,9 @@ public:
         consensus.ecash_fork_bits = 0x1901a6e1; // Difficulty 2.6e9 at the fork block
         // The reset is computed by the retarget (CalculateNextWorkRequired), which runs at these heights only.
         assert(consensus.ecash_fork_height % consensus.DifficultyAdjustmentInterval() == 0);
+        // From the fork block, a dampened retarget every 288 blocks (ecash-v1.1.0-core31.1, 5bd8690fab).
+        consensus.ecash_retarget_interval = 288;
+        assert(consensus.ecash_fork_height % consensus.ecash_retarget_interval == 0);
         consensus.replay_locktime = LOCKTIME_THRESHOLD - 2;
         consensus.repurpose_txids = &kernel::ECASH_MAIN_REPURPOSE_TXIDS;
         // BIP300/301 from the fork. The bip300301_enforcer has no preset for eCash's main network yet

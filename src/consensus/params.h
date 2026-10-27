@@ -205,6 +205,15 @@ struct Params {
     int ecash_fork_height{0};
     uint32_t ecash_fork_bits{0};
     /**
+     * eCash's main network (ecash-com/bitcoin, tag ecash-v1.1.0-core31.1, 5bd8690fab): from the fork block
+     * on, the difficulty retargets every this many blocks (288), dampened, new target = (6 * old target +
+     * measured target) / 7, measured from the last block of the previous window (never one before the
+     * fork) to the last of this one. 0: Bitcoin's retarget at every height (betanet, the test networks).
+     */
+    int64_t ecash_retarget_interval{0};
+    //! Whether the dampened retarget of the eCash fork (ecash_retarget_interval) applies at this height.
+    bool EcashRetarget(int64_t height) const { return ecash_retarget_interval > 0 && ecash_fork_height > 0 && height >= ecash_fork_height; }
+    /**
      * eCash replay protection: a transaction with this nLockTime is final at any height and time, and
      * fails every OP_CHECKLOCKTIMEVERIFY; stock Bitcoin reads it as a height out of reach, so it never
      * confirms there. 499999998 (LOCKTIME_THRESHOLD - 2) on eCash's main and test networks,
@@ -289,6 +298,8 @@ struct Params {
         return std::chrono::seconds{nPowTargetSpacing};
     }
     int64_t DifficultyAdjustmentInterval() const { return nPowTargetTimespan / nPowTargetSpacing; }
+    //! The retarget interval at this height: Bitcoin's, or the eCash fork's from its fork block (ecash_retarget_interval).
+    int64_t DifficultyAdjustmentInterval(int64_t height) const { return EcashRetarget(height) ? ecash_retarget_interval : DifficultyAdjustmentInterval(); }
     /** The best chain should have at least this much work */
     uint256 nMinimumChainWork;
     /** By default assume that the signatures in ancestors of this block are valid */

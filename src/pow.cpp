@@ -123,9 +123,11 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         return GetNextASERTWorkRequired(pindexLast, pblock, params);
     }
     unsigned int nProofOfWorkLimit = UintToArith256(params.powLimit).GetCompact();
+    // Bitcoin's 2016 blocks, or 288 from the eCash fork on its main network.
+    const int64_t interval{params.DifficultyAdjustmentInterval(pindexLast->nHeight + 1)};
 
     // Only change once per difficulty adjustment interval
-    if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
+    if ((pindexLast->nHeight+1) % interval != 0)
     {
         if (params.fPowAllowMinDifficultyBlocks)
         {
@@ -138,7 +140,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
             {
                 // Return the last non-special-min-difficulty-rules-block
                 const CBlockIndex* pindex = pindexLast;
-                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval() != 0 && pindex->nBits == nProofOfWorkLimit)
+                while (pindex->pprev && pindex->nHeight % interval != 0 && pindex->nBits == nProofOfWorkLimit)
                     pindex = pindex->pprev;
                 return pindex->nBits;
             }
@@ -147,7 +149,12 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     }
 
     // Go back by what we want to be 14 days worth of blocks
-    int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
+    int nHeightFirst = pindexLast->nHeight - (interval-1);
+    if (params.EcashRetarget(pindexLast->nHeight + 1) && pindexLast->nHeight + 1 > params.ecash_fork_height) {
+        // eCash's dampened retarget: the window starts at the last block of the previous one (no
+        // timewarp across windows), but never before the fork block.
+        nHeightFirst = std::max(nHeightFirst - 1, params.ecash_fork_height);
+    }
     assert(nHeightFirst >= 0);
     const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
     assert(pindexFirst);
@@ -160,12 +167,16 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
     if (params.fPowNoRetargeting)
         return pindexLast->nBits;
 
+    // eCash's dampened retarget (its main network, from the fork block): over 288 blocks.
+    const bool ecash_retarget{params.EcashRetarget(pindexLast->nHeight + 1)};
+    const int64_t target_timespan{ecash_retarget ? params.DifficultyAdjustmentInterval(pindexLast->nHeight + 1) * params.nPowTargetSpacing : params.nPowTargetTimespan};
+
     // Limit adjustment step
     int64_t nActualTimespan = pindexLast->GetBlockTime() - nFirstBlockTime;
-    if (nActualTimespan < params.nPowTargetTimespan/4)
-        nActualTimespan = params.nPowTargetTimespan/4;
-    if (nActualTimespan > params.nPowTargetTimespan*4)
-        nActualTimespan = params.nPowTargetTimespan*4;
+    if (nActualTimespan < target_timespan/4)
+        nActualTimespan = target_timespan/4;
+    if (nActualTimespan > target_timespan*4)
+        nActualTimespan = target_timespan*4;
 
     // Retarget
     const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
@@ -176,7 +187,7 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
         // Here we use the first block of the difficulty period. This way
         // the real difficulty is always preserved in the first block as
         // it is not allowed to use the min-difficulty exception.
-        int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
+        int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval(pindexLast->nHeight + 1)-1);
         const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
         bnNew.SetCompact(pindexFirst->nBits);
     } else {
@@ -185,12 +196,15 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
 
     // A target this close to 2^256 (regtest's limit, with -testpowretarget) would overflow the product:
     // divide first there. No other network comes near it (Bitcoin's limit is 2^224, its timespans 2^23).
-    if (bnNew.bits() + arith_uint256(static_cast<uint64_t>(nActualTimespan)).bits() > 256) {
-        bnNew /= params.nPowTargetTimespan;
-        bnNew *= nActualTimespan;
+    // eCash's dampened retarget: target = (6 * old target + measured target) / 7.
+    const int64_t numerator{ecash_retarget ? 6 * target_timespan + nActualTimespan : nActualTimespan};
+    const int64_t denominator{ecash_retarget ? 7 * target_timespan : target_timespan};
+    if (bnNew.bits() + arith_uint256(static_cast<uint64_t>(numerator)).bits() > 256) {
+        bnNew /= denominator;
+        bnNew *= numerator;
     } else {
-        bnNew *= nActualTimespan;
-        bnNew /= params.nPowTargetTimespan;
+        bnNew *= numerator;
+        bnNew /= denominator;
     }
 
     // eCash fork activation difficulty reset (ecash-com/bitcoin, src/pow.cpp): the fork block, at a
@@ -220,9 +234,12 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
         return new_nbits == params.ecash_fork_bits;
     }
 
-    if (height % params.DifficultyAdjustmentInterval() == 0) {
-        int64_t smallest_timespan = params.nPowTargetTimespan/4;
-        int64_t largest_timespan = params.nPowTargetTimespan*4;
+    if (height % params.DifficultyAdjustmentInterval(height) == 0) {
+        // eCash's dampened retarget from its fork block: (6 * old + measured) / 7 over 288 blocks.
+        const bool ecash_retarget{params.EcashRetarget(height)};
+        const int64_t target_timespan{ecash_retarget ? params.DifficultyAdjustmentInterval(height) * params.nPowTargetSpacing : params.nPowTargetTimespan};
+        int64_t smallest_timespan = target_timespan/4;
+        int64_t largest_timespan = target_timespan*4;
 
         const arith_uint256 pow_limit = UintToArith256(params.powLimit);
         arith_uint256 observed_new_target;
@@ -231,8 +248,8 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
         // Calculate the largest difficulty value possible:
         arith_uint256 largest_difficulty_target;
         largest_difficulty_target.SetCompact(old_nbits);
-        largest_difficulty_target *= largest_timespan;
-        largest_difficulty_target /= params.nPowTargetTimespan;
+        largest_difficulty_target *= ecash_retarget ? 6 * target_timespan + largest_timespan : largest_timespan;
+        largest_difficulty_target /= ecash_retarget ? 7 * target_timespan : target_timespan;
 
         if (largest_difficulty_target > pow_limit) {
             largest_difficulty_target = pow_limit;
@@ -247,8 +264,8 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
         // Calculate the smallest difficulty value possible:
         arith_uint256 smallest_difficulty_target;
         smallest_difficulty_target.SetCompact(old_nbits);
-        smallest_difficulty_target *= smallest_timespan;
-        smallest_difficulty_target /= params.nPowTargetTimespan;
+        smallest_difficulty_target *= ecash_retarget ? 6 * target_timespan + smallest_timespan : smallest_timespan;
+        smallest_difficulty_target /= ecash_retarget ? 7 * target_timespan : target_timespan;
 
         if (smallest_difficulty_target > pow_limit) {
             smallest_difficulty_target = pow_limit;

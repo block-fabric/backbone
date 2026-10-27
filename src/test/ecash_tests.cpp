@@ -33,6 +33,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
 #include <limits>
 
 #include <string>
@@ -331,6 +332,8 @@ BOOST_AUTO_TEST_CASE(fork_difficulty_reset)
         BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&earlier, earlier.nTime - interval * 600, consensus), bitcoin_bits);
 
         // The fork bits hold for the period; the first retarget measures it from the fork block, clamped to 4x.
+        // (Betanet: Bitcoin's retarget. The main network's dampened one: ecash_main_dampened_retarget.)
+        if (consensus.EcashRetarget(fork)) continue;
         CBlockIndex end_of_period;
         end_of_period.nHeight = fork + interval - 1;
         end_of_period.nBits = consensus.ecash_fork_bits;
@@ -363,6 +366,83 @@ BOOST_AUTO_TEST_CASE(fork_difficulty_reset)
     next.nTime = prev.nTime + 600;
     BOOST_CHECK_EQUAL(GetNextWorkRequired(&prev, &next, consensus), 0x17023774U);
     BOOST_CHECK(GetNextWorkRequired(&prev, &next, consensus) != consensus.ecash_fork_bits);
+}
+
+BOOST_AUTO_TEST_CASE(ecash_main_dampened_retarget)
+{
+    // eCash's main network from ecash-v1.1.0-core31.1 (5bd8690fab): from the fork block the difficulty
+    // retargets every 288 blocks, new target = (6 * old + measured) / 7, measured from the last block of
+    // the previous window (from the fork block for the first window), within 4x of 288 target spacings.
+    const auto mainnet{CChainParams::EcashMain()};
+    const Consensus::Params& consensus{mainnet->GetConsensus()};
+    const int fork{consensus.ecash_fork_height};
+    BOOST_CHECK_EQUAL(consensus.ecash_retarget_interval, 288);
+    BOOST_CHECK_EQUAL(consensus.DifficultyAdjustmentInterval(fork - 1), 2016);
+    BOOST_CHECK_EQUAL(consensus.DifficultyAdjustmentInterval(fork), 288);
+    BOOST_CHECK_EQUAL(consensus.DifficultyAdjustmentInterval(fork + 100'000), 288);
+    // Betanet and the test network keep Bitcoin's retarget.
+    for (const auto& other : {CChainParams::EcashBetanet(), CChainParams::EcashTestNet()}) {
+        BOOST_CHECK(!other->GetConsensus().EcashRetarget(other->GetConsensus().ecash_fork_height + 288));
+        BOOST_CHECK_EQUAL(other->GetConsensus().DifficultyAdjustmentInterval(other->GetConsensus().ecash_fork_height + 288), 2016);
+    }
+
+    const int64_t spacing{consensus.nPowTargetSpacing};
+    const int64_t timespan{288 * spacing};
+    const uint32_t bitcoin_bits{0x17023774};
+    // A chain from 300 blocks before the fork: on time up to the fork's first window, then at half the spacing.
+    const int first{fork - 300};
+    const int last{fork + 3 * 288 + 5};
+    std::vector<CBlockIndex> blocks(last - first + 1);
+    for (int height{first}; height <= last; ++height) {
+        CBlockIndex& block{blocks[height - first]};
+        block.nHeight = height;
+        block.pprev = height > first ? &blocks[height - first - 1] : nullptr;
+        block.nTime = height == first ? 1'790'000'000 : block.pprev->nTime + (height <= fork + 287 ? spacing : spacing / 2);
+        if (height == first) {
+            block.nBits = bitcoin_bits;
+        } else {
+            CBlockHeader header;
+            header.nTime = block.nTime;
+            block.nBits = GetNextWorkRequired(block.pprev, &header, consensus);
+            BOOST_CHECK(PermittedDifficultyTransition(consensus, height, block.pprev->nBits, block.nBits));
+        }
+        block.BuildSkip();
+    }
+    const auto at{[&](int height) -> const CBlockIndex& { return blocks[height - first]; }};
+    const auto dampened{[&](uint32_t old_bits, int64_t measured) {
+        measured = std::clamp<int64_t>(measured, timespan / 4, timespan * 4);
+        arith_uint256 target;
+        target.SetCompact(old_bits);
+        target *= 6 * timespan + measured;
+        target /= 7 * timespan;
+        return target.GetCompact();
+    }};
+    BOOST_CHECK_EQUAL(at(fork - 1).nBits, bitcoin_bits);
+    BOOST_CHECK_EQUAL(at(fork).nBits, consensus.ecash_fork_bits);
+    for (int height{fork + 1}; height < fork + 288; ++height) BOOST_CHECK_EQUAL(at(height).nBits, consensus.ecash_fork_bits);
+    // The first window: from the fork block to block fork + 287, 287 spacings on time.
+    BOOST_CHECK_EQUAL(at(fork + 288).nBits, dampened(consensus.ecash_fork_bits, 287 * spacing));
+    BOOST_CHECK(at(fork + 288).nBits != consensus.ecash_fork_bits);
+    for (int height{fork + 289}; height < fork + 576; ++height) BOOST_CHECK_EQUAL(at(height).nBits, at(fork + 288).nBits);
+    // The second: from block fork + 287 (the end of the previous window) to fork + 575, 288 blocks at half the spacing.
+    BOOST_CHECK_EQUAL(at(fork + 576).nBits, dampened(at(fork + 575).nBits, 288 * (spacing / 2)));
+    BOOST_CHECK_EQUAL(at(fork + 864).nBits, dampened(at(fork + 863).nBits, 288 * (spacing / 2)));
+    arith_uint256 old_target, new_target;
+    old_target.SetCompact(at(fork + 575).nBits);
+    new_target.SetCompact(at(fork + 576).nBits);
+    BOOST_CHECK(new_target < old_target); // faster blocks: harder
+
+    // Headers presync: the dampened bounds at a retarget height (at most (6 + 4) / 7 of the target, at
+    // least (6 + 1/4) / 7 of it), no change elsewhere.
+    const uint32_t bits{at(fork + 575).nBits};
+    BOOST_CHECK(PermittedDifficultyTransition(consensus, fork + 576, bits, dampened(bits, timespan * 4)));
+    BOOST_CHECK(PermittedDifficultyTransition(consensus, fork + 576, bits, dampened(bits, timespan / 4)));
+    arith_uint256 quarter;
+    quarter.SetCompact(bits);
+    quarter /= 4; // Bitcoin's 4x step: too far for the dampened retarget
+    BOOST_CHECK(!PermittedDifficultyTransition(consensus, fork + 576, bits, quarter.GetCompact()));
+    BOOST_CHECK(!PermittedDifficultyTransition(consensus, fork + 300, bits, dampened(bits, timespan / 4)));
+    BOOST_CHECK(PermittedDifficultyTransition(consensus, fork + 300, bits, bits));
 }
 
 BOOST_AUTO_TEST_CASE(replay_locktime)
