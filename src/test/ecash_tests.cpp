@@ -406,7 +406,7 @@ BOOST_AUTO_TEST_CASE(ecash_main_dampened_retarget)
             block.nBits = GetNextWorkRequired(block.pprev, &header, consensus);
             BOOST_CHECK(PermittedDifficultyTransition(consensus, height, block.pprev->nBits, block.nBits));
         }
-        block.BuildSkip();
+        // (No skip pointers: they would point below the first block of this chain.)
     }
     const auto at{[&](int height) -> const CBlockIndex& { return blocks[height - first]; }};
     const auto dampened{[&](uint32_t old_bits, int64_t measured) {
