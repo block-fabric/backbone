@@ -3551,9 +3551,17 @@ static RPCMethod loadtxoutset()
         [](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
 {
     NodeContext& node = EnsureAnyNodeContext(request.context);
-    // The drivechain state (sidechains, treasuries, bundles) is not in a UTXO snapshot: a node
-    // started from one would not know the sidechains, and would judge their blocks wrongly.
-    throw JSONRPCError(RPC_MISC_ERROR, "Loading a UTXO snapshot is not supported on drivechains: the snapshot does not hold the drivechain state");
+    // The drivechain state (sidechains, treasuries, bundles) is not in a UTXO snapshot: only a snapshot
+    // below the drivechain activation height (on eCash, of Bitcoin's history before the fork), where that
+    // state is empty, is taken (ChainstateManager::ActivateSnapshot refuses the others).
+    {
+        const CChainParams& params{EnsureChainman(node).GetParams()};
+        const auto& drivechain{params.GetConsensus().drivechain};
+        const auto heights{params.GetAvailableSnapshotHeights()};
+        if (drivechain.max_sidechains > 0 && std::none_of(heights.begin(), heights.end(), [&](int h) { return h < drivechain.activation_height; })) {
+            throw JSONRPCError(RPC_MISC_ERROR, "Loading a UTXO snapshot is not supported on drivechains: the snapshot does not hold the drivechain state");
+        }
+    }
     ChainstateManager& chainman = EnsureChainman(node);
     const fs::path path{AbsPathForConfigVal(EnsureArgsman(node), fs::u8path(self.Arg<std::string_view>("path")))};
 
@@ -3565,14 +3573,33 @@ static RPCMethod loadtxoutset()
             "Couldn't open file " + path.utf8string() + " for reading.");
     }
 
-    SnapshotMetadata metadata{chainman.GetParams().MessageStart()};
+    std::optional<SnapshotMetadata> metadata;
     try {
-        afile >> metadata;
+        afile >> metadata.emplace(chainman.GetParams().MessageStart());
     } catch (const std::ios_base::failure& e) {
-        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, strprintf("Unable to parse metadata: %s", e.what()));
+        // The eCash networks have Bitcoin's history, and eCash publishes Bitcoin's snapshot files
+        // (releases.ecash.com/assumeutxo), with Bitcoin's network magic: taken as well. What they hold
+        // is checked against the snapshot hash of this network all the same.
+        std::optional<MessageStartChars> bitcoin_magic;
+        switch (chainman.GetParams().GetChainType()) {
+        case ChainType::ECASH:
+        case ChainType::ECASH_BETANET: bitcoin_magic = MessageStartChars{0xf9, 0xbe, 0xb4, 0xd9}; break;
+        case ChainType::ECASH_TESTNET: bitcoin_magic = MessageStartChars{0x1c, 0x16, 0x3f, 0x28}; break;
+        default: break;
+        }
+        bool parsed{false};
+        if (bitcoin_magic) {
+            try {
+                afile.seek(0, SEEK_SET);
+                afile >> metadata.emplace(*bitcoin_magic);
+                parsed = true;
+            } catch (const std::ios_base::failure&) {
+            }
+        }
+        if (!parsed) throw JSONRPCError(RPC_DESERIALIZATION_ERROR, strprintf("Unable to parse metadata: %s", e.what()));
     }
 
-    auto activation_result{chainman.ActivateSnapshot(afile, metadata, false)};
+    auto activation_result{chainman.ActivateSnapshot(afile, *metadata, false)};
     if (!activation_result) {
         throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("Unable to load UTXO snapshot: %s. (%s)", util::ErrorString(activation_result).original, path.utf8string()));
     }
@@ -3587,7 +3614,7 @@ static RPCMethod loadtxoutset()
     CBlockIndex& snapshot_index{*CHECK_NONFATAL(*activation_result)};
 
     UniValue result(UniValue::VOBJ);
-    result.pushKV("coins_loaded", metadata.m_coins_count);
+    result.pushKV("coins_loaded", metadata->m_coins_count);
     result.pushKV("tip_hash", snapshot_index.GetBlockHash().ToString());
     result.pushKV("base_height", snapshot_index.nHeight);
     result.pushKV("path", fs::PathToString(path));
