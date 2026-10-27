@@ -8,6 +8,7 @@
 #include <arith_uint256.h>
 #include <chain.h>
 #include <chainparams.h>
+#include <clientversion.h>
 #include <consensus/amount.h>
 #include <consensus/merkle.h>
 #include <consensus/params.h>
@@ -443,6 +444,29 @@ BOOST_AUTO_TEST_CASE(ecash_main_dampened_retarget)
     BOOST_CHECK(!PermittedDifficultyTransition(consensus, fork + 576, bits, quarter.GetCompact()));
     BOOST_CHECK(!PermittedDifficultyTransition(consensus, fork + 300, bits, dampened(bits, timespan / 4)));
     BOOST_CHECK(PermittedDifficultyTransition(consensus, fork + 300, bits, bits));
+}
+
+BOOST_AUTO_TEST_CASE(user_agent)
+{
+    // "/eCash" under the rules of eCash's main-network release, as its client (/eCash Satoshi:31.1.0/): the
+    // bip300301_enforcer (2026-10-12-mainnet, Fork::detect) takes such a node for eCash and refuses any other
+    // --fork. Betanet's client says /Satoshi:.../ and the enforcer needs --fork=ecash-betanet there, which it
+    // would refuse against "/eCash".
+    BOOST_CHECK_EQUAL(UserAgentName(CChainParams::EcashMain()->GetConsensus()), "eCash " + UA_NAME);
+    BOOST_CHECK_EQUAL(UserAgentName(CChainParams::EcashTestNet()->GetConsensus()), "eCash " + UA_NAME);
+    BOOST_CHECK_EQUAL(UserAgentName(CChainParams::EcashBetanet()->GetConsensus()), UA_NAME);
+    // Regtest as eCash's: -ecashregtest=ecash (and -testecash, whose default is the main network's locktime)
+    // or -ecashregtest=betanet.
+    CChainParams::RegTestOptions ecash_opts{};
+    ecash_opts.ecash.emplace();
+    BOOST_CHECK_EQUAL(UserAgentName(CChainParams::RegTest(ecash_opts)->GetConsensus()), "eCash " + UA_NAME);
+    ecash_opts.ecash->replay_locktime = LOCKTIME_THRESHOLD - 1;
+    BOOST_CHECK_EQUAL(UserAgentName(CChainParams::RegTest(ecash_opts)->GetConsensus()), UA_NAME);
+    // The Chains networks.
+    for (const auto& chn : {CChainParams::Main(), CChainParams::TestNet(), CChainParams::RegTest()}) {
+        BOOST_CHECK_EQUAL(UserAgentName(chn->GetConsensus()), UA_NAME);
+    }
+    BOOST_CHECK_EQUAL(FormatSubVersion(UserAgentName(CChainParams::EcashMain()->GetConsensus()), CLIENT_VERSION, {}).rfind("/eCash ", 0), 0U);
 }
 
 BOOST_AUTO_TEST_CASE(replay_locktime)

@@ -9,8 +9,11 @@ later step (see the end).
 The product name is one constant, `CLIENT_NAME` in `CMakeLists.txt` ("Backbone"). The executables
 (`backboned`, `backbone-cli`, `backbone-app`, `backbone-tx`, `backbone-util`, `backbone-wallet`), the data
 directory, the configuration file and the user agent are derived from it. The user agent is `/Backbone:0.2.0/`,
-and `/eCash Backbone:0.2.0/` on the eCash networks: the bip300301_enforcer takes a node for eCash when its user
-agent starts with `/eCash` (`Fork::detect`), and refuses `--fork=ecash` against any other.
+and `/eCash Backbone:0.2.0/` under the rules of eCash's main-network release (`-chain=ecash`, `-chain=ecashtest`,
+`-ecashregtest=ecash`), as eCash's own client there (`/eCash Satoshi:31.1.0/`): the bip300301_enforcer takes a
+node for eCash when its user agent starts with `/eCash` (`Fork::detect`), and then refuses any other `--fork`.
+Betanet (`-chain=ecashbeta`, `-ecashregtest=betanet`) keeps `/Backbone:0.2.0/`, as eCash's betanet client says
+`/Satoshi:…/`: the enforcer needs `--fork=ecash-betanet` there, which it would refuse against `/eCash`.
 
 ## The networks
 
@@ -92,7 +95,12 @@ semantics against the enforcer's code, defaults and security: [ecash-grpc.md](ec
 with backboned as its node. It reads the network from the user agent (above: eCash) and the difficulty from the
 node (`getmininginfo`'s `next.target` for the templates it serves; it checks no proof of work itself), so the
 dampened retarget of eCash v1.1.0 comes from backboned. Its version check accepts Bitcoin Core 29 to 31 only;
-backboned reports 32 (`version` 320000), so start it with `--bitcoin-core-expected-version=32`.
+backboned reports 32 (`version` 320000), so start it with `--bitcoin-core-expected-version=32`. It follows the node
+through ZMQ, so backboned must be built with ZMQ and started with `-zmqpubsequence=<address>` (and `-txindex` for
+the enforcer's wallet). Tested against `a8b3dcd` on ecash, ecashbeta (`--fork=ecash-betanet`; without `--fork` it
+runs as Bitcoin, as against eCash's betanet client) and `-regtest -ecashregtest=ecash` (it follows the blocks, its
+GetChainInfo, GetSidechains and GetCtip equal backboned's, and its wallet's sends and deposits carry nLockTime
+499,999,998 with a non-final input).
 
 ## The eCash rules (as ecash-com/bitcoin)
 

@@ -6,6 +6,8 @@
 
 #include <clientversion.h>
 
+#include <consensus/params.h>
+#include <script/script.h>
 #include <tinyformat.h>
 #include <util/string.h>
 
@@ -20,6 +22,11 @@ using util::Join;
  * target servers or GUI users specifically.
  */
 const std::string UA_NAME(CLIENT_NAME);
+
+std::string UserAgentName(const Consensus::Params& consensus)
+{
+    return consensus.ecash && consensus.replay_locktime == LOCKTIME_THRESHOLD - 2 ? "eCash " + UA_NAME : UA_NAME;
+}
 
 
 #include <bitcoin-build-info.h> // IWYU pragma: keep

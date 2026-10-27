@@ -30,6 +30,18 @@ inline constexpr int CLIENT_VERSION =
 
 extern const std::string UA_NAME;
 
+namespace Consensus {
+struct Params;
+} // namespace Consensus
+
+/**
+ * The client name in the user agent: UA_NAME (/Backbone:0.2.0/), or "eCash " UA_NAME (/eCash Backbone:0.2.0/) under
+ * the rules of eCash's main-network release (replay nLockTime LOCKTIME_THRESHOLD - 2: ecash, ecashtest and
+ * -ecashregtest=ecash), whose own client says /eCash Satoshi:31.1.0/. The bip300301_enforcer takes a node for
+ * eCash by that prefix (Fork::detect) and then refuses any other --fork, so betanet (-chain=ecashbeta,
+ * -ecashregtest=betanet), whose client says /Satoshi:.../ and needs --fork=ecash-betanet, keeps UA_NAME.
+ */
+std::string UserAgentName(const Consensus::Params& consensus);
 
 std::string FormatFullVersion();
 std::string FormatSubVersion(const std::string& name, int nClientVersion, const std::vector<std::string>& comments);
