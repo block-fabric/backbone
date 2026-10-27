@@ -1838,7 +1838,10 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
             return InitError(strprintf(_("User Agent comment (%s) contains unsafe characters."), cmt));
         uacomments.push_back(cmt);
     }
-    strSubVersion = FormatSubVersion(UA_NAME, CLIENT_VERSION, uacomments);
+    // On the eCash networks the user agent starts with "/eCash" (/eCash Backbone:0.2.0/): the bip300301_enforcer
+    // takes a node for eCash by that (Fork::detect), and refuses --fork=ecash otherwise.
+    const std::string ua_name{IsEcashChain(chainparams.GetChainType()) ? "eCash " + UA_NAME : UA_NAME};
+    strSubVersion = FormatSubVersion(ua_name, CLIENT_VERSION, uacomments);
     if (strSubVersion.size() > MAX_SUBVERSION_LENGTH) {
         return InitError(strprintf(_("Total length of network version string (%i) exceeds maximum length (%i). Reduce the number or size of uacomments."),
             strSubVersion.size(), MAX_SUBVERSION_LENGTH));

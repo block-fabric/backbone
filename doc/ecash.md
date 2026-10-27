@@ -8,7 +8,9 @@ later step (see the end).
 
 The product name is one constant, `CLIENT_NAME` in `CMakeLists.txt` ("Backbone"). The executables
 (`backboned`, `backbone-cli`, `backbone-app`, `backbone-tx`, `backbone-util`, `backbone-wallet`), the data
-directory, the configuration file and the user agent (`/Backbone:32.0.0/`) are derived from it.
+directory, the configuration file and the user agent are derived from it. The user agent is `/Backbone:0.2.0/`,
+and `/eCash Backbone:0.2.0/` on the eCash networks: the bip300301_enforcer takes a node for eCash when its user
+agent starts with `/eCash` (`Fork::detect`), and refuses `--fork=ecash` against any other.
 
 ## The networks
 
@@ -85,6 +87,12 @@ backboned serves the bip300301_enforcer's gRPC API (`cusf.mainchain.v1`, `cusf.c
 gRPC, gRPC-Web and Connect) on 127.0.0.1:50051 by default on the eCash networks (`-grpc`, `-grpcport`), from
 its own state, so that sidechain software made for bitcoind + enforcer connects to it unchanged. Methods,
 semantics against the enforcer's code, defaults and security: [ecash-grpc.md](ecash-grpc.md).
+
+**The bip300301_enforcer against backboned.** The enforcer's mainnet branch (`2026-10-12-mainnet`) can also run
+with backboned as its node. It reads the network from the user agent (above: eCash) and the difficulty from the
+node (`getmininginfo`'s `next.target` for the templates it serves; it checks no proof of work itself), so the
+dampened retarget of eCash v1.1.0 comes from backboned. Its version check accepts Bitcoin Core 29 to 31 only;
+backboned reports 32 (`version` 320000), so start it with `--bitcoin-core-expected-version=32`.
 
 ## The eCash rules (as ecash-com/bitcoin)
 
