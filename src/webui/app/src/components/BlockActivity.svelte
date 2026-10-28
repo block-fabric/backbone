@@ -227,7 +227,7 @@
       <div class="rows" role="table" aria-label="Escrow changes">
         {#each detail.escrow as e (e.txid + e.slot)}
           <div class="row-line" role="row" data-escrow={e.kind}>
-            <span role="cell"><span class="badge" class:accent={e.kind === 'deposit'} class:warning={e.kind === 'withdrawal'}>{e.kind === 'deposit' ? t('Deposit') : t('Withdrawal')}</span></span>
+            <span role="cell"><span class="badge" class:accent={e.kind === 'deposit'} class:warning={e.kind === 'withdrawal'}>{e.kind === 'deposit' ? t('Deposit') : e.kind === 'consolidation' ? t('Consolidation') : t('Withdrawal')}</span></span>
             <span role="cell">{@render sidechain(e)}</span>
             <span role="cell">
               {#if e.kind === 'deposit'}<span class="faint">to</span> {#if e.mainchain && e.destination}<AddressLink address={e.destination} onopen={onaddress} />{:else}<SafeText text={e.destination} class="mono" />{/if}

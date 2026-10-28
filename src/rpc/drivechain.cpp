@@ -1232,6 +1232,8 @@ RPCMethod getsidechainevents()
 
         UniValue deposits(UniValue::VARR);
         for (const drivechain::Deposit& deposit : chainman.m_blockman.m_drivechain_db->ListBlockDeposits(id, height, pindex->GetBlockHash())) {
+            // A consolidation of aggregated deposits (each of which is listed, with its own outpoint) credits nothing.
+            if (deposit.IsConsolidation()) continue;
             UniValue entry(UniValue::VOBJ);
             entry.pushKV("destination", deposit.destination);
             entry.pushKV("amount", ValueFromAmount(deposit.amount));

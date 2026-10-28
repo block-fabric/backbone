@@ -492,15 +492,21 @@ std::optional<Message> MakeBlockInfo(const pb::Pool& pool, ChainstateManager& ch
         });
     }
     for (const drivechain::Deposit& d : deposits) {
+        // The sequence number of an event is the enforcer's treasury UTXO count before it, which the changes that made
+        // the Ctip count (a deposit left for the block to consolidate does not, the consolidation does).
+        const uint64_t event_sequence{sequence};
+        if (d.ctip) ++sequence;
+        // A consolidation of aggregated deposits is no event (the enforcer reports none: an empty Deposits).
+        if (d.IsConsolidation()) continue;
         if (!d.bundle.IsNull()) {
             Message& succeeded{add_bundle_event(d.bundle).Mutable("succeeded")};
-            SetU64(succeeded, "sequence_number", sequence);
+            SetU64(succeeded, "sequence_number", event_sequence);
             DataStream ds;
             ds << TX_WITH_WITNESS(*d.tx);
             SetHex(succeeded, "transaction", HexStr(ds));
         } else {
             Message& deposit{info.Add("events").Mutable("deposit")};
-            SetU64(deposit, "sequence_number", sequence);
+            SetU64(deposit, "sequence_number", event_sequence);
             Message& outpoint{deposit.Mutable("outpoint")};
             SetHex(outpoint, "txid", d.tx->GetHash().GetHex());
             SetU32(outpoint, "vout", d.burn_index);
@@ -508,7 +514,6 @@ std::optional<Message> MakeBlockInfo(const pb::Pool& pool, ChainstateManager& ch
             SetHex(output, "address", HexStr(MakeUCharSpan(d.destination)));
             SetU64(output, "value_sats", static_cast<uint64_t>(d.amount));
         }
-        ++sequence;
     }
     return info;
 }

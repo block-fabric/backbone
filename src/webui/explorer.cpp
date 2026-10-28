@@ -457,7 +457,8 @@ UniValue BlockDetail(ChainstateManager& chainman, const uint256& hash)
         const drivechain::Deposit& change{changes[i]};
         UniValue entry{slot_entry(change.slot)};
         const bool withdrawal{change.destination == drivechain::WITHDRAWAL_RETURN_DEST};
-        entry.pushKV("kind", withdrawal ? "withdrawal" : "deposit");
+        // A consolidation (aggregated deposits) gathers the deposits of the block that did not spend the Ctip.
+        entry.pushKV("kind", withdrawal ? "withdrawal" : change.IsConsolidation() ? "consolidation" : "deposit");
         entry.pushKV("txid", change.tx->GetHash().GetHex());
         entry.pushKV("amount", change.amount);
         entry.pushKV("total", change.total);
@@ -473,7 +474,7 @@ UniValue BlockDetail(ChainstateManager& chainman, const uint256& hash)
             entry.pushKV("paid", paid);
             entry.pushKV("payouts", count);
             if (const auto fee{fee_of(change.tx_index)}) entry.pushKV("fee", *fee);
-        } else {
+        } else if (!change.IsConsolidation()) {
             entry.pushKV("destination", change.destination);
             // A destination that is an address of this chain (the explorer links it); a sidechain's own address is not.
             if (IsValidDestinationString(change.destination)) entry.pushKV("mainchain", true);
