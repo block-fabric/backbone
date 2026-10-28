@@ -815,7 +815,25 @@ bool MemPoolAccept::DrivechainChecks(Workspace& ws)
     std::string reject_reason;
     // A withdrawal is welcome once its bundle has the work score (BIP300 M6): any miner can then mine it.
     // Under the rules of the next block (those with an activation height, DrivechainParams::SafetyActive).
-    if (!scdb.ConnectTx(tx, params, escrow_outputs, undo, nullptr, reject_reason, m_active_chainstate.m_chain.Height() + 1)) {
+    const int next_height{m_active_chainstate.m_chain.Height() + 1};
+    // Aggregated deposits: a deposit that did not spend the Ctip leaves an output of its own, which the block that
+    // mines it consolidates. The mempool does not take a transaction that spends such an output while unconfirmed:
+    // how a block reads it (an unconsolidated Ctip, or the Ctip itself if the block makes the first deposit of the
+    // sidechain another way) depends on the other transactions of the block. (A transaction a block makes, such as
+    // its consolidation, is not one to relay.) The Ctip, and the escrow output of a deposit that spends it, are spent
+    // as before, from a Ctip that is confirmed (with none, the first deposit of the sidechain in the block, whichever it
+    // is, makes it).
+    if (params.AggregatedDeposits(next_height)) {
+        for (const CTxIn& in : tx.vin) {
+            const auto slot{drivechain::ParseEscrowScript(m_view.AccessCoin(in.prevout).out.scriptPubKey)};
+            if (!slot || !scdb.IsActive(*slot) || !m_pool.get(in.prevout.hash)) continue;
+            const drivechain::Slot* confirmed{m_active_chainstate.m_scdb.GetSlot(*slot)};
+            if (escrow_outputs.ctips.contains(in.prevout) && confirmed && confirmed->has_ctip) continue;
+            return ws.m_state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "dc-escrow-unconsolidated",
+                                      strprintf("spends %s, the treasury output of a deposit that is not confirmed and does not follow the Ctip of its sidechain", in.prevout.ToString()));
+        }
+    }
+    if (!scdb.ConnectTx(tx, params, escrow_outputs, undo, nullptr, reject_reason, next_height)) {
         return ws.m_state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, reject_reason);
     }
     return true;
@@ -5111,11 +5129,35 @@ void Chainstate::RemoveStaleDrivechainTxs()
         if (id < max_sidechains) slots.insert(id);
     }
     std::set<Txid> valid;
-    (void)GetMempoolSidechainDB(slots, nullptr, &valid);
+    const drivechain::SidechainDB after_chain{GetMempoolSidechainDB(slots, nullptr, &valid)};
+    const Consensus::DrivechainParams& params{m_chainman.GetConsensus().drivechain};
+    const int next_height{tip->nHeight + 1};
+    const bool aggregated{params.AggregatedDeposits(next_height)};
     for (const drivechain::SidechainId id : slots) {
         for (const Txid& txid : m_mempool->m_escrow_txs.at(id)) {
             if (valid.contains(txid)) continue;
-            if (const CTransactionRef tx{m_mempool->get(txid)}) stale.push_back(tx);
+            const CTransactionRef tx{m_mempool->get(txid)};
+            if (!tx) continue;
+            // Aggregated deposits: a deposit that does not spend the Ctip is valid next to the chain of those that do
+            // (the block consolidates it), whatever the others: it stays.
+            if (aggregated) {
+                std::set<drivechain::SidechainId> touched;
+                for (const CTxOut& out : tx->vout) {
+                    if (const auto slot{drivechain::ParseEscrowScript(out.scriptPubKey)}; slot && *slot < max_sidechains) touched.insert(*slot);
+                }
+                drivechain::SidechainDB probe{after_chain.Subset(touched)};
+                drivechain::SidechainDB::EscrowOutputs escrow_outputs{probe.GetEscrowOutputs()};
+                drivechain::BlockUndo undo;
+                std::string reject_reason;
+                const bool spends_escrow{std::any_of(tx->vin.begin(), tx->vin.end(), [&](const CTxIn& in) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+                    const CTransactionRef parent{m_mempool->get(in.prevout.hash)};
+                    if (parent) return in.prevout.n < parent->vout.size() && drivechain::ParseEscrowScript(parent->vout[in.prevout.n].scriptPubKey).has_value();
+                    const auto coin{m_coins_views->m_cacheview->GetCoin(in.prevout)};
+                    return coin && drivechain::ParseEscrowScript(coin->out.scriptPubKey).has_value();
+                })};
+                if (!spends_escrow && probe.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason, next_height)) continue;
+            }
+            stale.push_back(tx);
         }
     }
 

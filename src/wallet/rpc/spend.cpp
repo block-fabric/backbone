@@ -469,18 +469,21 @@ RPCMethod createsidechaindeposit()
     if (!escrow.active) throw JSONRPCError(RPC_INVALID_PARAMETER, "No active sidechain in this slot");
     const CScript escrow_script{drivechain::EscrowScript(static_cast<uint32_t>(slot))};
 
-    // A deposit replaces the escrow output of the sidechain with a larger one.
+    // A deposit replaces the escrow output of the sidechain with a larger one. Under aggregated deposits (the eCash
+    // main network) it makes an escrow output of its own, of the amount, which its block consolidates with the escrow
+    // output (as the bip300301_enforcer's wallet does): deposits to a sidechain do not have to follow each other.
     CMutableTransaction tx;
     CCoinControl coin_control;
     std::map<COutPoint, Coin> external;
-    if (escrow.has_output) {
+    const bool spend_escrow{escrow.has_output && !escrow.aggregated};
+    if (spend_escrow) {
         tx.vin.emplace_back(escrow.outpoint);
         // An input with an empty scriptSig and no witness.
         coin_control.SetInputWeight(escrow.outpoint, 41 * WITNESS_SCALE_FACTOR);
         external[escrow.outpoint] = Coin(CTxOut(escrow.amount, escrow_script), /*nHeightIn=*/1, /*fCoinBaseIn=*/false);
     }
     std::vector<CRecipient> recipients{
-        {CNoDestination{escrow_script}, escrow.amount + amount, /*fSubtractFeeFromAmount=*/false},
+        {CNoDestination{escrow_script}, (spend_escrow ? escrow.amount : 0) + amount, /*fSubtractFeeFromAmount=*/false},
         {CNoDestination{drivechain::DestinationScript(credited)}, 0, /*fSubtractFeeFromAmount=*/false},
     };
     // Made again in place of a deposit that was dropped: with at least one of the coins of the wallet
@@ -529,7 +532,7 @@ RPCMethod createsidechaindeposit()
 
     // The mempool takes a deposit of MAX_DRIVECHAIN_TX_VSIZE at most, and one that spends the
     // treasury output of an unconfirmed deposit only as large as a TRUC child (dc-unconfirmed-parent).
-    const bool after_unconfirmed{escrow.has_output && pwallet->chain().isInMempool(escrow.outpoint.hash)};
+    const bool after_unconfirmed{spend_escrow && pwallet->chain().isInMempool(escrow.outpoint.hash)};
     coin_control.m_max_tx_weight = (after_unconfirmed ? TRUC_CHILD_MAX_VSIZE : MAX_DRIVECHAIN_TX_VSIZE) * WITNESS_SCALE_FACTOR;
     // The destination has to follow the treasury output (BIP300 M5): the change goes after both.
     const auto fund{[&] { return FundTransaction(*pwallet, tx, recipients, /*change_pos=*/2, /*lockUnspents=*/false, coin_control); }};

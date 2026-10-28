@@ -80,6 +80,10 @@ private:
     //! Drivechain: the weight and sigops cost kept for the withdrawals that go at the end of the block.
     uint64_t m_withdrawal_weight{0};
     uint64_t m_withdrawal_sigops{0};
+    //! Drivechain, aggregated deposits: the weight kept for the consolidation at the end of the block
+    //! (drivechain::ConsolidationWeight of each treasury transaction in it), and whether the block has one.
+    uint64_t m_consolidation_weight{0};
+    bool m_aggregated_deposits{false};
     //! The mempool transactions in the block, for a second pass over the mempool.
     std::set<Txid> m_in_block;
     //! The bundles a withdrawal of the block can pay (drivechain::BlockAdditions::payable_bundles).
@@ -134,6 +138,8 @@ private:
       * This check should always succeed, and is here
       * only as an extra check in case of a bug */
     bool TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>& txs) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
+    /** Drivechain: the weight the consolidation of the block may take for these transactions (aggregated deposits). */
+    uint64_t ConsolidationRoom(const CTransaction& tx) const;
     /** Drivechain: false for a withdrawal (M6) of a bundle the block cannot pay (m_payable_bundles). */
     bool WithdrawalPayable(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
 };

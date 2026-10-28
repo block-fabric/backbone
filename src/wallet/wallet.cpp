@@ -1783,6 +1783,11 @@ void CWallet::blockConnected(const ChainstateRole& role, const interfaces::Block
         auto escrow{escrows.find(*slot)};
         if (escrow == escrows.end()) escrow = escrows.emplace(*slot, chain().getSidechainEscrow(*slot)).first;
         if (!escrow->second.active || !escrow->second.has_output) continue;
+        // Aggregated deposits: a deposit that spends no escrow output needs none, and no other deposit takes it from it.
+        if (escrow->second.aggregated && std::none_of(tx.vin.begin(), tx.vin.end(), [&](const CTxIn& in) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
+                const auto parent{mapWallet.find(in.prevout.hash)};
+                return parent == mapWallet.end() || (in.prevout.n < parent->second.GetTx()->vout.size() && drivechain::ParseEscrowScript(parent->second.GetTx()->vout[in.prevout.n].scriptPubKey));
+            })) continue;
         if (std::none_of(tx.vin.begin(), tx.vin.end(), [&](const CTxIn& in) { return in.prevout == escrow->second.outpoint; })) {
             stale_deposits.push_back(txid);
         }

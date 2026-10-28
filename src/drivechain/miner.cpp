@@ -4,6 +4,7 @@
 
 #include <drivechain/miner.h>
 
+#include <consensus/consensus.h>
 #include <logging.h>
 #include <streams.h>
 #include <util/fs_helpers.h>
@@ -735,6 +736,56 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
     }
 
     return additions;
+}
+
+std::vector<CTransactionRef> BlockConsolidations(const SidechainDB& scdb, const Consensus::DrivechainParams& params,
+                                                 const std::vector<CTransactionRef>& txs, int height)
+{
+    std::vector<CTransactionRef> consolidations;
+    if (!params.AggregatedDeposits(height)) return consolidations;
+    std::set<SidechainId> slots;
+    for (const auto& [slot, state] : scdb.GetSlots()) slots.insert(slot);
+    SidechainDB after{scdb.Subset(slots)};
+    SidechainDB::EscrowOutputs escrow_outputs{after.GetEscrowOutputs()};
+    BlockUndo undo;
+    std::string reject_reason;
+    // The treasury outputs as the block leaves them.
+    for (const CTransactionRef& tx : txs) (void)after.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason, height);
+    if (escrow_outputs.unconsolidated.empty()) return consolidations;
+    std::vector<PendingTreasury> pending;
+    for (const auto& [slot, state] : after.GetSlots()) {
+        std::vector<Ctip> unconsolidated{escrow_outputs.Unconsolidated(slot)};
+        // A deposit is left unconsolidated only where there is a Ctip.
+        if (unconsolidated.empty() || !state.has_ctip) continue;
+        pending.push_back({slot, state.ctip, std::move(unconsolidated)});
+    }
+    // One treasury output per transaction under the message limits.
+    std::vector<std::vector<PendingTreasury>> batches;
+    if (params.LimitsActive(height)) {
+        for (PendingTreasury& treasury : pending) batches.push_back({std::move(treasury)});
+    } else {
+        batches.push_back(std::move(pending));
+    }
+    for (const std::vector<PendingTreasury>& batch : batches) {
+        const CTransactionRef tx{MakeTransactionRef(ConsolidationTx(batch))};
+        if (!after.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason, height)) {
+            LogWarning("The consolidation of the deposits of the block does not pass the drivechain rules (%s)", reject_reason);
+            return {};
+        }
+        consolidations.push_back(tx);
+    }
+    return consolidations;
+}
+
+int64_t ConsolidationWeight(size_t n_treasuries)
+{
+    // Version and lock time; the input and output counts, with room for more than one byte; per treasury two inputs
+    // (outpoint, empty script, sequence) and an output (value, script length, OP_DRIVECHAIN <slot> OP_TRUE). No witness.
+    constexpr int64_t VERSION_AND_LOCKTIME{4 + 4};
+    constexpr int64_t COUNTS{2 * (1 + 4)};
+    constexpr int64_t INPUT{36 + 1 + 4};
+    constexpr int64_t TREASURY_OUTPUT{8 + 1 + 4};
+    return (VERSION_AND_LOCKTIME + COUNTS + static_cast<int64_t>(n_treasuries) * (2 * INPUT + TREASURY_OUTPUT)) * WITNESS_SCALE_FACTOR;
 }
 
 } // namespace drivechain

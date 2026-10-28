@@ -256,6 +256,22 @@ private:
 };
 
 /**
+ * Aggregated deposits (DrivechainParams::AggregatedDeposits): what consolidates the deposits of a block that did not
+ * spend the Ctip of their sidechain, to be placed after all its other transactions (`txs`, without the coinbase, with
+ * the withdrawals), as the bip300301_enforcer's block producer appends it: one transaction for all the sidechains, with
+ * their Ctips and unconsolidated Ctips as inputs (one transaction per sidechain under the message limits, which allow
+ * one treasury output per transaction). Empty if there is nothing to consolidate. `height` is the height of the block.
+ */
+std::vector<CTransactionRef> BlockConsolidations(const SidechainDB& scdb, const Consensus::DrivechainParams& params,
+                                                 const std::vector<CTransactionRef>& txs, int height);
+/**
+ * The weight a transaction with `n_treasuries` treasury outputs can add to its block through the consolidation:
+ * an input for the Ctip, one for its output and a treasury output for each, and room for the counts and the rest of a
+ * transaction (lib/types.rs consolidation_tx_weight).
+ */
+int64_t ConsolidationWeight(size_t n_treasuries);
+
+/**
  * The default vote settings of a network (MinerState::SetChainDefaults). On eCash's main network
  * the blocks of a node with nothing configured upvote only the bundles a sidechain node handed it
  * (verified), and ack only the proposals for a free slot: there, acking every proposal would also

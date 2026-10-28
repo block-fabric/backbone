@@ -204,10 +204,12 @@ public:
     struct SidechainEscrow {
         //! Whether the slot holds a sidechain.
         bool active{false};
-        //! Whether the sidechain has an escrow output yet; the next deposit has to spend it.
+        //! Whether the sidechain has an escrow output yet; the next deposit has to spend it, unless `aggregated`.
         bool has_output{false};
         COutPoint outpoint;
         CAmount amount{0};
+        //! Aggregated deposits, in the next block: a deposit need not spend the escrow output (the block consolidates it).
+        bool aggregated{false};
     };
     virtual SidechainEscrow getSidechainEscrow(uint32_t slot) = 0;
 

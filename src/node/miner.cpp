@@ -140,6 +140,7 @@ void BlockAssembler::resetBlock()
     nFees = 0;
     m_withdrawal_weight = 0;
     m_withdrawal_sigops = 0;
+    m_consolidation_weight = 0;
     m_in_block.clear();
 }
 
@@ -170,6 +171,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 
     pblock->nTime = TicksSinceEpoch<std::chrono::seconds>(NodeClock::now());
     m_lock_time_cutoff = pindexPrev->GetMedianTimePast();
+    m_aggregated_deposits = chainparams.GetConsensus().drivechain.AggregatedDeposits(nHeight);
 
     // Drivechain: the messages this node puts in the coinbase, and the
     // withdrawal bundles that can be paid out. Withdrawals go last, so that
@@ -221,8 +223,8 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     // A template that is asked not to take transactions from the mempool gets none from here either.
     for (size_t i{0}; m_mempool && i < drivechain_additions.withdrawals.size(); ++i) {
         const CTransactionRef& withdrawal{drivechain_additions.withdrawals[i]};
-        // A withdrawal that does not fit waits for the next block.
-        if (nBlockWeight + GetTransactionWeight(*withdrawal) >= *Assert(m_options.block_max_weight)) continue;
+        // A withdrawal that does not fit waits for the next block (the room of the consolidation stays kept).
+        if (nBlockWeight + m_consolidation_weight + GetTransactionWeight(*withdrawal) >= *Assert(m_options.block_max_weight)) continue;
         if (nBlockSigOpsCost + WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*withdrawal) >= MAX_BLOCK_SIGOPS_COST) continue;
         pblock->vtx.push_back(withdrawal);
         pblocktemplate->vTxFees.push_back(drivechain_additions.withdrawal_fees[i]);
@@ -232,6 +234,22 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         nBlockSigOpsCost += pblocktemplate->vTxSigOpsCost.back();
         nFees += drivechain_additions.withdrawal_fees[i];
         ++nBlockTx;
+    }
+    // Aggregated deposits: the deposits of the block that did not spend the Ctip of their sidechain are consolidated
+    // last, by a transaction that spends the Ctip (as the withdrawals left it) and them (as the bip300301_enforcer's
+    // block producer does); without it the block is invalid. Its room was kept (m_consolidation_weight). No fee, no sigops.
+    if (m_aggregated_deposits) {
+        for (const CTransactionRef& consolidation : drivechain::BlockConsolidations(m_chainstate.m_scdb, chainparams.GetConsensus().drivechain,
+                                                                                    block_txs(), nHeight)) {
+            pblock->vtx.push_back(consolidation);
+            pblocktemplate->vTxFees.push_back(0);
+            pblocktemplate->vTxSigOpsCost.push_back(WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*consolidation));
+            nBlockWeight += GetTransactionWeight(*consolidation);
+            pblocktemplate->m_withdrawal_weight += GetTransactionWeight(*consolidation);
+            nBlockSigOpsCost += pblocktemplate->vTxSigOpsCost.back();
+            ++nBlockTx;
+        }
+        m_consolidation_weight = 0;
     }
 
     const auto time_1{SteadyClock::now()};
@@ -343,8 +361,8 @@ bool BlockAssembler::TestChunkBlockLimits(int64_t chunk_weight, int64_t chunk_si
 {
     // block_max_weight has been flattened before block assembly limit checks.
     Assert(m_options.block_max_weight);
-    // The room kept for the withdrawals counts as taken.
-    if (nBlockWeight + m_withdrawal_weight + chunk_weight >= m_options.block_max_weight) {
+    // The room kept for the withdrawals and the consolidation counts as taken.
+    if (nBlockWeight + m_withdrawal_weight + m_consolidation_weight + chunk_weight >= m_options.block_max_weight) {
         return false;
     }
     if (nBlockSigOpsCost + m_withdrawal_sigops + chunk_sigops_cost >= MAX_BLOCK_SIGOPS_COST) {
@@ -373,6 +391,17 @@ bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>
     return true;
 }
 
+uint64_t BlockAssembler::ConsolidationRoom(const CTransaction& tx) const
+{
+    if (!m_aggregated_deposits) return 0;
+    // Every treasury output: one that does not spend the Ctip is consolidated (an M6 or a deposit that spends it
+    // is not, which this over-reserves, as the enforcer's mempool does).
+    const size_t treasuries{static_cast<size_t>(std::count_if(tx.vout.begin(), tx.vout.end(), [](const CTxOut& out) {
+        return drivechain::ParseEscrowScript(out.scriptPubKey).has_value();
+    }))};
+    return treasuries == 0 ? 0 : static_cast<uint64_t>(drivechain::ConsolidationWeight(treasuries));
+}
+
 bool BlockAssembler::WithdrawalPayable(const CTransaction& tx) const
 {
     // A withdrawal (M6): the treasury output its only input, the new treasury output 0, less in it.
@@ -399,6 +428,7 @@ void BlockAssembler::AddToBlock(const CTxMemPoolEntry& entry)
     pblocktemplate->vTxFees.push_back(entry.GetFee());
     pblocktemplate->vTxSigOpsCost.push_back(entry.GetSigOpCost());
     m_in_block.insert(entry.GetTx().GetHash());
+    m_consolidation_weight += ConsolidationRoom(entry.GetTx());
     nBlockWeight += entry.GetTxWeight();
     ++nBlockTx;
     nBlockSigOpsCost += entry.GetSigOpCost();
@@ -448,7 +478,8 @@ void BlockAssembler::addChunks()
         int64_t chunk_weight = 0;
         for (const auto& tx : selected_transactions) {
             chunk_sig_ops += tx.get().GetSigOpCost();
-            chunk_weight += tx.get().GetTxWeight();
+            // With the room its deposits take in the consolidation of the block.
+            chunk_weight += tx.get().GetTxWeight() + ConsolidationRoom(tx.get().GetTx());
         }
 
         // Check to see if this chunk will fit.

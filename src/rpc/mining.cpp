@@ -21,6 +21,7 @@
 #include <consensus/validation.h>
 #include <core_io.h>
 #include <crypto/hex_base.h>
+#include <drivechain/miner.h>
 #include <interfaces/types.h>
 #include <key_io.h>
 #include <net.h>
@@ -420,6 +421,15 @@ static RPCMethod generateblock()
 
         // Add transactions
         block.vtx.insert(block.vtx.end(), txs.begin(), txs.end());
+        // Aggregated deposits: those of them that leave the Ctip of their sidechain alone are consolidated last, as
+        // every block template does (without it the block is invalid).
+        {
+            const Chainstate& chainstate{chainman.ActiveChainstate()};
+            const int height{chainstate.m_chain.Height() + 1};
+            for (const CTransactionRef& consolidation : drivechain::BlockConsolidations(chainstate.m_scdb, chainman.GetConsensus().drivechain, txs, height)) {
+                block.vtx.push_back(consolidation);
+            }
+        }
         RegenerateCommitments(block, chainman);
 
         if (BlockValidationState state{TestBlockValidity(chainman.ActiveChainstate(), block, /*check_pow=*/false, /*check_merkle_root=*/false)}; !state.IsValid()) {

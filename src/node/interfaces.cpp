@@ -663,6 +663,7 @@ public:
             escrow.outpoint = state->ctip.outpoint;
             escrow.amount = state->ctip.amount;
         }
+        escrow.aggregated = chainman().GetConsensus().drivechain.AggregatedDeposits(chainstate.m_chain.Height() + 1);
         return escrow;
     }
     double guessVerificationProgress(const uint256& block_hash) override
