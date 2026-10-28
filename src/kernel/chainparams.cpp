@@ -423,16 +423,17 @@ public:
         assert(consensus.ecash_fork_height % consensus.ecash_retarget_interval == 0);
         consensus.replay_locktime = LOCKTIME_THRESHOLD - 2;
         consensus.repurpose_txids = &kernel::ECASH_MAIN_REPURPOSE_TXIDS;
-        // BIP300/301 from the fork. The bip300301_enforcer has no preset for eCash's main network yet
-        // (its betanet preset, commit 17eb2ce, is the latest): the thresholds are those of its
-        // Thresholds::MAINNET, those of the BIP300 specification, until LayerTwo Labs publishes one.
+        // BIP300/301 from the fork, as the bip300301_enforcer's eCash mainnet (Fork::Ecash, commit a2ce3fe,
+        // lib/types.rs Thresholds::ECX_MAINNET): an unused slot activates with more than 1815 acks in 2016 blocks; a
+        // bundle is paid with more than 6048 votes and fails older than 12,096 blocks, and a proposal that replaces
+        // the sidechain of a slot in use is held to the same pair (46d3ad9).
         consensus.drivechain.activation_height = consensus.ecash_fork_height;
         consensus.drivechain.unused_slot_threshold = 1815;
         consensus.drivechain.unused_slot_max_age = 2016;
-        consensus.drivechain.used_slot_threshold = 13150;
-        consensus.drivechain.used_slot_max_age = 26300;
-        consensus.drivechain.bundle_threshold = 13150;
-        consensus.drivechain.bundle_max_age = 26300;
+        consensus.drivechain.used_slot_threshold = 6048;
+        consensus.drivechain.used_slot_max_age = 12096;
+        consensus.drivechain.bundle_threshold = 6048;
+        consensus.drivechain.bundle_max_age = 12096;
         // Our safety rules for the enforcer (WithdrawalBundleSafety::MAINNET, MessageLimits::DEFAULT: upvote
         // expiry 144, idle expiry 1008, 64 pending bundles, the defaults): policy until the enforcer adopts
         // them at a height, which goes here (safety_activation_height, limits_activation_height).
