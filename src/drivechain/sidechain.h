@@ -34,9 +34,13 @@
  * Three more are ordinary transactions:
  *
  *   M5  deposit      adds coins to the treasury output of a sidechain; the
- *                    output after it is OP_RETURN <destination on the sidechain>
- *   M6  withdrawal   spends the treasury output (its only input) and pays out a
- *                    bundle; output 0 is the new treasury output
+ *                    output after it is OP_RETURN <destination on the sidechain>.
+ *                    Under aggregated deposits (the eCash main network) it need
+ *                    not spend the treasury output: its own output is then
+ *                    consolidated by a later transaction of its block
+ *   M6  withdrawal   spends the treasury output (its only input; under aggregated
+ *                    deposits, with the unconsolidated deposits of its sidechain
+ *                    it takes) and pays out a bundle; output 0 is the new treasury output
  *   M8  BMM request  output 0: OP_RETURN BMM_REQUEST_TAG | slot | sidechain block hash | previous mainchain block hash
  */
 namespace drivechain {
@@ -206,16 +210,32 @@ struct Deposit {
     uint256 block_hash;
     //! For a withdrawal: the bundle it paid out (its M6 id).
     uint256 bundle;
+    /**
+     * Whether its escrow output is the treasury output of the sidechain (its Ctip) after it: false for a deposit that
+     * left an output of its own, which a later transaction of the block consolidates (aggregated deposits). What
+     * the enforcer counts as treasury UTXOs (the sequence numbers of its interface) are the changes with this set.
+     */
+    bool ctip{true};
+
+    /**
+     * A consolidation (aggregated deposits): it spends the Ctip and unconsolidated Ctips of the sidechain into one
+     * output that holds all of them. No coins come or go: nothing for sidechain software to credit.
+     */
+    bool IsConsolidation() const { return amount == 0 && destination != WITHDRAWAL_RETURN_DEST; }
 
     template <typename Stream>
     void Serialize(Stream& s) const
     {
-        s << slot << destination << TX_WITH_WITNESS(tx) << burn_index << tx_index << amount << total << block_hash << bundle;
+        s << slot << destination << TX_WITH_WITNESS(tx) << burn_index << tx_index << amount << total << block_hash << bundle << ctip;
     }
     template <typename Stream>
     void Unserialize(Stream& s)
     {
         s >> slot >> destination >> TX_WITH_WITNESS(tx) >> burn_index >> tx_index >> amount >> total >> block_hash >> bundle;
+        // Written alone (the index of escrow changes): a record of a version before aggregated deposits ends here,
+        // and made the Ctip.
+        ctip = true;
+        if (!s.empty()) s >> ctip;
     }
 };
 
@@ -362,10 +382,14 @@ std::optional<CAmount> ParseWithdrawalFeeScript(const CScript& script);
  * (BIP300 "M6 blinded"): no inputs, output 0 OP_RETURN <fee> with no value,
  * then the payouts. Its txid is the M6 id miners vote on. The withdrawal
  * itself spends the treasury output as its only input and has the new
- * treasury output in place of output 0.
+ * treasury output in place of output 0. (Under aggregated deposits it may spend
+ * unconsolidated deposits of its sidechain as well: the blind form drops every input.)
  */
 bool IsBlindWithdrawal(const CTransaction& tx);
-/** The blind form of the withdrawal `tx`, given the amount of the treasury output it spends. */
+/**
+ * The blind form of the withdrawal `tx`, given the amount of the treasury outputs it spends (all of them: the
+ * caller checks how many inputs the rules allow).
+ */
 std::optional<CMutableTransaction> BlindWithdrawalTx(const CTransaction& tx, CAmount treasury_amount);
 std::optional<uint256> BlindWithdrawalHash(const CTransaction& tx, CAmount treasury_amount);
 /**
@@ -374,6 +398,19 @@ std::optional<uint256> BlindWithdrawalHash(const CTransaction& tx, CAmount treas
  * Sets `fee` to what it leaves mainchain miners.
  */
 std::optional<CMutableTransaction> CompleteWithdrawal(const CTransaction& blind, SidechainId slot, const Ctip& ctip, CAmount* fee = nullptr);
+
+/** A treasury with deposits that did not spend its Ctip (aggregated deposits): its Ctip, and their outputs. */
+struct PendingTreasury {
+    SidechainId slot{0};
+    Ctip ctip;
+    std::vector<Ctip> unconsolidated;
+};
+/**
+ * The consolidation of a block under aggregated deposits (as the bip300301_enforcer's block producer makes it):
+ * for each sidechain of `treasuries`, in that order, an input spending its Ctip and one per unconsolidated Ctip, and
+ * one treasury output holding all of them. Version 2, lock time 0, no fee.
+ */
+CMutableTransaction ConsolidationTx(const std::vector<PendingTreasury>& treasuries);
 
 /** The BMM request of a transaction: output 0, if it is one. */
 std::optional<BmmRequest> GetBmmRequest(const CTransaction& tx);

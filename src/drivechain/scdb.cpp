@@ -230,9 +230,27 @@ SidechainDB::EscrowOutputs SidechainDB::GetEscrowOutputs() const
 {
     EscrowOutputs escrow_outputs;
     for (const auto& [id, slot] : m_slots) {
-        if (slot.has_ctip) escrow_outputs.emplace(slot.ctip.outpoint, id);
+        if (slot.has_ctip) escrow_outputs.ctips.emplace(slot.ctip.outpoint, id);
     }
     return escrow_outputs;
+}
+
+std::vector<Ctip> SidechainDB::EscrowOutputs::Unconsolidated(SidechainId slot) const
+{
+    std::vector<Ctip> found;
+    for (const auto& [outpoint, pending] : unconsolidated) {
+        if (pending.first == slot) found.push_back(Ctip{outpoint, pending.second});
+    }
+    return found;
+}
+
+CAmount SidechainDB::EscrowOutputs::UnconsolidatedAmount(SidechainId slot) const
+{
+    CAmount total{0};
+    for (const auto& [outpoint, pending] : unconsolidated) {
+        if (pending.first == slot) total += pending.second;
+    }
+    return total;
 }
 
 bool SidechainDB::ConnectTx(const CTransaction& tx, const Consensus::DrivechainParams& params, EscrowOutputs& escrow_outputs,
@@ -264,8 +282,8 @@ bool SidechainDB::ConnectTx(const CTransaction& tx, const Consensus::DrivechainP
     // The escrow output this transaction spends, if any.
     std::optional<SidechainId> in_slot;
     for (const CTxIn& in : tx.vin) {
-        const auto spent{escrow_outputs.find(in.prevout)};
-        if (spent == escrow_outputs.end()) continue;
+        const auto spent{escrow_outputs.ctips.find(in.prevout)};
+        if (spent == escrow_outputs.ctips.end()) continue;
         if (in_slot) return invalid("bad-dc-multiple-escrow-inputs");
         in_slot = spent->second;
     }
@@ -323,11 +341,11 @@ bool SidechainDB::ConnectTx(const CTransaction& tx, const Consensus::DrivechainP
         return invalid("bad-dc-escrow-amount");
     }
 
-    if (slot.has_ctip) escrow_outputs.erase(slot.ctip.outpoint);
+    if (slot.has_ctip) escrow_outputs.ctips.erase(slot.ctip.outpoint);
     slot.has_ctip = true;
     slot.ctip.outpoint = COutPoint{tx.GetHash(), burn_index};
     slot.ctip.amount = new_amount;
-    escrow_outputs.emplace(slot.ctip.outpoint, id);
+    escrow_outputs.ctips.emplace(slot.ctip.outpoint, id);
 
     if (deposit) {
         deposit->emplace();
@@ -681,13 +699,26 @@ bool SidechainDB::ConnectTxEnforcer(const CTransaction& tx, const Consensus::Dri
         reject_reason = reason;
         return false;
     };
+    // Aggregated deposits (the enforcer's 64256fc): a deposit need not spend the Ctip, and what it leaves is spent by
+    // a later transaction of the block (lib/validator/task/mod.rs fill_ctips, handle_m5_m6).
+    const bool aggregated{params.AggregatedDeposits(height)};
 
-    // The treasury outputs this transaction spends (the current one of each sidechain, ctip_spends).
-    std::map<SidechainId, CAmount> spent;
+    // The treasury outputs this transaction spends, per sidechain: its Ctip (the current one, ctip_spends), and under
+    // aggregated deposits the unconsolidated Ctips of the block.
+    struct Spent {
+        std::optional<CAmount> ctip;
+        std::vector<COutPoint> unconsolidated;
+        CAmount unconsolidated_amount{0};
+    };
+    std::map<SidechainId, Spent> spent;
     for (const CTxIn& in : tx.vin) {
-        const auto it{escrow_outputs.find(in.prevout)};
-        if (it == escrow_outputs.end()) continue;
-        spent.emplace(it->second, m_slots.at(it->second).ctip.amount);
+        if (const auto it{escrow_outputs.ctips.find(in.prevout)}; it != escrow_outputs.ctips.end()) {
+            spent[it->second].ctip = m_slots.at(it->second).ctip.amount;
+        } else if (const auto pending{escrow_outputs.unconsolidated.find(in.prevout)}; pending != escrow_outputs.unconsolidated.end()) {
+            Spent& of_slot{spent[pending->second.first]};
+            of_slot.unconsolidated.push_back(in.prevout);
+            of_slot.unconsolidated_amount += pending->second.second;
+        }
     }
     // The new ones: a treasury script for an active sidechain. For a slot without one it is an
     // ordinary output (anyone can spend it).
@@ -698,7 +729,7 @@ bool SidechainDB::ConnectTxEnforcer(const CTransaction& tx, const Consensus::Dri
         if (!created.emplace(*slot, i).second) return invalid("bad-dc-multiple-escrow-outputs");
     }
     // A treasury output is spent only by a transaction that makes the next one (TreasurySpentWithoutNewCtip).
-    for (const auto& [slot, amount] : spent) {
+    for (const auto& [slot, of_slot] : spent) {
         if (!created.contains(slot)) return invalid("bad-dc-escrow-spend");
     }
     if (created.empty()) return true;
@@ -707,28 +738,32 @@ bool SidechainDB::ConnectTxEnforcer(const CTransaction& tx, const Consensus::Dri
     const bool safety_active{params.SafetyActive(height)};
     if (limits_active && created.size() > 1) return invalid("bad-dc-multiple-treasury-outputs");
 
-    // Each new treasury output is a deposit (more than before) or a withdrawal (less); not both kinds
-    // in one transaction, and one withdrawal at most.
+    // Each new treasury output is a deposit (more than the treasury outputs it spends), a withdrawal (less) or,
+    // under aggregated deposits, a consolidation (as much, spending unconsolidated Ctips); not a withdrawal and
+    // anything else in one transaction, and one withdrawal at most.
     bool any_deposit{false};
     bool any_withdrawal{false};
     std::vector<Deposit> found;
     for (const auto& [id, vout] : created) {
         Slot& slot{m_slots.at(id)};
-        CAmount old_amount{0};
-        if (slot.has_ctip) {
-            const auto it{spent.find(id)};
-            if (it == spent.end()) return invalid("bad-dc-escrow-unspent");
-            old_amount = it->second;
-        }
+        const auto it{spent.find(id)};
+        const bool spends_ctip{it != spent.end() && it->second.ctip.has_value()};
+        const size_t pending_inputs{it == spent.end() ? 0 : it->second.unconsolidated.size()};
+        // Before aggregated deposits a sidechain with a Ctip has every new treasury output spend it (OldCtipUnspent).
+        if (slot.has_ctip && !spends_ctip && !aggregated) return invalid("bad-dc-escrow-unspent");
+        const CAmount old_amount{it == spent.end() ? 0 : it->second.ctip.value_or(0) + it->second.unconsolidated_amount};
         const CAmount new_amount{tx.vout[vout].nValue};
         Deposit deposit;
         deposit.slot = id;
         deposit.burn_index = vout;
-        deposit.total = new_amount;
+        // The output is the sidechain's Ctip if it spends the Ctip, or if there is none yet; otherwise it is left
+        // for a later transaction of the block to consolidate.
+        deposit.ctip = spends_ctip || !slot.has_ctip;
         if (new_amount < old_amount) {
             // Withdrawal (M6): the treasury output its only input, the new one output 0, and a bundle
-            // pending with more votes than the threshold.
-            if (tx.vin.size() != 1) return invalid("bad-dc-withdrawal-inputs");
+            // pending with more votes than the threshold. Under aggregated deposits: the Ctip and any of the
+            // unconsolidated Ctips of its sidechain, and no other input (MissingConsolidatedInput, UnexpectedInput).
+            if (aggregated ? (!spends_ctip || tx.vin.size() != 1 + pending_inputs) : tx.vin.size() != 1) return invalid("bad-dc-withdrawal-inputs");
             if (vout != 0) return invalid("bad-dc-withdrawal-outputs");
             const auto blind_hash{BlindWithdrawalHash(tx, old_amount)};
             if (!blind_hash) return invalid("bad-dc-withdrawal-amount");
@@ -761,22 +796,44 @@ bool SidechainDB::ConnectTxEnforcer(const CTransaction& tx, const Consensus::Dri
             if (any_withdrawal) return invalid("bad-dc-withdrawal-outputs");
             any_deposit = true;
             deposit.destination = *dest;
+            // What it adds to all the treasury outputs it spends (a deposit cannot take out of another one).
             deposit.amount = new_amount - old_amount;
         } else {
-            return invalid("bad-dc-escrow-amount");
+            // As much as it spends: a consolidation of unconsolidated Ctips (no destination, nothing credited), the
+            // only meaning an unchanged amount has (ZeroDiff).
+            if (!aggregated || pending_inputs == 0) return invalid("bad-dc-escrow-amount");
+            if (any_withdrawal) return invalid("bad-dc-withdrawal-outputs");
+            any_deposit = true;
         }
         found.push_back(std::move(deposit));
     }
-    for (const Deposit& deposit : found) {
+    for (Deposit& deposit : found) {
         Slot& slot{m_slots.at(deposit.slot)};
-        SaveSlot(deposit.slot, undo);
-        if (slot.has_ctip) escrow_outputs.erase(slot.ctip.outpoint);
-        slot.has_ctip = true;
-        slot.ctip.outpoint = COutPoint{tx.GetHash(), deposit.burn_index};
-        slot.ctip.amount = deposit.total;
-        escrow_outputs.emplace(slot.ctip.outpoint, deposit.slot);
+        if (const auto it{spent.find(deposit.slot)}; it != spent.end()) {
+            for (const COutPoint& outpoint : it->second.unconsolidated) escrow_outputs.unconsolidated.erase(outpoint);
+        }
+        const COutPoint outpoint{tx.GetHash(), deposit.burn_index};
+        if (deposit.ctip) {
+            SaveSlot(deposit.slot, undo);
+            if (slot.has_ctip) escrow_outputs.ctips.erase(slot.ctip.outpoint);
+            slot.has_ctip = true;
+            slot.ctip.outpoint = outpoint;
+            slot.ctip.amount = tx.vout[deposit.burn_index].nValue;
+            escrow_outputs.ctips.emplace(slot.ctip.outpoint, deposit.slot);
+        } else {
+            escrow_outputs.unconsolidated.emplace(outpoint, std::pair{deposit.slot, tx.vout[deposit.burn_index].nValue});
+        }
+        // What the sidechain holds in escrow after it: its Ctip and the deposits that wait to be consolidated.
+        deposit.total = (slot.has_ctip ? slot.ctip.amount : 0) + escrow_outputs.UnconsolidatedAmount(deposit.slot);
     }
-    if (deposits) deposits->insert(deposits->end(), found.begin(), found.end());
+    if (deposits) {
+        for (Deposit& deposit : found) {
+            // A consolidation of unconsolidated Ctips alone, which leaves its output unconsolidated still, changes
+            // nothing the enforcer tracks (neither a deposit nor a treasury UTXO): no record.
+            if (deposit.IsConsolidation() && !deposit.ctip) continue;
+            deposits->push_back(std::move(deposit));
+        }
+    }
     return true;
 }
 
@@ -1063,6 +1120,9 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
             deposits->push_back(std::move(deposit));
         }
     }
+    // Aggregated deposits: a block leaves one treasury output per sidechain, its Ctip; every deposit that did not spend
+    // the Ctip was consolidated by a later transaction of the block (finalize_connect_block, UnconsolidatedCtip).
+    if (!escrow_outputs.unconsolidated.empty()) return invalid("bad-dc-unconsolidated-deposit");
 
     ForgetFailedBundles(height, params, undo);
 

@@ -158,6 +158,7 @@ public:
      *
      * @param[in] after  if set, the txid of the last change the caller knows about; only later ones are returned
      * @param[in] count  maximum number of changes to return, zero for no limit
+     * Consolidations (Deposit::IsConsolidation) are left out.
      * @return nullopt if `after` is not an escrow change of the sidechain in an accepted block
      */
     std::optional<std::vector<Deposit>> ListDeposits(SidechainId slot, const std::optional<uint256>& after, size_t count,
@@ -165,8 +166,8 @@ public:
     /** Escrow changes of a sidechain made by the block `block_hash` at `height`, in block order. */
     std::vector<Deposit> ListBlockDeposits(SidechainId slot, int height, const uint256& block_hash) const;
     /**
-     * Number of escrow changes of a sidechain in the blocks below `height` that `in_chain` accepts: the
-     * sequence number the enforcer gives the next one (its treasury UTXO count).
+     * Number of escrow changes of a sidechain that made its Ctip (Deposit::ctip) in the blocks below `height` that
+     * `in_chain` accepts: the sequence number the enforcer gives the next one (its treasury UTXO count).
      */
     uint64_t CountDeposits(SidechainId slot, int height, const std::function<bool(const uint256&)>& in_chain) const;
     /** How the sidechain in `slot` was activated by the block `block_hash`; nullopt if not recorded. */

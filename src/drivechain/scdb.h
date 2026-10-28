@@ -195,8 +195,23 @@ public:
      */
     SidechainDB Subset(const std::set<SidechainId>& slots) const;
 
-    /** Outpoints of the escrow outputs of the sidechains. */
-    using EscrowOutputs = std::map<COutPoint, SidechainId>;
+    /**
+     * The escrow outputs of the sidechains, as transactions are connected one after the other: the treasury output
+     * (Ctip) of each sidechain that has one, and, under aggregated deposits (DrivechainParams::AggregatedDeposits),
+     * the outputs that deposits left without spending the Ctip (unconsolidated Ctips), which a later transaction of
+     * the block has to spend.
+     */
+    struct EscrowOutputs {
+        //! The Ctips, by outpoint.
+        std::map<COutPoint, SidechainId> ctips;
+        //! The unconsolidated Ctips, by outpoint: the sidechain, and the amount.
+        std::map<COutPoint, std::pair<SidechainId, CAmount>> unconsolidated;
+
+        /** The unconsolidated Ctips of a sidechain, in outpoint order. */
+        std::vector<Ctip> Unconsolidated(SidechainId slot) const;
+        /** What they hold. */
+        CAmount UnconsolidatedAmount(SidechainId slot) const;
+    };
     EscrowOutputs GetEscrowOutputs() const;
 
     /**
@@ -304,9 +319,11 @@ public:
 private:
     /**
      * ConnectBlock under the rules of the bip300301_enforcer (DrivechainParams::RULES_ENFORCER, the eCash
-     * networks), as of its commit 17eb2ce, the one betanet runs (lib/validator/task/mod.rs connect_block):
-     * the coinbase messages one after the other in output order, each seeing what those before it did;
-     * then the proposals and bundles that ran out of time; then the transactions.
+     * networks), as of its commit 17eb2ce, the one betanet runs (lib/validator/task/mod.rs connect_block),
+     * and of its commit a2ce3fe from the heights of its later rules (DrivechainParams::aggregated_deposits_height,
+     * single_m1_m3_height): the coinbase messages one after the other in output order, each seeing what those
+     * before it did; then the proposals and bundles that ran out of time; then the transactions; and then, under
+     * aggregated deposits, no deposit left unconsolidated (finalize_connect_block).
      */
     [[nodiscard]] bool ConnectBlockEnforcer(const CBlock& block, int height, const Consensus::DrivechainParams& params,
                                             BlockUndo& undo, std::vector<Deposit>* deposits, std::string& reject_reason);

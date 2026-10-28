@@ -336,7 +336,8 @@ bool IsBlindWithdrawal(const CTransaction& tx)
 
 std::optional<CMutableTransaction> BlindWithdrawalTx(const CTransaction& tx, CAmount treasury_amount)
 {
-    if (tx.vin.size() != 1 || tx.vout.empty() || !ParseEscrowScript(tx.vout[0].scriptPubKey)) return std::nullopt;
+    // The treasury inputs are dropped, whatever their number (compute_m6id); the rules say how many there can be.
+    if (tx.vin.empty() || tx.vout.empty() || !ParseEscrowScript(tx.vout[0].scriptPubKey)) return std::nullopt;
     CAmount spent{tx.vout[0].nValue};
     if (!MoneyRange(spent)) return std::nullopt;
     for (size_t i{1}; i < tx.vout.size(); ++i) {
@@ -370,6 +371,23 @@ std::optional<CMutableTransaction> CompleteWithdrawal(const CTransaction& blind,
     tx.vin.assign(1, CTxIn{ctip.outpoint});
     tx.vout[0] = CTxOut{ctip.amount - paid_out - miner_fee, EscrowScript(slot)};
     if (fee) *fee = miner_fee;
+    return tx;
+}
+
+CMutableTransaction ConsolidationTx(const std::vector<PendingTreasury>& treasuries)
+{
+    CMutableTransaction tx;
+    tx.version = 2;
+    tx.nLockTime = 0;
+    for (const PendingTreasury& treasury : treasuries) {
+        CAmount total{treasury.ctip.amount};
+        tx.vin.emplace_back(treasury.ctip.outpoint);
+        for (const Ctip& pending : treasury.unconsolidated) {
+            tx.vin.emplace_back(pending.outpoint);
+            total += pending.amount;
+        }
+        tx.vout.emplace_back(total, EscrowScript(treasury.slot));
+    }
     return tx;
 }
 

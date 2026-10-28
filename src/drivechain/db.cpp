@@ -420,7 +420,10 @@ uint64_t Database::CountDeposits(SidechainId slot, int height, const std::functi
     for (it->Seek(DepositKey{slot, 0, uint256{}, 0}); it->Valid(); it->Next()) {
         DepositKey key;
         if (!it->GetKey(key) || key.slot != slot || key.height >= static_cast<uint32_t>(std::max(height, 0))) break;
-        if (in_chain(key.block_hash)) ++count;
+        if (!in_chain(key.block_hash)) continue;
+        // The changes that made the Ctip: not a deposit left for its block to consolidate (aggregated deposits).
+        Deposit deposit;
+        if (!it->GetValue(deposit) || deposit.ctip) ++count;
     }
     return count;
 }
@@ -464,6 +467,9 @@ std::optional<std::vector<Deposit>> Database::ListDeposits(SidechainId slot, con
         Deposit deposit;
         if (!it->GetValue(deposit)) break;
         if (!in_active_chain(deposit.block_hash)) continue;
+        // A consolidation (aggregated deposits) moves the escrow without changing what it holds or anything a
+        // sidechain credits: not listed (ListBlockDeposits has it, for the sequence numbers of the enforcer's interface).
+        if (deposit.IsConsolidation()) continue;
         deposits.push_back(std::move(deposit));
         if (count != 0 && deposits.size() >= count) break;
     }
