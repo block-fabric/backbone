@@ -625,11 +625,13 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
     std::optional<CScript> vote_script;
     if (any_vote) vote_script = VoteScript(MakeVoteMessage(votes));
 
-    // M3: bundles this node knows about and the chain does not.
+    // M3: bundles this node knows about and the chain does not; from single_m1_m3_height, one in all (the lowest slot first).
     std::set<SidechainId> proposed_slots;
+    const bool single_m3{params.SingleM1M3(rules_height)};
     for (const auto& [slot, hash] : GetBundles()) {
         const Slot* state{scdb.GetSlot(slot)};
         if (!state || proposed_slots.contains(slot)) continue;
+        if (single_m3 && !proposed_slots.empty()) break;
         // Only the bundle the sidechain node vouches for, if it said: one handed before is one its
         // chain gave up.
         if (const auto vouched{Vouched(slot)}; vouched && *vouched != hash) continue;

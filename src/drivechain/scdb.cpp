@@ -793,8 +793,10 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
     //
     // The coinbase messages, in output order (CoinbaseMessages): a script that does not parse as one is
     // an ordinary output. Two proposals of the same sidechain, two acks for a slot, two vote messages
-    // or two BMM accepts for a slot make the block invalid.
+    // or two BMM accepts for a slot make the block invalid; from single_m1_m3_height, two proposals (M1) or
+    // two bundle proposals (M3), whatever their slots (MultipleM1, MultipleM3).
     //
+    const bool single_m1_m3{params.SingleM1M3(height)};
     struct Message {
         enum class Kind { PROPOSAL, ACK, BUNDLE, VOTES, BMM_ACCEPT } kind;
         Sidechain sidechain;
@@ -807,6 +809,7 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
         std::set<std::pair<SidechainId, uint256>> proposals_seen;
         std::set<SidechainId> acks_seen, accepts_seen;
         bool votes_seen{false};
+        bool bundle_seen{false};
         for (const CTxOut& out : block.vtx[0]->vout) {
             const CScript& script{out.scriptPubKey};
             if (script.empty() || script[0] != OP_RETURN) continue;
@@ -815,6 +818,7 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
                 message.kind = Message::Kind::PROPOSAL;
                 message.hash = proposal->GetHash();
                 message.slot = proposal->slot;
+                if (single_m1_m3 && !proposals_seen.empty()) return invalid("bad-dc-multiple-proposals");
                 if (!proposals_seen.emplace(message.slot, message.hash).second) return invalid("bad-dc-duplicate-proposal");
                 message.sidechain = std::move(*proposal);
             } else if (const auto ack{ParseAckScript(script)}) {
@@ -824,6 +828,8 @@ bool SidechainDB::ConnectBlockEnforcer(const CBlock& block, int height, const Co
             } else if (const auto bundle{ParseBundleScript(script)}) {
                 message.kind = Message::Kind::BUNDLE;
                 std::tie(message.slot, message.hash) = *bundle;
+                if (single_m1_m3 && bundle_seen) return invalid("bad-dc-multiple-bundles");
+                bundle_seen = true;
             } else if (const auto votes{ParseVoteScript(script)}) {
                 message.kind = Message::Kind::VOTES;
                 if (votes_seen) return invalid("bad-dc-multiple-votes");
