@@ -291,14 +291,23 @@ class EcashGrpcTest(BitcoinTestFramework):
 
         txid2 = unhex(self.grpc.unary(W + 'CreateDepositTransaction', {'sidechain_id': u32(SLOT), 'address': {'value': 'xyz123'},
                                                                      'value_sats': u32(COIN // 2), 'fee_sats': u32(1000)})['txid'])
+        # Aggregated deposits (the enforcer's 64256fc): the deposit leaves the treasury output alone, with an output of
+        # its own, which the block consolidates with it last (the block producer's consolidation, no event).
         block2 = self.mine()[0]
         tx2 = node.getrawtransaction(txid2, True, block2)
-        vout2 = next(o['n'] for o in tx2['vout'] if o['value'] == Decimal('1.5'))
-        # The value is what the deposit added, not the treasury's total (task/mod.rs:862-874).
+        vout2 = next(o['n'] for o in tx2['vout'] if o['value'] == Decimal('0.5'))
+        assert all((i['txid'], i['vout']) != (txid1, vout1) for i in tx2['vin'])
+        block = node.getblock(block2, 2)
+        assert_equal(len(block['tx']), 3)
+        consolidation = block['tx'][2]
+        assert_equal(sorted((i['txid'], i['vout']) for i in consolidation['vin']), sorted([(txid1, vout1), (txid2, vout2)]))
+        assert_equal([o['value'] for o in consolidation['vout']], [Decimal('1.5')])
+        # The value is what the deposit added, not the treasury's total (task/mod.rs:862-874); the outpoint, its own.
         assert_equal(self.events(block2), [{'deposit': {'sequence_number': u32(1), 'outpoint': {'txid': rh(txid2), 'vout': u32(vout2)},
                                                         'output': {'address': rh(b'xyz123'.hex()), 'value_sats': u32(COIN // 2)}}}])
         self.check_event(block2)
-        assert_equal(self.grpc.unary(V + 'GetCtip', {'sidechain_number': u32(SLOT)}), ctip(txid2, vout2, COIN * 3 // 2, 1))
+        # The Ctip is the consolidation's output, the second treasury UTXO (the deposit was not one: dbs/mod.rs put_ctip).
+        assert_equal(self.grpc.unary(V + 'GetCtip', {'sidechain_number': u32(SLOT)}), ctip(consolidation['txid'], 0, COIN * 3 // 2, 1))
         self.deposit_blocks = [block1, block2]
 
         self.log.info('Another slot: no events for it (BlockInfo::only_sidechain, lib/types.rs:805-843)')

@@ -13,6 +13,7 @@
 #include <consensus/merkle.h>
 #include <consensus/params.h>
 #include <consensus/tx_verify.h>
+#include <consensus/validation.h>
 #include <drivechain/miner.h>
 #include <drivechain/scdb.h>
 #include <drivechain/sidechain.h>
@@ -268,8 +269,34 @@ BOOST_AUTO_TEST_CASE(network_parameters)
         BOOST_CHECK(!params->IsTestChain());
     }
     BOOST_CHECK(test->IsTestChain());
-    // The enforcer's betanet preset (17eb2ce lib/types.rs, Thresholds::BETANET).
+    // eCash's main network as the enforcer's Fork::Ecash (a2ce3fe lib/types.rs, Thresholds::ECX_MAINNET, 46d3ad9): bundles
+    // 6048 votes within 12,096 blocks, and the replacement of a sidechain in a used slot held to the same pair; the
+    // unused slot as BIP300 has it. Its rules of a2ce3fe (aggregated deposits, one M1 and one M3 per block) from the fork.
+    const auto& main_dc{main->GetConsensus().drivechain};
+    BOOST_CHECK_EQUAL(main_dc.unused_slot_threshold, 1815);
+    BOOST_CHECK_EQUAL(main_dc.unused_slot_max_age, 2016);
+    BOOST_CHECK_EQUAL(main_dc.used_slot_threshold, 6048);
+    BOOST_CHECK_EQUAL(main_dc.used_slot_max_age, 12096);
+    BOOST_CHECK_EQUAL(main_dc.bundle_threshold, 6048);
+    BOOST_CHECK_EQUAL(main_dc.bundle_max_age, 12096);
+    BOOST_CHECK(main_dc.AggregatedDeposits(main_dc.activation_height) && main_dc.SingleM1M3(main_dc.activation_height));
+    const auto& test_dc{test->GetConsensus().drivechain};
+    BOOST_CHECK(test_dc.AggregatedDeposits(test_dc.activation_height) && test_dc.SingleM1M3(test_dc.activation_height));
+    // The enforcer's betanet preset (17eb2ce lib/types.rs, Thresholds::BETANET): its rules, never the later ones.
     const auto& dc{beta->GetConsensus().drivechain};
+    BOOST_CHECK_EQUAL(dc.aggregated_deposits_height, Consensus::DrivechainParams::NEVER);
+    BOOST_CHECK_EQUAL(dc.single_m1_m3_height, Consensus::DrivechainParams::NEVER);
+    BOOST_CHECK(!dc.AggregatedDeposits(std::numeric_limits<int>::max()) && !dc.SingleM1M3(std::numeric_limits<int>::max()));
+    // Betanet's sidechain database is kept: its fingerprint is the one of the fields it had before the later rules.
+    {
+        HashWriter hasher{};
+        hasher << std::string{"Chains drivechain parameters"} << dc.max_sidechains << dc.activation_period << dc.activation_max_failures
+               << dc.replacement_period << dc.withdrawal_period << dc.withdrawal_min_score << dc.max_pending_bundles
+               << dc.idle_expiry_blocks << dc.upvote_expiry_blocks << dc.unvoted_forget_blocks << dc.canonical_votes_height;
+        hasher << dc.rules << dc.activation_height << dc.unused_slot_threshold << dc.unused_slot_max_age
+               << dc.used_slot_threshold << dc.used_slot_max_age << dc.bundle_threshold << dc.bundle_max_age;
+        BOOST_CHECK(ParamsFingerprint(dc) == hasher.GetHash());
+    }
     BOOST_CHECK_EQUAL(dc.unused_slot_threshold, 1008);
     BOOST_CHECK_EQUAL(dc.unused_slot_max_age, 2016);
     BOOST_CHECK_EQUAL(dc.used_slot_threshold, 13150);
@@ -1196,6 +1223,357 @@ BOOST_AUTO_TEST_CASE(enforcer_miner_policy_under_safety_rules)
     }
     BOOST_CHECK(chain.scdb.WasPaid(2, *hash) == true);
     BOOST_CHECK(chain.scdb.GetSlot(2)->bundles.empty());
+}
+
+namespace {
+//! The enforcer's rules of a2ce3fe: aggregated deposits, one M1 and one M3 per block.
+EnforcerChain AggregatedChain()
+{
+    EnforcerChain chain;
+    chain.params.aggregated_deposits_height = 0;
+    chain.params.single_m1_m3_height = 0;
+    return chain;
+}
+
+//! A deposit that does not spend the Ctip (as the enforcer's wallet makes them since 64256fc): an output of the amount.
+CMutableTransaction LooseDeposit(EnforcerChain& chain, SidechainId slot, CAmount amount, const std::string& destination = "dest")
+{
+    CMutableTransaction tx{chain.BaseTx()};
+    tx.vout.emplace_back(amount, EscrowScript(slot));
+    tx.vout.emplace_back(0, DestinationScript(destination));
+    return tx;
+}
+
+Ctip OutputOf(const CMutableTransaction& tx, uint32_t n) { return Ctip{COutPoint{tx.GetHash(), n}, tx.vout[n].nValue}; }
+} // namespace
+
+BOOST_AUTO_TEST_CASE(aggregated_deposits)
+{
+    EnforcerChain chain{AggregatedChain()};
+    chain.Activate(MakeSidechain(2));
+    // The first deposit, with no Ctip yet, makes it.
+    const CMutableTransaction first{LooseDeposit(chain, 2, 10 * COIN)};
+    BOOST_REQUIRE(chain.Connect({}, {first}));
+    BOOST_CHECK(chain.scdb.GetSlot(2)->ctip == OutputOf(first, 0));
+    BOOST_REQUIRE_EQUAL(chain.deposits.size(), 1U);
+    BOOST_CHECK(chain.deposits[0].ctip);
+    const Ctip ctip{chain.scdb.GetSlot(2)->ctip};
+
+    // Two deposits that leave the Ctip alone, and nothing after them: the block ends with three treasury outputs.
+    const CMutableTransaction d1{LooseDeposit(chain, 2, 2 * COIN, "one")};
+    const CMutableTransaction d2{LooseDeposit(chain, 2, 3 * COIN, "two")};
+    const SidechainDB before{chain.scdb};
+    BOOST_CHECK(!chain.Connect({}, {d1, d2}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-unconsolidated-deposit");
+    BOOST_CHECK(chain.scdb == before);
+    // With the consolidation the enforcer's block producer appends: the Ctip and both, into one output.
+    const CMutableTransaction consolidation{ConsolidationTx({{2, ctip, {OutputOf(d1, 0), OutputOf(d2, 0)}}})};
+    BOOST_CHECK_EQUAL(consolidation.vin.size(), 3U);
+    BOOST_CHECK_EQUAL(consolidation.vout.size(), 1U);
+    BOOST_CHECK_EQUAL(consolidation.vout[0].nValue, 15 * COIN);
+    BOOST_REQUIRE(chain.Connect({}, {d1, d2, consolidation}));
+    BOOST_CHECK(chain.scdb.GetSlot(2)->ctip == OutputOf(consolidation, 0));
+    // Each deposit is reported with its own outpoint and amount; the consolidation made the Ctip and credits nothing.
+    BOOST_REQUIRE_EQUAL(chain.deposits.size(), 3U);
+    BOOST_CHECK_EQUAL(chain.deposits[0].destination, "one");
+    BOOST_CHECK_EQUAL(chain.deposits[0].amount, 2 * COIN);
+    BOOST_CHECK_EQUAL(chain.deposits[0].burn_index, 0U);
+    BOOST_CHECK(chain.deposits[0].tx->GetHash() == d1.GetHash());
+    BOOST_CHECK(!chain.deposits[0].ctip);
+    BOOST_CHECK_EQUAL(chain.deposits[0].total, 12 * COIN);
+    BOOST_CHECK_EQUAL(chain.deposits[1].destination, "two");
+    BOOST_CHECK_EQUAL(chain.deposits[1].amount, 3 * COIN);
+    BOOST_CHECK(!chain.deposits[1].ctip);
+    BOOST_CHECK_EQUAL(chain.deposits[1].total, 15 * COIN);
+    BOOST_CHECK(chain.deposits[2].IsConsolidation());
+    BOOST_CHECK(chain.deposits[2].ctip);
+    BOOST_CHECK_EQUAL(chain.deposits[2].total, 15 * COIN);
+    BOOST_CHECK(!chain.deposits[0].IsConsolidation() && !chain.deposits[1].IsConsolidation());
+    // The record of a change reads back as written; one of a version before reads as the Ctip.
+    DataStream stream{};
+    stream << chain.deposits[0];
+    Deposit read;
+    stream >> read;
+    BOOST_CHECK(!read.ctip && read.amount == 2 * COIN && read.destination == "one");
+    DataStream old_record{};
+    const Deposit& d{chain.deposits[0]};
+    old_record << d.slot << d.destination << TX_WITH_WITNESS(d.tx) << d.burn_index << d.tx_index << d.amount << d.total << d.block_hash << d.bundle;
+    old_record >> read;
+    BOOST_CHECK(read.ctip);
+
+    // A deposit that spends the Ctip is still one, which makes the next Ctip; one after it in the block leaves it alone.
+    const CMutableTransaction spending{chain.DepositTx(2, 16 * COIN)};
+    const CMutableTransaction loose{LooseDeposit(chain, 2, COIN)};
+    BOOST_REQUIRE(chain.Connect({}, {spending, loose, ConsolidationTx({{2, OutputOf(spending, 0), {OutputOf(loose, 0)}}})}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->ctip.amount, 17 * COIN);
+    BOOST_REQUIRE_EQUAL(chain.deposits.size(), 3U);
+    BOOST_CHECK(chain.deposits[0].ctip && chain.deposits[0].amount == COIN);
+    BOOST_CHECK(!chain.deposits[1].ctip && chain.deposits[1].amount == COIN);
+
+    // A consolidation spends what a deposit left in the same block: one of an earlier block is gone (consolidated).
+    const Ctip now{chain.scdb.GetSlot(2)->ctip};
+    const CMutableTransaction d3{LooseDeposit(chain, 2, COIN)};
+    // Spending the Ctip alone into as much (no deposit to consolidate) is no change at all (ZeroDiff).
+    BOOST_CHECK(!chain.Connect({}, {d3, ConsolidationTx({{2, now, {}}})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-escrow-amount");
+    // A deposit's output spent with no treasury output to follow it.
+    CMutableTransaction drain{chain.BaseTx()};
+    drain.vin.emplace_back(COutPoint{d3.GetHash(), 0});
+    drain.vout.emplace_back(COIN, CScript() << OP_TRUE);
+    BOOST_CHECK(!chain.Connect({}, {d3, drain}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-escrow-spend");
+    // Taking coins out of a deposit (the Ctip and the deposit into less than both, more than the Ctip) is a
+    // withdrawal, of no bundle: not a deposit of the difference to the Ctip.
+    CMutableTransaction skim{ConsolidationTx({{2, now, {OutputOf(d3, 0)}}})};
+    skim.vout[0].nValue = now.amount + COIN / 2;
+    skim.vout.emplace_back(COIN / 2, CScript() << OP_TRUE);
+    BOOST_CHECK(!chain.Connect({}, {d3, skim}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-withdrawal-unknown");
+    // Unconsolidated Ctips merged without the Ctip are still unconsolidated: the block needs the Ctip spent at the end.
+    const CMutableTransaction d4{LooseDeposit(chain, 2, COIN)};
+    CMutableTransaction merge;
+    merge.version = 2;
+    merge.vin = {CTxIn{COutPoint{d3.GetHash(), 0}}, CTxIn{COutPoint{d4.GetHash(), 0}}};
+    merge.vout.emplace_back(2 * COIN, EscrowScript(2));
+    BOOST_CHECK(!chain.Connect({}, {d3, d4, merge}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-unconsolidated-deposit");
+    BOOST_REQUIRE(chain.Connect({}, {d3, d4, merge, ConsolidationTx({{2, now, {OutputOf(merge, 0)}}})}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->ctip.amount, now.amount + 2 * COIN);
+    // The merge is no record (neither a deposit nor a treasury UTXO): the two deposits and the consolidation are.
+    BOOST_REQUIRE_EQUAL(chain.deposits.size(), 3U);
+    BOOST_CHECK(chain.deposits[2].IsConsolidation() && chain.deposits[2].ctip);
+
+    // A disconnect takes it all back.
+    const SidechainDB at{chain.scdb};
+    const CMutableTransaction d5{LooseDeposit(chain, 2, COIN)};
+    BOOST_REQUIRE(chain.Connect({}, {d5, ConsolidationTx({{2, chain.scdb.GetSlot(2)->ctip, {OutputOf(d5, 0)}}})}));
+    chain.Disconnect(1);
+    BOOST_CHECK(chain.scdb == at);
+}
+
+BOOST_AUTO_TEST_CASE(aggregated_deposits_first_in_block)
+{
+    // No Ctip yet: the first deposit of the block makes it, the next ones are left for the consolidation.
+    EnforcerChain chain{AggregatedChain()};
+    chain.Activate(MakeSidechain(1));
+    const CMutableTransaction a{LooseDeposit(chain, 1, COIN)};
+    const CMutableTransaction b{LooseDeposit(chain, 1, 2 * COIN)};
+    BOOST_CHECK(!chain.Connect({}, {a, b}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-unconsolidated-deposit");
+    BOOST_REQUIRE(chain.Connect({}, {a, b, ConsolidationTx({{1, OutputOf(a, 0), {OutputOf(b, 0)}}})}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(1)->ctip.amount, 3 * COIN);
+    BOOST_REQUIRE_EQUAL(chain.deposits.size(), 3U);
+    BOOST_CHECK(chain.deposits[0].ctip && chain.deposits[0].amount == COIN);
+    BOOST_CHECK(!chain.deposits[1].ctip && chain.deposits[1].amount == 2 * COIN);
+    // Two sidechains in one consolidation, as the enforcer's block producer makes it.
+    chain.Activate(MakeSidechain(3));
+    BOOST_REQUIRE(chain.Connect({}, {LooseDeposit(chain, 3, COIN)}));
+    const CMutableTransaction c{LooseDeposit(chain, 1, COIN)};
+    const CMutableTransaction e{LooseDeposit(chain, 3, COIN)};
+    const CMutableTransaction both{ConsolidationTx({{1, chain.scdb.GetSlot(1)->ctip, {OutputOf(c, 0)}}, {3, chain.scdb.GetSlot(3)->ctip, {OutputOf(e, 0)}}})};
+    BOOST_REQUIRE(chain.Connect({}, {c, e, both}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(1)->ctip.amount, 4 * COIN);
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(3)->ctip.amount, 2 * COIN);
+    // Betanet's rules (17eb2ce): a deposit has to spend the Ctip.
+    chain.params.aggregated_deposits_height = Consensus::DrivechainParams::NEVER;
+    BOOST_CHECK(!chain.Connect({}, {LooseDeposit(chain, 1, COIN)}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-escrow-unspent");
+    // An activation height: valid from it on only.
+    chain.params.aggregated_deposits_height = chain.height + 2;
+    const CMutableTransaction f{LooseDeposit(chain, 1, COIN)};
+    BOOST_CHECK(!chain.Connect({}, {f, ConsolidationTx({{1, chain.scdb.GetSlot(1)->ctip, {OutputOf(f, 0)}}})}));
+    BOOST_REQUIRE(chain.Connect());
+    BOOST_REQUIRE(chain.Connect({}, {f, ConsolidationTx({{1, chain.scdb.GetSlot(1)->ctip, {OutputOf(f, 0)}}})}));
+}
+
+BOOST_AUTO_TEST_CASE(aggregated_deposits_withdrawal)
+{
+    // A withdrawal spends the Ctip and any of the unconsolidated deposits of its sidechain, and pays out of all of them.
+    EnforcerChain chain{AggregatedChain()};
+    chain.Activate(MakeSidechain(2));
+    BOOST_REQUIRE(chain.Connect({}, {LooseDeposit(chain, 2, COIN)}));
+    const CMutableTransaction blind{EnforcerChain::BlindBundle(3 * COIN, 1000, 7)};
+    const uint256 hash{blind.GetHash().ToUint256()};
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, hash)}));
+    for (int i{0}; i < 5; ++i) BOOST_REQUIRE(chain.Connect({Votes({0})}));
+    const Ctip ctip{chain.scdb.GetSlot(2)->ctip};
+    const CMutableTransaction d1{LooseDeposit(chain, 2, 2 * COIN)};
+    const CMutableTransaction d2{LooseDeposit(chain, 2, 4 * COIN)};
+    const auto withdrawal{[&](std::vector<Ctip> inputs) {
+        CAmount in{0};
+        CMutableTransaction tx{blind};
+        tx.vin.clear();
+        for (const Ctip& c : inputs) {
+            tx.vin.emplace_back(c.outpoint);
+            in += c.amount;
+        }
+        tx.vout[0] = CTxOut{in - 3 * COIN - 1000, EscrowScript(2)};
+        return tx;
+    }};
+    // The bundle pays 3 coins: more than the Ctip (1) holds, less than the Ctip and the two deposits (7).
+    const CMutableTransaction all{withdrawal({ctip, OutputOf(d1, 0), OutputOf(d2, 0)})};
+    // The blind form (the M6 id) is the same whatever the treasury inputs.
+    BOOST_CHECK(BlindWithdrawalHash(CTransaction{all}, 7 * COIN) == hash);
+    // Without the Ctip (MissingConsolidatedInput), or with another input (UnexpectedInput): invalid.
+    BOOST_CHECK(!chain.Connect({Votes({0})}, {d1, d2, withdrawal({OutputOf(d1, 0), OutputOf(d2, 0)})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-withdrawal-inputs");
+    CMutableTransaction extra{all};
+    extra.vin.emplace_back(COutPoint{Txid::FromUint256(uint256{0x77}), 0});
+    BOOST_CHECK(!chain.Connect({Votes({0})}, {d1, d2, extra}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-withdrawal-inputs");
+    // The Ctip and both deposits: paid, nothing left to consolidate.
+    BOOST_REQUIRE(chain.Connect({Votes({0})}, {d1, d2, all}));
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash) == true);
+    BOOST_CHECK(chain.scdb.GetSlot(2)->ctip == OutputOf(all, 0));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->ctip.amount, 4 * COIN - 1000);
+    BOOST_REQUIRE_EQUAL(chain.deposits.size(), 3U);
+    BOOST_CHECK_EQUAL(chain.deposits[2].destination, WITHDRAWAL_RETURN_DEST);
+    BOOST_CHECK(chain.deposits[2].bundle == hash);
+    BOOST_CHECK(chain.deposits[2].ctip);
+    BOOST_CHECK_EQUAL(chain.deposits[2].total, 4 * COIN - 1000);
+
+    // The Ctip and one of two deposits: the other one is consolidated after it, with the withdrawal's new Ctip.
+    chain.Disconnect(1);
+    const CMutableTransaction partial{withdrawal({ctip, OutputOf(d2, 0)})};
+    BOOST_CHECK(!chain.Connect({Votes({0})}, {d1, d2, partial}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-unconsolidated-deposit");
+    BOOST_REQUIRE(chain.Connect({Votes({0})}, {d1, d2, partial, ConsolidationTx({{2, OutputOf(partial, 0), {OutputOf(d1, 0)}}})}));
+    BOOST_CHECK_EQUAL(chain.scdb.GetSlot(2)->ctip.amount, 4 * COIN - 1000);
+    BOOST_CHECK(chain.scdb.WasPaid(2, hash) == true);
+}
+
+BOOST_AUTO_TEST_CASE(aggregated_deposits_miner)
+{
+    // The block template consolidates the deposits of the block, after its withdrawals.
+    EnforcerChain chain{AggregatedChain()};
+    chain.Activate(MakeSidechain(2));
+    chain.Activate(MakeSidechain(4));
+    BOOST_REQUIRE(chain.Connect({}, {LooseDeposit(chain, 2, COIN), LooseDeposit(chain, 4, COIN)}));
+    const CMutableTransaction d1{LooseDeposit(chain, 2, COIN)};
+    const CMutableTransaction d2{LooseDeposit(chain, 4, 2 * COIN)};
+    const CMutableTransaction d3{chain.DepositTx(4, 3 * COIN)};
+    const std::vector<CTransactionRef> txs{MakeTransactionRef(d1), MakeTransactionRef(d2), MakeTransactionRef(d3)};
+    const auto consolidations{BlockConsolidations(chain.scdb, chain.params, txs, chain.height + 1)};
+    BOOST_REQUIRE_EQUAL(consolidations.size(), 1U);
+    const CTransaction& tx{*consolidations[0]};
+    // Slot 2: its Ctip and d1; slot 4: d3 (which spent the Ctip) and d2. No fee.
+    BOOST_REQUIRE_EQUAL(tx.vin.size(), 4U);
+    BOOST_REQUIRE_EQUAL(tx.vout.size(), 2U);
+    BOOST_CHECK(tx.vin[0].prevout == chain.scdb.GetSlot(2)->ctip.outpoint);
+    BOOST_CHECK(tx.vin[1].prevout == COutPoint(d1.GetHash(), 0));
+    BOOST_CHECK(tx.vin[2].prevout == COutPoint(d3.GetHash(), 0));
+    BOOST_CHECK(tx.vin[3].prevout == COutPoint(d2.GetHash(), 0));
+    BOOST_CHECK_EQUAL(tx.vout[0].nValue, 2 * COIN);
+    BOOST_CHECK(tx.vout[0].scriptPubKey == EscrowScript(2));
+    BOOST_CHECK_EQUAL(tx.vout[1].nValue, 5 * COIN);
+    BOOST_CHECK(tx.vout[1].scriptPubKey == EscrowScript(4));
+    BOOST_CHECK_LE(GetTransactionWeight(tx), ConsolidationWeight(1) + ConsolidationWeight(2));
+    BOOST_CHECK_LE(GetTransactionWeight(tx), ConsolidationWeight(2));
+    BOOST_REQUIRE(chain.Connect({}, {d1, d2, d3, CMutableTransaction{tx}}));
+    // Nothing to consolidate: nothing added; nor before the rules.
+    BOOST_CHECK(BlockConsolidations(chain.scdb, chain.params, {MakeTransactionRef(chain.DepositTx(2, 3 * COIN))}, chain.height + 1).empty());
+    chain.params.aggregated_deposits_height = Consensus::DrivechainParams::NEVER;
+    BOOST_CHECK(BlockConsolidations(chain.scdb, chain.params, {MakeTransactionRef(LooseDeposit(chain, 2, COIN))}, chain.height + 1).empty());
+    // Under the message limits (one treasury output per transaction), one consolidation per sidechain.
+    chain.params.aggregated_deposits_height = 0;
+    chain.params.limits_activation_height = 0;
+    const auto per_slot{BlockConsolidations(chain.scdb, chain.params, {MakeTransactionRef(LooseDeposit(chain, 2, COIN)), MakeTransactionRef(LooseDeposit(chain, 4, COIN))}, chain.height + 1)};
+    BOOST_CHECK_EQUAL(per_slot.size(), 2U);
+}
+
+BOOST_AUTO_TEST_CASE(single_m1_m3_per_block)
+{
+    // One sidechain proposal (M1) and one bundle proposal (M3) per block, whatever their slots (fa78089, ce4bd6b).
+    EnforcerChain chain{AggregatedChain()};
+    chain.Activate(MakeSidechain(1));
+    chain.Activate(MakeSidechain(2));
+    const SidechainDB before{chain.scdb};
+    BOOST_CHECK(!chain.Connect({ProposalScript(MakeSidechain(5)), ProposalScript(MakeSidechain(6))}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-proposals");
+    // Also a proposal whose description is not one (any description counts as an M1).
+    Sidechain raw{MakeSidechain(6)};
+    raw.version = Sidechain::RAW_DESCRIPTION;
+    raw.description = "anything";
+    BOOST_CHECK(!chain.Connect({ProposalScript(MakeSidechain(5)), ProposalScript(raw)}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-proposals");
+    BOOST_CHECK(!chain.Connect({BundleScript(1, uint256{0x31}), BundleScript(2, uint256{0x32})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-bundles");
+    BOOST_CHECK(!chain.Connect({BundleScript(1, uint256{0x31}), BundleScript(1, uint256{0x33})}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-multiple-bundles");
+    BOOST_CHECK(chain.scdb == before);
+    BOOST_REQUIRE(chain.Connect({ProposalScript(MakeSidechain(5)), BundleScript(1, uint256{0x31})}));
+    BOOST_CHECK(chain.scdb.GetProposal(5, MakeSidechain(5).GetHash()));
+    BOOST_CHECK_EQUAL(chain.Score(1, uint256{0x31}), 1U);
+
+    // The block template proposes one bundle in all, the lowest slot first; the next one in the next block.
+    MinerState miner;
+    std::string error;
+    const CMutableTransaction b1{EnforcerChain::BlindBundle(COIN, 1000, 1)};
+    const CMutableTransaction b2{EnforcerChain::BlindBundle(COIN, 1000, 2)};
+    BOOST_REQUIRE(miner.AddBundle(2, b2, error));
+    BOOST_REQUIRE(miner.AddBundle(1, b1, error));
+    const auto bundles_of{[&] {
+        std::vector<std::pair<SidechainId, uint256>> found;
+        for (const CTxOut& out : miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1).coinbase_outputs) {
+            if (const auto bundle{ParseBundleScript(out.scriptPubKey)}) found.push_back(*bundle);
+        }
+        return found;
+    }};
+    auto proposed{bundles_of()};
+    BOOST_REQUIRE_EQUAL(proposed.size(), 1U);
+    BOOST_CHECK_EQUAL(proposed[0].first, 1U);
+    BOOST_REQUIRE(chain.Connect({BundleScript(proposed[0].first, proposed[0].second)}));
+    proposed = bundles_of();
+    BOOST_REQUIRE_EQUAL(proposed.size(), 1U);
+    BOOST_CHECK_EQUAL(proposed[0].first, 2U);
+
+    // Betanet's rules (17eb2ce): several of each, but not the same proposal twice.
+    chain.params.single_m1_m3_height = Consensus::DrivechainParams::NEVER;
+    BOOST_REQUIRE(chain.Connect({ProposalScript(MakeSidechain(7)), ProposalScript(MakeSidechain(8)), BundleScript(1, uint256{0x34}), BundleScript(2, uint256{0x35})}));
+    BOOST_CHECK(!chain.Connect({ProposalScript(MakeSidechain(9)), ProposalScript(MakeSidechain(9))}));
+    BOOST_CHECK_EQUAL(chain.reject_reason, "bad-dc-duplicate-proposal");
+    // And the template proposes one per slot again.
+    BOOST_REQUIRE(miner.AddBundle(1, EnforcerChain::BlindBundle(COIN, 1000, 3), error));
+    BOOST_REQUIRE(miner.AddBundle(2, EnforcerChain::BlindBundle(COIN, 1000, 4), error));
+    BOOST_CHECK_EQUAL(bundles_of().size(), 2U);
+}
+
+BOOST_AUTO_TEST_CASE(ecash_main_thresholds)
+{
+    // eCash's main network: a bundle is paid with more than 6048 votes and fails older than 12,096 blocks; a sidechain
+    // in a used slot is replaced with more than 6048 acks within 12,096 blocks (46d3ad9).
+    EnforcerChain chain{AggregatedChain()};
+    const auto& main_dc{CChainParams::EcashMain()->GetConsensus().drivechain};
+    chain.params = main_dc;
+    chain.params.activation_height = 0;
+    Bundle bundle;
+    bundle.height = 100;
+    bundle.score = 6048;
+    BOOST_CHECK(!SidechainDB::Payable(bundle, chain.params));
+    bundle.score = 6049;
+    BOOST_CHECK(SidechainDB::Payable(bundle, chain.params));
+    BOOST_CHECK_EQUAL(SidechainDB::BlocksLeft(bundle, 100, chain.params), 12096);
+
+    const Sidechain first{MakeSidechain(2, "first")};
+    BOOST_REQUIRE(chain.Connect({ProposalScript(first)}));
+    for (int i{0}; i <= chain.params.unused_slot_threshold; ++i) BOOST_REQUIRE(chain.Connect({Ack(first)}));
+    BOOST_REQUIRE(chain.scdb.IsActive(2));
+    // A replacement: 6048 acks do not, the 6049th does.
+    const Sidechain second{MakeSidechain(2, "second")};
+    BOOST_REQUIRE(chain.Connect({ProposalScript(second)}));
+    for (int i{0}; i < 6048; ++i) BOOST_REQUIRE(chain.Connect({Ack(second)}));
+    BOOST_CHECK(chain.scdb.GetSlot(2)->sidechain == first);
+    BOOST_REQUIRE(chain.Connect({Ack(second)}));
+    BOOST_CHECK(chain.scdb.GetSlot(2)->sidechain == second);
+
+    // A bundle: pending for 12,096 blocks, failed in the block after.
+    const uint256 hash{0x99};
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, hash)}));
+    const int proposed{chain.height};
+    while (chain.height - proposed < 12096) BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK_EQUAL(chain.Score(2, hash), 1U);
+    BOOST_REQUIRE(chain.Connect());
+    BOOST_CHECK_EQUAL(chain.Score(2, hash), 0xFFFFFFFFU);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
