@@ -273,6 +273,8 @@ BOOST_AUTO_TEST_CASE(secrets_are_wiped)
     params.pushKV("passphrase", "correct horse");
     params.pushKV("old", "old one");
     params.pushKV("new", "new one");
+    params.pushKV("mnemonic", "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
+    params.pushKV("bip39Passphrase", "TREZOR");
     UniValue nested{UniValue::VOBJ};
     nested.pushKV("passphrase", "deep");
     UniValue list{UniValue::VARR};
@@ -287,6 +289,8 @@ BOOST_AUTO_TEST_CASE(secrets_are_wiped)
     BOOST_CHECK(params["passphrase"].get_str().find_first_not_of('\0') == std::string::npos);
     BOOST_CHECK(params["old"].get_str().find_first_not_of('\0') == std::string::npos);
     BOOST_CHECK(params["new"].get_str().find_first_not_of('\0') == std::string::npos);
+    BOOST_CHECK(params["mnemonic"].get_str().find_first_not_of('\0') == std::string::npos);
+    BOOST_CHECK(params["bip39Passphrase"].get_str().find_first_not_of('\0') == std::string::npos);
     BOOST_CHECK(params["calls"][0]["passphrase"].get_str().find_first_not_of('\0') == std::string::npos);
 
     // The bridge wipes what a host method got, once it answered.

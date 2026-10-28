@@ -54,6 +54,10 @@ class Bridge;
  *   wallets.open         {name}; {name, warnings}
  *   wallets.close        {name}; true
  *   wallets.restore      {file, name}; {name, warnings}
+ *   wallets.generateMnemonic {words?}; {mnemonic}: a new BIP39 recovery phrase (12 words by default), kept nowhere
+ *   wallets.createFromMnemonic {name, mnemonic, bip39Passphrase?, birthday?, passphrase?}; {name, birthday, rescanned,
+ *                        funds: [{type, bip, path, transactions, received, balance}], warnings}: the wallet of a phrase
+ *                        (createwalletfrommnemonic), rescanned from its birthday (a time, "now" for none, or the whole chain)
  *   wallets.migrate      {name, passphrase?, load}; {name, watchonlyName?, solvablesName?, backup, loaded}
  *   wallets.restoreMigrate {file, name, passphrase?}; as wallets.migrate
  *   wallets.isEncrypted  {name}; bool

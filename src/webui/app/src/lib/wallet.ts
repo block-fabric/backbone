@@ -59,6 +59,60 @@ export interface MigrateResult {
   warnings?: string[];
 }
 
+/** What the rescan of a wallet made of a recovery phrase found, by address type (wallets.createFromMnemonic). */
+export interface PhraseFunds {
+  /** The address type: legacy, p2sh-segwit, bech32, bech32m (ADDRESS_TYPES). */
+  type: string;
+  /** Its BIP: 44, 49, 84, 86. */
+  bip: number;
+  /** The derivation path of its account (m/84h/0h/0h). */
+  path: string;
+  transactions: number;
+  received: number;
+  balance: number;
+}
+
+export interface PhraseWallet {
+  name: string;
+  birthday: number;
+  rescanned: boolean;
+  funds: PhraseFunds[];
+  warnings: string[];
+}
+
+/** The sizes of a recovery phrase the app offers for a new wallet: 12 words (the default), or 24. */
+export const PHRASE_WORDS = [12, 24] as const;
+
+/**
+ * The words of a phrase as typed: separated by any white space, in lower case (as the host reads them). The checksum
+ * and the list of words are checked by the host, which says which word is wrong by its place.
+ */
+export function phraseWords(text: string): string[] {
+  return text.trim().toLowerCase().split(/\s+/).filter((w) => w.length > 0);
+}
+
+/** Whether a phrase has a size BIP39 knows: 12, 15, 18, 21 or 24 words. */
+export function isPhraseSize(count: number): boolean {
+  return count >= 12 && count <= 24 && count % 3 === 0;
+}
+
+/** The places (1 based, in order) of the words asked back to confirm that a new phrase was written down: `count` of them, at random. */
+export function phraseChecks(words: number, count = 3, random: () => number = Math.random): number[] {
+  const places = Array.from({ length: words }, (_, i) => i + 1);
+  for (let i = places.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [places[i], places[j]] = [places[j], places[i]];
+  }
+  return places.slice(0, Math.min(count, words)).sort((a, b) => a - b);
+}
+
+/** The time of a wallet birthday typed as a date (YYYY-MM-DD, the start of that day in UTC); 0 (the whole chain) for none. */
+export function birthdayTime(date: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 0;
+  const ms = Date.parse(`${date}T00:00:00Z`);
+  return Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0;
+}
+
 export const wallets = {
   list: () => call<WalletDirEntry[]>('wallets.list'),
   signers: () => call<{ signers: { name: string }[]; error?: string; supported: boolean }>('wallets.signers'),
@@ -67,6 +121,11 @@ export const wallets = {
   open: (name: string) => call<{ name: string; warnings: string[] }>('wallets.open', { name }),
   close: (name: string) => call<boolean>('wallets.close', { name }),
   restore: (file: string, name: string) => call<{ name: string; warnings: string[] }>('wallets.restore', { file, name }),
+  /** A new recovery phrase, kept nowhere by the host: the page shows it once, and forgets it once the wallet is made. */
+  generateMnemonic: (words = 12) => call<{ mnemonic: string }>('wallets.generateMnemonic', { words }),
+  /** The wallet of a recovery phrase, rescanned from its birthday (a time, 'now' for a new phrase, 0 for the whole chain). */
+  createFromMnemonic: (p: { name: string; mnemonic: string; bip39Passphrase?: string; birthday?: number | 'now'; passphrase?: string }) =>
+    call<PhraseWallet>('wallets.createFromMnemonic', p),
   migrate: (name: string, passphrase: string | undefined, load: boolean) => call<MigrateResult>('wallets.migrate', { name, passphrase, load }),
   restoreMigrate: (file: string, name: string, passphrase?: string) => call<MigrateResult>('wallets.restoreMigrate', { file, name, passphrase }),
   isEncrypted: (name: string) => call<boolean>('wallets.isEncrypted', { name }),

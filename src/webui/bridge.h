@@ -58,8 +58,9 @@ std::string PercentEncode(const std::string& text);
 std::string ValidUtf8(std::string_view text);
 
 /**
- * Wipe the secrets of a request (the strings under "passphrase", "old", "new", at any depth) once
- * it is done with, so that they do not stay in freed memory.
+ * Wipe the secrets of a request or of the answer of a host method (the strings under "passphrase",
+ * "old", "new", "mnemonic", "bip39Passphrase", at any depth) once it is done with, so that they do
+ * not stay in freed memory.
  */
 void CleanseSecrets(UniValue& value);
 

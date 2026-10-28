@@ -42,6 +42,7 @@
 #include <util/string.h>
 #include <util/time.h>
 #include <util/translation.h>
+#include <wallet/bip39.h>
 #include <wallet/coincontrol.h>
 #include <wallet/receive.h>
 #include <wallet/spend.h>
@@ -1113,6 +1114,74 @@ WalletApi::WalletApi(NodeFn node, FileFn may_use_file, guard::AskFn ask) : m_nod
         UniValue out{UniValue::VOBJ};
         out.pushKV("name", (*w)->getWalletName());
         out.pushKV("warnings", Warnings(warnings));
+        return out;
+    });
+    // A recovery phrase (BIP39): a new one, shown once by the page, and the wallet of a phrase, new or typed in. The phrase is never
+    // kept: in locked memory here, wiped from the params and the answer by the bridge after the call (CleanseSecrets), never in an
+    // error (they name a word by its place). The wallet is made by createwalletfrommnemonic, as for the console and gRPC.
+    Add("wallets.generateMnemonic", [this](const UniValue& params) {
+        Loader();
+        const int64_t words{OptInt(params, "words").value_or(12)};
+        if (words < 0 || !wallet::bip39::IsWordCount(words)) throw HostError(BRIDGE_INVALID_REQUEST, "words: 12, 15, 18, 21 or 24");
+        const SecureString phrase{wallet::bip39::GenerateMnemonic(words)};
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("mnemonic", std::string{phrase.begin(), phrase.end()});
+        return out;
+    });
+    Add("wallets.createFromMnemonic", [this](const UniValue& params) {
+        const std::string name{WalletName(Str(params, "name"))};
+        Loader();
+        const SecureString mnemonic{SecretParam(params, "mnemonic")};
+        const SecureString bip39_passphrase{SecretParam(params, "bip39Passphrase", /*required=*/false)};
+        const SecureString passphrase{SecretParam(params, "passphrase", /*required=*/false)};
+        // The birthday: a time, "now" (a new phrase: no rescan), or none (the whole chain).
+        const UniValue birthday{Param(params, "birthday")};
+        if (!birthday.isNull() && !birthday.isNum() && !(birthday.isStr() && birthday.get_str() == "now")) {
+            throw HostError(BRIDGE_INVALID_REQUEST, "birthday: a time, or \"now\"");
+        }
+        UniValue args{UniValue::VARR};
+        args.push_back(name);
+        args.push_back(std::string{mnemonic.begin(), mnemonic.end()});
+        args.push_back(std::string{bip39_passphrase.begin(), bip39_passphrase.end()});
+        args.push_back(birthday.isNull() ? UniValue{0} : birthday);
+        args.push_back(passphrase.empty() ? UniValue{} : UniValue{std::string{passphrase.begin(), passphrase.end()}});
+        // Not left in freed memory.
+        const auto wipe{[&] {
+            for (const size_t i : {1, 2, 4}) {
+                if (!args[i].isStr()) continue;
+                std::string& text{const_cast<std::string&>(args[i].get_str())};
+                memory_cleanse(text.data(), text.size());
+            }
+        }};
+        UniValue result;
+        try {
+            result = m_node().executeRpc("createwalletfrommnemonic", args, "/");
+            wipe();
+        } catch (const UniValue& error) {
+            wipe();
+            const UniValue& message{error.find_value("message")};
+            throw HostError(message.isStr() ? message.get_str() : "The wallet could not be made of the recovery phrase.");
+        } catch (...) {
+            wipe();
+            throw;
+        }
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("name", result["name"]);
+        out.pushKV("birthday", result["birthday"]);
+        out.pushKV("rescanned", result["rescanned"]);
+        UniValue funds{UniValue::VARR};
+        for (const UniValue& f : result["funds"].getValues()) {
+            UniValue entry{UniValue::VOBJ};
+            entry.pushKV("type", f["type"]);
+            entry.pushKV("bip", f["bip"]);
+            entry.pushKV("path", f["path"]);
+            entry.pushKV("transactions", f["transactions"]);
+            entry.pushKV("received", ParseMoney(f["received"].getValStr()).value_or(0));
+            entry.pushKV("balance", ParseMoney(f["balance"].getValStr()).value_or(0));
+            funds.push_back(std::move(entry));
+        }
+        out.pushKV("funds", std::move(funds));
+        out.pushKV("warnings", result["warnings"].isArray() ? result["warnings"] : UniValue{UniValue::VARR});
         return out;
     });
     auto migrate{[this](const std::string& name, const SecureString& passphrase, bool load) {
@@ -2433,7 +2502,7 @@ void WalletApi::Register(Bridge& bridge)
 {
     // Loading, restoring, migrating and backing up a wallet can take minutes (a rescan, a large file), and what asks the
     // user on the desktop waits for the answer: apart from the quick calls of the pages.
-    static const std::set<std::string> SLOW{"wallets.create", "wallets.open", "wallets.restore", "wallets.migrate", "wallets.restoreMigrate",
+    static const std::set<std::string> SLOW{"wallets.create", "wallets.createFromMnemonic", "wallets.open", "wallets.restore", "wallets.migrate", "wallets.restoreMigrate",
                                             "wallet.backup", "wallet.exportWatchOnly", "wallet.encrypt", "wallets.signers",
                                             "wallet.displayAddress", "wallet.send.commit", "wallet.bump.commit", "wallet.signMessage",
                                             "wallet.psbt.sign", "psbt.broadcast", "wallet.unlock", "wallet.newAddress", "wallet.addressBook.edit"};

@@ -91,7 +91,7 @@ std::string ValidUtf8(std::string_view text)
 namespace {
 bool IsSecretKey(const std::string& key)
 {
-    return key == "passphrase" || key == "old" || key == "new";
+    return key == "passphrase" || key == "old" || key == "new" || key == "mnemonic" || key == "bip39Passphrase";
 }
 
 void Wipe(const UniValue& value)
@@ -393,8 +393,12 @@ void Bridge::Run(const std::shared_ptr<Request>& request, const UniValue& body)
         work = [this, request, host, params, method] {
             const RunningRequest running{request->answered};
             try {
-                const UniValue result{host.fn(*params)};
-                Reply(*request, 0, result.write());
+                UniValue result{host.fn(*params)};
+                std::string json{result.write()};
+                Reply(*request, 0, json);
+                // The secrets of an answer (a new recovery phrase) do not stay in freed memory either.
+                CleanseSecrets(result);
+                memory_cleanse(json.data(), json.size());
             } catch (const HostError& e) {
                 ReplyError(*request, e.code, e.what());
             } catch (const UniValue& error) {

@@ -4,6 +4,9 @@
   import { t } from '../lib/i18n.svelte';
   // Wallets (WalletController and its activities, the wallet menu of chains-qt): create, open, close,
   // restore, migrate; encrypt, change the passphrase, unlock for a while, back up, export watch-only.
+  // And the recovery phrases (BIP39) of Backbone: a new wallet is made of one by default, shown once and
+  // asked back; a wallet is restored from one. A phrase stays in the state of this page only while its
+  // dialog is open, and is never stored, logged or put in a message.
   import SafeText from '../components/SafeText.svelte';
   import Dialog from '../components/Dialog.svelte';
   import Icon from '../components/Icon.svelte';
@@ -11,14 +14,40 @@
   import { chooseFile, FILTERS, safeFileName } from '../lib/files';
   import { go, nav } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
-  import { app, selectWallet, wallets as walletState } from '../lib/state.svelte';
-  import { walletApi, walletDisplayName, wallets, WalletError, type MigrateResult, type WalletDirEntry } from '../lib/wallet';
+  import { app, prefs, selectWallet, wallets as walletState } from '../lib/state.svelte';
+  import {
+    addressTypeText,
+    birthdayTime,
+    isPhraseSize,
+    phraseChecks,
+    phraseWords,
+    PHRASE_WORDS,
+    walletApi,
+    walletDisplayName,
+    wallets,
+    WalletError,
+    type MigrateResult,
+    type PhraseWallet,
+    type WalletDirEntry,
+  } from '../lib/wallet';
+  import { formatAmount } from '../lib/units';
   import { BridgeError } from '../lib/bridge';
   import { current, refreshInfo } from '../lib/walletdata.svelte';
 
   let dir: WalletDirEntry[] = $state([]);
   let busy: string | null = $state(null);
-  let create = $state({ open: false, name: '', encrypt: false, disableKeys: false, blank: false, signer: false, signers: [] as string[], supported: false, signerError: '' });
+  let create = $state({ open: false, name: '', phrase: true, words: 12, encrypt: false, disableKeys: false, blank: false, signer: false, signers: [] as string[], supported: false, signerError: '' });
+  // A new recovery phrase: shown, then three of its words asked back. Cleared as soon as the wallet is made or the dialog closes.
+  const noPhrase = () => ({ open: false, step: 'show' as 'show' | 'check', name: '', words: [] as string[], checks: [] as number[], answers: [] as string[], error: '' });
+  let phrase = $state(noPhrase());
+  // The passphrase of the new wallet's encryption, between its dialog and the making of the wallet (not in the state of the page).
+  let phrasePassphrase: string | undefined;
+  // Restore from a recovery phrase: the phrase as typed, its BIP39 passphrase, its birthday (a date, empty for the whole chain).
+  const NO_RESTORE = { open: false, name: '', text: '', bip39: '', birthday: '', encrypt: false, pruneHeight: 0 };
+  let restorePhrase = $state({ ...NO_RESTORE });
+  // What the rescan of a restored phrase found, by address type.
+  let found: PhraseWallet | null = $state(null);
+  const typedWords = $derived(phraseWords(restorePhrase.text).length);
   let unlockFor = $state({ open: false, minutes: 5 });
   let unlockedUntil = $state(0);
   let now = $state(Math.floor(Date.now() / 1000));
@@ -73,6 +102,7 @@
       'restore-migrate': restoreMigrate,
       backup,
       restore,
+      'restore-phrase': openRestorePhrase,
       export: exportWatchOnly,
       encrypt,
       passphrase: changePassphrase,
@@ -97,7 +127,7 @@
   // --- Create (CreateWalletDialog, CreateWalletActivity) ---
 
   async function openCreate() {
-    create = { open: true, name: '', encrypt: false, disableKeys: false, blank: false, signer: false, signers: [], supported: false, signerError: '' };
+    create = { open: true, name: '', phrase: true, words: 12, encrypt: false, disableKeys: false, blank: false, signer: false, signers: [], supported: false, signerError: '' };
     try {
       const s = await wallets.signers();
       create.supported = s.supported;
@@ -107,6 +137,7 @@
         // A device is there: an external signer wallet, named after it.
         create.signer = true;
         create.disableKeys = true;
+        create.phrase = false;
         create.name = create.signers[0];
       }
     } catch {
@@ -124,15 +155,28 @@
     if (create.disableKeys) {
       create.blank = false;
       create.encrypt = false;
+      create.phrase = false;
     }
   }
   function toggleBlank() {
-    if (create.blank) create.disableKeys = false;
+    if (create.blank) {
+      create.disableKeys = false;
+      create.phrase = false;
+    }
   }
   function toggleSigner() {
     create.encrypt = false;
     create.blank = false;
     create.disableKeys = create.signer;
+    if (create.signer) create.phrase = false;
+  }
+  // The keys of a recovery phrase: not with a wallet without keys, a blank one or a hardware wallet.
+  function togglePhrase() {
+    if (create.phrase) {
+      create.disableKeys = false;
+      create.blank = false;
+      create.signer = false;
+    }
   }
 
   async function confirmEncryption(): Promise<boolean> {
@@ -153,6 +197,7 @@
     const options = { ...create };
     if (!options.name) return;
     create.open = false;
+    const withPhrase = options.phrase && !options.disableKeys && !options.blank && !options.signer;
     let passphrase: string | undefined;
     if (options.encrypt) {
       const p = await askPassphrase('encrypt');
@@ -166,6 +211,10 @@
       if (!sure) return;
       passphrase = p.next;
     }
+    if (withPhrase) {
+      await newPhrase(options.name, options.words, passphrase);
+      return;
+    }
     try {
       const r = await run(`Creating Wallet ${options.name}…`, () =>
         wallets.create({ name: options.name, passphrase, disablePrivateKeys: options.disableKeys, blank: options.blank, externalSigner: options.signer }),
@@ -176,6 +225,96 @@
       await loadDir();
     } catch (e) {
       await inform(t('Create wallet failed'), errorText(e), 'error');
+    }
+  }
+
+  // --- A new wallet of a recovery phrase: the phrase shown once, three of its words asked back, then the wallet ---
+
+  async function newPhrase(walletName: string, words: number, passphrase: string | undefined) {
+    try {
+      const r = await wallets.generateMnemonic(words);
+      phrasePassphrase = passphrase;
+      phrase = { ...noPhrase(), open: true, name: walletName, words: phraseWords(r.mnemonic) };
+    } catch (e) {
+      await inform(t('Create wallet failed'), errorText(e), 'error');
+    }
+  }
+
+  function forgetPhrase() {
+    phrase.words.fill('');
+    phrase.answers.fill('');
+    phrase = noPhrase();
+    phrasePassphrase = undefined;
+  }
+
+  function checkStep() {
+    const checks = phraseChecks(phrase.words.length);
+    phrase.checks = checks;
+    phrase.answers = checks.map(() => '');
+    phrase.error = '';
+    phrase.step = 'check';
+  }
+
+  async function confirmPhrase() {
+    const wrong = phrase.checks.find((place, i) => phraseWords(phrase.answers[i] ?? '').join(' ') !== phrase.words[place - 1]);
+    if (wrong !== undefined) {
+      phrase.error = t('That is not word %1 of your recovery phrase. Check what you wrote down, or show the phrase again.', String(wrong));
+      return;
+    }
+    const walletName = phrase.name;
+    const mnemonic = phrase.words.join(' ');
+    const passphrase = phrasePassphrase;
+    // Out of the page before the wallet is even made: the user has it on paper now.
+    forgetPhrase();
+    try {
+      const r = await run(`Creating Wallet ${walletName}…`, () => wallets.createFromMnemonic({ name: walletName, mnemonic, passphrase, birthday: 'now' }));
+      if (!r) return;
+      if (r.warnings.length) await inform(t('Create wallet warning'), warnings(r.warnings), 'warning');
+      selectWallet(r.name);
+      await loadDir();
+    } catch (e) {
+      await inform(t('Create wallet failed'), errorText(e), 'error');
+    }
+  }
+
+  // --- Restore from a recovery phrase: the wallet of the phrase, rescanned from its birthday ---
+
+  async function openRestorePhrase() {
+    restorePhrase = { ...NO_RESTORE, open: true };
+    // A pruned node cannot rescan before the blocks it has: said before the user types the phrase.
+    try {
+      const chain = await rpc.raw<{ pruned: boolean; pruneheight?: number }>('getblockchaininfo', []);
+      if (chain.pruned) restorePhrase.pruneHeight = chain.pruneheight ?? 0;
+    } catch {
+      // The host says it when the wallet is made.
+    }
+  }
+
+  function forgetRestore() {
+    restorePhrase = { ...NO_RESTORE };
+  }
+
+  async function doRestorePhrase() {
+    const options = { ...restorePhrase };
+    if (!options.name || !isPhraseSize(phraseWords(options.text).length)) return;
+    forgetRestore();
+    let passphrase: string | undefined;
+    if (options.encrypt) {
+      const p = await askPassphrase('encrypt');
+      if (!p?.next) return;
+      passphrase = p.next;
+    }
+    try {
+      const r = await run(`Restoring Wallet ${options.name}…`, () =>
+        wallets.createFromMnemonic({ name: options.name, mnemonic: options.text, bip39Passphrase: options.bip39 || undefined, birthday: birthdayTime(options.birthday), passphrase }),
+      );
+      if (!r) return;
+      if (r.warnings.length) await inform(t('Restore wallet warning'), warnings(r.warnings), 'warning');
+      found = r;
+      selectWallet(r.name);
+      await loadDir();
+    } catch (e) {
+      await inform(t('Restore wallet failed'), errorText(e), 'error');
     }
   }
 
@@ -415,6 +554,7 @@
     <h1>Manage wallets</h1>
     <div class="row">
       <button type="button" class="btn primary" onclick={openCreate}><Icon name="plus" size={16} /> Create wallet…</button>
+      <button type="button" class="btn" onclick={openRestorePhrase}><Icon name="key" size={16} /> Restore from recovery phrase…</button>
       <button type="button" class="btn" onclick={restore}><Icon name="upload" size={16} /> Restore wallet…</button>
     </div>
   </header>
@@ -533,6 +673,18 @@
       <input id="wallet-name" type="text" bind:value={create.name} placeholder="Wallet" autocomplete="off" autofocus />
     </div>
     <label class="check option">
+      <input type="checkbox" bind:checked={create.phrase} onchange={togglePhrase} disabled={create.signer} />
+      <span><strong>With a recovery phrase</strong><small>The keys of the wallet are made of a list of words, shown once: written down on paper, they restore the wallet in any BIP39 wallet.</small></span>
+    </label>
+    {#if create.phrase}
+      <div class="field inset">
+        <label for="phrase-words">Words</label>
+        <select id="phrase-words" bind:value={create.words}>
+          {#each PHRASE_WORDS as n (n)}<option value={n}>{n} words</option>{/each}
+        </select>
+      </div>
+    {/if}
+    <label class="check option">
       <input type="checkbox" bind:checked={create.encrypt} onchange={toggleEncrypt} disabled={create.signer} />
       <span><strong>Encrypt Wallet</strong><small>Encrypt the wallet. The wallet will be encrypted with a passphrase of your choice.</small></span>
     </label>
@@ -558,6 +710,126 @@
   {#snippet actions()}
     <button type="button" class="btn" onclick={() => (create.open = false)}>Cancel</button>
     <button type="submit" form="create-form" class="btn primary" disabled={!create.name}>Create</button>
+  {/snippet}
+</Dialog>
+
+<Dialog bind:open={phrase.open} title="Your recovery phrase" onclose={forgetPhrase}>
+  {#if phrase.step === 'show'}
+    <div class="stack">
+      <p>Write these {phrase.words.length} words down on paper, in this order, and keep them safe. They are the keys of the wallet: whoever has them has its coins, and with them alone the wallet can be restored.</p>
+      <p class="warning-note">They are shown only now and stored nowhere. Never put them in a file, a photo or a message.</p>
+      <ol class="phrase" aria-label="Recovery phrase">
+        {#each phrase.words as word, i (i)}
+          <li><span class="place">{i + 1}</span><SafeText text={word} class="word" /></li>
+        {/each}
+      </ol>
+    </div>
+  {:else}
+    <form
+      id="phrase-check-form"
+      class="stack"
+      onsubmit={(e) => {
+        e.preventDefault();
+        confirmPhrase();
+      }}
+    >
+      <p>To be sure the phrase is written down, type these words of it.</p>
+      {#each phrase.checks as place, i (place)}
+        <div class="field">
+          <label for="phrase-check-{place}">{t('Word %1', String(place))}</label>
+          <input id="phrase-check-{place}" type="text" bind:value={phrase.answers[i]} autocomplete="off" autocapitalize="off" spellcheck="false" translate="no" />
+        </div>
+      {/each}
+      {#if phrase.error}<p class="error" role="alert">{phrase.error}</p>{/if}
+    </form>
+  {/if}
+  {#snippet actions()}
+    <button type="button" class="btn" onclick={forgetPhrase}>Cancel</button>
+    {#if phrase.step === 'show'}
+      <button type="button" class="btn primary" onclick={checkStep}>I wrote them down</button>
+    {:else}
+      <button type="button" class="btn" onclick={() => (phrase.step = 'show')}>Show the phrase again</button>
+      <button type="submit" form="phrase-check-form" class="btn primary" disabled={phrase.answers.some((a) => !a.trim())}>Create</button>
+    {/if}
+  {/snippet}
+</Dialog>
+
+<Dialog bind:open={restorePhrase.open} title="Restore from recovery phrase" onclose={forgetRestore}>
+  <form
+    id="restore-phrase-form"
+    class="stack"
+    onsubmit={(e) => {
+      e.preventDefault();
+      doRestorePhrase();
+    }}
+  >
+    <div class="field">
+      <label for="restore-name">Wallet Name</label>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input id="restore-name" type="text" bind:value={restorePhrase.name} placeholder="Wallet" autocomplete="off" autofocus />
+    </div>
+    <div class="field">
+      <label for="restore-phrase">Recovery phrase</label>
+      <textarea id="restore-phrase" rows="3" bind:value={restorePhrase.text} autocomplete="off" autocapitalize="off" spellcheck="false" translate="no"></textarea>
+      <small class="muted">{t('%1 words: a phrase has 12, 15, 18, 21 or 24 BIP39 words.', String(typedWords))}</small>
+    </div>
+    <div class="field">
+      <label for="restore-birthday">Wallet birthday (optional)</label>
+      <input id="restore-birthday" type="date" bind:value={restorePhrase.birthday} />
+      <small class="muted">The day the phrase was first used, if you know it: the rescan for its coins starts there. Without it, the whole chain is rescanned, which takes long.</small>
+    </div>
+    {#if restorePhrase.pruneHeight > 0}
+      <p class="warning-note" role="note">{t('This node is pruned: it only has the blocks from height %1 on, and cannot look for coins in older ones. Give the wallet birthday, or restore an older phrase on a node that is not pruned.', String(restorePhrase.pruneHeight))}</p>
+    {/if}
+    <label class="check option">
+      <input type="checkbox" bind:checked={restorePhrase.encrypt} />
+      <span><strong>Encrypt Wallet</strong><small>Encrypt the wallet. The wallet will be encrypted with a passphrase of your choice.</small></span>
+    </label>
+    <details>
+      <summary>Advanced Options</summary>
+      <div class="stack inner">
+        <div class="field">
+          <label for="restore-bip39">BIP39 passphrase</label>
+          <input id="restore-bip39" type="password" bind:value={restorePhrase.bip39} autocomplete="off" />
+          <small class="muted">Only if the phrase was made with one (its "25th word"): another passphrase gives another wallet, an empty one. ASCII characters only.</small>
+        </div>
+      </div>
+    </details>
+    <p class="muted">The wallet has the keys of the four standard address types of the phrase (BIP84, BIP86, BIP49, BIP44). A Bitcoin wallet's phrase from before the fork finds the coins it had then here too.</p>
+  </form>
+  {#snippet actions()}
+    <button type="button" class="btn" onclick={forgetRestore}>Cancel</button>
+    <button type="submit" form="restore-phrase-form" class="btn primary" disabled={!restorePhrase.name || !isPhraseSize(typedWords)}>Restore</button>
+  {/snippet}
+</Dialog>
+
+<Dialog open={found !== null} title="Wallet restored" onclose={() => (found = null)}>
+  {#if found}
+    <div class="stack">
+      {#if !found.rescanned}
+        <p>Wallet restored successfully. Its birthday is after the last block: there was nothing to rescan.</p>
+      {:else if found.funds.some((f) => f.transactions > 0)}
+        <p>Wallet restored successfully. The rescan found coins of these address types:</p>
+        <table class="funds">
+          <thead><tr><th>Type</th><th>Path</th><th>Transactions</th><th>Balance</th></tr></thead>
+          <tbody>
+            {#each found.funds.filter((f) => f.transactions > 0) as f (f.type)}
+              <tr>
+                <td>{addressTypeText(f.type)} <span class="muted">BIP{f.bip}</span></td>
+                <td class="mono">{f.path}</td>
+                <td>{f.transactions}</td>
+                <td class="mono">{formatAmount(f.balance, prefs.unit, { withUnit: true })}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {:else}
+        <p>Wallet restored successfully. The rescan found no coins of this phrase. If it had some, check its words, its BIP39 passphrase and the wallet birthday.</p>
+      {/if}
+    </div>
+  {/if}
+  {#snippet actions()}
+    <button type="button" class="btn primary" onclick={() => (found = null)}>OK</button>
   {/snippet}
 </Dialog>
 
@@ -695,6 +967,49 @@
   summary {
     cursor: pointer;
     font-weight: 600;
+  }
+  .inset {
+    margin-left: 1.6rem;
+  }
+  .warning-note {
+    color: var(--warning, var(--text));
+    font-weight: 600;
+  }
+  .phrase {
+    margin: 0;
+    padding: 0.8rem;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem 0.8rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-m);
+    background: var(--surface-2);
+  }
+  .phrase li {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+  .phrase .place {
+    min-width: 1.6rem;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    text-align: right;
+  }
+  .phrase :global(.word) {
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+  }
+  .funds {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .funds th,
+  .funds td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
   }
   @media (max-width: 980px) {
     .grid {

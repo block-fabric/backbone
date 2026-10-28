@@ -10,13 +10,16 @@
 #include <node/context.h>
 #include <rpc/server.h>
 #include <txmempool.h>
+#include <script/descriptor.h>
 #include <script/script.h>
+#include <script/signingprovider.h>
 #include <test/util/setup_common.h>
 #include <tinyformat.h>
 #include <util/moneystr.h>
 #include <util/strencodings.h>
 #include <validation.h>
 #include <validationinterface.h>
+#include <wallet/bip39.h>
 #include <webui/bridge.h>
 #include <webui/confirm.h>
 #include <webui/walletapi.h>
@@ -705,6 +708,67 @@ BOOST_AUTO_TEST_CASE(address_book_requests_and_messages)
     const std::string tr{Call("wallet.newAddress", Obj({{"wallet", "other"}, {"type", "bech32m"}})).get_str()};
     ErrorOf("wallet.signMessage", Obj({{"wallet", "other"}, {"address", tr}, {"message", "x"}}), &message);
     BOOST_CHECK(message.starts_with("The entered address does not refer to a single key."));
+}
+
+BOOST_AUTO_TEST_CASE(recovery_phrase)
+{
+    // A new phrase (12 words, or 24), and the wallet of a phrase: rescanned from its birthday, with what it found by address type.
+    if (RPCIsInWarmup(nullptr)) SetRPCWarmupFinished();
+    loader->registerRpcs();
+    const std::string twelve{Call("wallets.generateMnemonic", Obj({}))["mnemonic"].get_str()};
+    BOOST_CHECK_EQUAL(std::ranges::count(twelve, ' '), 11);
+    BOOST_CHECK(wallet::bip39::ParseMnemonic(twelve));
+    BOOST_CHECK_EQUAL(std::ranges::count(Call("wallets.generateMnemonic", Obj({{"words", 24}}))["mnemonic"].get_str(), ' '), 23);
+    BOOST_CHECK_EQUAL(ErrorOf("wallets.generateMnemonic", Obj({{"words", 13}})), webui::BRIDGE_INVALID_REQUEST);
+
+    // Coins to the first BIP84 and BIP86 addresses of "abandon ... about" (coin type 1' on regtest), mined before the wallet is made.
+    const std::string phrase{"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"};
+    const auto master{wallet::bip39::MasterKeyFromMnemonic(phrase, "")};
+    BOOST_REQUIRE(master);
+    const auto script_of{[&](OutputType type) {
+        FlatSigningProvider keys, out;
+        std::string error;
+        auto desc{Parse(wallet::bip39::AccountDescriptor(*master, type, 1, /*internal=*/false), keys, error, true)};
+        std::vector<CScript> scripts;
+        BOOST_REQUIRE(desc.size() == 1 && desc[0]->Expand(0, keys, scripts, out));
+        return scripts.at(0);
+    }};
+    Mine(1, script_of(OutputType::BECH32));
+    Mine(2, script_of(OutputType::BECH32M));
+    Mine(1, CScript{} << OP_TRUE);
+
+    // The errors name no word of the phrase.
+    std::string message;
+    BOOST_CHECK_EQUAL(ErrorOf("wallets.createFromMnemonic", Obj({{"name", "r"}, {"mnemonic", "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandom"}}), &message), webui::BRIDGE_HOST_ERROR);
+    BOOST_CHECK_EQUAL(message, "Word 12 of the recovery phrase is not one of the BIP39 English words: check it for typing errors.");
+    BOOST_CHECK_EQUAL(ErrorOf("wallets.createFromMnemonic", Obj({{"name", "r"}})), webui::BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(ErrorOf("wallets.createFromMnemonic", Obj({{"name", "r"}, {"mnemonic", phrase}, {"birthday", "yesterday"}})), webui::BRIDGE_INVALID_REQUEST);
+    BOOST_CHECK_EQUAL(Call("wallets.list", Obj({})).size(), 0U);
+
+    const UniValue restored{Call("wallets.createFromMnemonic", Obj({{"name", "r"}, {"mnemonic", phrase}, {"passphrase", "pw"}}))};
+    BOOST_CHECK_EQUAL(restored["name"].get_str(), "r");
+    BOOST_CHECK(restored["rescanned"].get_bool());
+    std::map<std::string, UniValue> funds;
+    for (const UniValue& f : restored["funds"].getValues()) funds[f["type"].get_str()] = f;
+    BOOST_REQUIRE_EQUAL(funds.size(), 4U);
+    BOOST_CHECK_EQUAL(funds["bech32"]["bip"].getInt<int>(), 84);
+    BOOST_CHECK_EQUAL(funds["bech32"]["path"].get_str(), "m/84h/1h/0h");
+    BOOST_CHECK_EQUAL(funds["bech32"]["transactions"].getInt<int>(), 1);
+    BOOST_CHECK_EQUAL(funds["bech32"]["balance"].getInt<int64_t>(), 50 * COIN);
+    BOOST_CHECK_EQUAL(funds["bech32m"]["transactions"].getInt<int>(), 2);
+    BOOST_CHECK_EQUAL(funds["bech32m"]["received"].getInt<int64_t>(), 100 * COIN);
+    BOOST_CHECK_EQUAL(funds["p2sh-segwit"]["transactions"].getInt<int>(), 0);
+    BOOST_CHECK_EQUAL(funds["legacy"]["balance"].getInt<int64_t>(), 0);
+    const UniValue info{Call("wallet.info", Obj({{"wallet", "r"}}))};
+    BOOST_CHECK(info["encrypted"].get_bool());
+    BOOST_CHECK(info["locked"].get_bool());
+    BOOST_CHECK_EQUAL(info["immature"].getInt<int64_t>(), 150 * COIN);
+
+    // A new phrase: no rescan.
+    const UniValue fresh{Call("wallets.createFromMnemonic", Obj({{"name", "fresh"}, {"mnemonic", twelve}, {"birthday", "now"}}))};
+    BOOST_CHECK(!fresh["rescanned"].get_bool());
+    BOOST_CHECK(!Call("wallet.info", Obj({{"wallet", "fresh"}}))["encrypted"].get_bool());
+    BOOST_CHECK(Call("wallet.newAddress", Obj({{"wallet", "fresh"}})).get_str().starts_with("rchn1q"));
 }
 
 BOOST_AUTO_TEST_CASE(registered_in_the_bridge)
