@@ -434,6 +434,10 @@ public:
         consensus.drivechain.used_slot_max_age = 12096;
         consensus.drivechain.bundle_threshold = 6048;
         consensus.drivechain.bundle_max_age = 12096;
+        // The enforcer's rules of a2ce3fe from the fork: aggregated deposits (64256fc), one M1 and one M3 per block
+        // (fa78089, ce4bd6b). Nothing was mined under the old ones.
+        consensus.drivechain.aggregated_deposits_height = 0;
+        consensus.drivechain.single_m1_m3_height = 0;
         // Our safety rules for the enforcer (WithdrawalBundleSafety::MAINNET, MessageLimits::DEFAULT: upvote
         // expiry 144, idle expiry 1008, 64 pending bundles, the defaults): policy until the enforcer adopts
         // them at a height, which goes here (safety_activation_height, limits_activation_height).
@@ -521,6 +525,9 @@ public:
         // MessageLimits::DEFAULT): policy until the enforcer adopts them at a height, which goes here.
         consensus.drivechain.safety_activation_height = Consensus::DrivechainParams::NEVER;
         consensus.drivechain.limits_activation_height = Consensus::DrivechainParams::NEVER;
+        // Betanet runs the enforcer of 17eb2ce: deposits spend the treasury output, any number of M1 and M3 per block.
+        consensus.drivechain.aggregated_deposits_height = Consensus::DrivechainParams::NEVER;
+        consensus.drivechain.single_m1_m3_height = Consensus::DrivechainParams::NEVER;
 
         ApplyDeploymentOptions(opts.dep_opts);
 
@@ -619,6 +626,9 @@ public:
         consensus.drivechain.idle_expiry_blocks = 5;
         consensus.drivechain.safety_activation_height = Consensus::DrivechainParams::NEVER;
         consensus.drivechain.limits_activation_height = Consensus::DrivechainParams::NEVER;
+        // The enforcer's rules of a2ce3fe: aggregated deposits, one M1 and one M3 per block.
+        consensus.drivechain.aggregated_deposits_height = 0;
+        consensus.drivechain.single_m1_m3_height = 0;
 
         ApplyDeploymentOptions(opts.dep_opts);
 
@@ -842,6 +852,10 @@ public:
             // not consensus unless -testdrivechainparam=safety_activation_height@<height> (and limits_...).
             consensus.drivechain.upvote_expiry_blocks = 5;
             consensus.drivechain.idle_expiry_blocks = 5;
+            // The enforcer's rules of a2ce3fe (aggregated deposits, one M1 and one M3 per block); betanet's
+            // (17eb2ce) with -testdrivechainparam=aggregated_deposits_height@-1 and single_m1_m3_height@-1.
+            consensus.drivechain.aggregated_deposits_height = 0;
+            consensus.drivechain.single_m1_m3_height = 0;
         }
         for (const auto& [name, value] : opts.drivechain_params) {
             auto& dc{consensus.drivechain};
@@ -887,6 +901,10 @@ public:
                 dc.safety_activation_height = value;
             } else if (name == "limits_activation_height") {
                 dc.limits_activation_height = value;
+            } else if (name == "aggregated_deposits_height") {
+                dc.aggregated_deposits_height = value;
+            } else if (name == "single_m1_m3_height") {
+                dc.single_m1_m3_height = value;
             } else {
                 throw std::runtime_error(strprintf("Invalid name (%s) for -testdrivechainparam=name@value.", name));
             }

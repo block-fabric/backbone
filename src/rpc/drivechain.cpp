@@ -176,6 +176,8 @@ RPCMethod getdrivechaininfo()
             {RPCResult::Type::NUM, "idleexpiryblocks", "Age at which a pending bundle with no vote fails (enforcer rules: with the safety rules only)"},
             {RPCResult::Type::NUM, "safetyactivationheight", /*optional=*/true, "Enforcer rules: the height from which the withdrawal bundle safety rules (single payout, paid-bundle memory, upvote and idle expiry) are consensus; absent: never (they are policy of this node's block template)"},
             {RPCResult::Type::NUM, "limitsactivationheight", /*optional=*/true, "Enforcer rules: the height from which the message limits (pending cap, one bundle per slot per block, canonical votes, deposit destination size, one treasury output per transaction) are consensus; absent: never"},
+            {RPCResult::Type::NUM, "aggregateddepositsheight", /*optional=*/true, "Enforcer rules: the height from which a deposit need not spend the escrow output, its block consolidating it (the bip300301_enforcer's aggregated deposits); absent: never"},
+            {RPCResult::Type::NUM, "singlem1m3height", /*optional=*/true, "Enforcer rules: the height from which a block carries one sidechain proposal (M1) and one bundle proposal (M3) at most, across all slots; absent: never"},
             {RPCResult::Type::BOOL, "singlepayout", "Whether consensus fails the other pending bundles of a sidechain when one is paid out, in the next block (always on the Chains networks; on the eCash networks, from safetyactivationheight). Without it a paid bundle's copies stay payable: sidechains must not assume it"},
             {RPCResult::Type::NUM, "height", "Height of the block the sidechain database belongs to"},
             {RPCResult::Type::NUM, "activesidechains", "Number of active sidechains"},
@@ -220,6 +222,8 @@ RPCMethod getdrivechaininfo()
     obj.pushKV("idleexpiryblocks", params.idle_expiry_blocks);
     if (params.EnforcerRules() && params.safety_activation_height != Consensus::DrivechainParams::NEVER) obj.pushKV("safetyactivationheight", params.safety_activation_height);
     if (params.EnforcerRules() && params.limits_activation_height != Consensus::DrivechainParams::NEVER) obj.pushKV("limitsactivationheight", params.limits_activation_height);
+    if (params.EnforcerRules() && params.aggregated_deposits_height != Consensus::DrivechainParams::NEVER) obj.pushKV("aggregateddepositsheight", params.aggregated_deposits_height);
+    if (params.EnforcerRules() && params.single_m1_m3_height != Consensus::DrivechainParams::NEVER) obj.pushKV("singlem1m3height", params.single_m1_m3_height);
     obj.pushKV("singlepayout", !params.EnforcerRules() || params.SafetyActive(height + 1));
     obj.pushKV("height", height);
     obj.pushKV("activesidechains", scdb.GetSlots().size());

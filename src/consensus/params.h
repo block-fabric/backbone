@@ -152,7 +152,10 @@ struct DrivechainParams {
     /** Enforcer rules: an unused slot activates a proposal with more acks than this, within unused_slot_max_age blocks. */
     int unused_slot_threshold{1815};
     int unused_slot_max_age{2016};
-    /** Enforcer rules: the same for a slot in use (replacing the sidechain in it). */
+    /**
+     * Enforcer rules: the same for a slot in use (replacing the sidechain in it). Since the enforcer's 46d3ad9 it holds
+     * the replacement to the bundle pair (bundle_threshold, bundle_max_age): the networks set these to the same values.
+     */
     int used_slot_threshold{13150};
     int used_slot_max_age{26300};
     /** Enforcer rules: a bundle is paid out with more votes than this; it fails when older than bundle_max_age blocks. */
@@ -181,9 +184,25 @@ struct DrivechainParams {
      * MAX_DEPOSIT_DESTINATION_SIZE bytes; a transaction creates at most one treasury output.
      */
     int limits_activation_height{NEVER};
+    /**
+     * Enforcer rules: aggregated deposits (bip300301_enforcer 64256fc, "Aggregate M5 deposits"), from this height on;
+     * NEVER: never (the deposit spends the treasury output). From it on a deposit (M5) need not spend the treasury output
+     * of its sidechain (its Ctip): one that does not leaves an output of its own (an unconsolidated Ctip), which a later
+     * transaction of the same block has to spend together with the Ctip (the consolidation the miner appends, or a
+     * withdrawal), so that a block ends with one treasury output per sidechain. A withdrawal (M6) spends the Ctip and any of
+     * those, and nothing else.
+     */
+    int aggregated_deposits_height{NEVER};
+    /**
+     * Enforcer rules: a block carries one sidechain proposal (M1) and one bundle proposal (M3) at most, across all slots
+     * (bip300301_enforcer fa78089 and ce4bd6b), from this height on; NEVER: never.
+     */
+    int single_m1_m3_height{NEVER};
     static constexpr int NEVER{-1};
     bool SafetyActive(int height) const { return EnforcerRules() && safety_activation_height != NEVER && height >= safety_activation_height; }
     bool LimitsActive(int height) const { return EnforcerRules() && limits_activation_height != NEVER && height >= limits_activation_height; }
+    bool AggregatedDeposits(int height) const { return EnforcerRules() && aggregated_deposits_height != NEVER && height >= aggregated_deposits_height; }
+    bool SingleM1M3(int height) const { return EnforcerRules() && single_m1_m3_height != NEVER && height >= single_m1_m3_height; }
 };
 
 /**

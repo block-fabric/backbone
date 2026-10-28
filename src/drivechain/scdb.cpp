@@ -28,7 +28,7 @@ int Age(int proposed_height, int height) { return height - proposed_height + 1; 
 uint256 ParamsFingerprint(const Consensus::DrivechainParams& params)
 {
     // Every field: a parameter added later has to be added here as well.
-    static_assert(sizeof(Consensus::DrivechainParams) == 21 * sizeof(int32_t), "a new drivechain parameter goes into the fingerprint");
+    static_assert(sizeof(Consensus::DrivechainParams) == 23 * sizeof(int32_t), "a new drivechain parameter goes into the fingerprint");
     HashWriter hasher{};
     hasher << std::string{"Chains drivechain parameters"} << params.max_sidechains << params.activation_period << params.activation_max_failures
            << params.replacement_period << params.withdrawal_period << params.withdrawal_min_score << params.max_pending_bundles
@@ -41,6 +41,11 @@ uint256 ParamsFingerprint(const Consensus::DrivechainParams& params)
     // The activation heights of our rules for the enforcer, once set (unset, the fingerprint is the one it was).
     if (params.safety_activation_height != Consensus::DrivechainParams::NEVER || params.limits_activation_height != Consensus::DrivechainParams::NEVER) {
         hasher << std::string{"enforcer safety rules"} << params.safety_activation_height << params.limits_activation_height;
+    }
+    // The enforcer's rules of 2026-10-28 (aggregated deposits, one M1 and one M3 per block), once set: unset (betanet),
+    // the fingerprint is the one it was.
+    if (params.aggregated_deposits_height != Consensus::DrivechainParams::NEVER || params.single_m1_m3_height != Consensus::DrivechainParams::NEVER) {
+        hasher << std::string{"enforcer aggregated deposits"} << params.aggregated_deposits_height << params.single_m1_m3_height;
     }
     return hasher.GetHash();
 }

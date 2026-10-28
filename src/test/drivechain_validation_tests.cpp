@@ -977,6 +977,19 @@ BOOST_AUTO_TEST_CASE(test_drivechain_params)
                           HasReason("Invalid format (withdrawal_period@-1) for -testdrivechainparam=name@value."));
     BOOST_CHECK_EXCEPTION(CreateChainParams(*parse({"withdrawal_period@x"}), ChainType::REGTEST), std::runtime_error,
                           HasReason("Invalid format (withdrawal_period@x) for -testdrivechainparam=name@value."));
+    // The heights of the enforcer's later rules; an activation height can be -1 (never), as betanet has them.
+    const auto later{CreateChainParams(*parse({"aggregated_deposits_height@7", "single_m1_m3_height@-1", "safety_activation_height@-1"}), ChainType::REGTEST)};
+    BOOST_CHECK_EQUAL(later->GetConsensus().drivechain.aggregated_deposits_height, 7);
+    BOOST_CHECK_EQUAL(later->GetConsensus().drivechain.single_m1_m3_height, Consensus::DrivechainParams::NEVER);
+    BOOST_CHECK(ParamsFingerprint(later->GetConsensus().drivechain) != ParamsFingerprint(CreateChainParams(*parse({}), ChainType::REGTEST)->GetConsensus().drivechain));
+    // Unset (betanet, the Chains networks), the fingerprint is the one it was.
+    Consensus::DrivechainParams unset{CreateChainParams(*parse({}), ChainType::REGTEST)->GetConsensus().drivechain};
+    BOOST_CHECK_EQUAL(unset.aggregated_deposits_height, Consensus::DrivechainParams::NEVER);
+    Consensus::DrivechainParams set{unset};
+    set.aggregated_deposits_height = 0;
+    BOOST_CHECK(ParamsFingerprint(set) != ParamsFingerprint(unset));
+    BOOST_CHECK_EXCEPTION(CreateChainParams(*parse({"aggregated_deposits_height@-2"}), ChainType::REGTEST), std::runtime_error,
+                          HasReason("Invalid format (aggregated_deposits_height@-2) for -testdrivechainparam=name@value."));
 }
 
 BOOST_AUTO_TEST_CASE(base58_of_another_kind)

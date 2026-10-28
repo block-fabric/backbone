@@ -127,7 +127,9 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
     for (const std::string& arg : args.GetArgs("-testdrivechainparam")) {
         const auto found{arg.find('@')};
         const auto value{found == std::string::npos ? std::nullopt : ToIntegral<int32_t>(arg.substr(found + 1))};
-        if (!value || *value < 0) throw std::runtime_error(strprintf("Invalid format (%s) for -testdrivechainparam=name@value.", arg));
+        // An activation height (a name that ends in _height) can be -1: never (DrivechainParams::NEVER).
+        const bool never{value && *value == -1 && arg.substr(0, found).ends_with("_height")};
+        if (!value || (*value < 0 && !never)) throw std::runtime_error(strprintf("Invalid format (%s) for -testdrivechainparam=name@value.", arg));
         options.drivechain_params.emplace_back(arg.substr(0, found), *value);
     }
     // Regtest under eCash's rules, for the tests of the eCash networks.
