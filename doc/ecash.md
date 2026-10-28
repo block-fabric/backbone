@@ -42,12 +42,14 @@ DNS seeds resolve (checked 2026-10-26): `seed.ecash.ninja` to 65.109.148.184 (an
 `seed.ecash.drivecha.in`, `seed.ecash.zuexeuz.net`, `seed.ecash.eu.com` and `seed.bip300.xyz` all to one
 address, 67.68.165.91, which did not answer on 8533 then. 65.109.148.184:8533 answered as
 `/eCash Satoshi:31.1.0/` (at Bitcoin's height 973,326). With so few distinct nodes, a node that finds no
-peers can be given one: `-addnode=65.109.148.184:8533`. The drivechain thresholds of `ecash` (an unused slot
-activates with more than 1,815 acks in 2,016 blocks, a used one and a bundle with 13,150 in 26,300), with
-the fork height as activation height, OP_NOP8 and the replay locktime 499,999,998, are **confirmed against
-the bip300301_enforcer's mainnet support** (`Fork::Ecash`, branch `2026-10-12-mainnet`, commits `2c649af`
-and `a8b3dcd`). That branch is not merged: the enforcer's published build (`ceb608a`, "latest" of
-2026-10-16) has no eCash mainnet preset.
+peers can be given one: `-addnode=65.109.148.184:8533`. The drivechain rules of `ecash` are those of the
+**bip300301_enforcer's master as of `a2ce3fe`** (2026-10-28; `Fork::Ecash`, merged from `2026-10-12-mainnet`
+as `12834a5`): the fork height as activation height, OP_NOP8, the replay locktime 499,999,998, and eCash's own
+thresholds (`Thresholds::ECX_MAINNET`, `46d3ad9`): an unused slot activates with more than 1,815 acks in 2,016
+blocks; a bundle is paid with more than **6,048** votes and fails older than **12,096** blocks; a proposal
+that replaces the sidechain of a used slot is held to the same pair (more than 6,048 acks within 12,096
+blocks; the enforcer dropped its separate used-slot thresholds). And, from the fork, **aggregated deposits**
+(`64256fc`) and **one M1 and one M3 per block** (`fa78089`, `ce4bd6b`); see below.
 
 **eCash's test network.** eCash runs no test network of its own: ecash-com/bitcoin's testnet3/testnet4 keep
 Bitcoin's DNS seeds, which list Bitcoin nodes (another message start), and eCash's FAQ names betanet as the
@@ -115,26 +117,64 @@ GetChainInfo, GetSidechains and GetCtip equal backboned's, and its wallet's send
 ## BIP300/301 on the eCash networks
 
 `Consensus::DrivechainParams::rules` = `RULES_ENFORCER`: the node checks blocks as the bip300301_enforcer does
-(commit `17eb2ce`, the one betanet runs; `lib/validator/task/mod.rs connect_block`, `lib/messages.rs`,
-`lib/validator/dbs/diff.rs`), in `SidechainDB::ConnectBlockEnforcer` (`src/drivechain/scdb.cpp`):
+(commit `17eb2ce`, the one betanet runs, and `a2ce3fe` from the heights of its later rules;
+`lib/validator/task/mod.rs connect_block`, `lib/messages.rs`, `lib/validator/dbs/diff.rs`), in
+`SidechainDB::ConnectBlockEnforcer` (`src/drivechain/scdb.cpp`):
 
 - No message, deposit or withdrawal is read below the activation height (the fork height).
 - The coinbase messages are handled in output order, each seeing what the ones before it did. Two M1 of the
-  same proposal, two M2 for a slot, two M4, two M7 for a slot make the block invalid.
+  same proposal, two M2 for a slot, two M4, two M7 for a slot make the block invalid; from
+  `single_m1_m3_height`, two M1 or two M3 of any slots as well (`bad-dc-multiple-proposals`,
+  `bad-dc-multiple-bundles`; the enforcer's `MultipleM1`, `MultipleM3`).
 - M1: any description (version 0 or not); a proposal already collecting acks is not made again.
 - M2: an ack of the proposing block does not count; the ack that takes a proposal over the threshold within
-  the maximum age activates it (an unused slot: more than 1,008 acks within 2,016 blocks on betanet; a used
-  one: more than 13,150 within 26,300). The sidechain replaced keeps its treasury and bundles. A proposal
-  fails older than the maximum age, or when it can no longer make the threshold.
-- M3: for an active slot only (else the block is invalid), not a bundle already pending; several per slot.
+  the maximum age activates it (an unused slot: more than 1,815 acks within 2,016 blocks on `ecash`, 1,008 on
+  betanet; a used one: more than 6,048 within 12,096 on `ecash`, 13,150 within 26,300 on betanet). The
+  sidechain replaced keeps its treasury and bundles. A proposal fails older than the maximum age, or when it
+  can no longer make the threshold.
+- M3: for an active slot only (else the block is invalid), not a bundle already pending; several per slot
+  (before `single_m1_m3_height`).
 - M4: the one and two byte forms (two bytes only with a value above 253: an abstain or an alarm counts),
   `LeadingBy50`, `RepeatPrevious` (what the previous block did). Upvoting a bundle downvotes the others of
   its slot with votes; the alarm downvotes them all.
-- Bundles fail older than 26,300 blocks; a withdrawal (M6) pays one with more than 13,150 votes, counting the
-  block's own votes; only that bundle leaves.
+- Bundles fail older than 12,096 blocks (`ecash`; 26,300 on betanet); a withdrawal (M6) pays one with more than
+  6,048 votes (13,150), counting the block's own votes; only that bundle leaves.
 - M5: deposits to several sidechains in one transaction, any destination; a treasury output of an inactive
   slot, or one in a coinbase, is an ordinary output.
 - M7 for any slot; an M8 needs its slot's M7 and the parent block, one per slot.
+
+**Aggregated deposits** (`aggregated_deposits_height`: 0 on `ecash`, `ecashtest` and the eCash regtest, never on
+betanet; the enforcer's `64256fc`, `fill_ctips`, `handle_m5_m6`, `finalize_connect_block`):
+
+- A deposit need not spend the treasury output (the Ctip). One that does not, to a sidechain that has a Ctip,
+  leaves an output of its own, an *unconsolidated Ctip*; the first deposit of a sidechain (no Ctip yet) makes
+  the Ctip, as does a deposit that spends it.
+- Per sidechain a transaction's treasury inputs are its Ctip and the unconsolidated Ctips of the block it
+  spends; its new treasury output holds more (a deposit of the difference, with the destination after it), less
+  (a withdrawal) or, spending unconsolidated Ctips, as much (a *consolidation*, no destination). Without the Ctip
+  among its inputs the output is unconsolidated again.
+- A withdrawal (M6) spends the Ctip and any of the unconsolidated Ctips of its sidechain, nothing else
+  (`bad-dc-withdrawal-inputs`), and pays out of all of them; its M6 id drops every input.
+- Spending an unconsolidated Ctip without a new treasury output is invalid (`bad-dc-escrow-spend`); a block that
+  ends with an unconsolidated Ctip is invalid (`bad-dc-unconsolidated-deposit`).
+- **The block template** (`drivechain::BlockConsolidations`, `src/node/miner.cpp`) appends, after its
+  withdrawals, one transaction spending each sidechain's Ctip (as the withdrawals left it) and its
+  unconsolidated Ctips into one treasury output (version 2, lock time 0, no fee; as the enforcer's block
+  producer; one per sidechain under the message limits), and keeps room for it as it takes deposits
+  (`ConsolidationWeight`, the enforcer's `consolidation_tx_weight`). Its own M6 spends the Ctip alone. A pool
+  that builds blocks from getblocktemplate must keep that zero-fee transaction (it depends on the deposits),
+  or leave the deposits out with it. `generateblock` consolidates the deposits it is given.
+- **The mempool** takes deposits that do not spend the Ctip (they conflict with nothing, and stay across
+  blocks without them), and refuses a transaction spending the output of such an unconfirmed deposit
+  (`dc-escrow-unconsolidated`: how a block would read it depends on the block). **The wallet**
+  (`createsidechaindeposit`, gRPC `CreateDepositTransaction`) makes them so: an escrow output of the amount.
+- **What is reported**: each deposit with its own outpoint (the deposit transaction's treasury output) and
+  the amount it added (getsidechainevents, listsidechaindeposits, gRPC `GetBlockInfo`/`SubscribeEvents`
+  deposit events); `total` is what the escrow holds after it, the deposits waiting to be consolidated
+  included. The consolidation is no event and is not listed (the explorer shows it); it makes the Ctip that
+  getsidechain and gRPC `GetCtip` show. The gRPC sequence numbers are the enforcer's: the treasury UTXOs
+  before the event, which a deposit left unconsolidated does not count and a consolidation does
+  (`Deposit::ctip` in the index). Sidechains credit deposits as before: nothing changes for them.
 
 Chains' own safety rules are **not consensus on eCash** (they would fork the node off the enforcer's chain),
 until the enforcer adopts them at a height (the activation switch below, unset on every network).
@@ -340,9 +380,9 @@ repository; the older eCash branches of our repositories are superseded and kept
 
 ## Follow-ups
 
-1. eCash main network: the enforcer's mainnet support is on an unmerged branch (`2026-10-12-mainnet`), whose
-   values Backbone matches; watch for its merge, and for `2026-10-03-aggregated-deposits`, which would change
-   the deposit and withdrawal rules. The fork-day runbook is in the v0.2.0 release notes.
+1. eCash main network: Backbone matches the enforcer's master as of `a2ce3fe` (eCash's thresholds 6,048/12,096,
+   aggregated deposits, one M1 and one M3 per block); watch it for later consensus changes. The fork-day
+   runbook is in the v0.2.0 release notes.
 2. eCash's open pull requests: BIP94 on mainnet from the fork height (PR 4), ASERT (PR 2), a snapshot at
    967,000 (PR 3): follow them if merged.
 3. Live validation of the enforcer rules: a shadow run beside the bip300301_enforcer on a server (not this
