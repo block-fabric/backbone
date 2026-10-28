@@ -7,15 +7,22 @@
 
 #include <wallet/rpc/wallet.h>
 
+#include <chain.h>
+#include <chainparams.h>
 #include <coins.h>
 #include <core_io.h>
 #include <key.h>
 #include <key_io.h>
+#include <node/types.h>
+#include <outputtype.h>
 #include <rpc/server.h>
 #include <rpc/util.h>
+#include <script/descriptor.h>
 #include <univalue.h>
 #include <util/bip32.h>
+#include <util/time.h>
 #include <util/translation.h>
+#include <wallet/bip39.h>
 #include <wallet/context.h>
 #include <wallet/export.h>
 #include <wallet/receive.h>
@@ -30,6 +37,7 @@
 
 namespace wallet {
 
+using interfaces::FoundBlock;
 using HDPubKeyMap = CWallet::HDPubKeyMap;
 using HDKeyFilter = CWallet::HDKeyFilter;
 
@@ -435,6 +443,259 @@ static RPCMethod createwallet()
     obj.pushKV("name", wallet->GetName());
     PushWarnings(warnings, obj);
 
+    return obj;
+},
+    };
+}
+
+static RPCMethod generatemnemonic()
+{
+    return RPCMethod{
+        "generatemnemonic",
+        "Makes a new BIP39 recovery phrase (English words), of the strong random source of the node. It is not stored anywhere:\n"
+        "write it down, then make the wallet of it with createwalletfrommnemonic.\n",
+        {
+            {"words", RPCArg::Type::NUM, RPCArg::Default{12}, "The number of words: 12, 15, 18, 21 or 24"},
+        },
+        RPCResult{RPCResult::Type::STR, "", "The recovery phrase, its words separated by one space"},
+        RPCExamples{
+            HelpExampleCli("generatemnemonic", "")
+            + HelpExampleCli("generatemnemonic", "24")
+            + HelpExampleRpc("generatemnemonic", "24")
+        },
+        [](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
+{
+    const int64_t words{request.params[0].isNull() ? 12 : request.params[0].getInt<int64_t>()};
+    if (words < 0 || !bip39::IsWordCount(words)) throw JSONRPCError(RPC_INVALID_PARAMETER, "A recovery phrase has 12, 15, 18, 21 or 24 words");
+    const SecureString phrase{bip39::GenerateMnemonic(words)};
+    return std::string{phrase.begin(), phrase.end()};
+},
+    };
+}
+
+static RPCMethod createwalletfrommnemonic()
+{
+    return RPCMethod{
+        "createwalletfrommnemonic",
+        "Creates and loads a new wallet of a BIP39 recovery phrase (English words, and the BIP39 passphrase if it has one), then rescans the\n"
+        "blockchain from its birthday for the coins of the phrase.\n"
+        "The wallet has the descriptors of account 0 of the four standard single-key types, receiving and change, all active, of the master key\n"
+        "of the phrase: BIP84 wpkh(), BIP86 tr(), BIP49 sh(wpkh()) and BIP44 pkh(), of coin type 0' (1' on the test networks). Its new addresses\n"
+        "are BIP84 ones (-addresstype). A phrase of a Bitcoin wallet from before the fork of eCash finds the coins it had then on eCash too.\n"
+        "The phrase is not stored: the wallet has the keys of it, as any other.\n"
+        "\nNote: This call can take over an hour to complete with an early birthday; during that time, other rpc calls may report that the\n"
+        "wallet's transactions are still missing. The rescan is significantly faster if block filters are available (using startup option\n"
+        "\"-blockfilterindex=1\"). On a pruned node, the birthday cannot be before the blocks the node still has.\n",
+        {
+            {"wallet_name", RPCArg::Type::STR, RPCArg::Optional::NO, "The name for the new wallet. If this is a path, the wallet will be created at the path location."},
+            {"mnemonic", RPCArg::Type::STR, RPCArg::Optional::NO, "The recovery phrase: 12, 15, 18, 21 or 24 BIP39 English words, separated by spaces"},
+            {"bip39_passphrase", RPCArg::Type::STR, RPCArg::Default{""}, "The BIP39 passphrase of the phrase (its \"25th word\"), if it has one. ASCII characters only."},
+            {"birthday", RPCArg::Type::NUM, RPCArg::Default{0}, "The time the phrase was first used, in " + UNIX_EPOCH_TIME + ": the rescan starts there (2 hours before).\n"
+             "0 rescans the entire blockchain; \"now\" rescans nothing (a new phrase, which nothing paid yet).",
+             RPCArgOptions{.skip_type_check = true, .type_str={"timestamp | \"now\"", "integer / string"}}},
+            {"passphrase", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Encrypt the wallet with this passphrase (not the BIP39 passphrase)."},
+            {"load_on_startup", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Save wallet name to persistent settings and load on startup. True to add wallet to startup list, false to remove, null to leave unchanged."},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR, "name", "The wallet name if created successfully. If the wallet was created using a full path, the wallet_name will be the full path."},
+                {RPCResult::Type::NUM_TIME, "birthday", "The birthday of the wallet's descriptors, in " + UNIX_EPOCH_TIME},
+                {RPCResult::Type::BOOL, "rescanned", "Whether the blockchain was rescanned (not for \"now\", nor a birthday after the tip)"},
+                {RPCResult::Type::ARR, "funds", "What the rescan found, by type of address",
+                {
+                    {RPCResult::Type::OBJ, "", "",
+                    {
+                        {RPCResult::Type::STR, "type", "The address type: legacy, p2sh-segwit, bech32 or bech32m"},
+                        {RPCResult::Type::NUM, "bip", "Its BIP: 44, 49, 84 or 86"},
+                        {RPCResult::Type::STR, "path", "The derivation path of its account"},
+                        {RPCResult::Type::NUM, "transactions", "The number of the wallet's transactions that pay addresses of this type"},
+                        {RPCResult::Type::STR_AMOUNT, "received", "The amount received by addresses of this type, in " + CURRENCY_UNIT},
+                        {RPCResult::Type::STR_AMOUNT, "balance", "The amount of this type not spent yet, in " + CURRENCY_UNIT},
+                    }},
+                }},
+                {RPCResult::Type::ARR, "warnings", /*optional=*/true, "Warning messages, if any, related to creating and loading the wallet.",
+                {
+                    {RPCResult::Type::STR, "", ""},
+                }},
+            }
+        },
+        RPCExamples{
+            HelpExampleCli("createwalletfrommnemonic", "\"restored\" \"word1 word2 ... word12\"")
+            + HelpExampleCliNamed("createwalletfrommnemonic", {{"wallet_name", "restored"}, {"mnemonic", "word1 word2 ... word12"}, {"birthday", 1700000000}})
+            + HelpExampleRpc("createwalletfrommnemonic", "\"restored\", \"word1 word2 ... word12\", \"\", 0")
+        },
+        [](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
+{
+    WalletContext& context = EnsureWalletContext(request.context);
+    interfaces::Chain& chain{*context.chain};
+
+    // The phrase and its master key, checked before any wallet is made. The errors never repeat a word of it.
+    SecureString mnemonic;
+    mnemonic.reserve(512);
+    mnemonic = std::string_view{request.params[1].get_str()};
+    SecureString bip39_passphrase;
+    bip39_passphrase.reserve(100);
+    if (!request.params[2].isNull()) bip39_passphrase = std::string_view{request.params[2].get_str()};
+    auto master{bip39::MasterKeyFromMnemonic(mnemonic, bip39_passphrase)};
+    if (!master) throw JSONRPCError(RPC_INVALID_PARAMETER, util::ErrorString(master).original);
+
+    SecureString passphrase;
+    passphrase.reserve(100);
+    std::vector<bilingual_str> warnings;
+    if (!request.params[4].isNull()) {
+        passphrase = std::string_view{request.params[4].get_str()};
+        if (passphrase.empty()) {
+            // Empty string means unencrypted
+            warnings.emplace_back(Untranslated("Empty string given as passphrase, wallet will not be encrypted."));
+        }
+    }
+
+    // The birthday: "now" is the time of the tip, as for importdescriptors.
+    const std::optional<int> tip_height{chain.getHeight()};
+    const uint256 tip_hash{tip_height ? chain.getBlockHash(*tip_height) : uint256{}};
+    int64_t now{GetTime()};
+    if (tip_height) CHECK_NONFATAL(chain.findBlock(tip_hash, FoundBlock().mtpTime(now)));
+    int64_t birthday{0};
+    const UniValue& birthday_arg{request.params[3]};
+    // "now": a new phrase, which nothing paid yet: no rescan at all.
+    const bool fresh{birthday_arg.isStr()};
+    if (fresh) {
+        if (birthday_arg.get_str() != "now") throw JSONRPCError(RPC_TYPE_ERROR, "birthday: a timestamp, or \"now\"");
+        birthday = now;
+    } else if (!birthday_arg.isNull()) {
+        if (!birthday_arg.isNum()) throw JSONRPCError(RPC_TYPE_ERROR, "birthday: a timestamp, or \"now\"");
+        birthday = birthday_arg.getInt<int64_t>();
+        if (birthday < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "birthday: a timestamp, 0 or more");
+    }
+    // The first block of the rescan, as RescanFromTime finds it; none if the birthday is after the tip.
+    int start_height{0};
+    const bool rescan{!fresh && tip_height && chain.findFirstBlockWithTimeAndHeight(birthday - TIMESTAMP_WINDOW, 0, FoundBlock().height(start_height))};
+    // A rescan that cannot read its blocks finds nothing of them, and would say so only once the wallet is made: refused first.
+    if (rescan && !chain.hasBlocks(tip_hash, start_height)) {
+        const std::optional<int> prune_height{chain.getPruneHeight()};
+        if (chain.havePruned() && prune_height && *prune_height >= start_height && *prune_height < *tip_height) {
+            int64_t first_time{0};
+            CHECK_NONFATAL(chain.findBlock(chain.getBlockHash(*prune_height + 1), FoundBlock().maxTime(first_time)));
+            // The first day whose midnight is late enough that the rescan starts at a block the node has.
+            const int64_t earliest{((first_time + TIMESTAMP_WINDOW) / 86400 + 1) * 86400};
+            throw JSONRPCError(RPC_MISC_ERROR, strprintf("This node is pruned: it no longer has the blocks before height %d (%s), so it cannot look for the coins of the "
+                                                         "phrase before then. Give the wallet a birthday, the day the phrase was first used, of %s or later; or, for an older "
+                                                         "phrase, restore it on a node that is not pruned (or after -reindex).",
+                                                         *prune_height + 1, FormatISO8601Date(first_time), FormatISO8601Date(earliest)));
+        }
+        throw JSONRPCError(RPC_MISC_ERROR, strprintf("This node does not have all the blocks from height %d yet (an assumeutxo snapshot whose background sync is under way): "
+                                                     "try again once it is done (getchainstates), or give a later birthday.", start_height));
+    }
+
+    DatabaseOptions options;
+    DatabaseStatus status;
+    ReadDatabaseArgs(*context.args, options);
+    options.require_create = true;
+    // Blank: its keys are the phrase's, not new ones; and it stays so, so that encrypting it later does not replace them
+    // with those of a new seed (EncryptWallet, SetupWalletGeneration).
+    options.create_flags = WALLET_FLAG_DESCRIPTORS | WALLET_FLAG_BLANK_WALLET;
+    options.create_passphrase = passphrase;
+    bilingual_str error;
+    std::optional<bool> load_on_start = request.params[5].isNull() ? std::nullopt : std::optional<bool>(request.params[5].get_bool());
+    const std::shared_ptr<CWallet> wallet = CreateWallet(context, request.params[0].get_str(), load_on_start, options, status, error, warnings);
+    HandleWalletError(wallet, status, error);
+
+    WalletRescanReserver reserver(*wallet);
+    if (!reserver.reserve(/*with_passphrase=*/true)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is currently rescanning. Abort existing rescan or wait.");
+    }
+    // Unlocked for the import and the rescan (the keys top up the descriptors), locked again whatever happens.
+    LOCK(wallet->m_relock_mutex);
+    if (!passphrase.empty() && !wallet->Unlock(passphrase)) throw JSONRPCError(RPC_WALLET_ERROR, "Error: the new wallet could not be unlocked");
+    struct Relock {
+        CWallet& wallet;
+        ~Relock() { wallet.Lock(); }
+    } relock{*wallet};
+
+    const int64_t timestamp{std::max<int64_t>(birthday, 1)};
+    const int coin_type{Params().IsTestChain() ? 1 : 0};
+    std::map<uint256, OutputType> types;
+    {
+        LOCK(wallet->cs_wallet);
+        for (bool internal : {false, true}) {
+            for (OutputType type : OUTPUT_TYPES) {
+                const SecureString desc{bip39::AccountDescriptor(*master, type, coin_type, internal)};
+                FlatSigningProvider keys;
+                std::string desc_error;
+                auto parsed{Parse(desc, keys, desc_error, /*require_checksum=*/true)};
+                CHECK_NONFATAL(parsed.size() == 1);
+                WalletDescriptor w_desc(std::move(parsed[0]), timestamp, /*range_start=*/0, /*range_end=*/wallet->m_keypool_size, /*next_index=*/0);
+                // The error, not the descriptor: it has the master private key.
+                auto spk_manager{wallet->AddWalletDescriptor(w_desc, keys, /*label=*/"", internal)};
+                if (!spk_manager) throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Could not add the %s descriptor: %s", FormatOutputType(type), util::ErrorString(spk_manager).original));
+                wallet->AddActiveScriptPubKeyMan(spk_manager->get().GetID(), type, internal);
+                types.emplace(spk_manager->get().GetID(), type);
+            }
+        }
+        wallet->ConnectScriptPubKeyManNotifiers();
+        wallet->RefreshAllTXOs();
+    }
+
+    if (rescan) {
+        bool aborted{false};
+        const int64_t scanned_time{wallet->RescanFromTime(timestamp, reserver, &aborted)};
+        wallet->ResubmitWalletTransactions(node::TxBroadcast::MEMPOOL_NO_BROADCAST, /*force=*/true);
+        if (aborted || wallet->IsAbortingRescan()) {
+            throw JSONRPCError(RPC_MISC_ERROR, strprintf("Rescan aborted: the wallet \"%s\" is made, with the keys of the phrase; rescanblockchain finds the rest of its coins.", wallet->GetName()));
+        }
+        if (scanned_time > timestamp) {
+            warnings.emplace_back(Untranslated(strprintf("The rescan could not read the blocks before %s (pruning or data corruption, see debug.log): coins of the phrase from before then "
+                                                         "may be missing (rescanblockchain, after -reindex).", FormatISO8601DateTime(scanned_time - TIMESTAMP_WINDOW - 1))));
+        }
+    }
+
+    // What the rescan found, by type: the fork claims of a Bitcoin phrase are in the types it used.
+    struct Tally {
+        int64_t transactions{0};
+        CAmount received{0};
+        CAmount balance{0};
+    };
+    std::map<OutputType, Tally> tallies;
+    {
+        LOCK(wallet->cs_wallet);
+        for (const auto& [txid, wtx] : wallet->mapWallet) {
+            if (wallet->GetTxDepthInMainChain(wtx) < 0) continue;
+            std::set<OutputType> paid;
+            const CTransactionRef tx{wtx.GetTx()};
+            for (size_t i{0}; i < tx->vout.size(); ++i) {
+                const CTxOut& out{tx->vout[i]};
+                for (ScriptPubKeyMan* spkm : wallet->GetScriptPubKeyMans(out.scriptPubKey)) {
+                    const auto it{types.find(spkm->GetID())};
+                    if (it == types.end()) continue;
+                    Tally& tally{tallies[it->second]};
+                    if (paid.insert(it->second).second) ++tally.transactions;
+                    tally.received += out.nValue;
+                    if (!wallet->IsSpent(COutPoint{txid, static_cast<uint32_t>(i)})) tally.balance += out.nValue;
+                    break;
+                }
+            }
+        }
+    }
+    UniValue funds(UniValue::VARR);
+    for (OutputType type : {OutputType::BECH32, OutputType::BECH32M, OutputType::P2SH_SEGWIT, OutputType::LEGACY}) {
+        const Tally& tally{tallies[type]};
+        UniValue entry(UniValue::VOBJ);
+        entry.pushKV("type", FormatOutputType(type));
+        entry.pushKV("bip", bip39::Purpose(type));
+        entry.pushKV("path", strprintf("m/%dh/%dh/0h", bip39::Purpose(type), coin_type));
+        entry.pushKV("transactions", tally.transactions);
+        entry.pushKV("received", ValueFromAmount(tally.received));
+        entry.pushKV("balance", ValueFromAmount(tally.balance));
+        funds.push_back(std::move(entry));
+    }
+
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV("name", wallet->GetName());
+    obj.pushKV("birthday", timestamp);
+    obj.pushKV("rescanned", rescan);
+    obj.pushKV("funds", std::move(funds));
+    PushWarnings(warnings, obj);
     return obj;
 },
     };
@@ -1147,6 +1408,7 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &psbtbumpfee},
         {"wallet", &createwallet},
         {"wallet", &createwalletdescriptor},
+        {"wallet", &createwalletfrommnemonic},
         {"wallet", &derivehdkey},
         {"wallet", &restorewallet},
         {"wallet", &encryptwallet},
@@ -1154,6 +1416,7 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &getaddressesbylabel},
         {"wallet", &getaddressinfo},
         {"wallet", &getbalance},
+        {"wallet", &generatemnemonic},
         {"wallet", &gethdkeys},
         {"wallet", &getnewaddress},
         {"wallet", &getrawchangeaddress},

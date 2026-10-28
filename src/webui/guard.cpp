@@ -247,11 +247,12 @@ bool SecretParam(std::string_view method, size_t index, std::string_view name)
     static const std::map<std::string_view, std::vector<size_t>> SECRETS{
         {"walletpassphrase", {0}}, {"walletpassphrasechange", {0, 1}}, {"encryptwallet", {0}}, {"signmessagewithprivkey", {0}},
         {"signrawtransactionwithkey", {1}}, {"createwallet", {3}}, {"migratewallet", {1}}, {"createwalletdescriptor", {}},
+        {"createwalletfrommnemonic", {1, 2, 4}},
     };
     const auto it{SECRETS.find(method)};
     if (it != SECRETS.end() && std::ranges::find(it->second, index) != it->second.end()) return true;
     const std::string lower{ToLower(name)};
-    return lower.find("passphrase") != std::string::npos || lower.find("privkey") != std::string::npos || lower == "privatekeys";
+    return lower.find("passphrase") != std::string::npos || lower.find("privkey") != std::string::npos || lower == "privatekeys" || lower.find("mnemonic") != std::string::npos;
 }
 } // namespace
 

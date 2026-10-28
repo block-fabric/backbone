@@ -233,6 +233,18 @@ the state before it exactly).
   fail: then anti-fee-sniping, with a warning in the log. A fee bump keeps the locktime.
 - **Replay is one way.** Nothing makes a Bitcoin transaction invalid on eCash: moving a coin that was never
   split on Bitcoin moves it on eCash too (eCash's `betanet-bridge` seed nodes replay them on purpose).
+- **Recovery phrases (BIP39)** (`src/wallet/bip39.{h,cpp}`, `createwalletfrommnemonic`, `generatemnemonic`): a
+  wallet of 12 to 24 English words and the optional BIP39 passphrase is a blank descriptor wallet with the
+  descriptors of account 0 of BIP84 `wpkh`, BIP86 `tr`, BIP49 `sh(wpkh)` and BIP44 `pkh` (receiving and change,
+  all active, of the master xprv of the BIP39 seed; coin type as above), rescanned from its birthday (0: the
+  whole chain; `"now"`: none, a new phrase). The result says what the rescan found by address type: a Bitcoin
+  phrase from before the fork (block 973,728) holds its coins of then on eCash too, in the types it used. It
+  stays blank, so that `encryptwallet` later keeps its keys. A pruned node refuses a birthday before the blocks
+  it has, before any wallet is made, and says the earliest it can rescan. Only ASCII BIP39 passphrases: NFKD
+  is the identity on them and on the English words, and the node does no Unicode normalization. Nothing logs
+  the phrase: the errors name a word by its place; the app's console keeps the call out of its history. The
+  app makes a new wallet of a phrase by default (12 words, or 24), shown once with three words asked back;
+  `wallets.createFromMnemonic` and gRPC `CreateWallet` (`mnemonic_words`) call the same RPC.
 
 ### Splitting coins (design)
 
@@ -301,6 +313,8 @@ sidechains comes with the port of the unified wallet from Chains (user decision 
   -testecashfork=288@207fffff`, both `-testpowretarget`) split at the fork height; replay, magic locktime,
   repurpose (`-testrepurposetx`), OP_NOP8, a reorg across the fork, the bip300301 rule.
 - `test/functional/wallet_ecash_replay.py`: the wallet's defaults, a timelocked coin, the split.
+- `src/wallet/test/bip39_tests.cpp` (Trezor's BIP39 vectors, BIP84/86/49/44 derivation vectors) and
+  `test/functional/wallet_bip39.py`: recovery phrases.
 - `-testecashmagic` (with `-testecash`): the message start and port of eCash's client on regtest (`eca5b134`,
   18644), so that backboned peers with ecash-com/bitcoin on regtest and reads its block files (the lab's
   differential tests against the enforcer; not the default, as `feature_ecash_fork.py` shares one regtest network).

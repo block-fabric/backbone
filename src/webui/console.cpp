@@ -20,6 +20,7 @@ namespace {
 const std::vector<std::string> SENSITIVE{
     "createwallet",
     "createwalletdescriptor",
+    "createwalletfrommnemonic",
     "migratewallet",
     "signmessagewithprivkey",
     "signrawtransactionwithkey",
