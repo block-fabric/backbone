@@ -31,9 +31,9 @@ get_directory_property(precious_variables CACHE_VARIABLES)
 # configuration file (backbone.conf) and the user agent follow it.
 set(CLIENT_NAME "Backbone")
 # The product's own version (its releases): what the node says it is, on the network (the P2P subversion
-# "/Backbone:0.2.0/"), in -version, getnetworkinfo and the app's About, and in the release packages' names.
+# "/Backbone:0.2.1/"), in -version, getnetworkinfo and the app's About, and in the release packages' names.
 # CLIENT_VERSION (Bitcoin Core's, below) stays what the wallets, settings and protocol versions count.
-set(PRODUCT_VERSION "0.2.0")
+set(PRODUCT_VERSION "0.2.1")
 string(TOLOWER "${CLIENT_NAME}" CLIENT_NAME_LOWER)
 set(CLIENT_VERSION_MAJOR 32)
 set(CLIENT_VERSION_MINOR 0)
