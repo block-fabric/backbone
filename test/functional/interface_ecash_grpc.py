@@ -137,6 +137,7 @@ class EcashGrpcTest(BitcoinTestFramework):
         self.test_errors()
         self.test_slow_clients()
         self.test_security()
+        self.test_create_wallet()
         self.test_stop()
 
     def test_health_and_reflection(self):
@@ -610,6 +611,24 @@ class EcashGrpcTest(BitcoinTestFramework):
                 received = received[9 + int.from_bytes(received[:3], 'big'):]
             assert 0x7 in types, types  # GOAWAY
         self.anonymous.unary(V + 'GetChainTip')
+
+    def test_create_wallet(self):
+        self.log.info('CreateWallet: with mnemonic_words, the wallet of the BIP39 phrase (createwalletfrommnemonic); mnemonic_path refused')
+        words = ['abandon'] * 11 + ['about']
+        code, message, _ = self.grpc.call(W + 'CreateWallet', {'mnemonic_path': '/etc/hostname'})
+        assert_equal((code, message), (UNIMPLEMENTED, 'mnemonic_path is not supported: give the words of the phrase in mnemonic_words'))
+        assert_equal(self.grpc.call(W + 'CreateWallet', {'mnemonic_words': words})[0], ALREADY_EXISTS)
+        # The -grpcwallet of a node that does not have it yet.
+        args = self.base_args[:-1] + ['-grpcwallet=phrase', f'-grpcauth={TOKEN}', '-grpcallowstop']
+        self.restart_node(0, extra_args=args)
+        code, message, _ = self.grpc.call(W + 'CreateWallet', {'mnemonic_words': words[:-1] + ['abandon']})
+        assert_equal((code, message), (INVALID_ARGUMENT, 'The checksum of the recovery phrase does not match: a word is mistyped, missing or out of place.'))
+        assert_equal(self.grpc.unary(W + 'CreateWallet', {'mnemonic_words': words, 'password': 'pw'}), {})
+        wallet = self.node.get_wallet_rpc('phrase')
+        assert_equal(len(wallet.listdescriptors()['descriptors']), 8)
+        assert_equal(wallet.getwalletinfo()['unlocked_until'], 0)
+        assert_equal(self.grpc.call(W + 'CreateWallet', {'mnemonic_words': words})[0], ALREADY_EXISTS)
+        self.restart_node(0, extra_args=self.extra_args[0])
 
     def test_stop(self):
         self.log.info('Stop: the node shuts down (grpc.rs:476-490)')

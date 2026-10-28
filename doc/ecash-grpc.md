@@ -76,7 +76,7 @@ the same chain (§3, §4); "≈": same meaning, a documented difference (§5).
 | GenerateBlocks | bitassets, zside | **not at 17eb2ce** (older `cusf_sidechain_proto` `wallet.proto:223-233`): a stream of blocks mined to a new address; `ack_all_proposals` acks all while it runs |
 | GetBalance | sol | confirmed (1 conf), pending = the rest, `has_synced` |
 | ListTransactions, ListSidechainDepositTransactions, ListUnspentOutputs, GetInfo, SendTransaction, UnlockWallet, FullScan | none of the survey | ≈ mapped onto `listtransactions`/`gettransaction`, `listunspent`, `getwalletinfo`/`listdescriptors`, `send`/`sendall` (an absolute fee: UNIMPLEMENTED), `walletpassphrase`, `rescanblockchain` |
-| CreateWallet | none | without a mnemonic: `createwallet`; with one: UNIMPLEMENTED (no BIP39 in our wallets) |
+| CreateWallet | bitwindowd | without a mnemonic: `createwallet`; with `mnemonic_words`: `createwalletfrommnemonic` (12 to 24 BIP39 words, no BIP39 passphrase; the descriptors of BIP84, BIP86, BIP49 and BIP44, and a rescan of the whole chain, so the call takes as long as that rescan). ≈: `mnemonic_path` is UNIMPLEMENTED, as a client does not name files on the node's machine; the enforcer takes 12 words only |
 
 ### BlockProducerService (here: the block template's drivechain policy, `drivechain::MinerState`)
 

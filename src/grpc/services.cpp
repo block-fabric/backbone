@@ -1657,20 +1657,33 @@ void ServicesImpl::RegisterWallet(Server& server)
         Reply(w, resp);
     });
 
-    // A BIP39 mnemonic has no place in our wallets (descriptor wallets of BIP32 seeds): refused. Without one,
-    // a wallet of that name (the -grpcwallet one, or "grpc"), encrypted with the password if one is given.
+    // A wallet of that name (the -grpcwallet one, or "grpc"), encrypted with the password if one is given. With mnemonic_words,
+    // the wallet of that BIP39 phrase (createwalletfrommnemonic, without a BIP39 passphrase): its descriptors of BIP84, BIP86, BIP49
+    // and BIP44, after a rescan of the whole chain for its coins. mnemonic_path, a file the node would read, is refused: a client
+    // does not name files of the node's machine (and the enforcer reads it on its own machine, which ours is not).
     Add(server, svc, "CreateWallet", [&ctx, rpc](const Message& req, const std::shared_ptr<Writer>& w) {
-        if (req.Count("mnemonic_words") || !req.GetString("mnemonic_path").empty()) {
-            return Fail(w, {Code::UNIMPLEMENTED, "BIP39 mnemonics are not supported: Backbone's wallets are descriptor wallets (createwallet, importdescriptors)"});
+        if (!req.GetString("mnemonic_path").empty()) {
+            return Fail(w, {Code::UNIMPLEMENTED, "mnemonic_path is not supported: give the words of the phrase in mnemonic_words"});
         }
         Status st;
         if (ctx.Rpc("getwalletinfo", UniValue(UniValue::VARR), true, st)) return Fail(w, {Code::ALREADY_EXISTS, "Wallet already exists"});
+        const std::string name{ctx.options.wallet.empty() ? "grpc" : ctx.options.wallet};
         UniValue params(UniValue::VARR);
-        params.push_back(ctx.options.wallet.empty() ? "grpc" : ctx.options.wallet);
-        params.push_back(false);
-        params.push_back(false);
-        params.push_back(req.GetString("password"));
-        if (!rpc("createwallet", params, w)) return;
+        params.push_back(name);
+        if (req.Count("mnemonic_words")) {
+            std::string phrase;
+            for (size_t i{0}; i < req.Count("mnemonic_words"); ++i) phrase += (i ? " " : "") + req.StringAt("mnemonic_words", i);
+            params.push_back(std::move(phrase));
+            params.push_back("");
+            params.push_back(0);
+            params.push_back(req.GetString("password").empty() ? UniValue{} : UniValue{req.GetString("password")});
+            if (!rpc("createwalletfrommnemonic", std::move(params), w)) return;
+        } else {
+            params.push_back(false);
+            params.push_back(false);
+            params.push_back(req.GetString("password"));
+            if (!rpc("createwallet", std::move(params), w)) return;
+        }
         Reply(w, ctx.New("cusf.mainchain.v1.CreateWalletResponse"));
     });
 
