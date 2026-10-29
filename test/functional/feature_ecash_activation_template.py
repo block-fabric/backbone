@@ -56,7 +56,11 @@ class EcashActivationTemplateTest(BitcoinTestFramework):
 
     def acks(self, slot):
         pending = [p for p in self.nodes[0].listsidechainproposals()["pending"] if p["slot"] == slot]
-        return pending[0]["acks"] if pending else None
+        if not pending:
+            return None
+        # The blocks left: the acks still needed for more than the threshold.
+        assert_equal(pending[0]["blocksleft"], UNUSED_SLOT_THRESHOLD + 1 - pending[0]["acks"])
+        return pending[0]["acks"]
 
     def mine_to_activation(self, slot, before):
         """Mine until the next block activates `slot`, calling `before()` (which returns the txids that must be in the

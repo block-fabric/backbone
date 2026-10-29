@@ -105,6 +105,12 @@ SidechainDB::PendingBundles SidechainDB::GetPendingBundles() const
 
 int SidechainDB::BlocksUntilActivation(const Proposal& proposal, bool slot_in_use, int height, const Consensus::DrivechainParams& params)
 {
+    // Enforcer rules: the ack that takes it over the threshold activates it (within its time), as early as the
+    // next block's; those still to come.
+    if (params.EnforcerRules()) {
+        const int threshold{slot_in_use ? params.used_slot_threshold : params.unused_slot_threshold};
+        return std::max(1, threshold + 1 - static_cast<int>(proposal.acks));
+    }
     const int period{slot_in_use ? params.replacement_period : params.activation_period};
     return period - Age(proposal.height, height);
 }

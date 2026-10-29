@@ -644,7 +644,13 @@ BOOST_AUTO_TEST_CASE(enforcer_activation)
     const Sidechain sidechain{MakeSidechain(2)};
     BOOST_REQUIRE(chain.Connect({ProposalScript(sidechain)}));
     // Acks in the proposing block do not count; more than the threshold (5) within the age (10) activate.
-    for (int i{0}; i < 5; ++i) BOOST_REQUIRE(chain.Connect({Ack(sidechain)}));
+    // The blocks left (listsidechainproposals): the acks still needed, the next block's included.
+    const auto blocks_left{[&] { return SidechainDB::BlocksUntilActivation(chain.scdb.GetProposals().at(0), false, chain.height, chain.params); }};
+    BOOST_CHECK_EQUAL(blocks_left(), 6);
+    for (int i{0}; i < 5; ++i) {
+        BOOST_REQUIRE(chain.Connect({Ack(sidechain)}));
+        BOOST_CHECK_EQUAL(blocks_left(), 5 - i);
+    }
     BOOST_CHECK(!chain.scdb.IsActive(2));
     BOOST_REQUIRE(chain.Connect({Ack(sidechain)}));
     BOOST_CHECK(chain.scdb.IsActive(2));
