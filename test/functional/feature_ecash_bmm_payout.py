@@ -99,19 +99,22 @@ class EcashBmmPayoutTest(BitcoinTestFramework):
         bundle.vout[1] = CTxOut(COIN // 2, address_to_scriptpubkey(node.getnewaddress()))
         second = node.receivewithdrawalbundle(SLOT, bundle.serialize().hex())["hash"]
         node.setwithdrawalvote(SLOT, "upvote", second)
+        # The votes by blocks without the mempool (generateblock), which do not pay it: the template would pay it itself
+        # in the block whose vote makes it payable (its votes count before its transactions).
         sent = None
         for i in range(400):
-            side_hash = f"{i + 1000:064x}"
             result = node.sendwithdrawalbundle(SLOT, second)
             if result["sent"]:
                 sent = result["txid"]
                 assert sent in node.getrawmempool()
-            node.createbmmrequest(SLOT, side_hash, Decimal("0.001"))
-            block = self.mine()[0]
-            assert_equal(self.accepts(block), [(SLOT, side_hash)])
-            if sent:
-                assert sent in node.getblock(block)["tx"]
                 break
+            self.generateblock(node, self.address, [], sync_fun=self.no_op)
+        assert sent is not None, "the second bundle was never payable"
+        side_hash = f"{1000:064x}"
+        node.createbmmrequest(SLOT, side_hash, Decimal("0.001"))
+        block = self.mine()[0]
+        assert_equal(self.accepts(block), [(SLOT, side_hash)])
+        assert sent in node.getblock(block)["tx"]
         assert sent is not None, "the second bundle was never payable"
         assert_equal(node.getwithdrawalbundle(SLOT, second)["status"], "paid")
 
