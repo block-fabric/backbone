@@ -407,7 +407,8 @@ static std::vector<AssumeutxoData> BitcoinMainSnapshots()
 
 /**
  * The main network of eCash (ECX): Bitcoin's chain, forked at block 973,728 (ecash-com/bitcoin, tag
- * ecash-v1.1.0-core31.1, branch master: v1.0.0 and the dampened 288-block retarget after the fork).
+ * ecash-v1.2.0-core32.1, branch master: v1.0.0 and the dampened 288-block retarget after the fork of v1.1.0, on
+ * Bitcoin Core v32.1; consensus as v1.1.0-core31.1).
  */
 class CEcashMainParams : public CChainParams {
 public:
@@ -418,7 +419,7 @@ public:
         consensus.ecash_fork_bits = 0x1901a6e1; // Difficulty 2.6e9 at the fork block
         // The reset is computed by the retarget (CalculateNextWorkRequired), which runs at these heights only.
         assert(consensus.ecash_fork_height % consensus.DifficultyAdjustmentInterval() == 0);
-        // From the fork block, a dampened retarget every 288 blocks (ecash-v1.1.0-core31.1, 5bd8690fab).
+        // From the fork block, a dampened retarget every 288 blocks (ecash-v1.1.0-core31.1, 5bd8690fab; ecash-v1.2.0-core32.1, c8474e0b4f).
         consensus.ecash_retarget_interval = 288;
         assert(consensus.ecash_fork_height % consensus.ecash_retarget_interval == 0);
         consensus.replay_locktime = LOCKTIME_THRESHOLD - 2;
@@ -609,10 +610,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 1512; // 75%
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 2016;
         SetEcashForkRules(consensus);
-        // eCash's release (tag ecash-v1.0.0-core31.1) makes the same value final on every network.
+        // eCash's releases (ecash-v1.0.0-core31.1 to ecash-v1.2.0-core32.1) make the same value final on every network.
         consensus.replay_locktime = LOCKTIME_THRESHOLD - 2;
-        // The enforcer has no preset for an eCash test network: it runs testnet4 with its Thresholds::SHORT.
-        // BIP300/301 starts above testnet4's history (161,280 = 2016 * 80), which is Bitcoin's, scanned by nobody.
+        // BIP300/301 starts above testnet4's history (161,280 = 2016 * 80), which is Bitcoin's, scanned by nobody, with
+        // the enforcer's Thresholds::SHORT. Enforcer v1.0.1 (--fork=ecash on testnet4) starts at 0: on this network the
+        // two differ, and ecashtest is for Backbone's own tests (doc/ecash.md).
         consensus.drivechain.activation_height = 161280;
         consensus.drivechain.unused_slot_threshold = 5;
         consensus.drivechain.unused_slot_max_age = 10;

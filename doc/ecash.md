@@ -19,7 +19,7 @@ Betanet (`-chain=ecashbeta`, `-ecashregtest=betanet`) keeps `/Backbone:0.2.0/`, 
 
 | `-chain=` | What | Message start | P2P / RPC | Fork height, bits | Replay locktime | Data (default datadir) |
 |---|---|---|---|---|---|---|
-| `ecash` (default) | eCash's main network (ecash-com/bitcoin tag `ecash-v1.0.0-core31.1`, branch `master`) | `eca5dcb7` | 8533 / 8532 | 973,728 (2016 × 483), `0x1901a6e1` | 499,999,998 | the root |
+| `ecash` (default) | eCash's main network (ecash-com/bitcoin tag `ecash-v1.2.0-core32.1`, branch `master`) | `eca5dcb7` | 8533 / 8532 | 973,728 (2016 × 483), `0x1901a6e1` | 499,999,998 | the root |
 | `ecashbeta` | betanet, eCash's rehearsal (branch `betanet`), whose own client calls it main | `eca5b104` | 8533 / 8532 | 967,680 (2016 × 480), `0x19044b7e` | 499,999,999 | `betanet/` |
 | `ecashtest` | eCash's test network: Bitcoin's testnet4 under eCash's rules (`CTestNet4Params` of ecash-com/bitcoin) | `eca5b124` | 48533 / 48532 | none (its chain is testnet4's) | 499,999,998 | `testnet4/` |
 | `main`, `test`, `signet`, `regtest` | the Chains (CHN) networks, unchanged | as before | as before | — | — | Chains' datadir |
@@ -32,8 +32,10 @@ fixed seeds, as eCash).
 
 **eCash's main network.** Its parameters are published (tag `ecash-v1.0.0-core31.1`, annotated tag `ee21d49bb3`,
 2026-10-11, at commit `6e582335d1`; ecash.com gives the fork for about 2026-10-31, at height 973,728). The
-current release is **`ecash-v1.1.0-core31.1`** (tag `c0413da023`, 2026-10-26, commit `5bd8690fab`, the one
-releases.ecash.com lists for `L1-ecash-bitcoin/mainnet`), which adds one consensus change, **a dampened
+current release is **`ecash-v1.2.0-core32.1`** (tag `75611817d5`, 2026-10-29, commit `c8474e0b4f`): eCash's
+patches on Bitcoin Core v32.1, which eCash asks every node to run before the fork, with the consensus of
+`ecash-v1.1.0-core31.1` (tag `c0413da023`, 2026-10-26, commit `5bd8690fab`). v1.1.0 added one consensus change to
+v1.0.0, **a dampened
 retarget every 288 blocks from the fork block**: new target = (6 × old + measured) / 7, the measured time
 from the last block of the previous window (never before the fork block) to the last of this one, clamped
 to 4× either way of 288 × 10 minutes. Backbone has it on `ecash` (`consensus.ecash_retarget_interval`,
@@ -56,10 +58,10 @@ Bitcoin's DNS seeds, which list Bitcoin nodes (another message start), and eCash
 network to test on. The eCash seed hosts do not listen on 18533/48533. So `ecashtest` is offered on
 testnet4 (the current Bitcoin test network; testnet3 is not offered). Its chain is Bitcoin testnet4's, which
 eCash's rules accept unchanged. Its replay locktime is that of eCash's release (499,999,998 on every network
-of that client). With no enforcer preset for it, BIP300/301 starts at 161,280 (2016 × 80, above the
-testnet4 history, which nobody scanned) with the enforcer's testnet thresholds (`Thresholds::SHORT`). The
-enforcer's mainnet branch (`2026-10-12-mainnet`) differs on this network: activation at 0, message start
-`ec a5 b1 24`. Backbone will follow whatever the enforcer ships; until then `ecashtest` is for our own tests. To
+of that client). BIP300/301 starts at 161,280 (2016 × 80, above the testnet4 history, which nobody scanned)
+with the enforcer's testnet thresholds (`Thresholds::SHORT`). The enforcer differs on this network: its
+mainnet branch (`2026-10-12-mainnet`) and v1.0.1 (`--fork=ecash` on testnet4) activate BIP300/301 at 0, so
+`ecashtest` is not compatible with them. Backbone will follow whatever the enforcer ships; until then `ecashtest` is for our own tests. To
 run it with peers, see "Running the test network" below.
 
 ## Data directory and configuration
@@ -96,7 +98,7 @@ semantics against the enforcer's code, defaults and security: [ecash-grpc.md](ec
 **The bip300301_enforcer against backboned.** The enforcer's mainnet branch (`2026-10-12-mainnet`) can also run
 with backboned as its node. It reads the network from the user agent (above: eCash) and the difficulty from the
 node (`getmininginfo`'s `next.target` for the templates it serves; it checks no proof of work itself), so the
-dampened retarget of eCash v1.1.0 comes from backboned. Its version check accepts Bitcoin Core 29 to 31 only;
+dampened retarget of eCash (v1.1.0 on) comes from backboned. Its version check accepts Bitcoin Core 29 to 31 only;
 backboned reports 32 (`version` 320000), so start it with `--bitcoin-core-expected-version=32`. It follows the node
 through ZMQ, so backboned must be built with ZMQ and started with `-zmqpubsequence=<address>` (and `-txindex` for
 the enforcer's wallet). Tested against `a8b3dcd` on ecash, ecashbeta (`--fork=ecash-betanet`; without `--fork` it

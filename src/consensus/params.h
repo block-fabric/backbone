@@ -224,7 +224,7 @@ struct Params {
     int ecash_fork_height{0};
     uint32_t ecash_fork_bits{0};
     /**
-     * eCash's main network (ecash-com/bitcoin, tag ecash-v1.1.0-core31.1, 5bd8690fab): from the fork block
+     * eCash's main network (ecash-com/bitcoin, tag ecash-v1.1.0-core31.1, 5bd8690fab; as ecash-v1.2.0-core32.1): from the fork block
      * on, the difficulty retargets every this many blocks (288), dampened, new target = (6 * old target +
      * measured target) / 7, measured from the last block of the previous window (never one before the
      * fork) to the last of this one. 0: Bitcoin's retarget at every height (betanet, the test networks).

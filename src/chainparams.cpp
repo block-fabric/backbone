@@ -139,7 +139,7 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
         if (*build == "betanet" || *build == "" || *build == "1") {
             ecash_regtest_locktime = 499'999'999; // LOCKTIME_THRESHOLD - 1: the betanet branch of ecash-com/bitcoin
         } else if (*build == "ecash" || *build == "main") {
-            ecash_regtest_locktime = 499'999'998; // LOCKTIME_THRESHOLD - 2: tag ecash-v1.0.0-core31.1
+            ecash_regtest_locktime = 499'999'998; // LOCKTIME_THRESHOLD - 2: eCash's releases (ecash-v1.0.0-core31.1 to ecash-v1.2.0-core32.1)
         } else {
             throw std::runtime_error(strprintf("Invalid value (%s) for -ecashregtest (betanet or ecash).", *build));
         }
