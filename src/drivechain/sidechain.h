@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /**
@@ -367,6 +368,16 @@ std::optional<BmmRequest> ParseBmmRequestScript(const CScript& script);
 CScript DestinationScript(const std::string& destination);
 /** If `script` is an OP_RETURN followed by a data push, return the pushed data as a string. */
 std::optional<std::string> ParseDestinationScript(const CScript& script);
+
+/**
+ * Text of the chain (a deposit destination, a proposal's title or description: any bytes) as valid UTF-8: each byte
+ * that does not start a well-formed sequence (RFC 3629: no overlong form, no surrogate, nothing beyond U+10FFFF) is
+ * replaced by U+FFFD, one per byte, and decoding goes on at the next byte. Sidechain software (Flush's ValidUTF8)
+ * reads such text so, from JSON-RPC and from gRPC's hex alike: the RPCs give it the same string.
+ */
+std::string ReplaceInvalidUtf8(std::string_view text);
+/** Whether `text` is valid UTF-8 (ReplaceInvalidUtf8 leaves it as it is). */
+bool IsValidUtf8(std::string_view text);
 
 /** Output 0 of the blind form of a withdrawal: OP_RETURN and the fee it pays mainchain miners, 8 bytes big endian. */
 CScript WithdrawalFeeScript(CAmount fee);

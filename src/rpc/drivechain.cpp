@@ -22,9 +22,11 @@
 #include <rpc/server.h>
 #include <rpc/server_util.h>
 #include <rpc/util.h>
+#include <span.h>
 #include <sync.h>
 #include <txmempool.h>
 #include <univalue.h>
+#include <util/strencodings.h>
 #include <validation.h>
 
 #include <algorithm>
@@ -97,12 +99,29 @@ std::string VoteTypeName(Vote::Type type)
     return type == Vote::Type::UPVOTE ? "upvote" : type == Vote::Type::DOWNVOTE ? "downvote" : "abstain";
 }
 
+/**
+ * Text of the chain, which may be any bytes, under `key`: its bytes in hex (`<key>hex`) always; as text if it is valid
+ * UTF-8, else `<key>utf8` false and, if `replaced`, the text with each byte that does not start a valid sequence replaced by U+FFFD
+ * (ReplaceInvalidUtf8; left out otherwise). Raw, such bytes would make the reply invalid JSON, which clients refuse.
+ */
+void PushChainText(UniValue& obj, const std::string& key, const std::string& bytes, bool replaced)
+{
+    const bool valid{drivechain::IsValidUtf8(bytes)};
+    if (valid) {
+        obj.pushKV(key, bytes);
+    } else if (replaced) {
+        obj.pushKV(key, drivechain::ReplaceInvalidUtf8(bytes));
+    }
+    obj.pushKV(key + "hex", HexStr(MakeUCharSpan(bytes)));
+    if (!valid) obj.pushKV(key + "utf8", false);
+}
+
 UniValue SidechainToJSON(const Sidechain& sidechain)
 {
     UniValue obj(UniValue::VOBJ);
     obj.pushKV("slot", sidechain.slot);
-    obj.pushKV("title", sidechain.title);
-    obj.pushKV("description", sidechain.description);
+    PushChainText(obj, "title", sidechain.title, /*replaced=*/false);
+    PushChainText(obj, "description", sidechain.description, /*replaced=*/false);
     obj.pushKV("version", sidechain.version);
     obj.pushKV("hashid1", sidechain.hash_id1.GetHex());
     obj.pushKV("hashid2", sidechain.hash_id2.GetHex());
@@ -114,8 +133,12 @@ std::vector<RPCResult> SidechainResults()
 {
     return {
         {RPCResult::Type::NUM, "slot", "The sidechain slot number"},
-        {RPCResult::Type::STR, "title", "The title of the sidechain"},
-        {RPCResult::Type::STR, "description", "The description of the sidechain"},
+        {RPCResult::Type::STR, "title", /*optional=*/true, "The title of the sidechain; left out if it is not valid UTF-8 (see titlehex)"},
+        {RPCResult::Type::STR_HEX, "titlehex", "The bytes of the title, in hex"},
+        {RPCResult::Type::BOOL, "titleutf8", /*optional=*/true, "Present, false, when the title is not valid UTF-8"},
+        {RPCResult::Type::STR, "description", /*optional=*/true, "The description of the sidechain; left out if it is not valid UTF-8 (see descriptionhex)"},
+        {RPCResult::Type::STR_HEX, "descriptionhex", "The bytes of the description, in hex"},
+        {RPCResult::Type::BOOL, "descriptionutf8", /*optional=*/true, "Present, false, when the description is not valid UTF-8"},
         {RPCResult::Type::NUM, "version", "The version of the sidechain description"},
         {RPCResult::Type::STR_HEX, "hashid1", "Hash of the release tarball of the sidechain software"},
         {RPCResult::Type::STR_HEX, "hashid2", "Hash of the commit the sidechain software was built from"},
@@ -1047,7 +1070,9 @@ RPCMethod listsidechaindeposits()
             {RPCResult::Type::OBJ, "", "",
             {
                 {RPCResult::Type::NUM, "slot", "The sidechain slot number"},
-                {RPCResult::Type::STR, "destination", "The destination on the sidechain; \"" + drivechain::WITHDRAWAL_RETURN_DEST + "\" for the change of a withdrawal"},
+                {RPCResult::Type::STR, "destination", "The destination on the sidechain, as text; \"" + drivechain::WITHDRAWAL_RETURN_DEST + "\" for the change of a withdrawal. A destination that is not valid UTF-8 is given with each byte that does not start a valid sequence replaced by U+FFFD (see destinationhex)"},
+                {RPCResult::Type::STR_HEX, "destinationhex", "The bytes of the destination, as the deposit's OP_RETURN output carries them, in hex"},
+                {RPCResult::Type::BOOL, "destinationutf8", /*optional=*/true, "Present, false, when the destination is not valid UTF-8: only destinationhex has it exactly"},
                 {RPCResult::Type::STR_AMOUNT, "amount", "The amount added to the escrow; 0 for a withdrawal"},
                 {RPCResult::Type::STR_AMOUNT, "total", "The amount held in escrow after the transaction"},
                 {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
@@ -1086,7 +1111,7 @@ RPCMethod listsidechaindeposits()
         const CBlockIndex* pindex{Assert(chainman.m_blockman.LookupBlockIndex(deposit.block_hash))};
         UniValue obj(UniValue::VOBJ);
         obj.pushKV("slot", deposit.slot);
-        obj.pushKV("destination", deposit.destination);
+        PushChainText(obj, "destination", deposit.destination, /*replaced=*/true);
         obj.pushKV("amount", ValueFromAmount(deposit.amount));
         obj.pushKV("total", ValueFromAmount(deposit.total));
         obj.pushKV("txid", deposit.tx->GetHash().GetHex());
@@ -1129,7 +1154,9 @@ RPCMethod getsidechainevents()
                 {
                     {RPCResult::Type::OBJ, "", "",
                     {
-                        {RPCResult::Type::STR, "destination", "The destination on the sidechain; \"" + drivechain::WITHDRAWAL_RETURN_DEST + "\" for the change of a withdrawal"},
+                        {RPCResult::Type::STR, "destination", "The destination on the sidechain, as text; \"" + drivechain::WITHDRAWAL_RETURN_DEST + "\" for the change of a withdrawal. A destination that is not valid UTF-8 is given with each byte that does not start a valid sequence replaced by U+FFFD (see destinationhex)"},
+                        {RPCResult::Type::STR_HEX, "destinationhex", "The bytes of the destination, as the deposit's OP_RETURN output carries them, in hex"},
+                        {RPCResult::Type::BOOL, "destinationutf8", /*optional=*/true, "Present, false, when the destination is not valid UTF-8: only destinationhex has it exactly"},
                         {RPCResult::Type::STR_AMOUNT, "amount", "The amount added to the escrow"},
                         {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
                         {RPCResult::Type::NUM, "burnindex", "The index of the escrow output in the transaction"},
@@ -1235,7 +1262,7 @@ RPCMethod getsidechainevents()
             // A consolidation of aggregated deposits (each of which is listed, with its own outpoint) credits nothing.
             if (deposit.IsConsolidation()) continue;
             UniValue entry(UniValue::VOBJ);
-            entry.pushKV("destination", deposit.destination);
+            PushChainText(entry, "destination", deposit.destination, /*replaced=*/true);
             entry.pushKV("amount", ValueFromAmount(deposit.amount));
             entry.pushKV("txid", deposit.tx->GetHash().GetHex());
             entry.pushKV("burnindex", deposit.burn_index);

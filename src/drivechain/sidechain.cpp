@@ -303,6 +303,61 @@ std::optional<std::string> ParseDestinationScript(const CScript& script)
     return std::string{data->begin(), data->end()};
 }
 
+namespace {
+//! The length of the well-formed UTF-8 sequence at the start of `text`, or 0 if there is none (RFC 3629, section 4).
+size_t Utf8SequenceLength(std::string_view text)
+{
+    const unsigned char lead{static_cast<unsigned char>(text[0])};
+    size_t length{0};
+    if (lead < 0x80) {
+        length = 1;
+    } else if (lead >= 0xc2 && lead <= 0xdf) {
+        length = 2;
+    } else if (lead >= 0xe0 && lead <= 0xef) {
+        length = 3;
+    } else if (lead >= 0xf0 && lead <= 0xf4) {
+        length = 4;
+    }
+    if (length == 0 || length > text.size()) return 0;
+    for (size_t k{1}; k < length; ++k) {
+        if ((static_cast<unsigned char>(text[k]) & 0xc0) != 0x80) return 0;
+    }
+    if (length > 2) {
+        // The second byte's range after these leads: no overlong form, no surrogate, nothing beyond U+10FFFF.
+        const unsigned char second{static_cast<unsigned char>(text[1])};
+        if ((lead == 0xe0 && second < 0xa0) || (lead == 0xed && second > 0x9f) || (lead == 0xf0 && second < 0x90) || (lead == 0xf4 && second > 0x8f)) return 0;
+    }
+    return length;
+}
+} // namespace
+
+std::string ReplaceInvalidUtf8(std::string_view text)
+{
+    std::string out;
+    out.reserve(text.size());
+    size_t i{0};
+    while (i < text.size()) {
+        if (const size_t length{Utf8SequenceLength(text.substr(i))}) {
+            out.append(text.substr(i, length));
+            i += length;
+        } else {
+            out.append("\xef\xbf\xbd");
+            ++i;
+        }
+    }
+    return out;
+}
+
+bool IsValidUtf8(std::string_view text)
+{
+    for (size_t i{0}; i < text.size();) {
+        const size_t length{Utf8SequenceLength(text.substr(i))};
+        if (length == 0) return false;
+        i += length;
+    }
+    return true;
+}
+
 CScript WithdrawalFeeScript(CAmount fee)
 {
     std::vector<unsigned char> amount(8);

@@ -179,7 +179,11 @@ std::string SlotText(const Call& call, int64_t slot)
     args.push_back(slot);
     const UniValue sidechain{call.Read("getsidechain", args)};
     const UniValue& title{sidechain.find_value("title")};
-    return title.isStr() ? strprintf("%s (slot %d)", guard::OneLine(title.get_str(), 80), slot) : strprintf("slot %d (no active sidechain)", slot);
+    if (title.isStr()) return strprintf("%s (slot %d)", guard::OneLine(title.get_str(), 80), slot);
+    // A title that is not valid UTF-8 is given in hex only.
+    const UniValue& title_hex{sidechain.find_value("titlehex")};
+    if (title_hex.isStr()) return strprintf("slot %d (title not UTF-8, hex %s)", slot, guard::OneLine(title_hex.get_str(), 80));
+    return strprintf("slot %d (no active sidechain)", slot);
 }
 
 std::optional<int64_t> SlotArg(const UniValue& value)
@@ -380,8 +384,17 @@ void ProposalRows(std::vector<dialog::Row>& rows, const UniValue& proposal)
         return;
     }
     if (proposal.find_value("slot").isNum()) rows.push_back(Text("Slot", proposal.find_value("slot").getValStr()));
-    if (proposal.find_value("title").isStr()) rows.push_back(Text("Title", guard::OneLine(proposal.find_value("title").get_str(), 120)));
-    if (proposal.find_value("description").isStr() && !proposal.find_value("description").get_str().empty()) rows.push_back(Text("Description", proposal.find_value("description").get_str()));
+    if (proposal.find_value("title").isStr()) {
+        rows.push_back(Text("Title", guard::OneLine(proposal.find_value("title").get_str(), 120)));
+    } else if (proposal.find_value("titlehex").isStr()) {
+        // Not valid UTF-8: only its bytes.
+        rows.push_back(Text("Title (not UTF-8, in hex)", guard::OneLine(proposal.find_value("titlehex").get_str(), 120)));
+    }
+    if (proposal.find_value("description").isStr()) {
+        if (!proposal.find_value("description").get_str().empty()) rows.push_back(Text("Description", proposal.find_value("description").get_str()));
+    } else if (proposal.find_value("descriptionhex").isStr()) {
+        rows.push_back(Text("Description (not UTF-8, in hex)", proposal.find_value("descriptionhex").get_str()));
+    }
     if (proposal.find_value("replacement").isTrue()) rows.push_back(Note("The slot holds a sidechain already: this proposal replaces it if it activates, and fails its pending withdrawals."));
 }
 

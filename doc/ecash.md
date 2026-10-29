@@ -175,6 +175,14 @@ betanet; the enforcer's `64256fc`, `fill_ctips`, `handle_m5_m6`, `finalize_conne
   getsidechain and gRPC `GetCtip` show. The gRPC sequence numbers are the enforcer's: the treasury UTXOs
   before the event, which a deposit left unconsolidated does not count and a consolidation does
   (`Deposit::ctip` in the index). Sidechains credit deposits as before: nothing changes for them.
+- **Text of the chain** is any bytes: consensus takes any deposit destination, and any title and description in a
+  proposal (M1). Over JSON-RPC, getsidechainevents and listsidechaindeposits give each destination in hex
+  (`destinationhex`, exact) and as text (`destination`); a destination that is not valid UTF-8 is given with each
+  byte that does not start a valid sequence replaced by U+FFFD, one per byte (as Flush reads text, from JSON-RPC
+  and from gRPC's hex alike), and with `destinationutf8: false`. listsidechains, getsidechain and
+  listsidechainproposals give `titlehex` and `descriptionhex`, and `title` and `description` only when they are
+  valid UTF-8 (else `titleutf8: false`, `descriptionutf8: false`). Valid UTF-8 is given as before. gRPC gives the
+  destination in hex, and leaves out a proposal whose title or description is not UTF-8.
 
 Chains' own safety rules are **not consensus on eCash** (they would fork the node off the enforcer's chain),
 until the enforcer adopts them at a height (the activation switch below, unset on every network).

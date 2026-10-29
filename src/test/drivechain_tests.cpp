@@ -256,6 +256,36 @@ BOOST_AUTO_TEST_CASE(scripts)
     }
 }
 
+BOOST_AUTO_TEST_CASE(chain_text_utf8)
+{
+    // Text of the chain is any bytes; the RPCs give it as valid UTF-8, each byte that does not start a well-formed
+    // sequence replaced by U+FFFD (one per byte, as Flush's ValidUTF8 reads text).
+    const std::string fffd{"\xEF\xBF\xBD"};
+    for (const std::string& text : std::vector<std::string>{"", "plain", "s7_bc1qxyz_abc", "caf\xC3\xA9", "\xE2\x82\xAC", "\xF0\x9F\x98\x80", "\xF4\x8F\xBF\xBF", std::string{"a\0b", 3}}) {
+        BOOST_CHECK(IsValidUtf8(text));
+        BOOST_CHECK_EQUAL(ReplaceInvalidUtf8(text), text);
+    }
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"\xFF\xFE-not-utf8", fffd + fffd + "-not-utf8"},
+        {"\x80", fffd},
+        {"\xC0\xAF", fffd + fffd},                 // overlong
+        {"\xC1\xBF", fffd + fffd},                 // overlong
+        {"\xE0\x80\xAF", fffd + fffd + fffd},      // overlong
+        {"\xED\xA0\x80", fffd + fffd + fffd},      // surrogate
+        {"\xF4\x90\x80\x80", fffd + fffd + fffd + fffd}, // beyond U+10FFFF
+        {"\xF5\x80\x80\x80", fffd + fffd + fffd + fffd},
+        {"ab\xE6\x97", "ab" + fffd + fffd},        // truncated: one per byte
+        {"\xE6\x97\xA5\xE6", "\xE6\x97\xA5" + fffd},
+        {"\xC3", fffd},
+        {"\xC3x", fffd + "x"},
+    };
+    for (const auto& [text, replaced] : cases) {
+        BOOST_CHECK(!IsValidUtf8(text));
+        BOOST_CHECK_EQUAL(ReplaceInvalidUtf8(text), replaced);
+        BOOST_CHECK(IsValidUtf8(ReplaceInvalidUtf8(text)));
+    }
+}
+
 BOOST_AUTO_TEST_CASE(enforcer_byte_layouts)
 {
     // The exact bytes of the BIP300/301 messages, as the Layer Two Labs enforcer writes and reads them.
