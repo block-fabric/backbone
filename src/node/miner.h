@@ -95,6 +95,8 @@ private:
     //! sidechains whose BMM request the block has, each of which adds an accept (M7) to the coinbase.
     uint64_t m_coinbase_message_weight{0};
     std::set<drivechain::SidechainId> m_bmm_accepted;
+    //! Drivechain: the sidechains the block has a withdrawal (M6) of, from the mempool: one per sidechain per block.
+    std::set<drivechain::SidechainId> m_withdrawal_slots;
 
     // Chain context for the block
     int nHeight;
@@ -124,7 +126,7 @@ private:
     /** Clear the block's state and prepare for assembling a new block */
     void resetBlock();
     /** Add a tx to the block */
-    void AddToBlock(const CTxMemPoolEntry& entry);
+    void AddToBlock(const CTxMemPoolEntry& entry) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
     /**
      * Drivechain: the weight and sigops cost of those of `withdrawals` that fit, in order, in a block
      * holding nothing else (the same check as when they are added).
@@ -154,8 +156,13 @@ private:
     uint64_t BmmAcceptWeight(const CTransaction& tx, std::set<drivechain::SidechainId>& accepted) const;
     /** Drivechain: whether the transaction creates or spends an output with the treasury script of a sidechain the block activates. */
     bool TouchesActivatingSlot(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
-    /** Drivechain: false for a withdrawal (M6) of a bundle the block cannot pay (m_payable_bundles). */
-    bool WithdrawalPayable(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
+    /** Drivechain: if the transaction is a withdrawal (M6), its sidechain and the bundle it pays. */
+    std::optional<std::pair<drivechain::SidechainId, uint256>> WithdrawalOf(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
+    /**
+     * Drivechain: false for a withdrawal (M6) of a bundle the block cannot pay (m_payable_bundles), or of a sidechain
+     * in `withdrawal_slots` (which the block has one of already; one is added).
+     */
+    bool WithdrawalPayable(const CTransaction& tx, std::set<drivechain::SidechainId>& withdrawal_slots) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
 };
 
 /**

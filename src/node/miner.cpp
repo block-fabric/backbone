@@ -145,6 +145,7 @@ void BlockAssembler::resetBlock()
     m_in_block.clear();
     m_coinbase_message_weight = 0;
     m_bmm_accepted.clear();
+    m_withdrawal_slots.clear();
 }
 
 namespace {
@@ -404,6 +405,7 @@ bool BlockAssembler::TestChunkBlockLimits(int64_t chunk_weight, int64_t chunk_si
 // - transaction finality (locktime)
 bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>& txs) const
 {
+    std::set<drivechain::SidechainId> withdrawal_slots{m_withdrawal_slots};
     for (const auto tx : txs) {
         if (!IsFinalTx(tx.get().GetTx(), nHeight, m_lock_time_cutoff, chainparams.GetConsensus().replay_locktime)) {
             return false;
@@ -414,8 +416,8 @@ bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>
             return false;
         }
         // A withdrawal of a bundle this block's own votes (or its age) leave without the score would
-        // make the block invalid; it and what depends on it wait.
-        if (!WithdrawalPayable(tx.get().GetTx())) return false;
+        // make the block invalid; it and what depends on it wait. So does a second one of a sidechain.
+        if (!WithdrawalPayable(tx.get().GetTx(), withdrawal_slots)) return false;
         if (TouchesActivatingSlot(tx.get().GetTx())) return false;
     }
     return true;
@@ -461,12 +463,12 @@ bool BlockAssembler::TouchesActivatingSlot(const CTransaction& tx) const
     });
 }
 
-bool BlockAssembler::WithdrawalPayable(const CTransaction& tx) const
+std::optional<std::pair<drivechain::SidechainId, uint256>> BlockAssembler::WithdrawalOf(const CTransaction& tx) const
 {
     // A withdrawal (M6): the treasury output its only input, the new treasury output 0, less in it.
-    if (tx.vin.size() != 1 || tx.vout.empty()) return true;
+    if (tx.vin.size() != 1 || tx.vout.empty()) return std::nullopt;
     const auto slot{drivechain::ParseEscrowScript(tx.vout[0].scriptPubKey)};
-    if (!slot) return true;
+    if (!slot) return std::nullopt;
     const COutPoint& prevout{tx.vin[0].prevout};
     std::optional<CTxOut> spent;
     if (const CTransactionRef parent{m_mempool->get(prevout.hash)}) {
@@ -474,11 +476,21 @@ bool BlockAssembler::WithdrawalPayable(const CTransaction& tx) const
     } else if (const auto coin{m_chainstate.CoinsTip().GetCoin(prevout)}) {
         spent = coin->out;
     }
-    if (!spent || drivechain::ParseEscrowScript(spent->scriptPubKey) != slot || tx.vout[0].nValue >= spent->nValue) return true;
+    if (!spent || drivechain::ParseEscrowScript(spent->scriptPubKey) != slot || tx.vout[0].nValue >= spent->nValue) return std::nullopt;
     const auto bundle{drivechain::BlindWithdrawalHash(tx, spent->nValue)};
-    if (!bundle) return true; // not a withdrawal consensus would take either; the mempool has none such
-    const auto payable{m_payable_bundles.find(*slot)};
-    return payable != m_payable_bundles.end() && payable->second.contains(*bundle);
+    if (!bundle) return std::nullopt; // not a withdrawal consensus would take either; the mempool has none such
+    return std::make_pair(*slot, *bundle);
+}
+
+bool BlockAssembler::WithdrawalPayable(const CTransaction& tx, std::set<drivechain::SidechainId>& withdrawal_slots) const
+{
+    const auto withdrawal{WithdrawalOf(tx)};
+    if (!withdrawal) return true;
+    const auto& [slot, bundle]{*withdrawal};
+    const auto payable{m_payable_bundles.find(slot)};
+    if (payable == m_payable_bundles.end() || !payable->second.contains(bundle)) return false;
+    // One withdrawal per sidechain per block, as the template's own (the policy of a single payout).
+    return withdrawal_slots.insert(slot).second;
 }
 
 void BlockAssembler::AddToBlock(const CTxMemPoolEntry& entry)
@@ -487,6 +499,7 @@ void BlockAssembler::AddToBlock(const CTxMemPoolEntry& entry)
     pblocktemplate->vTxFees.push_back(entry.GetFee());
     pblocktemplate->vTxSigOpsCost.push_back(entry.GetSigOpCost());
     m_in_block.insert(entry.GetTx().GetHash());
+    if (const auto withdrawal{WithdrawalOf(entry.GetTx())}) m_withdrawal_slots.insert(withdrawal->first);
     m_consolidation_weight += ConsolidationRoom(entry.GetTx());
     nBlockWeight += entry.GetTxWeight() + BmmAcceptWeight(entry.GetTx(), m_bmm_accepted);
     ++nBlockTx;

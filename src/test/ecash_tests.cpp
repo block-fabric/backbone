@@ -937,6 +937,42 @@ BOOST_AUTO_TEST_CASE(enforcer_miner_policy)
     }
 }
 
+BOOST_AUTO_TEST_CASE(enforcer_template_one_payout_per_slot)
+{
+    // Two bundles of a sidechain with the votes, one paid by a withdrawal from the mempool: the template does not pay
+    // the other in the same block (consensus would take both before the safety rules), nor take two from the mempool.
+    EnforcerChain chain;
+    chain.params.bundle_max_age = 100;
+    chain.Activate(MakeSidechain(2));
+    BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+    const CMutableTransaction blind_a{EnforcerChain::BlindBundle(COIN, 1000, 1)};
+    const CMutableTransaction blind_b{EnforcerChain::BlindBundle(COIN, 1000, 2)};
+    const uint256 a{blind_a.GetHash().ToUint256()}, b{blind_b.GetHash().ToUint256()};
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, a)}));
+    for (int i{0}; i < 14; ++i) BOOST_REQUIRE(chain.Connect({Votes({0})}));
+    BOOST_REQUIRE(chain.Connect({BundleScript(2, b)}));
+    for (int i{0}; i < 6; ++i) BOOST_REQUIRE(chain.Connect({Votes({1})}));
+    BOOST_REQUIRE_GT(chain.Score(2, a), static_cast<uint32_t>(chain.params.bundle_threshold) + 1);
+    BOOST_REQUIRE_GT(chain.Score(2, b), static_cast<uint32_t>(chain.params.bundle_threshold));
+
+    MinerState miner;
+    std::string error;
+    BOOST_REQUIRE(miner.AddBundle(2, blind_b, error) == b);
+    miner.Prune(chain.scdb, chain.height + 1);
+    // Alone, the template pays the bundle it was handed.
+    BOOST_CHECK_EQUAL(miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {}, chain.height + 1).withdrawals.size(), 1U);
+    // With the other one paid from the mempool, not.
+    const CTransactionRef paid_a{MakeTransactionRef(chain.WithdrawalTx(2, blind_a, COIN, 1000))};
+    const auto additions{miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {paid_a}, chain.height + 1)};
+    BOOST_CHECK(additions.withdrawals.empty());
+    BOOST_CHECK(additions.payable_bundles.at(2).contains(a));
+    std::vector<CScript> scripts;
+    for (const CTxOut& out : additions.coinbase_outputs) scripts.push_back(out.scriptPubKey);
+    BOOST_REQUIRE(chain.Connect(scripts, {CMutableTransaction{*paid_a}}));
+    BOOST_CHECK(chain.scdb.WasPaid(2, a) == true);
+    BOOST_CHECK(!chain.scdb.IsClosed(2, b));
+}
+
 //! The index of a pending bundle in its slot, as a vote names it.
 uint16_t IndexOf(const EnforcerChain& chain, SidechainId slot, const uint256& hash)
 {

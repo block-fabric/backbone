@@ -700,6 +700,8 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
     BlockUndo undo;
     std::string reject_reason;
     std::set<SidechainId> bmm_accepted;
+    // The sidechains the transactions already pay a bundle of (a withdrawal from the mempool).
+    std::set<SidechainId> paid_slots;
     for (const CTransactionRef& tx : txs) {
         // M7: accept the BMM requests in the block.
         for (const BmmRequest& request : GetBmmRequests(*tx)) {
@@ -708,12 +710,17 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
             add_message(BmmAcceptScript(request.slot, request.side_block_hash));
         }
         // The mempool only holds transactions that pass this, withdrawals of bundles with the work score included.
-        (void)after.ConnectTx(*tx, params, escrow_outputs, undo, nullptr, reject_reason, rules_height);
+        std::optional<Deposit> change;
+        if (after.ConnectTx(*tx, params, escrow_outputs, undo, &change, reject_reason, rules_height) && change && !change->bundle.IsNull()) {
+            paid_slots.insert(change->slot);
+        }
     }
 
     // M6: pay out the bundles that have the work score.
     for (const auto& [slot, state] : scdb.GetSlots()) {
-        bool paid{false};
+        // One bundle per sidechain per block (the policy of a single payout, which consensus on the eCash networks
+        // does not have before the safety rules): none of its own where the block pays one from the mempool.
+        bool paid{paid_slots.contains(slot)};
         for (const Bundle& bundle : state.bundles) {
             if (enforcer) {
                 // The votes of the block count before its transactions, and bundles out of time fail before them.
