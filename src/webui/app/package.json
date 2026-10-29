@@ -1,7 +1,7 @@
 {
   "name": "chains-app-ui",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "description": "HTML interface of chains-app, built into the binary.",
   "license": "MIT",
