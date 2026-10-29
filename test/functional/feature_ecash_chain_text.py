@@ -9,6 +9,8 @@ destination and in a proposal's title and description.
   is valid UTF-8 is given as text as before; one that is not is given with each byte that does not start a valid
   sequence replaced by U+FFFD (one per byte), and destinationutf8 false. The replies stay valid JSON, the other
   deposits of the page included.
+- A deposit to "D" (the destination given for the change of a withdrawal) is reported as a deposit (kind), with no
+  bundle or payouts.
 - listsidechainproposals and listsidechains give the title and the description in hex (titlehex, descriptionhex),
   and as text only when they are valid UTF-8 (titleutf8, descriptionutf8 false otherwise).
 """
@@ -61,6 +63,7 @@ class EcashChainTextTest(BitcoinTestFramework):
         assert_equal([s["slot"] for s in node.listactivesidechains()], [SLOT])
 
         self.test_destinations()
+        self.test_withdrawal_destination()
         self.test_proposal_text()
 
     def test_destinations(self):
@@ -92,10 +95,24 @@ class EcashChainTextTest(BitcoinTestFramework):
             for entry in (deposits[txids[destination]], listed[txids[destination]]):
                 assert_equal(entry["destination"], text)
                 assert_equal(entry["destinationhex"], destination.hex())
+                assert_equal(entry["kind"], "deposit")
                 valid = text.encode() == destination
                 assert_equal("destinationutf8" in entry, not valid)
                 if not valid:
                     assert_equal(entry["destinationutf8"], False)
+
+    def test_withdrawal_destination(self):
+        self.log.info("A deposit to \"D\", the destination of a withdrawal's change, is a deposit")
+        node = self.nodes[0]
+        txid = self.deposit(b"D")
+        self.generate(node, 1)
+        for entry in (node.getsidechainevents(SLOT, node.getblockcount())[0]["deposits"][0],
+                      [d for d in node.listsidechaindeposits(SLOT) if d["txid"] == txid][0]):
+            assert_equal(entry["txid"], txid)
+            assert_equal(entry["kind"], "deposit")
+            assert_equal(entry["destination"], "D")
+            assert_equal(entry["amount"], Decimal("1"))
+            assert "bundle" not in entry and "payouts" not in entry
 
     def test_proposal_text(self):
         self.log.info("Proposal titles and descriptions that are not UTF-8: in hex only")

@@ -456,7 +456,8 @@ UniValue BlockDetail(ChainstateManager& chainman, const uint256& hash)
     for (size_t i{0}; i < changes.size() && i < MAX_LISTED; ++i) {
         const drivechain::Deposit& change{changes[i]};
         UniValue entry{slot_entry(change.slot)};
-        const bool withdrawal{change.destination == drivechain::WITHDRAWAL_RETURN_DEST};
+        // By the bundle it paid out: a deposit may have the destination of a withdrawal's change too.
+        const bool withdrawal{change.IsWithdrawal()};
         // A consolidation (aggregated deposits) gathers the deposits of the block that did not spend the Ctip.
         entry.pushKV("kind", withdrawal ? "withdrawal" : change.IsConsolidation() ? "consolidation" : "deposit");
         entry.pushKV("txid", change.tx->GetHash().GetHex());

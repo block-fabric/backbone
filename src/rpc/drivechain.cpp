@@ -1072,6 +1072,7 @@ RPCMethod listsidechaindeposits()
             {RPCResult::Type::OBJ, "", "",
             {
                 {RPCResult::Type::NUM, "slot", "The sidechain slot number"},
+                {RPCResult::Type::STR, "kind", "\"deposit\", or \"withdrawal\" for the change of a withdrawal (one that paid out a bundle; a deposit may have the destination \"" + drivechain::WITHDRAWAL_RETURN_DEST + "\" too)"},
                 {RPCResult::Type::STR, "destination", "The destination on the sidechain, as text; \"" + drivechain::WITHDRAWAL_RETURN_DEST + "\" for the change of a withdrawal. A destination that is not valid UTF-8 is given with each byte that does not start a valid sequence replaced by U+FFFD (see destinationhex)"},
                 {RPCResult::Type::STR_HEX, "destinationhex", "The bytes of the destination, as the deposit's OP_RETURN output carries them, in hex"},
                 {RPCResult::Type::BOOL, "destinationutf8", /*optional=*/true, "Present, false, when the destination is not valid UTF-8: only destinationhex has it exactly"},
@@ -1113,6 +1114,7 @@ RPCMethod listsidechaindeposits()
         const CBlockIndex* pindex{Assert(chainman.m_blockman.LookupBlockIndex(deposit.block_hash))};
         UniValue obj(UniValue::VOBJ);
         obj.pushKV("slot", deposit.slot);
+        obj.pushKV("kind", deposit.IsWithdrawal() ? "withdrawal" : "deposit");
         PushChainText(obj, "destination", deposit.destination, /*replaced=*/true);
         obj.pushKV("amount", ValueFromAmount(deposit.amount));
         obj.pushKV("total", ValueFromAmount(deposit.total));
@@ -1156,6 +1158,7 @@ RPCMethod getsidechainevents()
                 {
                     {RPCResult::Type::OBJ, "", "",
                     {
+                        {RPCResult::Type::STR, "kind", "\"deposit\", or \"withdrawal\" for the change of a withdrawal (one that paid out a bundle; a deposit may have the destination \"" + drivechain::WITHDRAWAL_RETURN_DEST + "\" too)"},
                         {RPCResult::Type::STR, "destination", "The destination on the sidechain, as text; \"" + drivechain::WITHDRAWAL_RETURN_DEST + "\" for the change of a withdrawal. A destination that is not valid UTF-8 is given with each byte that does not start a valid sequence replaced by U+FFFD (see destinationhex)"},
                         {RPCResult::Type::STR_HEX, "destinationhex", "The bytes of the destination, as the deposit's OP_RETURN output carries them, in hex"},
                         {RPCResult::Type::BOOL, "destinationutf8", /*optional=*/true, "Present, false, when the destination is not valid UTF-8: only destinationhex has it exactly"},
@@ -1264,11 +1267,13 @@ RPCMethod getsidechainevents()
             // A consolidation of aggregated deposits (each of which is listed, with its own outpoint) credits nothing.
             if (deposit.IsConsolidation()) continue;
             UniValue entry(UniValue::VOBJ);
+            entry.pushKV("kind", deposit.IsWithdrawal() ? "withdrawal" : "deposit");
             PushChainText(entry, "destination", deposit.destination, /*replaced=*/true);
             entry.pushKV("amount", ValueFromAmount(deposit.amount));
             entry.pushKV("txid", deposit.tx->GetHash().GetHex());
             entry.pushKV("burnindex", deposit.burn_index);
-            if (deposit.destination == drivechain::WITHDRAWAL_RETURN_DEST) {
+            // By the bundle it paid out, not by the destination, which a deposit may share.
+            if (deposit.IsWithdrawal()) {
                 // What a withdrawal paid, so that sidechain software knows it was paid on any branch
                 // of its chain, also one that never saw the bundle.
                 entry.pushKV("bundle", deposit.bundle.GetHex());

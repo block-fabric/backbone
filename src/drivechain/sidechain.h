@@ -223,6 +223,11 @@ struct Deposit {
      * output that holds all of them. No coins come or go: nothing for sidechain software to credit.
      */
     bool IsConsolidation() const { return amount == 0 && destination != WITHDRAWAL_RETURN_DEST; }
+    /**
+     * A withdrawal (M6): it paid out a bundle. Its destination is WITHDRAWAL_RETURN_DEST, which a deposit can have as
+     * well (consensus takes any destination on the eCash networks): the bundle tells them apart.
+     */
+    bool IsWithdrawal() const { return !bundle.IsNull(); }
 
     template <typename Stream>
     void Serialize(Stream& s) const

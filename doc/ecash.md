@@ -186,6 +186,9 @@ betanet; the enforcer's `64256fc`, `fill_ctips`, `handle_m5_m6`, `finalize_conne
   listsidechainproposals give `titlehex` and `descriptionhex`, and `title` and `description` only when they are
   valid UTF-8 (else `titleutf8: false`, `descriptionutf8: false`). Valid UTF-8 is given as before. gRPC gives the
   destination in hex, and leaves out a proposal whose title or description is not UTF-8.
+  Each escrow change has a `kind`: `withdrawal` for one that paid out a bundle (with `bundle` and, in
+  getsidechainevents, `payouts`), else `deposit`. A deposit may have the destination `D` that a withdrawal's change
+  is given: the kind (or the bundle) tells them apart, not the destination.
 
 Chains' own safety rules are **not consensus on eCash** (they would fork the node off the enforcer's chain),
 until the enforcer adopts them at a height (the activation switch below, unset on every network).

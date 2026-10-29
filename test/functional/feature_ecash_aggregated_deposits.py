@@ -253,6 +253,7 @@ class EcashAggregatedDepositsTest(BitcoinTestFramework):
         events = a.getsidechainevents(SLOT, a.getblockcount())[0]
         assert_equal([(e["txid"], e["amount"]) for e in events["deposits"]], [(txid, Decimal(4)), (m6.txid_hex, Decimal(0))])
         assert_equal(events["deposits"][1]["bundle"], bundle)
+        assert_equal([e["kind"] for e in events["deposits"]], ["deposit", "withdrawal"])
         assert_equal(events["bundles"], [{"hash": bundle, "paid": True}])
 
         self.log.info("The template pays a bundle in a block with a deposit: its M6 spends the Ctip, the consolidation follows it")

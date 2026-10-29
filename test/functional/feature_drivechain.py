@@ -294,8 +294,9 @@ class DrivechainTest(BitcoinTestFramework):
         assert_equal(escrow["txid"], withdrawal["txid"])
         # Sidechain software learns what the withdrawal paid, with the bundle it paid out.
         events = node.getsidechainevents(SLOT, block["height"], 1)[0]["deposits"]
-        paid = [e for e in events if e["destination"] == "D"]
+        paid = [e for e in events if e["kind"] == "withdrawal"]
         assert_equal(len(paid), 1)
+        assert_equal(paid[0]["destination"], "D")
         assert_equal(paid[0]["bundle"], bundle_hash)
         assert_equal(paid[0]["payouts"], [{"amount": Decimal(payout) / COIN, "script": address_to_scriptpubkey(payout_address).hex()}])
         # BIP300 M6: the treasury output is the only input, and the new one is output 0.
