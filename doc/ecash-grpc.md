@@ -178,7 +178,9 @@ the same for the ValidatorService. What is added, from the security review of 20
    connection before it is read; 64 KiB while a request is served); HTTP/2: 256 streams, flow control by hand
    (window updates for the bytes taken in), 64 MiB of request bytes per connection and 256 MiB in all (a stream
    over them is reset with ENHANCE_YOUR_CALM), a decoded request's bytes freed at once. Replies are not bounded
-   (GetBlockInfo of 1000 blocks; the clients accept 1 GiB).
+   (GetBlockInfo of 1000 blocks; the clients accept 1 GiB). The ancestor walks (GetBlockHeaderInfo, GetBlockInfo,
+   GetBmmHStarCommitment) take at most 100,000 ancestors (a larger `max_ancestors` is taken as that; the enforcer has
+   no bound, its clients ask for a few thousand at a time), and release the main lock every 1,000 blocks.
 3. **The token** (`-grpcauth`) for what spends, mines, decides votes or stops the node.
 4. **Defaults**: Stop opt-in; WalletService opt-in on eCash's main network; beyond localhost only with an allow
    list and the token.

@@ -584,6 +584,30 @@ void Reply(const std::shared_ptr<Writer>& writer, const Message& reply)
 
 void Fail(const std::shared_ptr<Writer>& writer, const Status& status) { writer->Finish(status); }
 
+//! Most ancestors a ValidatorService call walks: a larger max_ancestors is taken as this (the enforcer has no bound;
+//! sidechains ask for a few thousand at a time).
+constexpr uint64_t MAX_ANCESTORS{100'000};
+//! Blocks walked per hold of the main lock, which the walk releases in between.
+constexpr size_t ANCESTORS_PER_LOCK{1'000};
+
+const CBlockIndex* Lookup(Ctx& ctx, const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+/**
+ * Visit the block `hash` and its ancestors, newest first, until `visit` returns false; nothing if the block is unknown.
+ * The main lock is taken for each ANCESTORS_PER_LOCK blocks: the ancestors of a block do not change.
+ */
+template <typename Visit>
+void WalkAncestors(Ctx& ctx, const uint256& hash, Visit visit)
+{
+    const CBlockIndex* p{WITH_LOCK(::cs_main, return Lookup(ctx, hash))};
+    while (p) {
+        LOCK(::cs_main);
+        for (size_t n{0}; p && n < ANCESTORS_PER_LOCK; ++n, p = p->pprev) {
+            if (!visit(*p)) return;
+        }
+    }
+}
+
 const CBlockIndex* Lookup(Ctx& ctx, const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
 {
     return ctx.Chainman().m_blockman.LookupBlockIndex(hash);
@@ -850,13 +874,12 @@ void ServicesImpl::RegisterValidator(Server& server)
         Status st;
         const auto hash{ReadReverseHash(req, "block_hash", st)};
         if (!hash) return Fail(w, st);
-        const uint64_t max_ancestors{req.Has("max_ancestors") ? req.GetUInt("max_ancestors") : 0};
+        const uint64_t max_ancestors{std::min(req.Has("max_ancestors") ? req.GetUInt("max_ancestors") : 0, MAX_ANCESTORS)};
         Message resp{ctx.New("cusf.mainchain.v1.GetBlockHeaderInfoResponse")};
-        LOCK(::cs_main);
-        for (const CBlockIndex* p{Lookup(ctx, *hash)}; p; p = p->pprev) {
-            resp.Add("header_infos") = MakeHeaderInfo(ctx.pool, *p);
-            if (resp.Count("header_infos") > max_ancestors) break;
-        }
+        WalkAncestors(ctx, *hash, [&](const CBlockIndex& block) {
+            resp.Add("header_infos") = MakeHeaderInfo(ctx.pool, block);
+            return resp.Count("header_infos") <= max_ancestors;
+        });
         Reply(w, resp);
     });
 
@@ -867,17 +890,16 @@ void ServicesImpl::RegisterValidator(Server& server)
         if (!hash) return Fail(w, st);
         const auto slot{ReadSlot(req, "sidechain_id", req.Desc().full_name, st)};
         if (!slot) return Fail(w, st);
-        const uint64_t max_ancestors{req.Has("max_ancestors") ? req.GetUInt("max_ancestors") : 0};
+        const uint64_t max_ancestors{std::min(req.Has("max_ancestors") ? req.GetUInt("max_ancestors") : 0, MAX_ANCESTORS)};
         Message resp{ctx.New("cusf.mainchain.v1.GetBlockInfoResponse")};
-        LOCK(::cs_main);
-        for (const CBlockIndex* p{Lookup(ctx, *hash)}; p; p = p->pprev) {
-            auto info{MakeBlockInfo(ctx.pool, ctx.Chainman(), *p, *slot)};
-            if (!info) break;
+        WalkAncestors(ctx, *hash, [&](const CBlockIndex& block) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+            auto info{MakeBlockInfo(ctx.pool, ctx.Chainman(), block, *slot)};
+            if (!info) return false;
             Message& item{resp.Add("infos")};
-            item.Mutable("header_info") = MakeHeaderInfo(ctx.pool, *p);
+            item.Mutable("header_info") = MakeHeaderInfo(ctx.pool, block);
             item.Mutable("block_info") = std::move(*info);
-            if (resp.Count("infos") > max_ancestors) break;
-        }
+            return resp.Count("infos") <= max_ancestors;
+        });
         Reply(w, resp);
     });
 
@@ -888,16 +910,16 @@ void ServicesImpl::RegisterValidator(Server& server)
         if (!hash) return Fail(w, st);
         const auto slot{ReadSlot(req, "sidechain_id", req.Desc().full_name, st)};
         if (!slot) return Fail(w, st);
-        const uint64_t max_ancestors{req.Has("max_ancestors") ? req.GetUInt("max_ancestors") : 0};
+        const uint64_t max_ancestors{std::min(req.Has("max_ancestors") ? req.GetUInt("max_ancestors") : 0, MAX_ANCESTORS)};
         Message resp{ctx.New("cusf.mainchain.v1.GetBmmHStarCommitmentResponse")};
-        LOCK(::cs_main);
         std::vector<std::optional<Message>> found;
-        for (const CBlockIndex* p{Lookup(ctx, *hash)}; p && found.size() <= max_ancestors; p = p->pprev) {
-            auto info{MakeBlockInfo(ctx.pool, ctx.Chainman(), *p, *slot)};
-            if (!info) break;
+        WalkAncestors(ctx, *hash, [&](const CBlockIndex& block) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+            auto info{MakeBlockInfo(ctx.pool, ctx.Chainman(), block, *slot)};
+            if (!info) return false;
             const Message* c{info->Sub("bmm_commitment")};
             found.push_back(c ? std::optional<Message>{*c} : std::nullopt);
-        }
+            return found.size() <= max_ancestors;
+        });
         if (found.empty()) {
             SetHex(resp.Mutable("block_not_found"), "block_hash", hash->GetHex());
         } else {

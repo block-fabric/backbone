@@ -138,6 +138,7 @@ class EcashGrpcTest(BitcoinTestFramework):
         self.test_slow_clients()
         self.test_security()
         self.test_create_wallet()
+        self.test_long_walks()
         self.test_stop()
 
     def test_health_and_reflection(self):
@@ -638,6 +639,24 @@ class EcashGrpcTest(BitcoinTestFramework):
         assert_equal(wallet.getwalletinfo()['unlocked_until'], 0)
         assert_equal(self.grpc.call(W + 'CreateWallet', {'mnemonic_words': words})[0], ALREADY_EXISTS)
         self.restart_node(0, extra_args=self.extra_args[0])
+
+    def test_long_walks(self):
+        self.log.info('GetBlockHeaderInfo, GetBlockInfo over more than the blocks walked per hold of the main lock (1,000), and a max_ancestors beyond any chain')
+        node = self.node
+        if node.getblockcount() < 1600:
+            self.mine(1600 - node.getblockcount())
+        tip = node.getbestblockhash()
+        height = node.getblockcount()
+        infos = self.grpc.unary(V + 'GetBlockHeaderInfo', {'block_hash': rh(tip), 'max_ancestors': 1500})['header_infos']
+        assert_equal(len(infos), 1501)
+        assert_equal([unhex(i['block_hash']) for i in infos[999:1002]], [node.getblockhash(height - n) for n in (999, 1000, 1001)])
+        assert_equal(unhex(infos[-1]['block_hash']), node.getblockhash(height - 1500))
+        assert all(unhex(infos[n + 1]['block_hash']) == unhex(infos[n]['prev_block_hash']) for n in range(1500))
+        # The whole chain, to genesis.
+        assert_equal(len(self.grpc.unary(V + 'GetBlockHeaderInfo', {'block_hash': rh(tip), 'max_ancestors': 2**32 - 1})['header_infos']), height + 1)
+        blocks = self.grpc.unary(V + 'GetBlockInfo', {'block_hash': rh(tip), 'sidechain_id': u32(SLOT), 'max_ancestors': 1200})['infos']
+        assert_equal(len(blocks), 1201)
+        assert_equal(unhex(blocks[-1]['header_info']['block_hash']), node.getblockhash(height - 1200))
 
     def test_stop(self):
         self.log.info('Stop: the node shuts down (grpc.rs:476-490)')
