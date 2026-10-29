@@ -937,6 +937,50 @@ BOOST_AUTO_TEST_CASE(enforcer_miner_policy)
     }
 }
 
+BOOST_AUTO_TEST_CASE(enforcer_template_pays_on_own_vote)
+{
+    // A bundle at the threshold that the block's own vote takes over it is paid in that block: consensus counts the
+    // votes of the coinbase before the transactions (the enforcer as well). With a deposit in the block, the
+    // consolidation follows the withdrawal's Ctip.
+    for (const bool with_deposit : {false, true}) {
+        EnforcerChain chain;
+        chain.params.aggregated_deposits_height = 0;
+        chain.Activate(MakeSidechain(2));
+        BOOST_REQUIRE(chain.Connect({}, {chain.DepositTx(2, 10 * COIN)}));
+        const CMutableTransaction blind{EnforcerChain::BlindBundle(COIN, 1000, 4)};
+        const uint256 hash{blind.GetHash().ToUint256()};
+        BOOST_REQUIRE(chain.Connect({BundleScript(2, hash)}));
+        while (chain.Score(2, hash) < static_cast<uint32_t>(chain.params.bundle_threshold)) BOOST_REQUIRE(chain.Connect({Votes({0})}));
+        BOOST_REQUIRE_EQUAL(chain.Score(2, hash), static_cast<uint32_t>(chain.params.bundle_threshold));
+        MinerState miner;
+        std::string error;
+        BOOST_REQUIRE(miner.AddBundle(2, blind, error) == hash);
+        miner.Prune(chain.scdb, chain.height + 1);
+        std::vector<CTransactionRef> txs;
+        if (with_deposit) {
+            // A deposit that leaves the Ctip alone (aggregated deposits), which the block consolidates.
+            CMutableTransaction deposit{chain.BaseTx()};
+            deposit.vout.emplace_back(COIN, EscrowScript(2));
+            deposit.vout.emplace_back(0, DestinationScript("late"));
+            txs.push_back(MakeTransactionRef(std::move(deposit)));
+        }
+        const auto additions{miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, txs, chain.height + 1)};
+        BOOST_REQUIRE_EQUAL(additions.withdrawals.size(), 1U);
+        std::vector<CScript> scripts;
+        for (const CTxOut& out : additions.coinbase_outputs) scripts.push_back(out.scriptPubKey);
+        std::vector<CTransactionRef> block_txs{txs};
+        block_txs.push_back(additions.withdrawals[0]);
+        const SidechainDB after_coinbase{StateAfterCoinbase(chain.scdb, chain.params, additions.coinbase_outputs, chain.height + 1)};
+        const auto consolidations{BlockConsolidations(after_coinbase, chain.params, block_txs, chain.height + 1)};
+        BOOST_CHECK_EQUAL(consolidations.size(), with_deposit ? 1U : 0U);
+        block_txs.insert(block_txs.end(), consolidations.begin(), consolidations.end());
+        std::vector<CMutableTransaction> mtxs;
+        for (const CTransactionRef& tx : block_txs) mtxs.emplace_back(*tx);
+        BOOST_REQUIRE_MESSAGE(chain.Connect(scripts, mtxs), chain.reject_reason);
+        BOOST_CHECK(chain.scdb.WasPaid(2, hash) == true);
+    }
+}
+
 BOOST_AUTO_TEST_CASE(enforcer_template_one_payout_per_slot)
 {
     // Two bundles of a sidechain with the votes, one paid by a withdrawal from the mempool: the template does not pay

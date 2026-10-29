@@ -692,10 +692,13 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
 
     // Follow the escrow outputs through the transactions of the block: a
     // withdrawal spends the escrow output as the deposits of the block leave it.
-    // Only the sidechains (not the proposals and closed bundles, which withdrawals do not touch).
+    // From the sidechains as the coinbase leaves them, as consensus reads the block: its votes count (a bundle they
+    // give the score is paid in this block), and bundles out of time have failed. Only the sidechains (not the
+    // proposals and closed bundles, which withdrawals do not touch).
+    const SidechainDB coinbase_state{height >= 0 ? StateAfterCoinbase(scdb, params, additions.coinbase_outputs, height) : scdb};
     std::set<SidechainId> slots;
-    for (const auto& [slot, state] : scdb.GetSlots()) slots.insert(slot);
-    SidechainDB after{scdb.Subset(slots)};
+    for (const auto& [slot, state] : coinbase_state.GetSlots()) slots.insert(slot);
+    SidechainDB after{coinbase_state.Subset(slots)};
     SidechainDB::EscrowOutputs escrow_outputs{after.GetEscrowOutputs()};
     BlockUndo undo;
     std::string reject_reason;

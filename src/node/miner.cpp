@@ -269,7 +269,10 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     // last, by a transaction that spends the Ctip (as the withdrawals left it) and them (as the bip300301_enforcer's
     // block producer does); without it the block is invalid. Its room was kept (m_consolidation_weight). No fee, no sigops.
     if (m_aggregated_deposits) {
-        for (const CTransactionRef& consolidation : drivechain::BlockConsolidations(m_chainstate.m_scdb, chainparams.GetConsensus().drivechain,
+        // From the sidechains as the coinbase leaves them, as the withdrawals were made (the block's votes count).
+        const drivechain::SidechainDB after_coinbase{drivechain::StateAfterCoinbase(m_chainstate.m_scdb, chainparams.GetConsensus().drivechain,
+                                                                                    drivechain_additions.coinbase_outputs, nHeight)};
+        for (const CTransactionRef& consolidation : drivechain::BlockConsolidations(after_coinbase, chainparams.GetConsensus().drivechain,
                                                                                     block_txs(), nHeight)) {
             pblock->vtx.push_back(consolidation);
             pblocktemplate->vTxFees.push_back(0);
