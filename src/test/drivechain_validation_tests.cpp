@@ -60,6 +60,8 @@ namespace {
 
 /** A regtest chain of 100 blocks, with what the drivechain tests need on top. */
 struct DrivechainChainSetup : public TestChain100Setup {
+    explicit DrivechainChainSetup(std::vector<const char*> extra_args = {}) : TestChain100Setup{ChainType::REGTEST, {.extra_args = std::move(extra_args)}} {}
+
     const CScript coinbase_script{CScript() << ToByteVector(coinbaseKey.GetPubKey()) << OP_CHECKSIG};
 
     Chainstate& ActiveChainstate() { return m_node.chainman->ActiveChainstate(); }
@@ -1060,6 +1062,59 @@ struct LogOrder {
     ~LogOrder() { LogInstance().DeleteCallback(callback); }
 };
 } // namespace
+
+namespace {
+struct LateDrivechainSetup : public DrivechainChainSetup {
+    LateDrivechainSetup() : DrivechainChainSetup{{"-testdrivechainparam=activation_height@60"}} {}
+};
+} // namespace
+
+BOOST_FIXTURE_TEST_CASE(deep_reorg_derives_from_the_activation_height, LateDrivechainSetup)
+{
+    // A reorg deeper than DRIVECHAIN_UNDO_DEPTH derives the sidechain database from the block before the
+    // activation height, where it is empty: the blocks below it are not read again.
+    Chainstate& chainstate{ActiveChainstate()};
+    const int activation{m_node.chainman->GetConsensus().drivechain.activation_height};
+    BOOST_REQUIRE_EQUAL(activation, 60);
+    // Long enough for the blocks within DRIVECHAIN_UNDO_DEPTH of the one deriving it to be above the activation height.
+    mineBlocks(2 * DRIVECHAIN_UNDO_DEPTH + 140);
+    const CBlockIndex* top{WITH_LOCK(::cs_main, return chainstate.m_chain.Tip())};
+    const SidechainDB at_top{WITH_LOCK(::cs_main, return chainstate.m_scdb)};
+    {
+        LOCK2(::cs_main, m_node.mempool->cs);
+        BlockValidationState state;
+        BOOST_REQUIRE(chainstate.FlushStateToDisk(state, FlushStateMode::FORCE_FLUSH));
+        while (DrivechainDB().HasBlockUndo(chainstate.m_chain.Tip()->GetBlockHash())) {
+            BOOST_REQUIRE(chainstate.DisconnectTip(state, nullptr));
+        }
+        CBlockIndex* deep{chainstate.m_chain.Tip()};
+        BOOST_REQUIRE_GT(deep->pprev->nHeight - DRIVECHAIN_UNDO_DEPTH, activation);
+        // The blocks below the activation height cannot be read, and get no new records (here: of the BMM index, taken
+        // away for the test): they are not gone through.
+        std::vector<CBlockIndex*> below;
+        for (int height{1}; height < activation; ++height) below.push_back(chainstate.m_chain[height]);
+        for (CBlockIndex* block : below) block->nStatus &= ~BLOCK_HAVE_DATA;
+        DrivechainDB().DropBmmIndex();
+        {
+            ASSERT_DEBUG_LOG(strprintf("No drivechain undo data for block %s at height %d: deriving the sidechain database from the blocks", deep->GetBlockHash().ToString(), deep->nHeight));
+            auto quiet{Unexpected("failed to read block")};
+            BOOST_CHECK(chainstate.DisconnectTip(state, nullptr));
+        }
+        for (CBlockIndex* block : below) block->nStatus |= BLOCK_HAVE_DATA;
+        BOOST_CHECK(!DrivechainDB().HasBmmAccepts(chainstate.m_chain[activation - 1]->GetBlockHash()));
+        BOOST_CHECK(DrivechainDB().HasBmmAccepts(chainstate.m_chain[activation]->GetBlockHash()));
+        DrivechainDB().WriteFormatVersion();
+        BOOST_CHECK(chainstate.m_chain.Tip() == deep->pprev);
+        BOOST_CHECK(chainstate.m_scdb.GetBlockHash() == deep->pprev->GetBlockHash());
+        BOOST_CHECK(DrivechainDB().HasBlockUndo(chainstate.m_chain.Tip()->GetBlockHash()));
+        BOOST_CHECK(!DrivechainDB().HasBlockUndo(chainstate.m_chain[deep->pprev->nHeight - DRIVECHAIN_UNDO_DEPTH]->GetBlockHash()));
+    }
+    BlockValidationState state;
+    BOOST_REQUIRE(chainstate.ActivateBestChain(state));
+    LOCK(::cs_main);
+    BOOST_CHECK(chainstate.m_chain.Tip() == top);
+    BOOST_CHECK(chainstate.m_scdb == at_top);
+}
 
 BOOST_FIXTURE_TEST_CASE(pruning_keeps_the_blocks_after_the_snapshot, PrunedDrivechainSetup)
 {

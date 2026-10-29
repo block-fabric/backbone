@@ -2454,10 +2454,15 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
             // before it is derived from the blocks, which also brings back the undo data of the
             // DRIVECHAIN_UNDO_DEPTH blocks below it, for the rest of a deep reorg.
             LogWarning("No drivechain undo data for block %s at height %d: deriving the sidechain database from the blocks", pindex->GetBlockHash().ToString(), pindex->nHeight);
+            // From the block before the activation height, where the database is empty (the blocks below
+            // it change nothing, and their records are there from when they were connected), or from lower,
+            // for the blocks below the activation height within DRIVECHAIN_UNDO_DEPTH to have their undo data.
+            const int keep_undo_above{pindex->pprev->nHeight - DRIVECHAIN_UNDO_DEPTH};
+            const int start_height{std::clamp(std::min(m_chainman.GetConsensus().drivechain.activation_height - 1, keep_undo_above), 0, pindex->pprev->nHeight)};
+            const CBlockIndex* start{pindex->GetAncestor(start_height)};
             drivechain::SidechainDB rebuilt;
-            const CBlockIndex* genesis{pindex->GetAncestor(0)};
-            rebuilt.SetBlockHash(genesis->GetBlockHash());
-            if (!RollForwardSidechainDB(rebuilt, genesis, pindex->pprev, pindex->pprev->nHeight - DRIVECHAIN_UNDO_DEPTH)) {
+            rebuilt.SetBlockHash(start->GetBlockHash());
+            if (!RollForwardSidechainDB(rebuilt, start, pindex->pprev, keep_undo_above)) {
                 if (m_chainman.m_interrupt) {
                     LogInfo("DisconnectBlock(): deriving the sidechain database was interrupted");
                 } else {
