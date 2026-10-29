@@ -1110,6 +1110,13 @@ bool AppInitParameterInteraction(const ArgsManager& args)
         user_rpc_max_connections = 0;
     }
 
+    // The gRPC server's listening sockets and connections, which it does not trim: as the HTTP server's, in the minimum.
+#ifdef ENABLE_GRPC
+    const int num_grpc_fds{GrpcFileDescriptors(args)};
+#else
+    const int num_grpc_fds{0};
+#endif
+
     // Reserve enough FDs to account for the bare minimum, plus any manual connections, plus the bound interfaces.
     // Every element is an int >= 0 so summing in int64_t cannot overflow.
     // RaiseFileDescriptorLimit() accepts an int so we check that limit before casting.
@@ -1118,6 +1125,7 @@ bool AppInitParameterInteraction(const ArgsManager& args)
                               num_p2p_bind +
                               num_rpc_bind +
                               user_rpc_max_connections +
+                              num_grpc_fds +
                               user_p2p_max_connections +
                               static_cast<int64_t>(max_private);
     if (total_fds > std::numeric_limits<int>::max()) {
@@ -1131,7 +1139,8 @@ bool AppInitParameterInteraction(const ArgsManager& args)
                            MAX_ADDNODE_CONNECTIONS +
                            num_p2p_bind +
                            num_rpc_bind +
-                           user_rpc_max_connections;
+                           user_rpc_max_connections +
+                           num_grpc_fds;
 
     // Try raising the FD limit to what the user wants (available_fds may be smaller than the requested amount if this fails)
     available_fds = RaiseFileDescriptorLimit(static_cast<int>(total_fds));

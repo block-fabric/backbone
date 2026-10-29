@@ -60,6 +60,15 @@ void AddGrpcOptions(ArgsManager& args)
                  ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::RPC);
 }
 
+int GrpcFileDescriptors(const ArgsManager& args)
+{
+    if (!args.GetBoolArg("-grpc", IsEcashChain(Params().GetChainType()))) return 0;
+    if (!Params().GetConsensus().drivechain.EnforcerRules()) return 0;
+    // Two listening sockets by default (::1 and 127.0.0.1), else one per -grpcbind.
+    const int binds{args.IsArgSet("-grpcbind") ? static_cast<int>(args.GetArgs("-grpcbind").size()) : 2};
+    return binds + GRPC_MAX_CONNECTIONS;
+}
+
 bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
 {
     const ChainType chain{Params().GetChainType()};
@@ -124,7 +133,7 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
     // reset); past 10,000 requests no new one (GOAWAY) and closed once its calls are over; past 100 streams the
     // client reset closed at once (Rapid Reset); a call's unsent replies at most 320 MiB; 16 connections per address beyond this machine (IPv6 by /64,
     // -grpcipv6prefix), 256 in all.
-    options.max_connections = 256;
+    options.max_connections = GRPC_MAX_CONNECTIONS;
     options.max_connections_per_ip = 16;
     options.per_ip_exempt = {LookupSubNet("127.0.0.0/8"), LookupSubNet("::1/128")};
     options.ipv6_prefix = static_cast<int>(ipv6_prefix);

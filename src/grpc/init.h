@@ -15,6 +15,8 @@ struct NodeContext;
 /** The port of the bip300301_enforcer's gRPC server (its --serve-grpc-addr, 127.0.0.1:50051). */
 static constexpr uint16_t DEFAULT_GRPC_PORT{50051};
 static constexpr int DEFAULT_GRPC_THREADS{4};
+/** Connections the gRPC server holds at most, in all. */
+static constexpr int GRPC_MAX_CONNECTIONS{256};
 
 void AddGrpcOptions(ArgsManager& args);
 /**
@@ -23,6 +25,11 @@ void AddGrpcOptions(ArgsManager& args);
  * explicitly and cannot be served; a default that cannot bind is a warning.
  */
 bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args);
+/**
+ * The file descriptors the gRPC server may take, its listening sockets and its connections, if it is to be served
+ * (-grpc, as StartGrpcServer reads it); 0 otherwise. For the node's file descriptor budget.
+ */
+int GrpcFileDescriptors(const ArgsManager& args);
 void StopGrpcServer();
 
 #endif // BITCOIN_GRPC_INIT_H
