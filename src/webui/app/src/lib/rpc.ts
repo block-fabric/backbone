@@ -145,6 +145,8 @@ export interface AppInfo {
   blockSpacing?: number;
   /** The weight a block of this chain and network may have (consensus.max_block_weight). */
   blockWeight?: number;
+  /** eCash: the lock time final at any height there and never on Bitcoin (consensus.replay_locktime); 0 for none. */
+  replayLocktime?: number;
 }
 
 export interface Dialog {

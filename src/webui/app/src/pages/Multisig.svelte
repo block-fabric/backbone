@@ -2,13 +2,13 @@
   // The multisig lounge (MultisigDialog of chains-qt): collect the keys of partners, make shared
   // addresses that need several signatures, and spend from them by passing a PSBT around.
   import { t } from '../lib/i18n.svelte';
-  import { ticker } from '../lib/units';
+  import { isEcashNetwork, ticker } from '../lib/units';
   import CopyButton from '../components/CopyButton.svelte';
   import Icon from '../components/Icon.svelte';
   import { confirm, errorText, inform, prompt, withUnlock } from '../lib/dialogs.svelte';
   import { ownTab, setOwnTab } from '../lib/nav.svelte';
   import { rpc } from '../lib/rpc';
-  import { noWalletText, prefs, savePrefs, wallets } from '../lib/state.svelte';
+  import { app, noWalletText, prefs, savePrefs, wallets } from '../lib/state.svelte';
   import { bareDescriptor, coinsToUnits, jsonCoinsToUnits, keyOfDescriptor, psbtStatus, sharedDescriptor, signersText, unitsToCoins } from '../lib/tools';
   import { psbt as psbtApi, walletApi, walletDisplayName } from '../lib/wallet';
 
@@ -184,7 +184,12 @@
       const outputs: Record<string, string>[] = [{ [destination.trim()]: amount.trim() }];
       // Change too small to be worth an output goes to the fee.
       if (change >= 1000n) outputs.push({ [addresses[0]]: unitsToCoins(change) });
-      const created = await rpc.raw<string>('createpsbt', [inputs, outputs]);
+      // On the eCash networks the spend carries the replay lock time, as every send of the wallet does: coins the shared
+      // address held before the fork are on Bitcoin too, and a transaction with this lock time is never final there.
+      // Its inputs are then not final (sequence 0xfffffffd: createpsbt's default, replaceable).
+      const locktime = app.info?.replayLocktime;
+      if (locktime === undefined && isEcashNetwork(app.info?.network)) return warn(t('The node has not said its network yet. Try again in a moment.'));
+      const created = await rpc.raw<string>('createpsbt', locktime ? [inputs, outputs, locktime] : [inputs, outputs]);
       // Adds what the signers need to know about the coins and about the keys.
       psbt = await rpc.raw<string>('utxoupdatepsbt', [created, [entry.value]]);
     } catch (e) {

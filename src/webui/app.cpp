@@ -237,6 +237,9 @@ UniValue App::Info()
     }
     // The weight a block of this chain and network may have (the explorer draws how full blocks are against it).
     if (configured) info.pushKV("blockWeight", Params().GetConsensus().max_block_weight);
+    // eCash: the lock time that is final at any height and time there, and never on Bitcoin (0: none), which spends
+    // the page builds itself carry, as the wallet's own do.
+    if (configured) info.pushKV("replayLocktime", static_cast<int64_t>(Params().GetConsensus().replay_locktime));
 #ifdef ENABLE_WALLET
     info.pushKV("walletEnabled", !m_args.GetBoolArg("-disablewallet", false));
 #else
