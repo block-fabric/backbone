@@ -424,6 +424,13 @@ BOOST_AUTO_TEST_CASE(transport)
         // A request from a web page (an Origin header), or to a Host that is a name (DNS rebinding): refused.
         out = exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nOrigin: http://evil.example\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}");
         BOOST_CHECK(out.starts_with("HTTP/1.1 403 "));
+        // One a page makes without an Origin header (an image of a GET), which the browser marks: refused; a typed address is not.
+        out = exchange("GET /cusf.mainchain.v1.ValidatorService/GetChainTip?encoding=json&message=%7B%7D HTTP/1.1\r\nSec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: no-cors\r\n\r\n");
+        BOOST_CHECK(out.starts_with("HTTP/1.1 403 "));
+        out = exchange("GET /cusf.mainchain.v1.ValidatorService/GetChainTip?encoding=json&message=%7B%7D HTTP/1.1\r\nSec-Fetch-Site: same-site\r\n\r\n");
+        BOOST_CHECK(out.starts_with("HTTP/1.1 403 "));
+        out = exchange("GET /cusf.mainchain.v1.ValidatorService/GetChainTip?encoding=json&message=%7B%7D HTTP/1.1\r\nSec-Fetch-Site: none\r\n\r\n");
+        BOOST_CHECK(out.starts_with("HTTP/1.1 200 OK"));
         out = exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: evil.example:50051\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}");
         BOOST_CHECK(out.starts_with("HTTP/1.1 403 "));
         out = exchange("POST /cusf.crypto.v1.CryptoService/Ripemd160 HTTP/1.1\r\nHost: localhost:50051\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}");

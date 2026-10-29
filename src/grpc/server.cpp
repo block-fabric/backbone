@@ -398,6 +398,15 @@ void BeginCall(Server& server, Request& r, bool http2)
         r.call->Finish({Code::PERMISSION_DENIED, "requests from web pages (Origin " + origin + ") are refused; see -grpcallowedorigin"});
         return;
     }
+    // A request a page makes without an Origin header (an image, a script, a link: a GET of Connect, which a browser
+    // makes without one) carries Sec-Fetch-Site in today's browsers: refused, but for an address typed by the user
+    // ("none"). Clients of these protocols send neither header.
+    const std::string fetch_site{ToLowerAscii(Header(r, "sec-fetch-site"))};
+    if (origin.empty() && !fetch_site.empty() && fetch_site != "none") {
+        r.call = std::make_shared<Call>(kind ? kind->protocol : Protocol::CONNECT_UNARY, kind ? kind->json : true, method);
+        r.call->Finish({Code::PERMISSION_DENIED, "requests from web pages (Sec-Fetch-Site " + fetch_site + ") are refused; see -grpcallowedorigin"});
+        return;
+    }
     if (!HostAllowed(Header(r, "host"), options.allowed_hosts)) {
         r.call = std::make_shared<Call>(kind ? kind->protocol : Protocol::CONNECT_UNARY, kind ? kind->json : true, method);
         r.call->Finish({Code::PERMISSION_DENIED, "host " + Header(r, "host") + " refused (an IP address or localhost, or one of -grpcallowedhost)"});

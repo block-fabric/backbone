@@ -170,7 +170,8 @@ The enforcer has no authentication and binds to localhost; its clients send none
 the same for the ValidatorService. What is added, from the security review of 2026-10-20:
 
 1. **Web pages** (CSRF, DNS rebinding): a request with an `Origin` header is refused (403 /
-   PERMISSION_DENIED) unless its origin is in `-grpcallowedorigin`; a `Host`/`:authority` that is a name other than
+   PERMISSION_DENIED) unless its origin is in `-grpcallowedorigin`, as is one without an `Origin` that a browser
+   marks as made by a page (`Sec-Fetch-Site` other than `none`: an image or a script of a GET); a `Host`/`:authority` that is a name other than
    `localhost` (an IP literal is fine) is refused unless in `-grpcallowedhost`; Connect's GET form only for
    methods marked `NO_SIDE_EFFECTS`; POST only with the protocols' content types (no form or text types, which a
    page can send without a preflight).

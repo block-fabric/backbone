@@ -558,6 +558,12 @@ class EcashGrpcTest(BitcoinTestFramework):
         status, reply = self.connect.json('/' + V + 'GetChainTip', headers={'Host': f'evil.example:{self.grpc_port}'})
         assert_equal((status, reply['code']), (403, 'permission_denied'))
         assert_equal(self.connect.json('/' + V + 'GetChainTip', headers={'Host': f'localhost:{self.grpc_port}'})[0], 200)
+        # A GET a page makes without an Origin header (an image), which the browser marks with Sec-Fetch-Site.
+        conn = http.client.HTTPConnection('127.0.0.1', self.grpc_port, timeout=30)
+        conn.request('GET', '/' + V + 'GetChainTip?encoding=json&message=%7B%7D', headers={'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'no-cors'})
+        resp = conn.getresponse()
+        assert_equal((resp.status, json.loads(resp.read())['code']), (403, 'permission_denied'))
+        conn.close()
         # The GET form of Connect, for reads only (idempotency_level NO_SIDE_EFFECTS).
         conn = http.client.HTTPConnection('127.0.0.1', self.grpc_port, timeout=30)
         conn.request('GET', '/' + V + 'GetChainTip?encoding=json&message=%7B%7D')
