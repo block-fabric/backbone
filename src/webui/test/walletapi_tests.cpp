@@ -975,6 +975,11 @@ BOOST_AUTO_TEST_CASE(keys_for_one_call)
     BOOST_CHECK_EQUAL(confirm_call(Obj({{"method", "setdefaultwithdrawalvote"}, {"params", List({UniValue{"abstain"}})}})).first, 0);
     BOOST_CHECK_EQUAL(RowValue(asked.back(), "Default vote"), "abstain");
     BOOST_CHECK_EQUAL(node->executeRpc("getdrivechaininfo", UniValue{UniValue::VARR}, "/")["defaultwithdrawalvote"].get_str(), "abstain");
+    // A proposal: every parameter it makes the blocks say, the version of its description too.
+    Answer(false);
+    BOOST_CHECK_EQUAL(confirm_call(Obj({{"method", "createsidechainproposal"}, {"params", List({UniValue{3}, UniValue{"Three"}, UniValue{""}, UniValue{std::string(64, '0')}, UniValue{std::string(40, '0')}, UniValue{1}})}})).first, webui::BRIDGE_CANCELLED);
+    BOOST_CHECK_EQUAL(RowValue(asked.back(), "Title"), "Three");
+    BOOST_CHECK_EQUAL(RowValue(asked.back(), "Version"), "1");
 
     // Review of audit 7: what is described is what runs. Named parameters only by the method's own names, put in order; never
     // "args", an alias or a name the method does not have (the RPC server would read them otherwise than the dialog).

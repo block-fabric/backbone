@@ -430,6 +430,8 @@ std::optional<Window::ConfirmDialog> Propose(const Call& call)
     if (!call.Arg(2).isNull()) dialog.rows.push_back(Text("Description", ValueText(call.Arg(2))));
     if (!call.Arg(3).isNull()) dialog.rows.push_back(Destination("Release hash", ValueText(call.Arg(3))));
     if (!call.Arg(4).isNull()) dialog.rows.push_back(Destination("Commit hash", ValueText(call.Arg(4))));
+    // The version of the description is part of what the blocks propose (and of the proposal's hash).
+    if (!call.Arg(5).isNull()) dialog.rows.push_back(Text("Version", ValueText(call.Arg(5))));
     dialog.message = "The next block this node builds proposes this sidechain, and the blocks after ack it. A proposal for a slot that holds a "
                      "sidechain replaces that one if it activates.\n\nPropose it only if you asked for it.";
     return dialog;
