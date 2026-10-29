@@ -61,7 +61,7 @@ export interface VoteEntry extends Partial<SlotRef> {
   bundle?: string;
 }
 export interface EscrowChange extends SlotRef {
-  kind: 'deposit' | 'withdrawal';
+  kind: 'deposit' | 'withdrawal' | 'consolidation';
   txid: string;
   amount: number;
   total: number;
