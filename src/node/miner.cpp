@@ -27,6 +27,7 @@
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <script/script.h>
+#include <serialize.h>
 #include <sync.h>
 #include <tinyformat.h>
 #include <txgraph.h>
@@ -142,7 +143,21 @@ void BlockAssembler::resetBlock()
     m_withdrawal_sigops = 0;
     m_consolidation_weight = 0;
     m_in_block.clear();
+    m_coinbase_message_weight = 0;
+    m_bmm_accepted.clear();
 }
+
+namespace {
+/** The weight `outputs` add to the coinbase, with the growth of its output count (from the payout and the witness commitment). */
+uint64_t CoinbaseOutputsWeight(const std::vector<CTxOut>& outputs)
+{
+    if (outputs.empty()) return 0;
+    uint64_t size{0};
+    for (const CTxOut& out : outputs) size += ::GetSerializeSize(out);
+    size += GetSizeOfCompactSize(2 + outputs.size()) - GetSizeOfCompactSize(2);
+    return size * WITNESS_SCALE_FACTOR;
+}
+} // namespace
 
 std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 {
@@ -193,12 +208,17 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     }};
     const auto block_txs{[&] { return std::vector<CTransactionRef>{pblock->vtx.begin() + 1, pblock->vtx.end()}; }};
 
+    // The messages of the coinbase take room in the block (the acks, the votes, the proposals, the accepts of the BMM
+    // requests the block takes, counted as they are taken): block_reserved_weight is for the rest of it.
+    const drivechain::BlockAdditions before{additions_for({})};
+    m_coinbase_message_weight = CoinbaseOutputsWeight(before.coinbase_outputs);
+    nBlockWeight += m_coinbase_message_weight;
+
     if (m_mempool) {
         LOCK(m_mempool->cs);
         // Room is kept for the withdrawals that can be paid out, so that a full mempool cannot keep
         // them out of the block, whatever their fee. Their weight does not depend on the escrow
         // output they spend.
-        const drivechain::BlockAdditions before{additions_for({})};
         std::tie(m_withdrawal_weight, m_withdrawal_sigops) = WithdrawalRoom(before.withdrawals);
         m_payable_bundles = before.payable_bundles;
         // A sidechain the coinbase activates is active for the block's transactions (consensus applies the coinbase
@@ -358,7 +378,7 @@ std::pair<uint64_t, uint64_t> BlockAssembler::WithdrawalRoom(const std::vector<C
     for (const CTransactionRef& withdrawal : withdrawals) {
         const uint64_t tx_weight(GetTransactionWeight(*withdrawal));
         const uint64_t tx_sigops(WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*withdrawal));
-        if (*m_options.block_reserved_weight + weight + tx_weight >= *Assert(m_options.block_max_weight)) continue;
+        if (*m_options.block_reserved_weight + m_coinbase_message_weight + weight + tx_weight >= *Assert(m_options.block_max_weight)) continue;
         if (m_options.coinbase_output_max_additional_sigops + sigops + tx_sigops >= MAX_BLOCK_SIGOPS_COST) continue;
         weight += tx_weight;
         sigops += tx_sigops;
@@ -412,6 +432,18 @@ uint64_t BlockAssembler::ConsolidationRoom(const CTransaction& tx) const
     return treasuries == 0 ? 0 : static_cast<uint64_t>(drivechain::ConsolidationWeight(treasuries));
 }
 
+uint64_t BlockAssembler::BmmAcceptWeight(const CTransaction& tx, std::set<drivechain::SidechainId>& accepted) const
+{
+    uint64_t weight{0};
+    for (const drivechain::BmmRequest& request : drivechain::GetBmmRequests(tx)) {
+        if (request.slot >= chainparams.GetConsensus().drivechain.max_sidechains) continue;
+        if (!accepted.insert(request.slot).second) continue;
+        weight += ::GetSerializeSize(CTxOut{0, drivechain::BmmAcceptScript(request.slot, request.side_block_hash)}) * WITNESS_SCALE_FACTOR;
+    }
+    // The output count of the coinbase may take more bytes as well.
+    return weight == 0 ? 0 : weight + 2 * WITNESS_SCALE_FACTOR;
+}
+
 bool BlockAssembler::TouchesActivatingSlot(const CTransaction& tx) const
 {
     if (m_activating_slots.empty()) return false;
@@ -456,7 +488,7 @@ void BlockAssembler::AddToBlock(const CTxMemPoolEntry& entry)
     pblocktemplate->vTxSigOpsCost.push_back(entry.GetSigOpCost());
     m_in_block.insert(entry.GetTx().GetHash());
     m_consolidation_weight += ConsolidationRoom(entry.GetTx());
-    nBlockWeight += entry.GetTxWeight();
+    nBlockWeight += entry.GetTxWeight() + BmmAcceptWeight(entry.GetTx(), m_bmm_accepted);
     ++nBlockTx;
     nBlockSigOpsCost += entry.GetSigOpCost();
     nFees += entry.GetFee();
@@ -508,6 +540,9 @@ void BlockAssembler::addChunks()
             // With the room its deposits take in the consolidation of the block.
             chunk_weight += tx.get().GetTxWeight() + ConsolidationRoom(tx.get().GetTx());
         }
+        // And the accepts of its BMM requests, in the coinbase.
+        std::set<drivechain::SidechainId> accepted{m_bmm_accepted};
+        for (const auto& tx : selected_transactions) chunk_weight += BmmAcceptWeight(tx.get().GetTx(), accepted);
 
         // Check to see if this chunk will fit.
         if (!TestChunkBlockLimits(chunk_weight, chunk_sig_ops) || !TestChunkTransactions(selected_transactions)) {

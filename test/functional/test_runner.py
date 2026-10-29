@@ -178,6 +178,7 @@ BASE_SCRIPTS = [
     'feature_ecash_fork_datadir.py',
     'feature_ecash_chain_text.py',
     'feature_ecash_activation_template.py',
+    'feature_ecash_coinbase_weight.py',
     'wallet_ecash_replay.py',
     'wallet_bip39.py',
     'interface_ecash_grpc.py',

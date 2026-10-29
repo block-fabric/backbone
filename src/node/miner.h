@@ -91,6 +91,10 @@ private:
     //! The sidechains the coinbase of the block activates (drivechain::StateAfterCoinbase): their treasury outputs are
     //! no ordinary outputs in it, whatever the mempool took them for.
     std::set<drivechain::SidechainId> m_activating_slots;
+    //! Drivechain: the weight of the messages of the coinbase (in nBlockWeight, beyond block_reserved_weight), and the
+    //! sidechains whose BMM request the block has, each of which adds an accept (M7) to the coinbase.
+    uint64_t m_coinbase_message_weight{0};
+    std::set<drivechain::SidechainId> m_bmm_accepted;
 
     // Chain context for the block
     int nHeight;
@@ -143,6 +147,11 @@ private:
     bool TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>& txs) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
     /** Drivechain: the weight the consolidation of the block may take for these transactions (aggregated deposits). */
     uint64_t ConsolidationRoom(const CTransaction& tx) const;
+    /**
+     * Drivechain: the weight the BMM accepts (M7) of the coinbase grow by for the BMM requests of these transactions,
+     * those for sidechains not in `accepted` (which is updated), as CreateBlockAdditions accepts them.
+     */
+    uint64_t BmmAcceptWeight(const CTransaction& tx, std::set<drivechain::SidechainId>& accepted) const;
     /** Drivechain: whether the transaction creates or spends an output with the treasury script of a sidechain the block activates. */
     bool TouchesActivatingSlot(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
     /** Drivechain: false for a withdrawal (M6) of a bundle the block cannot pay (m_payable_bundles). */
