@@ -911,6 +911,10 @@ public:
     drivechain::SidechainDB GetMempoolSidechainDB(const std::set<drivechain::SidechainId>& slots,
                                                   const std::set<Txid>* stop_before = nullptr,
                                                   std::set<Txid>* applied = nullptr) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
+    //! The deposits GetMempoolSidechainDB found to make the first Ctip of a sidechain that has none, by sidechain,
+    //! and the tip they were found on: tried first while they still are.
+    mutable std::map<drivechain::SidechainId, Txid> m_first_deposits GUARDED_BY(::cs_main);
+    mutable const CBlockIndex* m_first_deposits_tip GUARDED_BY(::cs_main){nullptr};
 
     // Apply the effects of a block disconnection on the UTXO set.
     bool DisconnectTip(BlockValidationState& state, DisconnectedBlockTransactions* disconnectpool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_mempool->cs);

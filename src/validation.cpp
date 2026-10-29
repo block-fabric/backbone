@@ -5071,22 +5071,39 @@ drivechain::SidechainDB Chainstate::GetMempoolSidechainDB(const std::set<drivech
                 if (const CTransaction* spender{m_mempool->GetConflictTx(slot->ctip.outpoint)}) next = m_mempool->get(spender->GetHash());
             } else if (const auto txs{m_mempool->m_escrow_txs.find(id)}; txs != m_mempool->m_escrow_txs.end()) {
                 // No escrow output yet: the deposit that creates the first one.
-                for (const Txid& txid : txs->second) {
-                    const CTransactionRef candidate{m_mempool->get(txid)};
-                    if (!candidate) continue;
+                const auto makes_first_ctip = [&](const Txid& txid) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) -> CTransactionRef {
+                    CTransactionRef candidate{m_mempool->get(txid)};
+                    if (!candidate) return nullptr;
                     // The first deposit spends no escrow output in the mempool; one that does comes
                     // later in the chain, whatever its txid.
-                    if (std::any_of(candidate->vin.begin(), candidate->vin.end(), [&](const CTxIn& in) { return txs->second.contains(in.prevout.hash); })) continue;
+                    if (std::any_of(candidate->vin.begin(), candidate->vin.end(), [&](const CTxIn& in) { return txs->second.contains(in.prevout.hash); })) return nullptr;
                     // Nor one whose inputs are missing: in a reorg, the deposits of the disconnected
                     // blocks come back one by one, and a later one that stayed in the mempool waits
                     // for the one before it (which would otherwise be refused, as not following it).
-                    if (std::any_of(candidate->vin.begin(), candidate->vin.end(), [&](const CTxIn& in) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) { return !m_mempool->exists(in.prevout.hash) && !m_coins_views->m_cacheview->HaveCoin(in.prevout); })) continue;
+                    if (std::any_of(candidate->vin.begin(), candidate->vin.end(), [&](const CTxIn& in) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) { return !m_mempool->exists(in.prevout.hash) && !m_coins_views->m_cacheview->HaveCoin(in.prevout); })) return nullptr;
                     drivechain::SidechainDB probe{scdb};
                     drivechain::SidechainDB::EscrowOutputs probe_outputs{escrow_outputs};
                     drivechain::BlockUndo probe_undo;
-                    if (probe.ConnectTx(*candidate, params, probe_outputs, probe_undo, nullptr, reject_reason, next_height)) {
-                        next = candidate;
-                        break;
+                    if (!probe.ConnectTx(*candidate, params, probe_outputs, probe_undo, nullptr, reject_reason, next_height)) return nullptr;
+                    return candidate;
+                };
+                // The one found last time on this tip, while it still is one: every transaction that touches the
+                // escrow of the sidechain asks, and a search through all of its deposits each time would cost as
+                // many probes as there are deposits (the first one in txid order that makes a Ctip can be any).
+                if (m_first_deposits_tip != m_chain.Tip()) {
+                    m_first_deposits.clear();
+                    m_first_deposits_tip = m_chain.Tip();
+                }
+                if (const auto known{m_first_deposits.find(id)}; known != m_first_deposits.end()) {
+                    if (txs->second.contains(known->second)) next = makes_first_ctip(known->second);
+                    if (!next) m_first_deposits.erase(known);
+                }
+                if (!next) {
+                    for (const Txid& txid : txs->second) {
+                        if ((next = makes_first_ctip(txid))) {
+                            m_first_deposits.emplace(id, txid);
+                            break;
+                        }
                     }
                 }
             }

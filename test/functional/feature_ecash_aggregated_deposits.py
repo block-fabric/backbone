@@ -17,6 +17,8 @@ one sidechain proposal (M1) and one bundle proposal (M3) per block (fa78089, ce4
 - Betanet's rules (-testdrivechainparam=aggregated_deposits_height@-1, single_m1_m3_height@-1), on a node of its own:
   the deposit spends the Ctip, one that does not is invalid, and a block may carry several M1.
 - The deposit records survive -reindex.
+- Many deposits to a sidechain without a Ctip wait in the mempool together; a block takes them all with their
+  consolidation, and again after a reorg takes that block back.
 """
 from decimal import Decimal
 
@@ -118,6 +120,7 @@ class EcashAggregatedDepositsTest(BitcoinTestFramework):
         self.test_withdrawal()
         self.test_old_rules()
         self.test_reindex()
+        self.test_first_ctip()
 
     def test_aggregated_block(self):
         a, b, _ = self.nodes
@@ -313,6 +316,31 @@ class EcashAggregatedDepositsTest(BitcoinTestFramework):
         assert_equal(a.getsidechainevents(SLOT, start, 20), events)
         assert_equal(a.listsidechaindeposits(SLOT), changes)
         assert_equal(a.getdrivechaininfo()["statehash"], state)
+
+    def test_first_ctip(self):
+        a, _, _ = self.nodes
+        self.log.info("Twenty deposits to a sidechain without a Ctip wait in the mempool; a block takes them all")
+        slot = SLOT + 1
+        a.createsidechainproposal(slot, "Second", "")
+        self.generate(a, 8, sync_fun=self.no_op)
+        assert slot in [s["slot"] for s in a.listactivesidechains()]
+        assert "escrow" not in a.getsidechain(slot)
+        txids = [a.createsidechaindeposit(slot, f"first {i}", Decimal("0.1"))["txid"] for i in range(20)]
+        assert set(txids) <= set(a.getrawmempool())
+        block_hash = self.generate(a, 1, sync_fun=self.no_op)[0]
+        block = a.getblock(block_hash, 2)
+        assert set(txids) <= {tx["txid"] for tx in block["tx"]}
+        assert_equal(a.getsidechain(slot)["escrow"]["amount"], Decimal(2))
+        assert_equal(a.getrawmempool(), [])
+        self.log.info("Taken back: the deposits return to the mempool, and the next block takes them all again")
+        a.invalidateblock(block_hash)
+        assert "escrow" not in a.getsidechain(slot)
+        assert_equal(sorted(a.getrawmempool()), sorted(txids))
+        # (To another address: the same block again would be the one marked invalid.)
+        block = a.getblock(self.generatetoaddress(a, 1, a.getnewaddress(), sync_fun=self.no_op)[0], 2)
+        assert set(txids) <= {tx["txid"] for tx in block["tx"]}
+        assert_equal(a.getsidechain(slot)["escrow"]["amount"], Decimal(2))
+        assert_equal(a.getrawmempool(), [])
 
 
 if __name__ == '__main__':
