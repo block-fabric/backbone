@@ -201,6 +201,14 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         const drivechain::BlockAdditions before{additions_for({})};
         std::tie(m_withdrawal_weight, m_withdrawal_sigops) = WithdrawalRoom(before.withdrawals);
         m_payable_bundles = before.payable_bundles;
+        // A sidechain the coinbase activates is active for the block's transactions (consensus applies the coinbase
+        // first): what the mempool took, while it was not, for an ordinary output with its treasury script may be an
+        // invalid deposit now, or one the block would have to consolidate. Such transactions wait for the next block.
+        const drivechain::SidechainDB after_coinbase{drivechain::StateAfterCoinbase(m_chainstate.m_scdb, chainparams.GetConsensus().drivechain,
+                                                                                    before.coinbase_outputs, nHeight)};
+        for (const auto& [slot, state] : after_coinbase.GetSlots()) {
+            if (!m_chainstate.m_scdb.IsActive(slot)) m_activating_slots.insert(slot);
+        }
         m_mempool->StartBlockBuilding();
         addChunks();
         m_mempool->StopBlockBuilding();
@@ -217,6 +225,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         m_withdrawal_weight = 0;
         m_withdrawal_sigops = 0;
         m_payable_bundles.clear();
+        m_activating_slots.clear();
     }
 
     const drivechain::BlockAdditions drivechain_additions{additions_for(block_txs())};
@@ -387,6 +396,7 @@ bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>
         // A withdrawal of a bundle this block's own votes (or its age) leave without the score would
         // make the block invalid; it and what depends on it wait.
         if (!WithdrawalPayable(tx.get().GetTx())) return false;
+        if (TouchesActivatingSlot(tx.get().GetTx())) return false;
     }
     return true;
 }
@@ -400,6 +410,23 @@ uint64_t BlockAssembler::ConsolidationRoom(const CTransaction& tx) const
         return drivechain::ParseEscrowScript(out.scriptPubKey).has_value();
     }))};
     return treasuries == 0 ? 0 : static_cast<uint64_t>(drivechain::ConsolidationWeight(treasuries));
+}
+
+bool BlockAssembler::TouchesActivatingSlot(const CTransaction& tx) const
+{
+    if (m_activating_slots.empty()) return false;
+    const auto activating{[&](const CScript& script) {
+        const auto slot{drivechain::ParseEscrowScript(script)};
+        return slot && m_activating_slots.contains(*slot);
+    }};
+    if (std::any_of(tx.vout.begin(), tx.vout.end(), [&](const CTxOut& out) { return activating(out.scriptPubKey); })) return true;
+    return std::any_of(tx.vin.begin(), tx.vin.end(), [&](const CTxIn& in) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs) {
+        if (const CTransactionRef parent{m_mempool->get(in.prevout.hash)}) {
+            return in.prevout.n < parent->vout.size() && activating(parent->vout[in.prevout.n].scriptPubKey);
+        }
+        const auto coin{m_chainstate.CoinsTip().GetCoin(in.prevout)};
+        return coin && activating(coin->out.scriptPubKey);
+    });
 }
 
 bool BlockAssembler::WithdrawalPayable(const CTransaction& tx) const

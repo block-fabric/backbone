@@ -6,6 +6,7 @@
 
 #include <consensus/consensus.h>
 #include <logging.h>
+#include <primitives/block.h>
 #include <streams.h>
 #include <util/fs_helpers.h>
 
@@ -736,6 +737,29 @@ BlockAdditions MinerState::CreateBlockAdditions(const SidechainDB& scdb, const C
     }
 
     return additions;
+}
+
+SidechainDB StateAfterCoinbase(const SidechainDB& scdb, const Consensus::DrivechainParams& params,
+                               const std::vector<CTxOut>& coinbase_outputs, int height)
+{
+    SidechainDB after{scdb};
+    if (height < params.activation_height) return after;
+    // A block of the coinbase alone, which the drivechain rules read as any other.
+    CMutableTransaction coinbase;
+    coinbase.vin.resize(1);
+    coinbase.vin[0].prevout.SetNull();
+    coinbase.vout.emplace_back(0, CScript() << OP_TRUE);
+    coinbase.vout.insert(coinbase.vout.end(), coinbase_outputs.begin(), coinbase_outputs.end());
+    CBlock block;
+    block.hashPrevBlock = scdb.GetBlockHash();
+    block.vtx.push_back(MakeTransactionRef(std::move(coinbase)));
+    BlockUndo undo;
+    std::string reject_reason;
+    if (!after.ConnectBlock(block, height, params, undo, nullptr, reject_reason)) {
+        LogWarning("The coinbase messages of the block template do not pass the drivechain rules (%s)", reject_reason);
+        return scdb;
+    }
+    return after;
 }
 
 std::vector<CTransactionRef> BlockConsolidations(const SidechainDB& scdb, const Consensus::DrivechainParams& params,

@@ -164,6 +164,9 @@ betanet; the enforcer's `64256fc`, `fill_ctips`, `handle_m5_m6`, `finalize_conne
   (`ConsolidationWeight`, the enforcer's `consolidation_tx_weight`). Its own M6 spends the Ctip alone. A pool
   that builds blocks from getblocktemplate must keep that zero-fee transaction (it depends on the deposits),
   or leave the deposits out with it. `generateblock` consolidates the deposits it is given.
+  In the block whose coinbase activates a sidechain (the acks of the template itself), what touches that
+  sidechain's treasury script waits for the next block (`drivechain::StateAfterCoinbase`): before, the mempool
+  took such outputs as ordinary ones, and the block would read them as deposits.
 - **The mempool** takes deposits that do not spend the Ctip (they conflict with nothing, and stay across
   blocks without them), and refuses a transaction spending the output of such an unconfirmed deposit
   (`dc-escrow-unconsolidated`: how a block would read it depends on the block). **The wallet**

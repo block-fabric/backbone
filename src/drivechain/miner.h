@@ -256,6 +256,16 @@ private:
 };
 
 /**
+ * The sidechain database as the coinbase of a block at `height` on top of the block `scdb` belongs to, with these
+ * messages (BlockAdditions::coinbase_outputs), leaves it, before the block's transactions: proposals and acks (a
+ * sidechain the block activates is active in it), votes, new bundles, and what fails or runs out of time before
+ * the transactions. Consensus applies the coinbase so; the template checks its transactions against this. A copy:
+ * `scdb` is unchanged. If the coinbase does not pass the rules (which a template's does), `scdb` as it is.
+ */
+SidechainDB StateAfterCoinbase(const SidechainDB& scdb, const Consensus::DrivechainParams& params,
+                               const std::vector<CTxOut>& coinbase_outputs, int height);
+
+/**
  * Aggregated deposits (DrivechainParams::AggregatedDeposits): what consolidates the deposits of a block that did not
  * spend the Ctip of their sidechain, to be placed after all its other transactions (`txs`, without the coinbase, with
  * the withdrawals), as the bip300301_enforcer's block producer appends it: one transaction for all the sidechains, with
