@@ -129,7 +129,9 @@ public:
     std::optional<CMutableTransaction> GetBundle(SidechainId slot, const uint256& hash) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /**
      * The word of the sidechain node of `slot` on its bundle: the one its chain has (handed before with
-     * AddBundle), or none. Votes and proposals follow it. @return false if `hash` was never handed.
+     * AddBundle), or none. Votes and proposals follow it. A bundle never handed is taken as the word too: the
+     * one vouched for before is not upvoted or proposed any more, and the slot gets no upvote until it is
+     * handed. @return false if `hash` was never handed.
      */
     bool Vouch(SidechainId slot, const std::optional<uint256>& hash) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     /** What the sidechain node of `slot` vouches for: nothing known, none (null), or a bundle. */

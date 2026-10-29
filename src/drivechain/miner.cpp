@@ -270,10 +270,13 @@ bool MinerState::IsAcked(SidechainId slot, const uint256& proposal_hash) const
 bool MinerState::Vouch(SidechainId slot, const std::optional<uint256>& hash)
 {
     LOCK(m_mutex);
-    if (hash && !m_bundles.contains({slot, *hash})) return false;
+    // A bundle this node was not handed is still the word of the sidechain node: the bundle vouched for before is one
+    // its chain gave up. The word is taken (no other bundle is upvoted or proposed; this node abstains until the
+    // bundle is handed), and refused, so that the caller hands the bundle.
+    const bool handed{!hash || m_bundles.contains({slot, *hash})};
     m_latest_bundle[slot] = hash.value_or(uint256{});
     Save();
-    return true;
+    return handed;
 }
 
 std::optional<uint256> MinerState::Vouched(SidechainId slot) const
@@ -387,6 +390,12 @@ Vote MinerState::ResolveVote(SidechainId slot, const std::vector<Bundle>& pendin
         if (latest->second.IsNull()) {
             vote.type = pending.empty() ? Vote::Type::ABSTAIN : Vote::Type::DOWNVOTE;
             why = pending.empty() ? VoteReason::NONE_PENDING : VoteReason::NO_BUNDLE;
+            return vote;
+        }
+        // A bundle the sidechain node vouched for without handing it (Vouch): none is upvoted until it is handed.
+        if (!m_bundles.contains({slot, latest->second})) {
+            vote.type = Vote::Type::ABSTAIN;
+            why = pending.empty() ? VoteReason::NONE_PENDING : VoteReason::MISMATCH;
             return vote;
         }
         // A bundle the chain closed once is not upvoted again, should it be proposed again (once
@@ -538,8 +547,20 @@ void MinerState::Prune(const SidechainDB& scdb, int height, const ClosureLookup&
         return !info.proposed && height - info.handed >= UNPROPOSED_EXPIRY && !vouched(entry.first.first, entry.first.second);
     }) > 0;
     std::erase_if(m_bundle_info, [&](const auto& entry) EXCLUSIVE_LOCKS_REQUIRED(m_mutex) { return !m_bundles.contains(entry.first); });
-    // (A null bundle is the word that the sidechain has none: it stays.)
-    std::erase_if(m_latest_bundle, [&](const auto& entry) EXCLUSIVE_LOCKS_REQUIRED(m_mutex) { return !entry.second.IsNull() && !m_bundles.contains({entry.first, entry.second}); });
+    // The word of the sidechain node stays until the chain closed its bundle PRUNE_DEPTH blocks ago: a handed bundle is
+    // dropped above then, and one it vouched for without handing it (Vouch) is never in m_bundles. (A null bundle is the
+    // word that the sidechain has none: it stays.)
+    changed |= std::erase_if(m_latest_bundle, [&](const auto& entry) EXCLUSIVE_LOCKS_REQUIRED(m_mutex) {
+        const auto& [slot, hash]{entry};
+        if (hash.IsNull() || m_bundles.contains({slot, hash})) return false;
+        std::optional<int> closed;
+        if (const auto remembered{scdb.GetClosed(slot, hash)}) {
+            closed = remembered->height;
+        } else if (history) {
+            closed = history(slot, hash);
+        }
+        return closed && height - *closed >= PRUNE_DEPTH;
+    }) > 0;
     if (changed) Save();
 }
 

@@ -528,7 +528,9 @@ RPCMethod vouchwithdrawalbundle()
         "Tell this node which withdrawal bundle the sidechain in a slot has now, as its sidechain node sees its best chain:\n"
         "one handed with receivewithdrawalbundle, or none. With the default vote (upvote), the node then upvotes that bundle\n"
         "and only proposes that one; with none, it downvotes the pending bundles of the slot, which a reorg of the sidechain\n"
-        "left behind or nobody made, so that they fail. Sidechain nodes call this on their mainchain node.",
+        "left behind or nobody made, so that they fail. Sidechain nodes call this on their mainchain node.\n"
+        "A bundle this node was not handed is an error; the word is still taken: no other bundle of the slot is upvoted or\n"
+        "proposed, and the node abstains on the slot until the bundle is handed.",
         {
             {"slot", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sidechain slot number"},
             {"hash", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The hash of the bundle (the M6 id); none if left out"},

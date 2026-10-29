@@ -1084,6 +1084,44 @@ BOOST_AUTO_TEST_CASE(vouching)
     BOOST_CHECK(miner.ResolveVote(1, {Bundle{*mine, 0, 1}}).type == Vote::Type::ABSTAIN);
 }
 
+BOOST_AUTO_TEST_CASE(vouch_unhanded_bundle)
+{
+    // The sidechain node moves its word to a bundle it did not hand to this node: the word is taken (the bundle it
+    // vouched for before gets no more votes and is not proposed), and refused, so that it hands the bundle.
+    TestChain chain;
+    chain.Activate(MakeSidechain(1));
+    MinerState miner;
+    std::string error;
+    const auto old_bundle{miner.AddBundle(1, TestChain::BlindBundle(COIN, 1000, 1), error)};
+    BOOST_REQUIRE(old_bundle);
+    BOOST_REQUIRE(miner.Vouch(1, *old_bundle));
+    BOOST_CHECK(miner.ResolveVote(1, {Bundle{*old_bundle, 0, 3}}).bundle == *old_bundle);
+    const CMutableTransaction new_tx{TestChain::BlindBundle(COIN, 1000, 2)};
+    const uint256 new_bundle{new_tx.GetHash().ToUint256()};
+    BOOST_CHECK(!miner.Vouch(1, new_bundle));
+    BOOST_CHECK(miner.Vouched(1) == new_bundle);
+    MinerState::VoteReason why;
+    BOOST_CHECK(miner.ResolveVote(1, {Bundle{*old_bundle, 0, 3}}, &why).type == Vote::Type::ABSTAIN);
+    BOOST_CHECK(why == MinerState::VoteReason::MISMATCH);
+    // Pending (another miner proposed it), but not handed: no vote yet either.
+    BOOST_CHECK(miner.ResolveVote(1, {Bundle{*old_bundle, 0, 3}, Bundle{new_bundle, 0, 1}}).type == Vote::Type::ABSTAIN);
+    // Neither bundle is proposed by this node's blocks.
+    BOOST_CHECK(!Contains(Scripts(miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {})), BundleScript(1, *old_bundle)));
+    // The word survives Prune while the bundle is open.
+    miner.Prune(chain.scdb, chain.height + 1);
+    BOOST_CHECK(miner.Vouched(1) == new_bundle);
+    // Handed: proposed, and upvoted once pending.
+    BOOST_CHECK(miner.AddBundle(1, new_tx, error) == new_bundle);
+    BOOST_CHECK(Contains(Scripts(miner.CreateBlockAdditions(chain.scdb, chain.params, chain.tip, {})), BundleScript(1, new_bundle)));
+    const Vote vote{miner.ResolveVote(1, {Bundle{*old_bundle, 0, 3}, Bundle{new_bundle, 0, 1}})};
+    BOOST_CHECK(vote.type == Vote::Type::UPVOTE && vote.bundle == new_bundle);
+    // Flush's path: none until the hand-off, then the bundle.
+    BOOST_CHECK(miner.Vouch(1, std::nullopt));
+    BOOST_CHECK(miner.ResolveVote(1, {Bundle{*old_bundle, 0, 3}}).type == Vote::Type::DOWNVOTE);
+    BOOST_CHECK(miner.Vouch(1, new_bundle));
+    BOOST_CHECK(miner.ResolveVote(1, {Bundle{new_bundle, 0, 1}}).bundle == new_bundle);
+}
+
 BOOST_AUTO_TEST_CASE(idle_bundles_expire)
 {
     // A bundle at score 0 once it is idle_expiry_blocks old fails.
