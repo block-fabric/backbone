@@ -443,6 +443,8 @@ export interface TxRecord {
   abandoned: boolean;
   /** Whether the wallet trusts it, as the host said (what matters for a transaction out of a block). */
   trusted: boolean;
+  /** What it does on the drivechain when this wallet paid it: a merged mining bid (M8) or a deposit, for a sidechain. */
+  drivechain?: { kind: 'bmm' | 'deposit'; slot: number } | null;
 }
 
 /**
@@ -494,6 +496,12 @@ export function noticeRecordOf(records: readonly TxRecord[], txid: string): TxRe
   return mergeByTxid(own, () => true)[0];
 }
 
+/** What a record's transaction does on the drivechain ("bmm:<slot>", "deposit:<slot>" from the host), or null. */
+function drivechainOf(v: unknown): TxRecord['drivechain'] {
+  const m = typeof v === 'string' ? /^(bmm|deposit):(\d{1,3})$/.exec(v) : null;
+  return m ? { kind: m[1] as 'bmm' | 'deposit', slot: Number(m[2]) } : null;
+}
+
 /** The records as the host sends them: one array each (RecordJson in walletapi.cpp). */
 export function parseRecords(raw: unknown[][]): TxRecord[] {
   return raw.map((r) => {
@@ -520,6 +528,7 @@ export function parseRecords(raw: unknown[][]): TxRecord[] {
       coinbase: Boolean(r[15]),
       abandoned: Boolean(r[16]),
       trusted: r.length > 17 ? Boolean(r[17]) : Boolean(r[11]),
+      drivechain: drivechainOf(r[18]),
     };
   });
 }
@@ -759,15 +768,22 @@ export interface TxFilter {
   showInactive: boolean;
 }
 
-/** TransactionFilterProxy::filterAcceptsRow. The search looks in the address, the label and the txid. */
+/** TransactionFilterProxy::filterAcceptsRow. The search looks in the address, the label, the txid and the amount. */
 // What the search looks in, lower case, made once per record: kept by the key of the record, as a new
 // block makes new record objects (their status) but not new text.
 const haystacks = new Map<string, { label: string; text: string }>();
 
+/** An amount as the search reads it: in the coin, plain ("-1.50000000"), so that "1.5" finds it. */
+function searchedAmount(sats: bigint): string {
+  const neg = sats < 0n;
+  const abs = neg ? -sats : sats;
+  return `${neg ? '-' : ''}${abs / 100_000_000n}.${(abs % 100_000_000n).toString().padStart(8, '0')}`;
+}
+
 function haystack(r: TxRecord): string {
   const kept = haystacks.get(r.key);
   if (kept && kept.label === r.label) return kept.text;
-  const text = `${r.address}\n${r.label}\n${r.txid}`.toLowerCase();
+  const text = `${r.address}\n${r.label}\n${r.txid}\n${searchedAmount(r.amount)}`.toLowerCase();
   if (haystacks.size > 500_000) haystacks.clear();
   haystacks.set(r.key, { label: r.label, text });
   return text;
@@ -824,18 +840,22 @@ export function isoLocal(secs: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-/** The transaction history as chains-qt exports it: Confirmed, Date, Type, Label, Address, Amount, ID. */
-export function transactionsCsv(records: readonly TxRecord[], unit: Unit): string {
+/**
+ * The transaction history as chains-qt exports it: Confirmed, Date, Type, Label, Address, Amount, ID; with `chainOf`
+ * (the history of many chains, doc/unified-app.md §21.4) a Chain column first, the chain of each row in words.
+ */
+export function transactionsCsv(records: readonly TxRecord[], unit: Unit, chainOf?: (r: TxRecord) => string, typeOf: (r: TxRecord) => string = (r) => typeText(r.type)): string {
   const rows = records.map((r) => [
+    ...(chainOf ? [chainOf(r)] : []),
     String(r.status === 'confirmed' || r.status === 'confirming'),
     isoLocal(r.time),
-    typeText(r.type),
+    typeOf(r),
     r.label,
     r.address,
     formatAmount(r.amount, unit, { separators: false }),
     r.txid,
   ]);
-  return toCsv(['Confirmed', 'Date', 'Type', 'Label', 'Address', `Amount (${unit})`, 'ID'], rows);
+  return toCsv([...(chainOf ? ['Chain'] : []), 'Confirmed', 'Date', 'Type', 'Label', 'Address', `Amount (${unit})`, 'ID'], rows);
 }
 
 /** The address list as chains-qt exports it: Label, Address. */

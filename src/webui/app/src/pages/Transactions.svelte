@@ -1,19 +1,28 @@
 <script lang="ts">
+  // The history of the wallet (TransactionView, TransactionTableModel, TransactionFilterProxy): filters, a long sortable
+  // table, details, fee bumps, abandoning, copying, the CSV export. Over every chain the top bar's selector shows
+  // (doc/unified-app.md §21.4, user 2026-10-21: "a standard view, with the transactions of all coins selected and a
+  // column to know which chain it is from, the same search and features"): this app's own records and each sidechain's
+  // (lib/alltxs.svelte.ts: read from its node, kept up to date by its latest rows), one table with a Chain column when
+  // more than one chain is shown; search, filters, sorting, totals and the export over all of them; a row's details in
+  // the app; what only this app's wallet can do (fee bumps, abandoning, raw transactions, its address book) on its rows.
   import { t } from '../lib/i18n.svelte';
-  import { simpleMode } from '../lib/uimode.svelte';
+  import { pageTitle, simpleMode } from '../lib/uimode.svelte';
   import { thirdPartyLinks } from '../lib/tools';
-  // The history of the wallet (TransactionView, TransactionTableModel, TransactionFilterProxy):
-  // filters, a long sortable table, details, fee bumps, abandoning, copying, the CSV export.
   import Amount from '../components/Amount.svelte';
+  import ChainBadge from '../components/ChainBadge.svelte';
   import ContextMenu, { type ContextItem } from '../components/ContextMenu.svelte';
   import DataTable from '../components/DataTable.svelte';
+  import Dialog from '../components/Dialog.svelte';
   import EditAddressDialog, { type EditMode } from '../components/EditAddressDialog.svelte';
   import Icon from '../components/Icon.svelte';
+  import SafeText from '../components/SafeText.svelte';
   import TxDetailsDialog from '../components/TxDetailsDialog.svelte';
+  import TxDetailsView from '../components/TxDetailsView.svelte';
   import TxStatusIcon from '../components/TxStatusIcon.svelte';
   import { errorText, inform } from '../lib/dialogs.svelte';
   import { FILTERS, saveTextAs } from '../lib/files';
-  import { formatTime } from '../lib/format';
+  import { compactTime, formatTime, shortHash } from '../lib/format';
   import { go, nav } from '../lib/nav.svelte';
   import { host } from '../lib/rpc';
   import { prefs, savePrefs, toast, wallets } from '../lib/state.svelte';
@@ -35,15 +44,41 @@
     typeText,
     walletApi,
     type DateFilter,
+    type TxDetails,
     type TxRecord,
     type TypeFilter,
   } from '../lib/wallet';
   import { current, refreshAddresses, refreshRecords } from '../lib/walletdata.svelte';
   import { node } from '../lib/state.svelte';
   import { detail, showDetail } from '../lib/detail.svelte';
+  import { ALL, chainEntries, chainHost, chainUnit, chainWallet, HOST, selectedChain, setSelectedChain, slotLabel } from '../lib/chains.svelte';
+  import { openModule } from '../lib/modules.svelte';
+  import { chainOf, followSides, sideTxs } from '../lib/alltxs.svelte';
   import { untrack } from 'svelte';
 
   const wallet = $derived(wallets.current);
+
+  // --- The chains shown: the top bar's selection ---
+  const entries = $derived(chainEntries());
+  const sel = $derived(selectedChain(entries));
+  /** This app's own history shown (All, or this app's chain). */
+  const withHost = $derived(sel === ALL || sel === HOST);
+  /** The sidechains shown whose node runs, as one text: what follows them changes only when the set does. */
+  const sidesKey = $derived(entries.filter((e) => !e.host && e.running && (sel === ALL || sel === e.id)).map((e) => e.id).join(','));
+  const sides = $derived(sidesKey ? sidesKey.split(',') : []);
+  /** A sidechain shown whose node does not run (said above the table). */
+  const sidesDown = $derived(entries.filter((e) => !e.host && !e.running && (sel === ALL || sel === e.id)));
+  /** More than one chain in the table: a Chain column, and in the export. */
+  const several = $derived((withHost ? 1 : 0) + sides.length > 1);
+  const nameOf = (id: string) => entries.find((e) => e.id === id)?.name ?? id;
+  const rowChain = (r: TxRecord) => chainOf(r, HOST);
+
+  // Each sidechain shown: read once, then its latest rows every few seconds while the page shows it (not at a block of
+  // this app's chain: its history is its own).
+  $effect(() => {
+    const list = sidesKey ? sidesKey.split(',') : [];
+    return followSides(list);
+  });
 
   let dateFilter: DateFilter = $state('all');
   let rangeFrom = $state('');
@@ -55,21 +90,34 @@
   let sortKey: string | null = $state('date');
   let sortDir: 'asc' | 'desc' = $state('desc');
   let details: Pick<TxRecord, 'txid' | 'idx' | 'address'> | null = $state(null);
+  /** A sidechain's row whose details are shown (read from its node by the host). */
+  let sideDetails: TxRecord | null = $state(null);
+  let sideOpen = $state(false);
   let edit: { mode: EditMode; address: string; label: string } | null = $state(null);
   let menu = $state({ open: false, x: 0, y: 0 });
   let actions = $state({ txid: '', canAbandon: false, canBump: false, hex: '' });
 
-  // Reload on new transactions, new blocks, a new label.
+  // This app's own: again on new transactions, new blocks, a new label.
   $effect(() => {
     void wallets.txVersion;
     void node.tip?.hash;
     void wallets.addressVersion;
-    if (wallet !== null) refreshRecords();
+    if (wallet !== null && withHost) refreshRecords();
   });
   $effect(() => {
     void wallets.addressVersion;
-    if (wallet !== null) refreshAddresses();
+    if (wallet !== null && withHost) refreshAddresses();
   });
+
+  /** Every row of the chains shown: this app's records as they are, each sidechain's after them (no copy of a record). */
+  const all = $derived.by((): TxRecord[] => {
+    const lists = sideTxs.lists;
+    const side: TxRecord[] = [];
+    for (const s of sides) for (const r of lists[s] ?? []) side.push(r);
+    if (!withHost) return side;
+    return side.length ? current.records.concat(side) : current.records;
+  });
+  const loaded = $derived((!withHost || current.recordsLoaded) && sides.every((s) => sideTxs.loaded[s]));
 
   const minAmount = $derived.by(() => {
     if (!minText.trim()) return 0n;
@@ -82,15 +130,16 @@
   let searchApplied = $state('');
   $effect(() => {
     const text = search;
-    if (current.records.length < 2000) {
+    if (untrack(() => all.length) < 2000) {
       searchApplied = text;
       return;
     }
     const t = setTimeout(() => (searchApplied = text), 250);
     return () => clearTimeout(t);
   });
-  const shown = $derived(filterRecords(current.records, { ...range, type: typeFilter, search: searchApplied, minAmount, showInactive: true }));
-  const chosen = $derived(shown.find((r) => r.key === selected) ?? current.records.find((r) => r.key === selected) ?? null);
+  const shown = $derived(filterRecords(all, { ...range, type: typeFilter, search: searchApplied, minAmount, showInactive: true }));
+  const chosen = $derived(shown.find((r) => r.key === selected) ?? all.find((r) => r.key === selected) ?? null);
+  const chosenSide = $derived(chosen !== null && rowChain(chosen) !== HOST);
 
   // Totals of what the filters show (an addition to chains-qt).
   const totals = $derived.by(() => {
@@ -106,22 +155,31 @@
   // After a send, or from the overview: that transaction selected.
   $effect(() => {
     const txid = nav.highlightTx;
-    if (!txid || !current.recordsLoaded) return;
-    const r = current.records.find((x) => x.txid === txid);
+    if (!txid || !loaded) return;
+    const r = all.find((x) => x.txid === txid);
     if (r) {
       selected = r.key;
       nav.highlightTx = null;
     }
   });
 
-  // The workspace layout shows the selected transaction in its detail panel.
+  /** A row's details: this app's in its dialog (or the detail panel of the workspace), a sidechain's read from its node. */
+  function open(r: TxRecord) {
+    if (rowChain(r) !== HOST) {
+      sideDetails = r;
+      sideOpen = true;
+    } else if (detail.follow) inPanel(r);
+    else details = r;
+  }
+  // The workspace layout shows the selected transaction of this app's wallet in its detail panel.
   function inPanel(r: Pick<TxRecord, 'txid' | 'idx' | 'address'>) {
     if (wallet !== null) showDetail({ kind: 'tx', wallet, txid: r.txid, idx: r.idx, address: r.address });
   }
-  const chosenKey = $derived(chosen?.key ?? null);
+  const chosenKey = $derived(chosen && !chosenSide ? chosen.key : null);
   $effect(() => {
     if (chosenKey !== null && detail.follow) untrack(() => chosen && inPanel(chosen));
   });
+  const sideLoad = (r: TxRecord) => () => chainHost.transaction(rowChain(r), r.txid, chainWallet(rowChain(r)), r.idx, r.address) as Promise<TxDetails>;
 
   // A narrow window: the type goes in front of the label, and the columns are tighter, so that the
   // amount stays in view.
@@ -136,23 +194,47 @@
   });
   const narrow = $derived(pageWidth < 760);
   const simple = $derived(simpleMode());
+
+  /** What a row is: the app's words of chains-qt; a payment of this app's wallet on the drivechain said as what it does. */
+  function typeLabel(r: TxRecord): string {
+    if (r.drivechain?.kind === 'deposit') {
+      const side = slotLabel(r.drivechain.slot);
+      return side ? t('Deposit into %1', side) : t('Deposit into a sidechain');
+    }
+    if (r.drivechain?.kind === 'bmm') return t('Merged mining bid');
+    return typeText(r.type) || t('Other');
+  }
+
+  const chainColumn = $derived<Column<TxRecord>[]>(several ? [{ key: 'chain', label: 'Chain', value: (r) => nameOf(rowChain(r)), width: narrow ? '2.6rem' : '7.8rem' }] : []);
+  /** The coin of a row: its chain's (the sidechains' are Chains' coin, CHN). */
+  const unitOf = (r: TxRecord) => (rowChain(r) === HOST ? prefs.unit : chainUnit(rowChain(r)));
+  /** Every chain shown in one coin: the head of the column says it; else each amount says its own. */
+  const oneUnit = $derived(sides.every((id) => chainUnit(id) === prefs.unit));
+  const amountLabel = $derived(oneUnit ? `Amount (${unitInfo(prefs.unit).short})` : 'Amount');
+  /** An address with no label, shortened in the middle in a window that is not wide (its whole in the row's tooltip). */
+  const shortAddress = (text: string) => (pageWidth < 1400 && text.length > 26 ? shortHash(text, 11) : text);
   const columns: Column<TxRecord>[] = $derived(
     narrow
       ? [
           { key: 'status', label: '', value: (r) => r.sortKey, width: '2.2rem', align: 'center', noFilter: true },
           { key: 'date', label: 'Date', value: (r) => r.time, width: '8.6rem' },
+          ...chainColumn,
           { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(0, 1fr)' },
-          { key: 'amount', label: `Amount (${unitInfo(prefs.unit).short})`, value: (r) => r.amount, width: '9.5rem', align: 'end' },
+          { key: 'amount', label: amountLabel, value: (r) => r.amount, width: '9.5rem', align: 'end' },
         ]
       : [
           // Simple mode: the status in plain words beside its ring (waiting for the next block, confirmed, final).
           simple
-            ? { key: 'status', label: 'Status', value: (r) => r.sortKey, width: '15.5rem', noFilter: true }
+            ? { key: 'status', label: 'Status', value: (r) => r.sortKey, width: several ? '11rem' : '15.5rem', noFilter: true }
             : { key: 'status', label: '', value: (r) => r.sortKey, width: '2.6rem', align: 'center', noFilter: true },
-          { key: 'date', label: 'Date', value: (r) => r.time, width: '11.5rem' },
-          { key: 'type', label: 'Type', value: (r) => typeText(r.type), width: '10rem' },
-          { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: 'minmax(14rem, 1fr)' },
-          { key: 'amount', label: `Amount (${unitInfo(prefs.unit).short})`, value: (r) => r.amount, width: '12rem', align: 'end' },
+          // With a Chain column every column fits a window of 1180 px with no sideways scroll (coordinator review,
+          // 2026-10-21): the date short ("Oct 21, 12:03", whole in its tooltip), the label taking what is left, cut with an
+          // ellipsis, the amount never cut.
+          { key: 'date', label: 'Date', value: (r) => r.time, width: several ? '9rem' : '11.5rem' },
+          ...chainColumn,
+          { key: 'type', label: 'Type', value: (r) => typeLabel(r), width: several ? '12rem' : '11rem' },
+          { key: 'label', label: 'Label', value: (r) => addressText(r, true), width: several ? 'minmax(6rem, 1fr)' : 'minmax(14rem, 1fr)' },
+          { key: 'amount', label: amountLabel, value: (r) => r.amount, width: several ? '11rem' : '12rem', align: 'end' },
         ],
   );
 
@@ -169,7 +251,8 @@
     selected = r.key;
     menu = { open: false, x: e.clientX, y: e.clientY };
     actions = { txid: r.txid, canAbandon: false, canBump: false, hex: '' };
-    if (wallet !== null) {
+    // What only this app's wallet does (bump, abandon, the raw transaction): asked of it for its own rows.
+    if (wallet !== null && rowChain(r) === HOST) {
       try {
         actions = { txid: r.txid, ...(await walletApi(wallet).txActions(r.txid)) };
       } catch {
@@ -187,26 +270,46 @@
     else edit = { mode: 'new-send', address: r.address, label: '' };
   }
 
-  const menuItems: ContextItem[] = $derived(
-    chosen
-      ? [
-          { label: 'Copy address', action: () => copy(chosen.address, 'Address'), disabled: !chosen.address },
-          { label: 'Copy label', action: () => copy(chosen.label, 'Label'), disabled: !chosen.label },
-          { label: 'Copy amount', action: () => copy(amountText(chosen, prefs.unit, false, false), 'Amount') },
-          { label: 'Copy transaction ID', action: () => copy(chosen.txid, 'Transaction ID') },
-          { label: 'Copy raw transaction', action: () => copy(actions.hex, 'Raw transaction'), disabled: !actions.hex },
-          { label: 'Copy full transaction details', action: () => copy(plainText(chosen, prefs.unit), 'Transaction details') },
-          { label: 'Show transaction details', action: () => (details = chosen), separator: true },
-          { label: 'Increase transaction fee', action: () => wallet !== null && bump(chosen.txid), disabled: !actions.canBump, separator: true },
-          { label: 'Abandon transaction', action: () => wallet !== null && abandon(wallet, chosen.txid), disabled: !actions.canAbandon, danger: true },
-          // A deposit to a sidechain the mempool dropped: made again in its place, confirmed on the desktop.
-          ...(isDropped(chosen) ? [{ label: 'Make the deposit again', action: () => wallet !== null && makeDepositAgain(wallet, chosen.txid).catch((e) => inform(t('Sidechains'), errorText(e), 'error')) }] : []),
-          { label: 'Edit address label', action: () => editLabel(chosen), disabled: !chosen.address, separator: true },
-          { label: 'Show in block explorer', action: () => go('explorer', `search:${chosen.txid}`), separator: true },
-          ...thirdPartyLinks(prefs.thirdPartyTxUrls, chosen.txid).map((l) => ({ label: l.label, action: () => host.open('url', l.url).catch(() => undefined) })),
-        ]
-      : [],
-  );
+  /** The explorer at a transaction, on its chain (the explorer follows the selector: a sidechain's own explorer). */
+  function inExplorer(r: TxRecord) {
+    const c = rowChain(r);
+    if (c !== HOST && sel !== c) setSelectedChain(c);
+    go('explorer', `search:${r.txid}`);
+  }
+
+  const menuItems: ContextItem[] = $derived.by(() => {
+    if (!chosen) return [];
+    const c = chosen;
+    const copies: ContextItem[] = [
+      { label: 'Copy address', action: () => copy(c.address, 'Address'), disabled: !c.address },
+      { label: 'Copy label', action: () => copy(c.label, 'Label'), disabled: !c.label },
+      { label: 'Copy amount', action: () => copy(amountText(c, prefs.unit, false, false), 'Amount') },
+      { label: 'Copy transaction ID', action: () => copy(c.txid, 'Transaction ID') },
+    ];
+    if (chosenSide) {
+      const stem = rowChain(c);
+      return [
+        ...copies,
+        { label: 'Copy full transaction details', action: () => copy(plainText(c, prefs.unit), 'Transaction details') },
+        { label: 'Show transaction details', action: () => open(c), separator: true },
+        { label: 'Show in block explorer', action: () => inExplorer(c), separator: true },
+        { label: t('Open in %1', nameOf(stem)), action: () => openModule(stem, 'transactions') },
+      ];
+    }
+    return [
+      ...copies,
+      { label: 'Copy raw transaction', action: () => copy(actions.hex, 'Raw transaction'), disabled: !actions.hex },
+      { label: 'Copy full transaction details', action: () => copy(plainText(c, prefs.unit), 'Transaction details') },
+      { label: 'Show transaction details', action: () => (details = c), separator: true },
+      { label: 'Increase transaction fee', action: () => wallet !== null && bump(c.txid), disabled: !actions.canBump, separator: true },
+      { label: 'Abandon transaction', action: () => wallet !== null && abandon(wallet, c.txid), disabled: !actions.canAbandon, danger: true },
+      // A deposit to a sidechain the mempool dropped: made again in its place, confirmed on the desktop.
+      ...(isDropped(c) ? [{ label: 'Make the deposit again', action: () => wallet !== null && makeDepositAgain(wallet, c.txid).catch((e) => inform(t('Sidechains'), errorText(e), 'error')) }] : []),
+      { label: 'Edit address label', action: () => editLabel(c), disabled: !c.address, separator: true },
+      { label: 'Show in block explorer', action: () => inExplorer(c), separator: true },
+      ...thirdPartyLinks(prefs.thirdPartyTxUrls, c.txid).map((l) => ({ label: l.label, action: () => host.open('url', l.url).catch(() => undefined) })),
+    ];
+  });
 
   async function bump(txid: string) {
     if (wallet === null) return;
@@ -214,11 +317,14 @@
     if (newTxid) nav.highlightTx = newTxid;
   }
 
+  /** The export: the rows as shown (filtered, newest first), with their chain when they are not all this app's. */
+  export function csvText(): string {
+    return transactionsCsv(sortNewestFirst(shown), prefs.unit, several || !withHost ? (r) => nameOf(rowChain(r)) : undefined, typeLabel);
+  }
+
   async function exportCsv() {
-    // The rows as shown: filtered and sorted.
-    const sorted = sortNewestFirst(shown);
     try {
-      const path = await saveTextAs({ title: 'Export Transaction History', name: 'transactions.csv', filters: [FILTERS.csv] }, transactionsCsv(sorted, prefs.unit));
+      const path = await saveTextAs({ title: 'Export Transaction History', name: 'transactions.csv', filters: [FILTERS.csv] }, csvText());
       if (path) toast('success', t('Exporting Successful'), t('The transaction history was successfully saved to %1.', path));
     } catch (e) {
       await inform(t('Exporting Failed'), t('There was an error trying to save the transaction history. %1', errorText(e)), 'error');
@@ -232,12 +338,12 @@
   }
 </script>
 
-<div class="page transactions" bind:this={pageEl}>
+<div class="page transactions" bind:this={pageEl} data-tx-chains={[...(withHost ? [HOST] : []), ...sides].join(',')}>
   <header class="page-head">
-    <h1>Transactions</h1>
+    <h1>{pageTitle('transactions')}</h1>
     <div class="row">
-      <span class="muted count">{totals.count.toLocaleString('en')} of {current.records.length.toLocaleString('en')}</span>
-      <button type="button" class="btn small" onclick={exportCsv} disabled={prefs.mask} title="Export the data in the current tab to a file"><Icon name="download" size={16} /> Export</button>
+      <span class="muted count" data-tx-count>{t('%1 of %2', totals.count.toLocaleString('en'), all.length.toLocaleString('en'))}</span>
+      <button type="button" class="btn small" onclick={exportCsv} disabled={prefs.mask} title={t('Export the data in the current tab to a file')}><Icon name="download" size={16} /> {t('Export')}</button>
     </div>
   </header>
 
@@ -245,36 +351,46 @@
     <div class="panel masked">
       <Icon name="eyeoff" size={28} />
       <div>
-        <p><strong>The history is hidden while values are masked.</strong></p>
-        <p class="muted">As in chains-qt, the transactions tab is unavailable in privacy mode.</p>
-        <button type="button" class="btn" onclick={() => savePrefs({ mask: false })}>Show values</button>
+        <p><strong>{t('The history is hidden while values are masked.')}</strong></p>
+        <p class="muted">{t('As in chains-qt, the transactions tab is unavailable in privacy mode.')}</p>
+        <button type="button" class="btn" onclick={() => savePrefs({ mask: false })}>{t('Show values')}</button>
       </div>
     </div>
   {:else}
     <div class="filters" role="search">
-      <select aria-label="Date" bind:value={dateFilter}>
+      <select aria-label={t('Date')} bind:value={dateFilter}>
         {#each DATE_FILTERS as f (f.id)}<option value={f.id}>{t(f.label)}</option>{/each}
       </select>
       {#if dateFilter === 'range'}
-        <label class="range">From <input type="date" bind:value={rangeFrom} /></label>
-        <label class="range">to <input type="date" bind:value={rangeTo} /></label>
+        <label class="range">{t('From')} <input type="date" bind:value={rangeFrom} /></label>
+        <label class="range">{t('to')} <input type="date" bind:value={rangeTo} /></label>
       {/if}
-      <select aria-label="Type" bind:value={typeFilter}>
+      <select aria-label={t('Type')} bind:value={typeFilter}>
         {#each TYPE_FILTERS as f (f.id)}<option value={f.id}>{t(f.label)}</option>{/each}
       </select>
-      <input type="search" class="grow search" placeholder="Enter address, transaction id, or label to search" aria-label="Search" bind:value={search} />
-      <input type="text" class="min num" placeholder="Min amount" aria-label="Minimum amount" inputmode="decimal" bind:value={minText} aria-invalid={minInvalid ? 'true' : undefined} />
+      <input type="search" class="grow search" placeholder={several ? t('Address, transaction id, label or amount, on every chain shown') : t('Enter address, transaction id, or label to search')} aria-label={t('Search')} bind:value={search} />
+      <input type="text" class="min num" placeholder={t('Min amount')} aria-label={t('Minimum amount')} inputmode="decimal" bind:value={minText} aria-invalid={minInvalid ? 'true' : undefined} />
     </div>
 
     <div class="totals">
-      <span>Received <Amount sats={totals.received} colored /></span>
-      <span>Sent <Amount sats={totals.sent} colored /></span>
-      <span>Net <Amount sats={totals.received + totals.sent} colored plus /></span>
+      <span>{t('Received')} <Amount sats={totals.received} colored /></span>
+      <span>{t('Sent')} <Amount sats={totals.sent} colored /></span>
+      <span>{t('Net')} <Amount sats={totals.received + totals.sent} colored plus /></span>
     </div>
 
+    {#each sides as s (s)}
+      {#if sideTxs.errors[s]}<p class="error side-error" role="alert"><SafeText text={nameOf(s)} />: <SafeText text={sideTxs.errors[s]} /></p>{/if}
+    {/each}
+    {#each sidesDown as e (e.id)}
+      <p class="muted side-error" data-tx-chain-down={e.id}>{t('%1 is not running: its transactions are not in the list.', e.name)}</p>
+    {/each}
+    {#if withHost && wallet === null}<p class="muted side-error">{t('No wallet is open: the transactions of this app\'s wallet are not in the list.')}</p>{/if}
+    <!-- What this app's wallet could not give: said, the other chains' rows still listed. -->
+    {#if withHost && current.recordsError && sides.length}<p class="error side-error" role="alert"><SafeText text={current.recordsError} /></p>{/if}
+
     <div class="holder">
-      {#if current.recordsError}
-        <p class="error">{current.recordsError}</p>
+      {#if withHost && current.recordsError && sides.length === 0}
+        <p class="error"><SafeText text={current.recordsError} /></p>
       {:else}
         <DataTable
           rows={shown}
@@ -284,27 +400,28 @@
           bind:sortKey
           bind:sortDir
           label="Transactions"
-          fit={narrow}
-          empty={current.recordsLoaded ? 'No transactions yet' : 'Loading…'}
-          onactivate={(r) => (detail.follow ? inPanel(r) : (details = r))}
+          fit
+          empty={loaded ? 'No transactions yet' : 'Loading…'}
+          onactivate={(r) => open(r)}
           oncontext={(r, e) => openMenu(r, e)}
         >
           {#snippet cell(row, column)}
-            <span class="cellwrap {rowClass(row)}" title={column.key === 'label' ? `${statusText(row)}\n${typeText(row.type)} ${addressText(row, true)}` : undefined}>
+            <span class="cellwrap {rowClass(row)}" data-row-chain={rowChain(row)} data-txid={column.key === 'label' ? row.txid : undefined} title={column.key === 'label' ? `${statusText(row)}\n${typeLabel(row)} ${addressText(row, true)}` : undefined}>
               {#if column.key === 'status'}<TxStatusIcon record={row} />{#if simple && !narrow}<span class="status-word">{statusText(row)}</span>{/if}
-              {:else if column.key === 'date'}{narrow ? formatTime(row.time, true) : formatTime(row.time)}
-              {:else if column.key === 'type'}<span class="type {row.type}"><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /> {typeText(row.type) || 'Other'}</span>
-              {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeText(row.type) || 'Other'}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span> {/if}<span class:bare={!row.label} translate="no">{addressText(row)}</span>
+              {:else if column.key === 'date'}<span class="clip" title={formatTime(row.time)}>{narrow ? formatTime(row.time, true) : several ? compactTime(row.time) : formatTime(row.time)}</span>
+              {:else if column.key === 'chain'}<ChainBadge id={rowChain(row)} name={nameOf(rowChain(row))} small markOnly={narrow} />
+              {:else if column.key === 'type'}<span class="type cut {row.type}" title={typeLabel(row)}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /><span class="clip">{typeLabel(row)}</span></span>
+              {:else if column.key === 'label'}{#if narrow}<span class="type {row.type}" title={typeLabel(row)}><Icon name={row.type === 'mined' ? 'mine' : row.amount < 0n ? 'send' : 'receive'} size={14} /></span>{' '}{/if}<span class="clip" class:bare={!row.label} translate="no">{row.label ? addressText(row) : shortAddress(addressText(row))}</span>
               {:else if column.key === 'amount'}
                 {#if prefs.mask}<Amount sats={row.amount} showUnit={false} />
-                {:else}<span class="amt" class:neg={row.amount < 0n} translate="no">{amountText(row, prefs.unit)}</span>{/if}
+                {:else}<span class="amt" class:neg={row.amount < 0n} translate="no">{amountText(row, prefs.unit)}{#if !oneUnit}{' '}<span class="unit">{unitOf(row)}</span>{/if}</span>{/if}
               {/if}
             </span>
           {/snippet}
         </DataTable>
       {/if}
     </div>
-    <p class="hint">Double-click a transaction for its details, right-click for more.</p>
+    <p class="hint">{t('Double-click a transaction for its details, right-click for more.')}</p>
   {/if}
 </div>
 
@@ -314,9 +431,29 @@
 {/if}
 <ContextMenu items={menuItems} x={menu.x} y={menu.y} bind:open={menu.open} label="Transaction" />
 
+<!-- A sidechain's transaction: its details read from its node by the host (the same view as this app's), in the app. -->
+<Dialog bind:open={sideOpen} title={t('Transaction details')} wide onclose={() => (sideDetails = null)}>
+  {#if sideDetails}
+    {@const stem = rowChain(sideDetails)}
+    <p class="on" data-tx-chain={stem}>{t('On')} <ChainBadge id={stem} name={nameOf(stem)} /></p>
+    <TxDetailsView wallet="" record={{ txid: sideDetails.txid, idx: sideDetails.idx, address: sideDetails.address }} load={sideLoad(sideDetails)} />
+  {/if}
+  {#snippet actions()}
+    {#if sideDetails}
+      {@const stem = rowChain(sideDetails)}
+      <button type="button" class="btn" onclick={() => { sideOpen = false; openModule(stem, 'transactions'); }}>{t('Open in %1', nameOf(stem))}</button>
+    {/if}
+    <button type="button" class="btn primary" onclick={() => (sideOpen = false)}>{t('Close')}</button>
+  {/snippet}
+</Dialog>
+
 <style>
   .status-word {
+    min-width: 0;
     margin-left: 0.45rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--text-muted);
     font-size: 0.9rem;
   }
@@ -379,6 +516,25 @@
   .bare {
     color: var(--text-muted);
   }
+  /* A cell's words cut with an ellipsis where its column ends (its whole in the tooltip). */
+  .clip {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The type: its icon, then its words cut with an ellipsis. */
+  .type.cut {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+  .unit {
+    color: var(--text-faint);
+    font-size: 0.85em;
+  }
   .amt.neg {
     color: var(--negative);
   }
@@ -410,5 +566,15 @@
   }
   .masked div {
     color: var(--text);
+  }
+  .side-error {
+    margin: 0;
+    font-size: 0.88rem;
+  }
+  .on {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 0.6rem;
   }
 </style>

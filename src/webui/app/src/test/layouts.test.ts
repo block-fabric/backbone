@@ -4,7 +4,7 @@ import { setTransport, type BridgeRequest } from '../lib/bridge';
 import { buildCommands, MENU_GROUPS, menuSections, pageAvailable, palette, searchCommands, setLayout } from '../lib/commands.svelte';
 import { closeDetail, detail } from '../lib/detail.svelte';
 import { handleShortcut } from '../lib/keyboard';
-import { AREAS, chainBeforeTools, DEFAULT_LAYOUT, HOME_QUICK_ACTIONS, LAYOUTS, NAV_SECTIONS, pageKind } from '../lib/layout';
+import { AREAS, CHAIN_GROUP_PAGES, chainBeforeTools, DEFAULT_LAYOUT, HOME_QUICK_ACTIONS, LAYOUTS, NAV_SECTIONS, pageKind } from '../lib/layout';
 import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
 import { app, applyPrefs, node, prefs, wallets } from '../lib/state.svelte';
 import { resetWalletData } from '../lib/walletdata.svelte';
@@ -31,8 +31,7 @@ const OLD_MENUS: Record<string, string[]> = {
   ],
   Banking: ['Send', 'Receive', 'Transactions', 'Open URI…', 'Proof of funds', 'Multisig lounge', 'Load PSBT from file…', 'Load PSBT from clipboard…'],
   'Use Chains': ['Timestamp file', 'Sign message…', 'Verify message…', 'Sidechains'],
-  // (Sidechain nodes: gone, the unified wallet will manage them, user decision 2026-10-23.)
-  Chains: ['Solo mine', 'Sidechain proposals', 'Withdrawal votes'],
+  Chains: ['Run sidechains', 'Solo mine', 'Sidechain proposals', 'Withdrawal votes'],
   'Crypto tools': ['Block explorer', 'Hash calculator', 'Merkle tree', 'Address decoder'],
   Window: ['Minimize', 'Information', 'Console', 'Network traffic', 'Peers'],
   'This node': [
@@ -144,16 +143,21 @@ describe('the commands', () => {
     const groups = [...MENU_GROUPS] as string[];
     expect(groups.indexOf('Chains')).toBeLessThan(groups.indexOf('Tools'));
     const chains = all.filter((c) => c.group === 'Chains').map((c) => c.label);
-    for (const label of ['Sidechains', 'Solo mine', 'Block explorer']) expect(chains).toContain(label);
+    for (const label of ['Sidechains', 'Run sidechains', 'Solo mine', 'Block explorer']) expect(chains).toContain(label);
   });
 
   it('reach every page, and every page is in each layout', () => {
     const all = buildCommands();
-    const pages = (Object.keys(PAGES) as PageId[]).filter((p) => p !== 'kit' && p !== 'home' && !PAGES[p].tabOf);
+    // A sidechain the app runs is reached from the chain switcher, which says which one (doc/unified-app.md).
+    const pages = (Object.keys(PAGES) as PageId[]).filter((p) => p !== 'kit' && p !== 'home' && p !== 'sidechain' && !PAGES[p].tabOf);
+    // What sidechains add (Staking, Assets, Names, Markets, Trade) is reached while a chain that has it is on (chains.test.ts,
+    // dex.test.ts).
+    const chainPages = new Set<PageId>(['staking', 'assets', 'names', 'markets', 'trade']);
     for (const p of pages) {
-      expect(all.some((c) => c.id === `page.${p}`), p).toBe(true);
+      if (!chainPages.has(p)) expect(all.some((c) => c.id === `page.${p}`), p).toBe(true);
       expect(AREAS.some((a) => a.tabs.some((t) => t.page === p)), `workspace: ${p}`).toBe(true);
-      expect(NAV_SECTIONS.some((s) => s.pages.includes(p)), `sidebars: ${p}`).toBe(true);
+      // In the dashboard's sidebar, what sidechains add is under each chain's group of the Chain section (§19).
+      expect(NAV_SECTIONS.some((s) => s.pages.includes(p)) || CHAIN_GROUP_PAGES.includes(p), `sidebars: ${p}`).toBe(true);
     }
     // The compact sidebar is gone (user decision): two layouts.
     expect(LAYOUTS.map((l) => l.id)).toEqual(['workspace', 'dashboard']);
@@ -167,11 +171,14 @@ describe('the commands', () => {
     expect(buildCommands().some((c) => c.id.startsWith('layout.sidebar') || /compact/i.test(c.label))).toBe(false);
   });
 
-  it('sidechain nodes: no page, tab nor command (user decision 2026-10-23: the unified wallet will manage them)', () => {
+  it('sidechain nodes: no page, tab nor command (user decision 2026-10-23); the sidechains are run from Settings → Sidechains (doc/unified-app.md)', () => {
     expect(Object.keys(PAGES)).not.toContain('sidechain-nodes');
     expect(NAV_SECTIONS.some((s) => (s.pages as string[]).includes('sidechain-nodes'))).toBe(false);
     expect(AREAS.some((a) => a.tabs.some((t) => (t.page as string) === 'sidechain-nodes'))).toBe(false);
-    expect(buildCommands().some((c) => /sidechain nodes/i.test(c.label) || c.id === 'chains.nodes')).toBe(false);
+    const all = buildCommands();
+    expect(all.some((c) => /sidechain nodes/i.test(c.label) || c.id === 'chains.nodes')).toBe(false);
+    all.find((c) => c.id === 'chains.run')!.run();
+    expect([nav.page, nav.tab]).toEqual(['settings', 'sidechains']);
   });
 
   it('receiving addresses: a tab of the Receive page; no sending addresses (user decision)', () => {
@@ -524,7 +531,7 @@ describe('the layouts', () => {
       expect(chainBeforeTools(pages, (p) => p), name).toBeNull();
     }
     // Home: Send and Receive first, then the chain, then the tools.
-    expect(HOME_QUICK_ACTIONS.map((q) => q.label)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine']);
+    expect(HOME_QUICK_ACTIONS.map((q) => q.label)).toEqual(['Send', 'Receive', 'Move coins', 'Block explorer', 'Mine']);
   });
 
   it('dashboard: the quick actions of Home in that order, as shown', () => {
@@ -534,7 +541,7 @@ describe('the layouts', () => {
     const row = screen.getByRole('navigation', { name: 'Quick actions' });
     const labels = within(row).getAllByRole('button').map((b) => b.textContent?.trim() ?? '');
     // No Sign message nor Load PSBT (user decision); "All actions" stays.
-    expect(labels.slice(0, 5)).toEqual(['Send', 'Receive', 'Deposit to a sidechain', 'Block explorer', 'Mine']);
+    expect(labels.slice(0, 5)).toEqual(['Send', 'Receive', 'Move coins', 'Block explorer', 'Mine']);
     expect(labels.some((l) => /Sign message|Load PSBT/.test(l))).toBe(false);
     expect(within(row).getByRole('button', { name: /All actions/ })).toBeTruthy();
     expect(chainBeforeTools(labels.slice(0, 5), (l) => HOME_QUICK_ACTIONS.find((q) => q.label === l)?.page)).toBeNull();

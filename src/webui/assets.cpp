@@ -107,8 +107,37 @@ std::string_view MimeType(std::string_view path)
 std::string ContentSecurityPolicy()
 {
     return "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
-           "connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; "
+           "connect-src 'none'; media-src 'none'; object-src 'none'; frame-src chains-pack:; worker-src 'none'; "
            "base-uri 'none'; form-action 'none'";
+}
+
+std::optional<std::string> PackAssetPath(std::string_view uri)
+{
+    const std::string prefix{std::string{PACK_SCHEME} + "://"};
+    if (!uri.starts_with(prefix)) return std::nullopt;
+    uri.remove_prefix(prefix.size());
+    const size_t slash{uri.find('/')};
+    if (slash == std::string_view::npos || slash == 0 || slash > 32) return std::nullopt;
+    const std::string_view stem{uri.substr(0, slash)};
+    if (stem.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789") != std::string_view::npos) return std::nullopt;
+    std::string_view path{uri.substr(slash)};
+    if (const size_t q{path.find_first_of("?#")}; q != std::string_view::npos) path = path.substr(0, q);
+    if (path.find("..") != std::string_view::npos || path.find("//") != std::string_view::npos || path.find('\\') != std::string_view::npos) return std::nullopt;
+    if (path == "/packs/shim.js") return std::string{path};
+    if (path.starts_with("/packs/" + std::string{stem} + "/")) return std::string{path};
+    return std::nullopt;
+}
+
+std::string PackContentSecurityPolicy()
+{
+    return "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
+           "connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; "
+           "frame-ancestors chains-app://app; base-uri 'none'; form-action 'none'";
+}
+
+bool AppServes(std::string_view path)
+{
+    return !path.starts_with("/packs/");
 }
 
 std::optional<std::string> InlineDocument(std::span<const Asset> assets)

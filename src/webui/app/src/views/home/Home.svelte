@@ -28,8 +28,18 @@
   import { balanceHistory, newest } from '../../lib/wallet';
   import { current, refreshRecords } from '../../lib/walletdata.svelte';
   import FirstRunTips from '../../components/FirstRunTips.svelte';
+  import ChainsOverview from '../../components/ChainsOverview.svelte';
+  import SidechainCards from './SidechainCards.svelte';
   import Term from '../../components/Term.svelte';
   import { pageShown, simpleMode } from '../../lib/uimode.svelte';
+  import ChainBalanceChart from '../../components/ChainBalanceChart.svelte';
+  import MarketPositions from '../../components/MarketPositions.svelte';
+  import { ALL, chainEntries, chainState, HOST, selectedChain } from '../../lib/chains.svelte';
+  import { chainColor } from '../../lib/chaincolors';
+  import { historyKey } from '../../lib/chartdata';
+  import { describeState } from '../../lib/unified';
+  import { productName } from '../../lib/modules.svelte';
+  import { chainBalanceHistory, many, poll, refreshTxs, type ChartSeries } from '../../lib/manychains.svelte';
 
   interface Peer {
     id: number;
@@ -93,8 +103,45 @@
   let generate: Generate | null = $state(null);
 
   $effect(() => {
-    return every(5000, () => (now = Math.floor(Date.now() / 1000)));
+    return every(30000, () => (now = Math.floor(Date.now() / 1000)));
   });
+
+  // --- The chains shown: the top bar's selection (doc/unified-app.md §19) ---
+  // All: this app's own sections and every chain's; one sidechain: its sections only (the app's own cards, the merged
+  // mining and the peers are this app's chain's, and go).
+  const entries = $derived(chainEntries());
+  const sel = $derived(selectedChain(entries));
+  const withHost = $derived(sel === ALL || sel === HOST);
+  const shownIds = $derived(entries.filter((e) => (sel === ALL || sel === e.id) && (e.host || e.running)).map((e) => e.id));
+  const manyChains = $derived(shownIds.some((id) => id !== HOST));
+  /** One sidechain selected: its entry (its cards replace this app's own). */
+  const shownEntry = $derived(sel !== ALL && sel !== HOST ? (entries.find((e) => e.id === sel) ?? null) : null);
+  /** The sidechains this app runs, and how many keep up with this chain (the Sidechains card with every chain). */
+  const runningHere = $derived.by(() => {
+    const sides = entries.filter((e) => !e.host);
+    return { on: sides.length, inStep: sides.filter((e) => e.running && e.entry && describeState(e.entry).tone === 'ok').length };
+  });
+  $effect(() => {
+    const sides = shownIds.filter((id) => id !== HOST);
+    return poll(() => sides.forEach((s) => void refreshTxs(s)), 10000);
+  });
+  /** One line per chain shown, each in its own coin (never added up). */
+  const series = $derived<ChartSeries[]>(
+    entries
+      .filter((e) => shownIds.includes(e.id))
+      .map((e) => ({
+        id: e.id,
+        name: e.name,
+        unit: e.unit,
+        color: chainColor(e.id),
+        points: e.host ? (wallets.current !== null ? history : []) : chainBalanceHistory(many.txs[e.id] ?? [], chainState.summaries[e.id], now),
+      })),
+  );
+  /** Send and Receive: the side panel for this app's own chain; the page (its chain picked in the form) else. */
+  function quickOr(panel: 'send' | 'receive') {
+    if (manyChains) go(panel);
+    else openQuick(panel);
+  }
 
   // --- The wallet ---
   const balances = $derived(wallets.current !== null ? wallets.balances[wallets.current] : undefined);
@@ -118,7 +165,33 @@
   });
   // The newest few, without sorting the whole history (a wallet of 100 000 records).
   const recent = $derived(newest(current.records, 8));
-  const history = $derived(balanceHistory(current.records));
+  // Made again only when what it depends on changed (lib/chartdata.ts): a block that only adds confirmations to 20 000
+  // records changes nothing here (doc/unified-app.md §20.6).
+  // And it follows the history at most every CHART_MS: a stream of transactions (blocks mined to the wallet while the
+  // node catches up) redraws the chart, the largest picture of the page, once in a while, not with each (§20.8).
+  const CHART_MS = 5000;
+  let chartRecords = $state.raw(untrack(() => current.records));
+  let chartAt = 0;
+  $effect(() => {
+    const records = current.records;
+    const wait = chartAt + CHART_MS - Date.now();
+    if (wait <= 0) {
+      chartAt = Date.now();
+      chartRecords = records;
+      return;
+    }
+    const timer = setTimeout(() => {
+      chartAt = Date.now();
+      chartRecords = current.records;
+    }, wait);
+    return () => clearTimeout(timer);
+  });
+  let historyMemo: { key: string; points: { time: number; balance: bigint }[] } = { key: '', points: [] };
+  const history = $derived.by(() => {
+    const key = historyKey(chartRecords);
+    if (key !== historyMemo.key) historyMemo = { key, points: balanceHistory(chartRecords) };
+    return historyMemo.points;
+  });
 
   // --- The node ---
   const status = $derived(nodeSyncStatus(now));
@@ -196,7 +269,8 @@
 
   // Send and Receive, then what concerns the chain, then the tools (lib/layout.ts).
   // Simple mode leaves out the pages of Advanced (lib/uimode.svelte.ts).
-  const quickLinks = $derived(HOME_QUICK_ACTIONS.filter((q) => pageShown(q.page)));
+  // Mining is this app's own chain's; the explorer follows the selector (doc/unified-app.md §20.5).
+  const quickLinks = $derived(HOME_QUICK_ACTIONS.filter((q) => pageShown(q.page) && (q.page !== 'mine' || withHost)));
   const simple = $derived(simpleMode());
   /** Simple mode: the meters of merged mining open on demand. */
   let bmmDetails = $state(false);
@@ -244,12 +318,16 @@
     <div>
       <h1>Home</h1>
       <p class="muted sub">
-        {#if status}{#if status.upToDate}Up to date{:else}<SafeText text={status.label} />{/if}, block {formatCount(node.tip?.height ?? 0)}, {node.networkActive ? `${node.connections} peer${node.connections === 1 ? '' : 's'}` : 'network off'}{:else}Starting…{/if}
+        {#if shownEntry}
+          <!-- One sidechain: how its node keeps up, in its own blocks. -->
+          {@const sideSummary = chainState.summaries[shownEntry.id]}
+          {#if !shownEntry.running}{t('Its node is starting')}{:else if sideSummary?.mainchain?.behind_blocks === 0}{t('In step with %1, block %2', productName(), formatCount(sideSummary?.height ?? 0))}{:else if sideSummary}{t('Catching up, block %1', formatCount(sideSummary.height ?? 0))}{:else}{t('Starting…')}{/if}
+        {:else if status}{#if status.upToDate}Up to date{:else}<SafeText text={status.label} />{/if}, block {formatCount(node.tip?.height ?? 0)}, {node.networkActive ? `${node.connections} peer${node.connections === 1 ? '' : 's'}` : 'network off'}{:else}Starting…{/if}
       </p>
     </div>
     <nav class="quick" aria-label="Quick actions">
       {#each quickLinks as q (q.label)}
-        <button type="button" class="pill action" disabled={pageDisabled(q.page)} onclick={() => (q.panel ? openQuick(q.panel) : go(q.page, q.tab ?? ''))}><Icon name={q.icon} size={15} /> {t(simple && q.page === 'sidechains' ? 'Move coins' : q.label)}</button>
+        <button type="button" class="pill action" disabled={pageDisabled(q.page)} onclick={() => (q.panel ? quickOr(q.panel) : go(q.page, q.tab ?? ''))}><Icon name={q.icon} size={15} /> {t(simple && q.page === 'sidechains' ? 'Move coins' : q.label)}</button>
       {/each}
       <button type="button" class="pill action ghost" onclick={openPalette}><Icon name="search" size={15} /> All actions <kbd>Ctrl K</kbd></button>
     </nav>
@@ -263,6 +341,53 @@
     </button>
   {/if}
 
+  {#if sel === ALL && entries.length > 1}
+  <div class="stats all">
+    <Card title={t('Balances')} icon="wallet" open={() => go('overview')} openLabel={t('Open the overview')} stat>
+      <ChainsOverview page="home" compact panel={false} />
+      {#snippet actions()}
+        <button type="button" class="btn primary" disabled={pageDisabled('send')} onclick={() => go('send')}><Icon name="send" size={16} /> {t('Send')}</button>
+        <button type="button" class="btn" disabled={pageDisabled('receive')} onclick={() => go('receive')}><Icon name="receive" size={16} /> {t('Receive')}</button>
+        <button type="button" class="btn ghost" disabled={pageDisabled('sidechains')} onclick={() => go('sidechains')}><Icon name="sidechains" size={16} /> {t('Move coins')}</button>
+      {/snippet}
+    </Card>
+    <Card title="Network" icon="peers" open={() => go('node', 'info')} openLabel="Open the node window" stat>
+      <span class="value">
+        {#if status}
+          <span class="state" class:ok={status.upToDate}><Icon name={status.upToDate ? 'check' : 'history'} size={16} /> {#if status.upToDate}Up to date{:else}<SafeText text={status.label} />{/if}</span>
+        {:else}<span class="muted">Starting…</span>{/if}
+      </span>
+      {#if status && !status.upToDate}<progress max="1" value={status.progress} aria-label="Verification progress"></progress>{/if}
+      <dl class="pairs">
+        <dt>Height</dt><dd class="num">{formatCount(node.tip?.height ?? 0)}</dd>
+        <dt>Peers</dt><dd class="num">{node.networkActive ? node.connections : 'network off'}</dd>
+        <dt>Sync</dt><dd class="num">{status ? (status.upToDate ? '100%' : `${(status.progress * 100).toFixed(1)}%`) : '–'}</dd>
+        <dt>Mempool</dt><dd class="num">{mining ? `${formatCount(mining.pooledtx)} tx` : '–'}</dd>
+      </dl>
+      {#snippet actions()}
+        <button type="button" class="btn grow" onclick={() => go('node', 'peers')}><Icon name="peers" size={15} /> Peers</button>
+        {#if !simple}<button type="button" class="btn ghost" onclick={() => go('node', 'console')}>Console</button>{/if}
+        <button type="button" class="btn ghost icon" aria-label={node.networkActive ? 'Disable network' : 'Enable network'} title={node.networkActive ? 'Disable network activity' : 'Enable network activity'} onclick={toggleNetwork}><Icon name={node.networkActive ? 'offline' : 'refresh'} size={16} /></button>
+      {/snippet}
+    </Card>
+    <Card title="Sidechains" icon="sidechains" open={() => go('sidechains')} openLabel="Open the sidechains" stat>
+      <span class="value num">{drivechain?.activesidechains ?? '–'} <span class="unit-word">active</span></span>
+      <dl class="pairs">
+        <dt>Pending bundles</dt><dd class="num">{drivechain?.pendingbundles ?? '–'}</dd>
+        <dt>In escrow</dt><dd>{#if drivechain}<Amount sats={coinsToSats(drivechain.escrowtotal)} showUnit={false} />{:else}–{/if}</dd>
+        <dt>{t('Running here')}</dt><dd class="num" data-sidechains-running>{runningHere.inStep}/{runningHere.on} {t('in step')}</dd>
+      </dl>
+      {#snippet actions()}
+        {#if simple}
+          <button type="button" class="btn grow" disabled={pageDisabled('sidechains')} onclick={() => go('sidechains')}><Icon name="sidechains" size={15} /> Move coins</button>
+        {:else}
+          <button type="button" class="btn grow" disabled={pageDisabled('sidechains')} onclick={() => go('sidechains')}><Icon name="down" size={15} /> Deposit</button>
+          <button type="button" class="btn ghost" disabled={pageDisabled('sidechains')} title="Proposals and votes" onclick={() => go('sidechains', 'proposals')}>Votes</button>
+        {/if}
+      {/snippet}
+    </Card>
+  </div>
+  {:else if withHost}
   <div class="stats">
     <Card title="Balance" icon="wallet" open={() => go('overview')} openLabel="Open the overview" stat>
       {#if !walletsEnabled()}
@@ -283,8 +408,8 @@
         {:else if wallets.current === null}
           <button type="button" class="btn primary" onclick={() => go('wallets', 'create')}>Create or open a wallet</button>
         {:else}
-          <button type="button" class="btn primary grow" disabled={pageDisabled('send')} onclick={() => openQuick('send')}><Icon name="send" size={16} /> Send</button>
-          <button type="button" class="btn grow" disabled={pageDisabled('receive')} onclick={() => openQuick('receive')}><Icon name="receive" size={16} /> Receive</button>
+          <button type="button" class="btn primary grow" disabled={pageDisabled('send')} onclick={() => quickOr('send')}><Icon name="send" size={16} /> Send</button>
+          <button type="button" class="btn grow" disabled={pageDisabled('receive')} onclick={() => quickOr('receive')}><Icon name="receive" size={16} /> Receive</button>
         {/if}
       {/snippet}
     </Card>
@@ -343,13 +468,19 @@
     </Card>
     {/if}
   </div>
+  {:else if shownEntry}
+  <SidechainCards entry={shownEntry} escrow={sidechains.find((x) => x.slot === shownEntry.entry?.slot)?.escrow?.amount ?? null} />
+  {/if}
 
-  <div class="middle">
+  <!-- Hivemind: the wallet's open positions, when it has any (each in its coin, hidden in privacy mode). -->
+  <MarketPositions card />
+
+  <div class="middle" class:alone={!withHost}>
     <section class="panel chart-card" aria-labelledby="chart-title">
       <header class="chart-head">
         <div>
-          <h2 id="chart-title">Wallet balance</h2>
-          {#if wallets.current !== null}
+          <h2 id="chart-title">{!manyChains ? t('Wallet balance') : sel === ALL ? t('Balance of each chain') : t('Balance on %1', entries.find((e) => e.id === sel)?.name ?? '')}</h2>
+          {#if !manyChains && wallets.current !== null}
             <div class="figure">
               <span class="now big-amount"><Amount sats={latest} /></span>
               {#if !prefs.mask && history.length}
@@ -369,7 +500,9 @@
         </div>
       </header>
       <div class="chart-body">
-        {#if wallets.current === null}
+        {#if manyChains}
+          <ChainBalanceChart {series} height={210} {from} />
+        {:else if wallets.current === null}
           <p class="muted">No wallet is loaded.</p>
         {:else if prefs.mask}
           <p class="muted">Hidden: privacy mode.</p>
@@ -381,6 +514,7 @@
       </div>
     </section>
 
+    {#if withHost}
     <Card title="Blind merged mining" icon="nodes" open={() => go('sidechains')} openLabel="Open the sidechains">
       {#if simple && !bmmDetails}
         <!-- Simple mode: one line, the meters on demand (user decision). -->
@@ -415,9 +549,10 @@
         <button type="button" class="btn" onclick={() => go('sidechains')}>Sidechains</button>
       {/snippet}
     </Card>
+    {/if}
   </div>
 
-  <HomeTables {recent} {history} {sidechains} {bundles} {bmm} {bmmSeries} {bmmWindow} {blocks} {peers} {now} />
+  <HomeTables {recent} {history} {sidechains} {bundles} {bmm} {bmmSeries} {bmmWindow} {blocks} {peers} {now} chains={shownIds} {withHost} />
 </div>
 
 <style>
@@ -490,6 +625,18 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr));
     gap: 1rem;
+  }
+  /* Every chain: the balances of each (two parts of the row), the network, the sidechains. */
+  .stats.all {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  }
+  @container (max-width: 980px) {
+    .stats.all {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .stats.all > :global(:first-child) {
+      grid-column: 1 / -1;
+    }
   }
   .value {
     display: block;
@@ -730,6 +877,9 @@
   }
   .small {
     font-size: 0.86rem;
+  }
+  .middle.alone {
+    grid-template-columns: minmax(0, 1fr);
   }
   @container (max-width: 760px) {
     .middle {

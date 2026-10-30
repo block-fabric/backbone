@@ -7,11 +7,36 @@
   import CommandPalette from '../components/CommandPalette.svelte';
   import TitleStrip from '../components/TitleStrip.svelte';
   import TxNotifier from '../components/TxNotifier.svelte';
+  import SeedFlows from '../components/SeedFlows.svelte';
   import { closeDetail, detail } from '../lib/detail.svelte';
   import { go, nav } from '../lib/nav.svelte';
   import { prefs, wallets } from '../lib/state.svelte';
   import Dashboard from './layouts/Dashboard.svelte';
   import Workspace from './layouts/Workspace.svelte';
+  import { followHistory } from '../lib/history.svelte';
+  import { activeModule, clearModal, frameShown, moduleName, moduleTitle, modules } from '../lib/modules.svelte';
+  import { hub } from '../lib/sidechains.svelte';
+
+  // Back and forward: the app's (lib/history.svelte.ts), for its pages and the modules' alike.
+  followHistory();
+  // A page of the app's own (Settings, from a module): the module switcher goes back to the app's pages.
+  $effect(() => {
+    if (nav.page !== 'sidechain' && hub.selected !== 'chains') untrack(() => (hub.selected = 'chains'));
+  });
+  // The title strip: the module shown and its page, its wallet (the app's own page and wallet else).
+  const stripTitle = $derived(activeModule() ? `${moduleName(activeModule())} · ${moduleTitle(activeModule())}` : pageTitleSource(nav.page));
+  const stripDetail = $derived(activeModule() ? (modules.summaries[activeModule()]?.wallet ?? '') : wallets.current !== null ? wallets.current || 'default wallet' : '');
+  // A dialog of a module's pages is open: the app's window is dimmed around its page, as for a dialog of its own.
+  const dimmed = $derived(!!activeModule() && frameShown() && !!modules.modal[activeModule()]);
+  // Another module or page shown: the dim of the one before goes (it cannot follow the user around).
+  let dimFor = '';
+  $effect(() => {
+    const now = activeModule() && frameShown() ? activeModule() : '';
+    untrack(() => {
+      if (dimFor && dimFor !== now) clearModal(dimFor);
+      dimFor = now;
+    });
+  });
 
   $effect(() => {
     detail.follow = prefs.layout === 'workspace';
@@ -40,7 +65,7 @@
 <div class="frame">
   <!-- The integrated title bar: the workspace's is its top bar; the dashboard has a slim strip. -->
   {#if prefs.layout !== 'workspace'}
-    <TitleStrip title={pageTitleSource(nav.page)} detail={wallets.current !== null ? wallets.current || 'default wallet' : ''} />
+    <TitleStrip title={stripTitle} detail={stripDetail} />
   {/if}
   <div class="layout">
     {#if prefs.layout === 'workspace'}
@@ -50,6 +75,13 @@
     {/if}
   </div>
 </div>
+<SeedFlows />
+{#if dimmed}
+  <!-- The app's own way out, whatever the module's pages do: a click on the dim, or Escape, lifts it (and a module
+       cannot dim again for a few seconds). The app's trusted dialog is a window of its own, above all of this. -->
+  <button type="button" class="module-scrim" aria-label="Back to the app" onclick={() => clearModal(activeModule(), 3000)}></button>
+{/if}
+<svelte:window onkeydown={(e) => { if (dimmed && e.key === 'Escape') clearModal(activeModule(), 3000); }} />
 <CommandPalette />
 <TxNotifier />
 
@@ -62,6 +94,15 @@
   .layout {
     flex: 1 1 0;
     min-height: 0;
+  }
+  .module-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    padding: 0;
+    border: 0;
+    background: var(--overlay);
+    cursor: default;
   }
   .skip {
     position: fixed;

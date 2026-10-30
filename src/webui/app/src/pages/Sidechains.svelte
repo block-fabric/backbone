@@ -1,4 +1,15 @@
 <script lang="ts">
+  import MovePanel from '../components/MovePanel.svelte';
+  import SidechainStatus from '../components/SidechainStatus.svelte';
+  import { chainEntries, loadCapabilities } from '../lib/chains.svelte';
+  // The sidechains this app runs, in one place (doc/unified-app.md §18): coins into and out of each, its link and its
+  // merged mining; the drivechain's own state (escrows, proposals, bundles and votes) in the tabs below.
+  const pegChains = $derived(chainEntries().filter((e) => !e.host));
+  // The top bar's selection (§19): one sidechain shows its panel only; All or this app's own chain, every sidechain
+  // (what moves coins into them is this app's chain).
+  $effect(() => {
+    void loadCapabilities();
+  });
   // The sidechains of Chains (SidechainPage of chains-qt): the active sidechains and their escrows,
   // deposits to them, the proposals of new sidechains with their acks, and the withdrawal bundles
   // with the votes of the miners. Richer than Qt: an overview of the slots, the progress of each
@@ -6,7 +17,6 @@
   import { isolate, t } from '../lib/i18n.svelte';
   import Pager from '../components/Pager.svelte';
   import SafeText from '../components/SafeText.svelte';
-  import AmountInput from '../components/AmountInput.svelte';
   import Amount from '../components/Amount.svelte';
   import CopyButton from '../components/CopyButton.svelte';
   import Icon from '../components/Icon.svelte';
@@ -29,16 +39,13 @@
   import { ask, confirm, declined, errorText, inform, walletRpc } from '../lib/dialogs.svelte';
   import { formatCount, formatTime, shortHash } from '../lib/format';
   import { detail, showDetail } from '../lib/detail.svelte';
-  import { nav, takeFocus } from '../lib/nav.svelte';
+  import { go, nav, takeFocus } from '../lib/nav.svelte';
   import MoveCoins from './MoveCoins.svelte';
   import Term from '../components/Term.svelte';
   import { simpleMode } from '../lib/uimode.svelte';
   import { host, rpc } from '../lib/rpc';
   import { node, noWalletText, prefs, toast, wallets } from '../lib/state.svelte';
   import { coinsToSats, formatAmount, satsToCoins, unitInfo, ticker } from '../lib/units';
-  import { depositFeeEstimate } from '../lib/wallet';
-  import { depositAgain, isDropped, makeDepositAgain } from '../lib/deposits.svelte';
-  import { current } from '../lib/walletdata.svelte';
 
   const TABS = [
     { id: 'sidechains', label: 'Sidechains' },
@@ -48,7 +55,8 @@
   ];
   const tab = $derived(TABS.some((t) => t.id === nav.tab) ? nav.tab : 'sidechains');
   // Simple mode (lib/uimode.svelte.ts): the first tab moves coins (MoveCoins); proposals and withdrawals are
-  // Advanced's, shown only when asked for (the palette, a link).
+  // Advanced's, shown only when asked for (the palette, a link). The sidechains this app runs are turned on in
+  // Settings → Sidechains (doc/unified-app.md; the old Nodes tab is gone).
   const simple = $derived(simpleMode());
   const SIMPLE_LABELS: Record<string, string> = { sidechains: 'Move coins' };
   const tabs = $derived(simple ? TABS.filter((tb) => tb.id === 'sidechains' || tb.id === tab).map((tb) => ({ ...tb, label: SIMPLE_LABELS[tb.id] ?? tb.label })) : TABS);
@@ -128,133 +136,6 @@
     if (selectedSlot === null && dc && dc.sidechains.length) selectedSlot = dc.sidechains[0].slot;
   });
 
-  let destination = $state('');
-  let amount = $state<bigint | null>(null);
-  let amountKey = $state(0);
-  // A deposit the mempool dropped, made again from this form (deposits.svelte.ts): it replaces that one.
-  let replaces = $state<string | null>(null);
-  $effect(() => {
-    const again = depositAgain.next;
-    if (!again) return;
-    depositAgain.next = null;
-    selectedSlot = again.slot;
-    destination = again.destination;
-    amount = again.amount;
-    amountKey++;
-    replaces = again.replaces;
-    queueMicrotask(() => document.getElementById('deposit-amount')?.focus());
-  });
-  // The deposits of the wallet the mempool dropped: said, with a way to make each again (audit 7-A #1).
-  const dropped = $derived(current.recordsLoaded ? current.records.filter((r) => isDropped(r) && r.amount < 0n) : []);
-  async function again(txid: string) {
-    if (wallets.current === null) return;
-    try {
-      await makeDepositAgain(wallets.current, txid);
-    } catch (e) {
-      await inform(t('Sidechains'), errorText(e), 'error');
-    }
-  }
-  let destCheck = $state<{ kind: 'plain' | 'valid' | 'invalid'; slot?: number } | null>(null);
-  let depositing = $state(false);
-
-  // A deposit address says which sidechain it is for: select it, or say what is wrong with it.
-  $effect(() => {
-    const text = destination.trim();
-    if (!text) {
-      destCheck = null;
-      return;
-    }
-    const t = setTimeout(async () => {
-      try {
-        const r = await host.depositAddress(text);
-        destCheck = r;
-        if (r.kind === 'valid' && dc?.sidechains.some((s) => s.slot === r.slot)) selectedSlot = r.slot ?? selectedSlot;
-      } catch {
-        destCheck = null;
-      }
-    }, 200);
-    return () => clearTimeout(t);
-  });
-  const destMessage = $derived.by(() => {
-    if (!destCheck) return '';
-    if (destCheck.kind === 'invalid') return 'This deposit address has a typing error in it.';
-    if (destCheck.kind === 'valid' && dc && !dc.sidechains.some((s) => s.slot === destCheck!.slot)) return `This deposit address is for slot ${destCheck.slot}, which has no active sidechain.`;
-    if (destCheck.kind === 'valid') return `A deposit address for slot ${destCheck.slot}.`;
-    return 'Not a deposit address: it cannot be checked.';
-  });
-
-  async function deposit() {
-    const wallet = wallets.current;
-    if (!selected || depositing) return;
-    if (wallet === null) {
-      await inform(t('Sidechains'), noWalletText(t('the deposit is paid from it.')));
-      return;
-    }
-    const dest = destination.trim();
-    if (!dest) {
-      await inform(t('Sidechains'), t('Enter the deposit address that the wallet of the sidechain gives.'), 'warning');
-      return;
-    }
-    let check;
-    try {
-      check = await host.depositAddress(dest);
-    } catch (e) {
-      await inform(t('Sidechains'), errorText(e), 'error');
-      return;
-    }
-    if (check.kind === 'invalid') {
-      await inform(t('Sidechains'), t('This deposit address has a typing error in it. Copy it again from the wallet of the sidechain.'), 'warning');
-      return;
-    }
-    if (check.kind === 'valid' && check.slot !== selected.slot) {
-      await inform(t('Sidechains'), t('This deposit address is for the sidechain in slot %1, and the sidechain selected is the one in slot %2.', check.slot, selected.slot), 'warning');
-      return;
-    }
-    // Without the checks of a deposit address, a destination the sidechain does not understand is lost there.
-    if (
-      check.kind === 'plain' &&
-      !(await confirm(t('Sidechains'), t('"%1" is not a deposit address (s<slot>_<address>_<checksum>), so it cannot be checked. If the sidechain does not understand it, the coins are lost. Deposit anyway?', dest), { yes: 'Deposit anyway', level: 'warning' }))
-    )
-      return;
-    if (amount === null || amount <= 0n) {
-      await inform(t('Sidechains'), t('Enter the amount to deposit.'), 'warning');
-      return;
-    }
-    const sats = amount;
-    // The fee too, before anything is asked (audit 7 #20c): about what the wallet pays, as the desktop says it again.
-    const fee = await depositFeeEstimate(wallet, dest);
-    const r = await ask({
-      title: t('Confirm sidechain deposit'),
-      message: t('Deposit %1 to the sidechain "%2" (slot %3), to be credited there to:', formatAmount(sats, prefs.unit, { withUnit: true }), selected.title, selected.slot),
-      code: dest,
-      informative: [
-        fee === null ? t('The wallet adds the network fee when it makes the transaction.') : t('Network fee: about %1. Total: about %2.', formatAmount(fee, prefs.unit, { withUnit: true }), formatAmount(sats + fee, prefs.unit, { withUnit: true })),
-        t('Coins deposited to a sidechain can only come back through a withdrawal approved by the miners.'),
-      ].join('\n'),
-      level: 'question',
-      choices: [
-        { id: 'no', label: 'Cancel' },
-        { id: 'yes', label: 'Deposit', kind: 'primary' },
-      ],
-    });
-    if (r.choice !== 'yes') return;
-    depositing = true;
-    try {
-      const result = await walletRpc<{ txid: string }>(wallet, 'createsidechaindeposit', replaces ? [selected.slot, dest, satsToCoins(sats), replaces] : [selected.slot, dest, satsToCoins(sats)]);
-      if (!result) return;
-      replaces = null;
-      await inform(t('Sidechains'), t('Deposit sent in transaction %1.', result.txid), 'info');
-      destination = '';
-      amount = null;
-      amountKey++;
-      refresh();
-    } catch (e) {
-      await inform(t('Sidechains'), errorText(e), 'error');
-    } finally {
-      depositing = false;
-    }
-  }
-
   // --- Proposals ---
   let selectedProposal = $state<string | null>(null);
   let selectedQueued = $state<string | null>(null);
@@ -316,7 +197,7 @@
     focusHash = '';
     if (tab === 'withdrawals') selectedBundle = dc.bundles.find((b) => b.hash === hash)?.hash ?? dc.bundles.find((b) => b.slot === slot)?.hash ?? selectedBundle;
     else if (tab === 'proposals' && hash) selectedProposal = hash;
-    else if (tab === 'sidechains') queueMicrotask(() => document.getElementById('deposit-destination')?.focus());
+    else if (tab === 'sidechains') queueMicrotask(() => document.getElementById('move-amount')?.focus());
   });
   async function vote(b: Bundle, v: 'upvote' | 'downvote' | 'abstain' | 'default') {
     const params = v === 'upvote' ? [b.slot, v, b.hash] : [b.slot, v];
@@ -357,14 +238,23 @@
 </script>
 
 <div class="page sidechains">
-  <header class="page-head"><h1>Sidechains</h1></header>
+  <header class="page-head">
+    <h1>{#if simple}Move coins{:else}Sidechains{/if}</h1>
+    <button type="button" class="btn small" data-action="run-sidechains" onclick={() => go('settings', 'sidechains')}>Run sidechains in this app</button>
+  </header>
   {#if simple}
     <p class="summary muted">Move {ticker()} to a <Term id="sidechain">sidechain</Term> to use what it adds (markets, names, private payments…), and bring it back when you are done.</p>
-  {:else if dc}
-    <p class="summary muted">{summaryText(dc.info, formatAmount(escrowTotal, prefs.unit, { withUnit: true }))}</p>
-  {:else}
+  {:else if !dc}
     <p class="summary muted">{loadError || 'The drivechain state is not available yet.'}</p>
   {/if}
+  {#if !simple || pegChains.length}
+    <!-- Moving coins: one form for every chain, and how each sidechain this app runs is doing (§20.4). -->
+    <div class="move-row">
+      <MovePanel {dc} onmoved={refresh} />
+      {#if pegChains.length}<SidechainStatus />{/if}
+    </div>
+  {/if}
+  {#if tabs.length > 1}
   <div class="tabs" role="tablist" aria-label="Sidechains">
     {#each tabs as tb (tb.id)}
       <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>
@@ -374,16 +264,14 @@
       </button>
     {/each}
   </div>
+  {/if}
 
-  {#if simple && tab === 'sidechains'}
+  {#if simple && tab === 'sidechains' && !pegChains.length}
     <MoveCoins {dc} {refresh} />
+  {:else if simple && tab === 'sidechains'}
+    <!-- Simple mode: moving coins is the page (above); the drivechain's state is Advanced's. -->
   {:else if dc && tab === 'sidechains'}
-    <section class="stats">
-      <div class="stat panel"><span class="muted">Active sidechains</span><strong class="num">{dc.info.activesidechains}</strong><span class="faint">of {dc.info.maxsidechains} slots</span></div>
-      <div class="stat panel"><span class="muted">In escrow</span><strong><Amount sats={escrowTotal} /></strong><span class="faint">held for the sidechains</span></div>
-      <div class="stat panel"><span class="muted">Proposals</span><strong class="num">{dc.proposals.pending.length}</strong><span class="faint">{dc.proposals.queued.length} queued here</span></div>
-      <div class="stat panel"><span class="muted">Pending withdrawals</span><strong class="num">{dc.info.pendingbundles}</strong><span class="faint">bundles being voted on</span></div>
-    </section>
+    <p class="summary muted">{summaryText(dc.info, formatAmount(escrowTotal, prefs.unit, { withUnit: true }))}</p>
 
     <section class="panel slots-panel">
       <div class="panel-head"><h2>Slots</h2><span class="legend"><span class="key active"></span>active <span class="key proposed"></span>proposed <span class="key queued"></span>queued here <span class="key free"></span>free</span></div>
@@ -432,41 +320,6 @@
         {/if}
       </section>
 
-      <section class="panel deposit">
-        <div class="panel-head"><h2>Deposit to the selected sidechain</h2></div>
-        {#if dropped.length}
-          <div class="panel-body dropped" role="alert" aria-label="Dropped deposits">
-            {#each dropped as r (r.key)}
-              <p><span class="status bad">Dropped &mdash; not sent</span> <Amount sats={-r.amount} /> <span class="mono" translate="no">{shortHash(r.txid)}</span> <button type="button" class="btn small" onclick={() => again(r.txid)}>Make it again</button></p>
-            {/each}
-          </div>
-        {/if}
-        <form class="panel-body form" onsubmit={(e) => { e.preventDefault(); deposit(); }}>
-          <!-- Every active sidechain, to choose the one to deposit to (user decision); the list selects it too. -->
-          <div class="field">
-            <label for="deposit-sidechain">Sidechain</label>
-            <select id="deposit-sidechain" value={selectedSlot ?? ''} onchange={(e) => pick(Number((e.currentTarget as HTMLSelectElement).value))}>
-              {#if selectedSlot === null}<option value="" disabled>Select a sidechain</option>{/if}
-              {#each dc.sidechains as s (s.slot)}
-                <option value={s.slot} translate="no">{s.slot} · {s.title}</option>
-              {/each}
-            </select>
-          </div>
-          <div class="field">
-            <label for="deposit-destination">Destination</label>
-            <input id="deposit-destination" type="text" class="mono" maxlength="100" spellcheck="false" autocomplete="off" placeholder="The deposit address from the wallet of the sidechain: s<slot>_<address>_<checksum>" bind:value={destination} aria-invalid={destCheck?.kind === 'invalid' ? 'true' : undefined} aria-describedby="deposit-destination-check" />
-            <span id="deposit-destination-check" class:error={destCheck?.kind === 'invalid'} class="hint">{destMessage}</span>
-          </div>
-          {#key amountKey}<AmountInput id="deposit-amount" bind:value={amount} label="Amount" />{/key}
-          {#if replaces}
-            <p class="hint" id="deposit-replaces">Makes again the dropped deposit <span class="mono" translate="no">{shortHash(replaces)}</span>: only one of the two can ever be mined. <button type="button" class="link" onclick={() => (replaces = null)}>Make a new deposit instead</button></p>
-          {/if}
-          <div class="row">
-            <button type="submit" class="btn primary" disabled={!selected || depositing || wallets.current === null}>{depositing ? 'Depositing…' : 'Deposit'}</button>
-            {#if wallets.current === null}<span class="muted">Open a wallet to deposit from it.</span>{/if}
-          </div>
-        </form>
-      </section>
     </div>
 
     {#if selected}
@@ -726,31 +579,27 @@
       </div>
     </section>
   {/if}
-  <div class="row foot"><button type="button" class="btn ghost small" onclick={refresh}>Refresh</button><span class="faint">Unit: {unitInfo(prefs.unit).short}</span></div>
+  {#if !simple}<div class="row foot"><button type="button" class="btn ghost small" onclick={refresh}>Refresh</button><span class="faint">Unit: {unitInfo(prefs.unit).short}</span></div>{/if}
 </div>
 
 <style>
+  /* Move coins and how each sidechain is doing, side by side (doc/unified-app.md §20.4). */
+  .move-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+    margin: 0.4rem 0 1.2rem;
+    container-type: inline-size;
+  }
+  @media (max-width: 1100px) {
+    .move-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
   .summary {
     margin-top: 0.4rem;
     max-width: 90ch;
-  }
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
-    gap: 0.8rem;
-    margin-bottom: 1rem;
-  }
-  .stat {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    padding: 0.8rem 1rem;
-  }
-  .stat strong {
-    font-size: 1.4rem;
-  }
-  .stat .faint {
-    font-size: 0.82rem;
   }
   .slots-panel {
     margin-bottom: 1rem;
@@ -807,7 +656,7 @@
   }
   .cols {
     display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(20rem, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
     margin-bottom: 1rem;
   }
@@ -989,17 +838,5 @@
     .detail-grid {
       grid-template-columns: minmax(0, 1fr);
     }
-  }
-  .dropped {
-    display: grid;
-    gap: 0.4rem;
-    border-bottom: 1px solid var(--line);
-  }
-  .dropped p {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0;
   }
 </style>

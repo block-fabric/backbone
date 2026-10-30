@@ -80,6 +80,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "verifybmm", 1, "slot" },
     { "createsidechaindeposit", 0, "slot" },
     { "createsidechaindeposit", 2, "amount" },
+    { "createsidechaindeposit", 4, "inputs" },
     { "createbmmrequest", 0, "slot" },
     { "createbmmrequest", 2, "amount" },
     { "setmocktime", 0, "timestamp" },

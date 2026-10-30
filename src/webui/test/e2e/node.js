@@ -614,7 +614,13 @@
     await waitFor('the notification', async () => (await host('test.notifications')).some((n) => /transaction/.test(n.title) && n.body.includes('Amount:')), 30000);
     await check('notifications: a new transaction', true);
 
-    // (No Sidechain nodes page: the unified wallet will manage the nodes of sidechains, user decision 2026-10-23.)
+    // --- The old Nodes tab is gone: the sidechains run from Settings → Sidechains (doc/unified-app.md) ---
+    await go('sidechains');
+    await waitFor('the page', () => !!document.querySelector('[data-action="run-sidechains"]'), 30000);
+    await check('sidechains: no Nodes tab', !$$('[role="tab"]').some((t) => /Nodes/.test(t.textContent)));
+    document.querySelector('[data-action="run-sidechains"]').click();
+    await waitFor('Settings → Sidechains', () => T().nav.page === 'settings' && T().nav.tab === 'sidechains', 30000);
+    await check('sidechains: run from Settings → Sidechains', true);
 
     // --- The overview with the latest transactions, and the sync overlay ---
     await rpc('sendtoaddress', [payTo, 0.1], 'miner');

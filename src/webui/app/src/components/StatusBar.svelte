@@ -10,8 +10,12 @@
   import { host, rpc } from '../lib/rpc';
   import { app, node, prefs, savePrefs, statusTip, toast, wallets } from '../lib/state.svelte';
   import { nodeSyncStatus } from '../lib/nodesync';
+  import { phraseWalletState, seed } from '../lib/seed.svelte';
   import { UNITS, type Unit } from '../lib/units';
   import { go, nav } from '../lib/nav.svelte';
+  import { hub } from '../lib/sidechains.svelte';
+  import { modules, moduleName, NODE_PAGE, openModule, productName } from '../lib/modules.svelte';
+  import { describeSync } from '../lib/unified';
 
   let now = $state(Math.floor(Date.now() / 1000));
   $effect(() => {
@@ -24,6 +28,10 @@
   const busy = $derived(app.progress ?? walletProgress ?? null);
 
   let netMenu = $state(false);
+
+  // The module shown: its own sync beside the mainchain's (the mainchain's stays first, named).
+  const mod = $derived(hub.selected !== 'chains' ? hub.selected : '');
+  const modSync = $derived(mod ? describeSync(modules.overview[mod]) : null);
 
   // The proxy the node uses to reach IPv4 peers (BitcoinGUI::updateProxyIcon), checked again when the peers change.
   let proxy = $state('');
@@ -70,6 +78,16 @@
       <span class="label">Starting…</span>
     {/if}
   </div>
+
+  {#if mod && modSync}
+    <!-- The mainchain's state is the one at the left; the module's is here, named. -->
+    <button type="button" class="module-sync {modSync.tone}" data-module-sync={mod} title={t('How %1 keeps up with %2', moduleName(mod), productName())} onclick={() => openModule(mod, NODE_PAGE)}>
+      <span class="dot" aria-hidden="true"></span>
+      <strong><SafeText text={moduleName(mod)} /></strong>
+      <span class="label">{t(modSync.key, ...modSync.args)}</span>
+      {#if modules.overview[mod]?.height !== undefined}<span class="num faint">#{formatCount(modules.overview[mod]?.height ?? 0)}</span>{/if}
+    </button>
+  {/if}
 
   {#if node.recent.length}
     <ol class="chain" aria-label="Latest blocks">
@@ -128,7 +146,11 @@
     {#if !wallet.privateKeysDisabled}
       <span class="hd" class:off={!wallet.hd} title={wallet.hd ? 'HD key generation is enabled' : 'HD key generation is disabled'} aria-label={wallet.hd ? 'HD key generation is enabled' : 'HD key generation is disabled'}>HD</span>
     {/if}
-    {#if wallet.encrypted}
+    {#if phraseWalletState(seed.status, wallet.name) === 'open'}
+      <span class="lock open" title="No password: anyone with access to this computer can spend" data-no-password>
+        <Icon name="unlock" size={16} label="No password" />
+      </span>
+    {:else if wallet.encrypted}
       <span class="lock" title={wallet.locked ? 'Wallet is encrypted and currently locked' : 'Wallet is encrypted and currently unlocked'}>
         <Icon name={wallet.locked ? 'lock' : 'unlock'} size={16} label={wallet.locked ? 'Wallet locked' : 'Wallet unlocked'} />
       </span>
@@ -151,6 +173,35 @@
     background: color-mix(in srgb, var(--bg) 75%, transparent);
     color: var(--text-muted);
     font-size: 0.86rem;
+  }
+  .module-sync {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    padding: 0.1rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+  .module-sync .dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .module-sync.ok .dot {
+    background: var(--positive);
+  }
+  .module-sync.busy .dot,
+  .module-sync.warn .dot {
+    background: var(--warning);
+  }
+  .module-sync.bad .dot {
+    background: var(--negative);
   }
   .proxy {
     display: inline-flex;
@@ -229,12 +280,12 @@
     background: var(--accent-soft);
     color: var(--text);
     font-weight: 600;
-    animation: arrive 900ms ease-out;
+    /* A short fade (the compositor's alone: no shadow, no layout), and none under software GL (base.css). */
+    animation: arrive 300ms ease-out;
   }
   @keyframes arrive {
     from {
-      transform: translateX(-0.5rem) scale(0.9);
-      box-shadow: 0 0 0 0.35rem var(--accent-soft);
+      opacity: 0.4;
     }
   }
   .spacer {
@@ -294,6 +345,9 @@
   .lock {
     display: inline-flex;
     color: var(--text-muted);
+  }
+  .lock.open {
+    color: var(--warning);
   }
   /* A narrow window: everything stays, on two lines if it must (the height of the chain, how far behind). */
   @media (max-width: 760px) {

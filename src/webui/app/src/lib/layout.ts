@@ -80,7 +80,9 @@ export const AREAS: readonly Area[] = [
       { page: 'overview' },
       { page: 'send' },
       { page: 'receive' },
+      { page: 'trade' },
       { page: 'transactions', label: 'History' },
+      { page: 'assets' },
       { page: 'wallets' },
       // Sign and verify, PSBT, Multisig: the tabs of one page (with the wallet).
       { page: 'advanced', label: 'Advanced' },
@@ -96,8 +98,8 @@ export const AREAS: readonly Area[] = [
     id: 'sidechains',
     label: 'Sidechains',
     icon: 'sidechains',
-    // One page: its own tabs (Sidechains, Nodes, Proposals, Withdrawals) are the rest.
-    tabs: [{ page: 'sidechains' }],
+    // One page: its own tabs (Proposals, Withdrawals) are the rest; then what the sidechains add (when one that has it is on).
+    tabs: [{ page: 'sidechains' }, { page: 'staking' }, { page: 'names' }, { page: 'markets' }],
   },
   {
     id: 'tools',
@@ -145,6 +147,8 @@ export function pageKind(page: PageId): PageKind {
   // A tab of another page: of the kind of that page.
   const into = PAGES[page].tabOf;
   if (into) return pageKind(into.page);
+  // What the sidechains add (their groups of the Chain section).
+  if (CHAIN_GROUP_PAGES.includes(page)) return 'chain';
   const section = NAV_SECTIONS.find((s) => s.pages.includes(page));
   return (section?.title.toLowerCase() as PageKind | undefined) ?? 'node';
 }
@@ -178,17 +182,23 @@ export interface QuickAction {
 export const HOME_QUICK_ACTIONS: readonly QuickAction[] = [
   { label: 'Send', icon: 'send', page: 'send', panel: 'send' },
   { label: 'Receive', icon: 'receive', page: 'receive', panel: 'receive' },
-  { label: 'Deposit to a sidechain', icon: 'sidechains', page: 'sidechains' },
+  { label: 'Move coins', icon: 'sidechains', page: 'sidechains' },
   { label: 'Block explorer', icon: 'explorer', page: 'explorer' },
   { label: 'Mine', icon: 'mine', page: 'mine' },
   // No Sign message nor Load PSBT here (user decision): "All actions" (the palette) reaches them.
 ];
 
+/** The app's pages of what the sidechains add: in the sidebar, under each chain's group of the Chain section. */
+export const CHAIN_GROUP_PAGES: readonly PageId[] = ['assets', 'staking', 'names', 'markets'];
+
 /** The dashboard's sidebar: every page (after Home), in the sections of the areas. */
 export const NAV_SECTIONS: readonly NavSection[] = [
-  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'transactions', 'wallets', 'advanced'] },
-  // What concerns the chain before the tools.
-  { title: 'Chain', pages: ['sidechains', 'mine', 'explorer'] },
+  // Trade (the DEX, doc/unified-app.md §22) after Receive: an action on one chain's coins, while a chain with a DEX is on.
+  { title: 'Wallet', pages: ['overview', 'send', 'receive', 'trade', 'transactions', 'wallets', 'advanced'] },
+  // What concerns the chain before the tools: moving coins (every sidechain at once), staking (while a chain that stakes is
+  // on), mining, the explorer; then one group per sidechain with what is its own (components/SidebarChainGroups.svelte,
+  // doc/unified-app.md §20.1).
+  { title: 'Chain', pages: ['sidechains', 'staking', 'mine', 'explorer'] },
   { title: 'Tools', pages: ['tools'] },
   { title: 'Node', pages: ['node', 'settings', 'kit'] },
 ];
@@ -212,5 +222,6 @@ export function navSections(): NavSection[] {
 export function navSectionOf(page: PageId): string {
   const into = PAGES[page].tabOf;
   if (into) return navSectionOf(into.page);
+  if (CHAIN_GROUP_PAGES.includes(page)) return simpleMode() ? 'Features' : 'Chain';
   return (navSections().find((s) => s.pages.includes(page)) ?? NAV_SECTIONS.find((s) => s.pages.includes(page)))?.title ?? '';
 }

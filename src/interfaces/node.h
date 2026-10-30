@@ -94,6 +94,10 @@ public:
     //! Start shutdown.
     virtual void startShutdown() = 0;
 
+    //! Start the RPC server (on the -rpcbind/-rpcport/-rpcauth settings) after the node started without
+    //! -server, as the Chains app does once a sidechain it runs needs it. True when it runs (it ran already).
+    virtual bool startRpcServer() = 0;
+
     //! Return whether shutdown was requested.
     virtual bool shutdownRequested() = 0;
 

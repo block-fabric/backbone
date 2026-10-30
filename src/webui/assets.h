@@ -35,9 +35,22 @@ inline constexpr std::string_view ORIGIN{"chains-app://app"};
 
 /**
  * The content security policy of the interface: nothing but its own files,
- * no remote content, no eval, no plug-ins, no frames.
+ * no remote content, no eval, no plug-ins; frames only of the pages of the sidechains (PACK_SCHEME).
  */
 std::string ContentSecurityPolicy();
+
+/**
+ * The pages of each sidechain the app runs (doc/unified-app.md §13) are served under an origin of their own,
+ * chains-pack://<stem>/, never the app's: a frame of them cannot reach the page of the app (its bridge, the other
+ * chains), only send it messages, which the page takes from that frame alone, for that chain alone.
+ */
+inline constexpr std::string_view PACK_SCHEME{"chains-pack"};
+/** The file of the assets a request of a pack's origin may have (its own files under /packs/<stem>/, and the shim), or nothing. */
+std::optional<std::string> PackAssetPath(std::string_view uri);
+/** The policy of a pack's pages: its own files only, no network, no frames, framed by the app only. */
+std::string PackContentSecurityPolicy();
+/** Whether the app's own origin serves a path: not the packs (served under their own origins only). */
+bool AppServes(std::string_view path);
 
 /**
  * One self-contained HTML document with every script, style sheet and font of

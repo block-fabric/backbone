@@ -17,6 +17,9 @@
   import LayoutPicker from '../components/LayoutPicker.svelte';
   import SafeText from '../components/SafeText.svelte';
   import ThemeEditor from '../components/ThemeEditor.svelte';
+  import SidechainSettings from '../components/SidechainSettings.svelte';
+  import SeedSettings from '../components/SeedSettings.svelte';
+  import MiningWallet from '../components/MiningWallet.svelte';
   import { effectiveColors } from '../lib/customthemes';
   import { frame } from '../lib/windowframe.svelte';
 
@@ -26,6 +29,8 @@
     { id: 'theme', label: 'Advanced theme' },
     { id: 'main', label: 'Main' },
     { id: 'wallet', label: 'Wallet' },
+    // The sidechains this app runs for you (doc/unified-app.md).
+    { id: 'sidechains', label: 'Sidechains' },
     { id: 'network', label: 'Network' },
     { id: 'window', label: 'Window' },
   ];
@@ -294,6 +299,8 @@
       </div>
     </section>
   {:else if tab === 'wallet' && options}
+    <SeedSettings />
+    <MiningWallet />
     <section class="panel">
       <div class="panel-body form">
         <label class="check">
@@ -395,6 +402,8 @@
         <p class="hint">Minimize instead of exit the application when the window is closed. When this option is enabled, the application will be closed only after selecting Exit in the menu.</p>
       </div>
     </section>
+  {:else if tab === 'sidechains'}
+    <SidechainSettings />
   {:else if tab === 'theme'}
     <ThemeEditor />
   {:else if tab === 'display'}

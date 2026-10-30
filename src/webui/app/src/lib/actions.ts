@@ -98,3 +98,19 @@ export function fillHeight(node: HTMLElement, options: { reserve?: number; min?:
     },
   };
 }
+
+/** The text each element's direction was last worked out for (autoDir). */
+const autoDirText = new WeakMap<Element, string>();
+
+/**
+ * An attachment ({@attach autoDir(text)}): the element's direction from its own text (dir="auto": a text of the outside
+ * cannot turn the words around it), set again only when its text changed (Chromium, as WebView2, works it out again
+ * only when it is set). Not each time the element is updated with the same text (components/SafeText.svelte).
+ */
+export function autoDir(text: string): (el: Element) => void {
+  return (el) => {
+    if (autoDirText.get(el) === text && el.getAttribute('dir') === 'auto') return;
+    autoDirText.set(el, text);
+    el.setAttribute('dir', 'auto');
+  };
+}

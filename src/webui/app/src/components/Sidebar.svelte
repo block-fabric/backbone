@@ -10,13 +10,18 @@
   import { t } from '../lib/i18n.svelte';
   import { product } from '../lib/brand.svelte';
   import Brand from './Brand.svelte';
+  import SafeText from './SafeText.svelte';
+  import ModuleAmount from './ModuleAmount.svelte';
   import Icon from './Icon.svelte';
   import MenuButton from './MenuButton.svelte';
   import WalletPicker from './WalletPicker.svelte';
+  import SidebarChainGroups from './SidebarChainGroups.svelte';
+  import { activeModule, moduleName, modules } from '../lib/modules.svelte';
   import { buildCommands, pageAvailable, pageDisabled } from '../lib/commands.svelte';
   import { navSections, pageIcon } from '../lib/layout';
   import { go, nav, PAGES, type PageId } from '../lib/nav.svelte';
   import { prefs, savePrefs, statusTip, wallets } from '../lib/state.svelte';
+  import { phraseWalletState, seed } from '../lib/seed.svelte';
   import { pendingNow } from '../lib/settingsdraft.svelte';
   import { clampFontAdjust, THEMES } from '../lib/themes';
   import ThemePicker from './ThemePicker.svelte';
@@ -39,6 +44,8 @@
     const w = shownWallet;
     if (!w) return null;
     if (w.privateKeysDisabled) return { label: 'Watch-only', title: 'Watch-only: no private keys', icon: 'eye' as const, tone: '' };
+    // The backup phrase's wallet without a password (doc §23.11): the app keeps it open; said as what it is.
+    if (phraseWalletState(seed.status, w.name) === 'open') return { label: 'No password', title: 'No password: anyone with access to this computer can spend', icon: 'unlock' as const, tone: 'warning' };
     if (!w.encrypted) return { label: 'Not encrypted', title: 'The wallet is not encrypted', icon: 'unlock' as const, tone: 'warning' };
     return w.locked
       ? { label: 'Locked', title: 'Encrypted, and locked', icon: 'lock' as const, tone: 'accent' }
@@ -50,6 +57,12 @@
     go(id);
     open = false;
   }
+
+  // A chain's own pages shown: its wallet in the card.
+  const moduleStem = $derived(activeModule());
+  const moduleSummary = $derived(moduleStem ? modules.summaries[moduleStem] : undefined);
+  // The sidechains' groups come after the last page of the section that moves coins (Chain; Simple mode: Features).
+  const groupsAfter = $derived(sections.find((s) => s.pages.includes('sidechains'))?.pages.at(-1) ?? null);
 </script>
 
 {#if open}
@@ -69,7 +82,21 @@
     <Brand name={!collapsed} onclick={() => visit('home')} />
   {/if}
 
-  {#if wallets.list.length > 0}
+  {#if moduleStem}
+    <!-- A chain's own pages shown: its wallet, as its pages say (the app's own card comes back with the app's pages). -->
+    <section class="wallet-card module-card" aria-label={t('Module shown')} data-module={moduleStem}>
+      <div class="wc-top">
+        <span class="avatar" aria-hidden="true"><SafeText text={moduleName(moduleStem).slice(0, 1)} /></span>
+        <div class="wc-name">
+          <span class="caps"><SafeText text={moduleName(moduleStem)} /></span>
+          <span class="name" translate="no" title={moduleSummary?.wallet || t('default wallet')}>{moduleSummary?.wallet || t('default wallet')}</span>
+        </div>
+      </div>
+      {#if moduleSummary?.trusted != null}
+        <div class="wc-foot"><span class="balance" data-field="module-balance"><ModuleAmount text={moduleSummary.trusted} unit={modules.manifests[moduleStem]?.unit ?? ''} coins /></span></div>
+      {/if}
+    </section>
+  {:else if wallets.list.length > 0}
     <section class="wallet-card" aria-label="Wallet shown">
       <div class="wc-top">
         <span class="avatar" aria-hidden="true"><Icon name="wallet" size={17} /></span>
@@ -117,6 +144,10 @@
             {#if !page.ready}<span class="soon" title="Being rebuilt">•</span>{/if}
             {#if id === 'settings' && pendingNow() > 0}<span class="pending" title="Changes of the settings wait for Apply" aria-label="Changes wait for Apply"></span>{/if}
           </button>
+        {#if id === groupsAfter}
+          <!-- What is each sidechain's own: one group per chain (doc/unified-app.md §20.1). -->
+          <SidebarChainGroups {collapsed} {simple} onvisit={() => (open = false)} />
+        {/if}
         {/each}
       </div>
     {/each}
@@ -195,6 +226,12 @@
   }
   .caption {
     padding: 0.9rem 0.75rem 0.3rem;
+  }
+  .module-card .avatar {
+    font-weight: 800;
+  }
+  .module-card .balance {
+    font-weight: 650;
   }
   .wallet-card {
     display: flex;

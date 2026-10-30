@@ -161,6 +161,7 @@ public:
         }
         Interrupt(*m_context);
     }
+    bool startRpcServer() override { return AppStartServersLate(*Assert(m_context)); }
     bool shutdownRequested() override { return ShutdownRequested(*Assert(m_context)); };
     bool isSettingIgnored(const std::string& name) override
     {

@@ -85,9 +85,9 @@ describe('Move coins (the Sidechains page in Simple mode)', () => {
     const calls = drivechain({ createsidechaindeposit: () => ({ txid: 'cd'.repeat(32), total: 5 }) });
     render(DialogHost);
     render(Sidechains);
-    // The tabs of Simple mode: no proposals nor withdrawals.
-    expect(screen.getByRole('tab', { name: 'Move coins' })).toBeTruthy();
-    // No tab of the sidechain apps: the unified wallet will manage them (user decision 2026-10-23).
+    // Simple mode: no tabs (no proposals nor withdrawals); with no sidechain run here, the guide of Move coins.
+    expect(screen.queryByRole('tab')).toBeNull();
+    // The sidechains run in this app are turned on in Settings → Sidechains: no tab of apps here (doc/unified-app.md).
     expect(screen.queryByRole('tab', { name: 'Sidechain apps' })).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Proposals' })).toBeNull();
     expect(document.querySelector('.slots')).toBeNull();

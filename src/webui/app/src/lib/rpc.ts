@@ -147,6 +147,8 @@ export interface AppInfo {
   blockWeight?: number;
   /** eCash: the lock time final at any height there and never on Bitcoin (consensus.replay_locktime); 0 for none. */
   replayLocktime?: number;
+  /** Drawn by the processor (software GL): the page leaves out its animations and heavy shadows (doc/unified-app.md §20.6). */
+  softwareRendering?: boolean;
 }
 
 export interface Dialog {
@@ -291,9 +293,6 @@ export const host = {
   searchStamp: (payload: string, from: string, count: number, options?: CallOptions) =>
     request<{ searched: number; next: string | null; found: Stamp[] }>('host', 'timestamp.search', { payload, from, count }, options),
   // Sidechain nodes (src/webui/sidechainnodes.cpp).
-  sidechainNodes: () => request<SidechainNodeList>('host', 'sidechainNodes.list', {}),
-  sidechainNode: (method: SidechainNodeMethod, params: Record<string, unknown>) => request<{ log?: string[]; error?: string } | null>('host', `sidechainNodes.${method}`, params),
-  sidechainStatus: (stem: string) => request<SidechainNodeStatus>('host', 'sidechainNodes.status', { stem }),
 };
 
 export interface NodeOptionValues {
@@ -354,34 +353,3 @@ export interface Stamp {
   block: string;
 }
 
-export interface SidechainNodeEntry {
-  name: string;
-  stem: string;
-  slot: number;
-  description: string;
-  builtin: boolean;
-  dir: string;
-  installed: boolean;
-  programs: string;
-  dataDir: string;
-  /** The release of this sidechain built into the app for this computer, if there is one. */
-  release?: { version: string; url: string; sha256: string };
-}
-
-export interface SidechainNodeList {
-  server: boolean;
-  network: string;
-  sidechains: SidechainNodeEntry[];
-}
-
-export interface SidechainNodeStatus {
-  stem: string;
-  installed: boolean;
-  running: boolean;
-  blocks?: number;
-  mainchain?: string;
-  mining?: boolean;
-  miningText?: string;
-}
-
-export type SidechainNodeMethod = 'locate' | 'download' | 'add' | 'remove' | 'start' | 'startWallet' | 'stop' | 'mineOnce' | 'mining' | 'log';

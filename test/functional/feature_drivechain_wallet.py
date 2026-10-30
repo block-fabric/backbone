@@ -12,7 +12,7 @@
   chain of deposits another deposit replaces, and (with -walletbroadcast=0) a deposit kept unsent
   once another deposit takes its treasury input.
 - createsidechaindeposit: a wallet that cannot sign, a node whose mempool refuses the deposit, and
-  a deposit after an unconfirmed one.
+  a deposit after an unconfirmed one; the coins chosen to pay it (inputs), and only those.
 - vouchwithdrawalbundle: what the sidechain node says its chain has decides the vote.
 - A miner state file that cannot be read is reset at startup, with a warning.
 """
@@ -71,6 +71,7 @@ class DrivechainWalletTest(BitcoinTestFramework):
         self.test_deposit_cannot_sign()
         self.test_deposit_refused()
         self.test_deposit_after_unconfirmed()
+        self.test_deposit_inputs()
         self.test_vouch()
         self.test_bmm_request_outbid_parent()
         self.test_stale_chained_requests()
@@ -213,6 +214,44 @@ class DrivechainWalletTest(BitcoinTestFramework):
         self.sync_mempools([miner, node])
         assert_greater_than(node.getrawtransaction(deposit["txid"], True)["vsize"], 1000)
         self.generate(miner, 1)
+
+    def test_deposit_inputs(self):
+        self.log.info("createsidechaindeposit with inputs: only the coins chosen pay it, each checked")
+        node = self.nodes[0]
+        self.generate(node, 1)
+        node.createwallet("chosen")
+        chosen = node.get_wallet_rpc("chosen")
+        funder = node.get_wallet_rpc(self.default_wallet_name)
+        for amount in (1, 2, 3):
+            funder.sendtoaddress(chosen.getnewaddress(), amount)
+        self.generate(node, 1)
+        coins = {int(u["amount"]): {"txid": u["txid"], "vout": u["vout"]} for u in chosen.listunspent()}
+        assert_equal(sorted(coins), [1, 2, 3])
+        other = funder.listunspent()[0]
+        bad = [
+            (-5, "is not a coin of this wallet", [{"txid": other["txid"], "vout": other["vout"]}]),
+            (-8, "named twice", [coins[1], coins[1]]),
+            (-8, "not empty", []),
+        ]
+        for code, message, inputs in bad:
+            assert_raises_rpc_error(code, message, chosen.createsidechaindeposit, 3, "dest", Decimal("0.5"), None, inputs)
+        chosen.lockunspent(False, [coins[3]])
+        assert_raises_rpc_error(-8, "is locked", chosen.createsidechaindeposit, 3, "dest", Decimal("0.5"), None, [coins[3]])
+        chosen.lockunspent(True, [coins[3]])
+        assert_raises_rpc_error(-8, "not with replaces", chosen.createsidechaindeposit, 3, "dest", Decimal("0.5"), "00" * 32, [coins[1]])
+        # Too few: not topped up with another coin.
+        assert_raises_rpc_error(-6, None, chosen.createsidechaindeposit, 3, "dest", Decimal("2.5"), None, [coins[1]])
+        deposit = chosen.createsidechaindeposit(slot=3, destination="dest", amount=Decimal("2.5"), inputs=[coins[2], coins[1]])
+        tx = chosen.gettransaction(deposit["txid"], True, True)["decoded"]
+        spent = {(i["txid"], i["vout"]) for i in tx["vin"]}
+        mine = {(c["txid"], c["vout"]) for c in (coins[1], coins[2])}
+        assert mine <= spent
+        assert (coins[3]["txid"], coins[3]["vout"]) not in spent
+        # The other inputs: the escrow output of the sidechain only.
+        assert_greater_than(2, len(spent - mine))
+        assert_raises_rpc_error(-8, "is spent already", chosen.createsidechaindeposit, 3, "dest", Decimal("0.1"), None, [coins[1]])
+        self.generate(node, 1)
+        chosen.unloadwallet()
 
     def test_vouch(self):
         self.log.info("vouchwithdrawalbundle: the bundle the sidechain has, or none, decides the vote")

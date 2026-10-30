@@ -17,6 +17,19 @@ export function niceTimeOffset(secs: number): string {
   return t('%1 and %2', tn('%n year(s)', Math.floor(s / YEAR)), tn('%n week(s)', Math.floor((s % YEAR) / WEEK)));
 }
 
+/**
+ * When something happened, as a list says it (doc/unified-app.md §20.3): "just now", "3 minutes ago" within two days,
+ * else its date; a chain's first block (height 0) is "genesis", whatever time its makers wrote in it.
+ */
+export function ageText(time: number, now: number, height?: number): string {
+  if (height === 0) return t('genesis');
+  if (!time) return '–';
+  const secs = now - time;
+  if (secs < 10) return t('just now');
+  if (secs < 2 * 86400) return t('%1 ago', niceTimeOffset(secs));
+  return formatTime(time);
+}
+
 /** A duration, short: "3 d 4 h", "5 m 2 s" (GUIUtil::formatDurationStr). */
 export function shortDuration(secs: number): string {
   let s = Math.max(0, Math.floor(secs));
@@ -50,6 +63,23 @@ export function formatTime(secs: number, short = false): string {
   // Short: the year left out (a narrow window).
   if (short) return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * A time, short, for a column of dates that must stay narrow: the month in words, the day and the time this year ("Oct
+ * 21, 12:03"), the date only in another ("Oct 21, 2025"); in the language of the page.
+ */
+export function compactTime(secs: number, now = Date.now()): string {
+  if (!secs) return '–';
+  const d = new Date(secs * 1000);
+  const lang = (typeof document !== 'undefined' && document.documentElement.lang) || undefined;
+  try {
+    return d.getFullYear() === new Date(now).getFullYear()
+      ? new Intl.DateTimeFormat(lang, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(d)
+      : new Intl.DateTimeFormat(lang, { year: 'numeric', month: 'short', day: 'numeric' }).format(d);
+  } catch {
+    return formatTime(secs, true);
+  }
 }
 
 /** An integer with thin spaces between groups of three digits. */

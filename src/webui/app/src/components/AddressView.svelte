@@ -141,7 +141,7 @@
               <tbody>
                 {#each activity.coins ?? [] as [txid, vout, amount, height, immature] (`${txid}:${vout}`)}
                   <tr>
-                    <td><button type="button" class="mono linkish" title={`${txid}:${vout}`} onclick={() => ontx(txid, height)}>{shortHash(txid, 8)}:{vout}</button>{#if immature} <span class="badge warning">{t('maturing')}</span>{/if}</td>
+                    <td><button type="button" class="mono linkish" title={`${txid}:${vout}`} onclick={() => ontx(txid, height)}>{shortHash(txid, 8)}:{vout}</button>{#if immature}{' '}<span class="badge warning">{t('maturing')}</span>{/if}</td>
                     <td class="num">{#if height >= 0}<button type="button" class="mono linkish" onclick={() => onblock(height)}>{formatCount(height)}</button>{:else}<span class="faint">waiting</span>{/if}</td>
                     <td class="end"><Amount sats={amount} /></td>
                   </tr>

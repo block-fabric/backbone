@@ -8,6 +8,7 @@
 import { t } from './i18n.svelte';
 import { PAGES, type PageId } from './nav.svelte';
 import { prefs, savePrefs } from './state.svelte';
+import { chainsWith } from './chains.svelte';
 
 export type UiMode = 'simple' | 'advanced';
 
@@ -68,9 +69,13 @@ export const SIMPLE_MOVE: PageId = 'sidechains';
 /** What every app's Simple navigation ends with. */
 export const SIMPLE_END: readonly PageId[] = ['settings'];
 
-/** The chain's main features in Simple mode (a sidechain's pages marked `simple`, at most three): Chains has none of its own (Move coins is its). */
+/**
+ * The chain's main features in Simple mode (a sidechain's pages marked `simple`, at most three): Chains has none of its
+ * own (Move coins is its); Staking while a sidechain that stakes is on (the sidechains' own pages are their groups).
+ */
 export function simpleFeatures(): PageId[] {
-  return [];
+  // Swap (the Trade page's simple form) while a chain with a DEX is on; Staking while one that stakes is.
+  return [...(chainsWith('dex').length ? (['trade'] as PageId[]) : []), ...(chainsWith('staking').length ? (['staking'] as PageId[]) : [])];
 }
 
 /** The pages of Simple mode's navigation, in their order. */

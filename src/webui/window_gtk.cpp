@@ -66,7 +66,35 @@ void Serve(WebKitURISchemeRequest* request, std::string_view origin, bool (*serv
 
 void ServeAsset(WebKitURISchemeRequest* request, gpointer)
 {
-    Serve(request, ORIGIN, [](std::string_view) { return true; }, ContentSecurityPolicy());
+    Serve(request, ORIGIN, AppServes, ContentSecurityPolicy());
+}
+
+//! The pages of a sidechain (assets.h PACK_SCHEME): under chains-pack://<stem>/, its own files only.
+void ServePackAsset(WebKitURISchemeRequest* request, gpointer)
+{
+    const char* uri{webkit_uri_scheme_request_get_uri(request)};
+    const auto path{uri ? PackAssetPath(uri) : std::nullopt};
+    const Asset* asset{path ? FindAsset(BuiltinAssets(), *path) : nullptr};
+    if (!asset) {
+        GError* error{g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found")};
+        webkit_uri_scheme_request_finish_error(request, error);
+        g_error_free(error);
+        return;
+    }
+    GInputStream* stream{g_memory_input_stream_new_from_data(asset->data.data(), asset->data.size(), nullptr)};
+    WebKitURISchemeResponse* response{webkit_uri_scheme_response_new(stream, asset->data.size())};
+    const std::string_view mime{MimeType(asset->path)};
+    const std::string content_type{mime.substr(0, mime.find(';'))};
+    webkit_uri_scheme_response_set_content_type(response, content_type.c_str());
+    SoupMessageHeaders* headers{soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE)};
+    soup_message_headers_append(headers, "Content-Type", std::string{mime}.c_str());
+    soup_message_headers_append(headers, "Content-Security-Policy", PackContentSecurityPolicy().c_str());
+    soup_message_headers_append(headers, "X-Content-Type-Options", "nosniff");
+    soup_message_headers_append(headers, "Cache-Control", "no-store");
+    webkit_uri_scheme_response_set_http_headers(response, headers);
+    webkit_uri_scheme_request_finish_with_response(request, response);
+    g_object_unref(response);
+    g_object_unref(stream);
 }
 
 //! The page of the dialogs of the host, under its own origin: its files only (dialog::Serves).
@@ -99,6 +127,11 @@ public:
             webkit_web_context_register_uri_scheme(context, dialog_scheme.c_str(), ServeDialogAsset, nullptr, nullptr);
             webkit_security_manager_register_uri_scheme_as_secure(security, dialog_scheme.c_str());
             webkit_security_manager_register_uri_scheme_as_cors_enabled(security, dialog_scheme.c_str());
+            // The pages of the sidechains: an origin of each, nothing of the app's (assets.h PACK_SCHEME).
+            const std::string pack_scheme{PACK_SCHEME};
+            webkit_web_context_register_uri_scheme(context, pack_scheme.c_str(), ServePackAsset, nullptr, nullptr);
+            webkit_security_manager_register_uri_scheme_as_secure(security, pack_scheme.c_str());
+            webkit_security_manager_register_uri_scheme_as_cors_enabled(security, pack_scheme.c_str());
         }
 
         m_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -160,7 +193,10 @@ public:
                                  auto* navigation{WEBKIT_NAVIGATION_POLICY_DECISION(decision)};
                                  WebKitNavigationAction* action{webkit_navigation_policy_decision_get_navigation_action(navigation)};
                                  const char* uri{webkit_uri_request_get_uri(webkit_navigation_action_get_request(action))};
-                                 const bool own{uri && std::string_view{uri}.starts_with(std::string{ORIGIN} + "/")};
+                                 // The app's own pages, or the pages of a sidechain in their frame (a pack is sandboxed
+                                 // without allow-top-navigation: it cannot take the place of the app).
+                                 const bool own{uri && (std::string_view{uri}.starts_with(std::string{ORIGIN} + "/") ||
+                                                        (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION && PackAssetPath(uri).has_value()))};
                                  if (type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION || !own) {
                                      LogDebug(BCLog::RPC, "webui: navigation to %s refused\n", uri ? uri : "(none)");
                                      webkit_policy_decision_ignore(decision);
@@ -815,6 +851,11 @@ private:
     /** The dialog of GTK, modal to the window; Cancel is the default response. */
     void OpenNative(const dialog::Request& request, Done done)
     {
+        if (dialog::NeedsThemedWindow(request)) {
+            // A backup phrase, fields or a box to tick (§23): only in the dialog's window, never without them.
+            LogWarning("webui: no dialog window for a question with a backup phrase or fields: declined");
+            return Finish(done, {});
+        }
         if (request.rows.size() > dialog::MAX_NATIVE_ROWS) {
             // The dialog of GTK does not scroll: facts off the screen are never accepted unseen.
             LogWarning("webui: no dialog window for a question of %u facts: declined", request.rows.size());

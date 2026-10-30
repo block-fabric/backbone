@@ -88,7 +88,7 @@ function drivechain(extra: Record<string, Handler> = {}) {
 }
 
 describe('the sidechain page', () => {
-  it('shows the slots, the sidechains and their deposits, and deposits after the confirmation', async () => {
+  it('shows the slots, the sidechains and their deposits; Move coins deposits to a sidechain by its deposit address', async () => {
     wallets.list = [{ name: 'w', encrypted: false, locked: false, privateKeysDisabled: false, hd: true }];
     wallets.current = 'w';
     const calls = drivechain({ createsidechaindeposit: () => ({ txid: 'cd'.repeat(32), total: 5 }) });
@@ -97,24 +97,25 @@ describe('the sidechain page', () => {
     await waitFor(() => screen.getByText(/1 of 256 sidechain slots in use, holding 3.00000000 CHN in escrow/));
     expect(document.querySelectorAll('.slot').length).toBe(256);
     expect(document.querySelector('.slot.active')?.getAttribute('aria-label')).toBe('Slot 1, Testchain, active');
-    // The title of the sidechain is text of the chain (SafeText), in the sentence of the app.
-    // The sidechain to deposit to: chosen in the form's dropdown (user decision), the first active one.
-    await waitFor(() => {
-      const select = document.getElementById('deposit-sidechain') as HTMLSelectElement | null;
-      expect(select?.selectedOptions[0]?.textContent).toBe('1 · Testchain');
+    // One form moves coins (doc/unified-app.md §20.4): a sidechain this app does not run is chosen by its slot, its
+    // title text of the chain (never translated).
+    const select = await waitFor(() => {
+      const el = document.getElementById('move-chain') as HTMLSelectElement | null;
+      expect(el?.selectedOptions[0]?.textContent).toBe('Slot 1: Testchain');
+      return el!;
     });
-    // Text of the chain, never translated.
-    expect((document.getElementById('deposit-sidechain') as HTMLSelectElement).selectedOptions[0].getAttribute('translate')).toBe('no');
+    expect(select.selectedOptions[0].getAttribute('translate')).toBe('no');
     await waitFor(() => screen.getByText('s1_erin_b91ea9'));
-
-    await fireEvent.input(screen.getByLabelText('Destination'), { target: { value: 's1_erin_b91ea9' } });
-    await waitFor(() => screen.getByText('A deposit address for slot 1.'));
-    await fireEvent.input(screen.getByLabelText('Amount'), { target: { value: '1.5' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Deposit' }));
-    await waitFor(() => screen.getByText('Confirm sidechain deposit'));
-    expect(document.body.textContent).toContain('Deposit 1.50000000 CHN to the sidechain "Testchain" (slot 1)');
-    await fireEvent.click(within(document.querySelector('dialog[open]') as HTMLElement).getByRole('button', { name: 'Deposit' }));
-    await waitFor(() => screen.getByText(`Deposit sent in transaction ${'cd'.repeat(32)}.`));
+    // No other form deposits on this page.
+    expect(document.getElementById('deposit-destination')).toBeNull();
+    const dest = document.querySelector('[aria-labelledby="move-to"]') as HTMLInputElement;
+    await fireEvent.input(dest, { target: { value: 's1_erin_b91ea9' } });
+    await waitFor(() => screen.getByText('A deposit address of slot 1.'));
+    await fireEvent.input(document.getElementById('move-amount') as HTMLInputElement, { target: { value: '1.5' } });
+    const go = document.querySelector('[data-move-submit]') as HTMLButtonElement;
+    await waitFor(() => expect(go.disabled).toBe(false));
+    await fireEvent.click(go);
+    await waitFor(() => expect(calls.some((c) => c.method === 'createsidechaindeposit')).toBe(true));
     const deposit = calls.find((c) => c.method === 'createsidechaindeposit');
     expect(deposit?.params).toEqual([1, 's1_erin_b91ea9', '1.5']);
     expect(deposit?.wallet).toBe('w');
@@ -126,19 +127,12 @@ describe('the sidechain page', () => {
     const calls = drivechain();
     render(DialogHost);
     render(Sidechains);
-    // The title of the sidechain is text of the chain (SafeText), in the sentence of the app.
-    // The sidechain to deposit to: chosen in the form's dropdown (user decision), the first active one.
-    await waitFor(() => {
-      const select = document.getElementById('deposit-sidechain') as HTMLSelectElement | null;
-      expect(select?.selectedOptions[0]?.textContent).toBe('1 · Testchain');
-    });
-    // Text of the chain, never translated.
-    expect((document.getElementById('deposit-sidechain') as HTMLSelectElement).selectedOptions[0].getAttribute('translate')).toBe('no');
-    await fireEvent.input(screen.getByLabelText('Destination'), { target: { value: 's1_eric_b91ea9' } });
+    await waitFor(() => expect((document.getElementById('move-chain') as HTMLSelectElement | null)?.selectedOptions[0]?.textContent).toBe('Slot 1: Testchain'));
+    const dest = document.querySelector('[aria-labelledby="move-to"]') as HTMLInputElement;
+    await fireEvent.input(dest, { target: { value: 's1_eric_b91ea9' } });
     await waitFor(() => screen.getByText('This deposit address has a typing error in it.'));
-    await fireEvent.input(screen.getByLabelText('Amount'), { target: { value: '1' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Deposit' }));
-    await waitFor(() => screen.getByText('This deposit address has a typing error in it. Copy it again from the wallet of the sidechain.'));
+    await fireEvent.input(document.getElementById('move-amount') as HTMLInputElement, { target: { value: '1' } });
+    expect((document.querySelector('[data-move-submit]') as HTMLButtonElement).disabled).toBe(true);
     expect(calls.some((c) => c.method === 'createsidechaindeposit')).toBe(false);
   });
 

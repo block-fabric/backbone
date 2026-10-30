@@ -1,4 +1,17 @@
 <script lang="ts">
+  import ChainTiles from '../components/ChainTiles.svelte';
+  import SidechainSend from '../components/SidechainSend.svelte';
+  import { actionChain, chainEntries, HOST, loadCapabilities } from '../lib/chains.svelte';
+  // Send on which chain (doc/unified-app.md §19): the first field of the form, its tiles above "Pay to", in step with
+  // the top bar's selector (a chain's card or an asset's Send selects it). With All selected the form waits for one;
+  // with only this app's own chain there is nothing to pick. A sidechain's form is SidechainSend, its spend asked in
+  // the trusted dialog.
+  const sendEntries = $derived(chainEntries());
+  const sendChain = $derived(sendEntries.length > 1 ? actionChain('send', sendEntries) : HOST);
+  $effect(() => {
+    void loadCapabilities();
+  });
+  const sendOn = $derived(sendEntries.find((e) => e.id === sendChain));
   import { t } from '../lib/i18n.svelte';
   import { chainName, product } from '../lib/brand.svelte';
   import SafeText from '../components/SafeText.svelte';
@@ -404,9 +417,21 @@
   <header class="page-head">
     <h1>Send</h1>
     <div class="row">
-      <button type="button" class="btn ghost small" onclick={() => (nav.tab = 'uri')}><Icon name="paste" size={16} /> Open URI…</button>
+      {#if sendChain === HOST}<button type="button" class="btn ghost small" onclick={() => (nav.tab = 'uri')}><Icon name="paste" size={16} /> Open URI…</button>{/if}
     </div>
   </header>
+
+  {#if sendEntries.length > 1}
+    <section class="panel chain-choice" data-send-chain={sendChain ?? ''}>
+      <ChainTiles value={sendChain} label="Send on" kind="send" />
+    </section>
+  {/if}
+
+  {#if sendChain === null}
+    <p class="muted wait" data-send-wait>{t('Pick a chain above to send on it.')}</p>
+  {:else if sendChain !== HOST && sendOn}
+    {#key sendChain}<SidechainSend stem={sendOn.id} name={sendOn.name} />{/key}
+  {:else}
 
   {#if node.tip?.ibd}
     <button type="button" class="out-of-sync" onclick={() => go('node', 'info')}>
@@ -532,6 +557,7 @@
     <span class="grow"></span>
     <span class="balance">{info?.externalSigner ? 'External balance:' : 'Balance:'} <strong><Amount sats={balance} /></strong></span>
   </footer>
+  {/if}
 </div>
 
 
@@ -563,6 +589,12 @@
     flex-direction: column;
     gap: 0.9rem;
     max-width: 68rem;
+  }
+  .chain-choice {
+    padding: 0.95rem 1.1rem;
+  }
+  .wait {
+    margin: 0.2rem 0.2rem 0;
   }
   .out-of-sync {
     display: flex;

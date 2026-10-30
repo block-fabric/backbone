@@ -141,6 +141,12 @@ public:
     void RegisterHost(const std::string& name, HostFn fn, Thread thread = Thread::WORKER) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /**
+     * The host method registered under this name, or an empty function: for a caller that runs it itself, on its own
+     * thread (the pages of a sidechain the app shows, which ask some of the app's own methods: webui/sidechainpages.h).
+     */
+    HostFn FindHost(const std::string& name) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /**
      * Handle a call of the page. `call_id` identifies the call for the reply,
      * `args_json` is the JSON array of the arguments of the call: [request].
      */

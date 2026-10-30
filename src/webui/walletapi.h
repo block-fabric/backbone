@@ -127,6 +127,14 @@ public:
      */
     UniValue WithKeys(const std::string& wallet, Window::ConfirmDialog dialog, bool always, bool fee_unknown, const std::function<UniValue()>& run);
 
+    /**
+     * A wallet the app opens by itself when it is locked (a backup phrase without a password, doc/unified-app.md §23.11:
+     * its wallet's passphrase is made from the seed, which is read without one): true when it did, then nothing is asked
+     * for its keys. Unset: a locked wallet's passphrase is always asked.
+     */
+    using UnlockFn = std::function<bool(const std::string& wallet)>;
+    void SetUnlocker(UnlockFn unlock) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
     /** The network fee a wallet would pay for a transaction of so many virtual bytes, at its fee rate (confirm::FeeFn). */
     std::optional<CAmount> FeeFor(const std::string& wallet, int64_t vsize);
 
@@ -166,6 +174,7 @@ private:
     int64_t m_next_token GUARDED_BY(m_mutex){1};
     std::map<std::string, std::shared_ptr<Prepared>> m_prepared GUARDED_BY(m_mutex);
     std::map<std::string, std::shared_ptr<Bump>> m_bumps GUARDED_BY(m_mutex);
+    UnlockFn m_unlock GUARDED_BY(m_mutex);
 
     std::string NewToken() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 };

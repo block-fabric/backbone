@@ -12,9 +12,15 @@
   import Send from '../pages/Send.svelte';
   import Settings from '../pages/Settings.svelte';
   import Sidechains from '../pages/Sidechains.svelte';
+  import SidechainView from '../pages/SidechainView.svelte';
   import Transactions from '../pages/Transactions.svelte';
   import Wallets from '../pages/Wallets.svelte';
   import Home from './home/Home.svelte';
+  import Staking from '../pages/Staking.svelte';
+  import Assets from '../pages/Assets.svelte';
+  import Names from '../pages/Names.svelte';
+  import Markets from '../pages/Markets.svelte';
+  import Trade from '../pages/Trade.svelte';
   import { nav, PAGES } from '../lib/nav.svelte';
   import { wallets, walletsEnabled } from '../lib/state.svelte';
 
@@ -37,14 +43,26 @@
     <Kit />
   {:else if nav.page === 'sidechains'}
     <Sidechains />
+  {:else if nav.page === 'sidechain'}
+    <SidechainView />
   {:else if nav.page === 'mine'}
     <Mine />
   {:else if nav.page === 'explorer'}
     <Explorer />
   {:else if nav.page === 'tools'}
     <Tools />
+  {:else if nav.page === 'staking'}
+    <Staking />
+  {:else if nav.page === 'assets'}
+    <Assets />
+  {:else if nav.page === 'names'}
+    <Names />
+  {:else if nav.page === 'markets'}
+    <Markets />
   {:else if (page.wallet && noWallet) || (!walletsOn && nav.page === 'wallets')}
     <NoWallet {page} />
+  {:else if nav.page === 'trade'}
+    <Trade />
   {:else if nav.page === 'send'}
     <Send />
   {:else if nav.page === 'receive'}

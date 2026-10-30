@@ -44,6 +44,16 @@ UniValue BlockSummary(const CBlock& block, int height, const Consensus::Params& 
  */
 UniValue BlockDetail(ChainstateManager& chainman, const uint256& hash);
 
+/**
+ * What each output script of a transaction says for the drivechains (explorer.outputs, the explorer's transaction
+ * view; doc/unified-app.md §20.5): {kind} with kind "proposal" (M1: slot, title, hash), "ack" (M2: slot, hash),
+ * "bundle" (M3: slot, hash), "vote" (M4: form, count), "escrow" (the treasury of a slot: a deposit M5 makes it again,
+ * a withdrawal M6 spends it), "destination" (the destination of a deposit after its escrow: text, slot and address
+ * when it is a deposit address), "bmm" (M7: slot, hash of the sidechain block), "bmmrequest" (M8: slot, hash of the
+ * sidechain block, prev), "witness", "data" (hex, text), or "" for an ordinary output. Scripts given as hex, 500 at most.
+ */
+UniValue DescribeOutputs(const UniValue& scripts);
+
 } // namespace webui::explorer
 
 #endif // BITCOIN_WEBUI_EXPLORER_H

@@ -818,6 +818,20 @@ static bool AppInitServers(NodeContext& node)
     return true;
 }
 
+bool AppStartServersLate(NodeContext& node)
+{
+    static Mutex s_mutex;
+    // Tried once at most: the servers stop with the node (Interrupt and Shutdown stop them whether or not they ran).
+    static std::optional<bool> s_result GUARDED_BY(s_mutex);
+    LOCK(s_mutex);
+    if (s_result) return *s_result;
+    if (IsRPCRunning()) return true;
+    if (ShutdownRequested(node)) return false;
+    s_result = AppInitServers(node);
+    if (*s_result) LogInfo("The RPC server was started after the node, for its sidechains");
+    return *s_result;
+}
+
 // Parameter interaction based on rules
 void InitParameterInteraction(ArgsManager& args)
 {

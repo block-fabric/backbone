@@ -22,6 +22,13 @@
   import { frame, titleBarDoubleClick, titleBarMouseDown } from '../../lib/windowframe.svelte';
   import SyncOverlay from '../../components/SyncOverlay.svelte';
   import PageView from '../PageView.svelte';
+  import ModuleFrames from '../../components/ModuleFrames.svelte';
+  import HistoryButtons from '../../components/HistoryButtons.svelte';
+  import GlobalChainSelector from '../../components/GlobalChainSelector.svelte';
+  import { ALL, HOST, selectedChain } from '../../lib/chains.svelte';
+  import SafeText from '../../components/SafeText.svelte';
+  import { hub } from '../../lib/sidechains.svelte';
+  import { frameShown, moduleName, modules, moduleRoute, NODE_PAGE, openModule } from '../../lib/modules.svelte';
   import { pageShown, pageTitle, simpleMode } from '../../lib/uimode.svelte';
 
   // The top bar is the integrated title bar too: its empty part moves the window, the buttons of
@@ -34,6 +41,22 @@
   const tabs = $derived(area.tabs.filter(shown));
   const areas = $derived(AREAS.filter((a) => a.id === area.id || a.tabs.some(shown)));
   const sections = $derived(menuSections(buildCommands()));
+  // A module shown (the switcher, at the left of the top bar): its sections are the areas, its pages the tabs.
+  const mod = $derived(hub.selected !== 'chains' ? hub.selected : '');
+  const framed = $derived(frameShown());
+  const selectedStem = $derived.by(() => {
+    const v = selectedChain();
+    return v === ALL || v === HOST ? '' : v;
+  });
+  const modAreas = $derived.by(() => {
+    if (!mod) return [];
+    const m = modules.manifests[mod];
+    const list = (m?.sections ?? []).map((sec, i) => ({ id: `m${i}`, title: sec.title || m?.name || '', pages: sec.pages.map((id) => m!.pages.find((p) => p.id === id)!).filter(Boolean) }));
+    list.push({ id: 'node', title: 'Its node', pages: [{ id: NODE_PAGE, title: 'Its node', icon: 'nodes', iconPath: '', section: '', summary: '', wallet: false }] });
+    return list;
+  });
+  const modAt = $derived(mod ? moduleRoute(mod) : null);
+  const modArea = $derived(modAreas.find((a) => a.pages.some((p) => p.id === modAt?.page)) ?? modAreas[0]);
 
   // One panel at the right, as in the dashboard: a row opened in the detail panel closes Home's
   // Send/Receive; so does a new page.
@@ -74,7 +97,22 @@
     ondblclick={(e) => top && titleBarDoubleClick(e, top)}
   >
     <Brand onclick={() => go('home')} />
+    <HistoryButtons />
+    <!-- The chain every page shows (doc/unified-app.md §19); a sidechain selected: its own pages a click away. -->
+    <GlobalChainSelector />
+    {#if selectedStem}
+      <button type="button" class="btn ghost icon small" title={t('Its own pages')} aria-label={t('Open the pages of %1', moduleName(selectedStem))} data-open-module={selectedStem} onclick={() => openModule(selectedStem, 'home')}><Icon name="modules" size={16} /></button>
+    {/if}
     <!-- Folded (Ctrl+B, prefs.sidebarCollapsed): the areas but the current one show their icon only, named in their tooltip. -->
+    {#if mod}
+      <nav class="areas" aria-label={t('Areas')} data-module={mod}>
+        {#each modAreas as a (a.id)}
+          <button type="button" class="area" aria-current={modArea?.id === a.id ? 'true' : undefined} onclick={() => openModule(mod, a.pages[0]?.id ?? 'home')}>
+            <span class="label">{#if a.id === 'node'}{t(a.title)}{:else}<SafeText text={a.title} />{/if}</span>
+          </button>
+        {/each}
+      </nav>
+    {:else}
     <nav class="areas" class:folded={prefs.sidebarCollapsed} aria-label="Areas">
       {#each areas as a, i (a.id)}
         <button type="button" class="area" aria-label={t(a.label)} title={t(a.label)} aria-current={area.id === a.id ? 'true' : undefined} onclick={() => enter(a)} onkeydown={(e) => areaKey(e, i)}>
@@ -83,6 +121,7 @@
         </button>
       {/each}
     </nav>
+    {/if}
     <div class="tools">
       <WalletPicker pill />
       <PaletteButton />
@@ -92,6 +131,15 @@
     {#if frame.integrated}<WindowControls />{/if}
   </header>
 
+  {#if mod}
+  <nav class="subtabs" aria-label={t('Pages')} data-module={mod}>
+    {#each modArea?.pages ?? [] as p (p.id)}
+      <button type="button" aria-current={modAt?.page === p.id ? 'page' : undefined} data-module-page={p.id} title={p.summary} onclick={() => openModule(mod, p.id)}>
+        {#if p.id === NODE_PAGE}{t('Its node')}{:else}<SafeText text={p.title} />{/if}
+      </button>
+    {/each}
+  </nav>
+  {:else}
   <nav class="subtabs" aria-label="{area.label} pages">
     {#each tabs as tb (tb.page + (tb.tab ?? ''))}
       {@const current = isAt(tb, nav.page, nav.tab)}
@@ -108,13 +156,15 @@
       </button>
     {/each}
   </nav>
+  {/if}
 
   <div class="body">
     <!-- Before the page: the dialogs a page opens come after it, above it. -->
     <SyncOverlay />
-    <main class="content" id="content" tabindex="-1" data-page={nav.page}>
+    <main class="content" id="content" tabindex="-1" data-page={nav.page} hidden={framed}>
       <PageView />
     </main>
+    <ModuleFrames />
     <DetailPanel />
     <QuickPanel />
   </div>
@@ -135,6 +185,9 @@
     padding: 0.35rem 0.75rem;
     background: color-mix(in srgb, var(--bg) 70%, transparent);
     border-bottom: 1px solid var(--line);
+  }
+  .content[hidden] {
+    display: none;
   }
   .areas {
     display: flex;

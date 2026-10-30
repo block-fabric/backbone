@@ -73,7 +73,7 @@ constexpr int64_t MAX_EXPLORER_ROWS{10'000};
 const std::vector<std::string> METHODS{
     "console.check", "console.run", "peers.disconnect", "peers.ban", "bans.unban", "drivechain.depositAddress",
     "tools.hashes", "tools.merkle", "tools.decode", "timestamp.hashFile", "timestamp.search", "explorer.blocks",
-    "explorer.block",
+    "explorer.block", "explorer.outputs",
 };
 } // namespace
 
@@ -335,6 +335,10 @@ UniValue NodeApi::Call(const std::string& method, const UniValue& params)
         const auto hash{uint256::FromHex(ParamStr(params, "hash"))};
         if (!hash) throw HostError(BRIDGE_INVALID_REQUEST, "hash: a block hash is needed");
         return explorer::BlockDetail(*context->chainman, *hash);
+    }
+    if (method == "explorer.outputs") {
+        // What each output of a transaction says for the drivechains (explorer::DescribeOutputs): pure, no node read.
+        return explorer::DescribeOutputs(Param(params, "scripts"));
     }
     if (method == "timestamp.search") {
         interfaces::Node& node{m_node()};

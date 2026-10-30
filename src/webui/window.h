@@ -221,6 +221,14 @@ public:
         std::string cancel{};
         //! What kind of question it is, for the limits of App::Confirm (audit 7 #8): the title when empty.
         std::string kind{};
+        //! The chain it is about when not Chains (dialog::Request::chain): a sidechain the app runs.
+        std::string chain{};
+        std::string chain_network{};
+        std::string chain_logo{};
+        //! A backup phrase shown, fields to fill, a box to tick (dialog::Request): the dialog's window only (§23).
+        std::shared_ptr<const std::vector<SecureString>> words{};
+        std::vector<dialog::Field> fields{};
+        std::string checkbox{};
     };
 
     /**

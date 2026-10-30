@@ -10,17 +10,24 @@
 import { baseColors, checkStoredThemes, contrastOf, isDarkColor, isThemeChoice, parseColor, toHex, type BaseTheme, type CustomTheme, type TokenName } from '../lib/customthemes';
 import { revealBidi } from '../lib/format';
 import { applyTheme, clampFontAdjust, DEFAULT_THEME, isTheme, resolveTheme, type FontChoice } from '../lib/themes';
+import { BIP39_WORDS } from '../lib/bip39words';
 
 export type Level = 'info' | 'warning' | 'danger';
 
 /** A fact the host decoded (dialog.h Row): a destination, whole, before its amount; the fee; the total; what a vote changes. */
-export type RowKind = 'text' | 'address' | 'amount' | 'total' | 'heading' | 'note';
+export type RowKind = 'text' | 'address' | 'amount' | 'total' | 'heading' | 'note' | 'image';
 export interface Row {
   label: string;
   value: string;
   kind: RowKind;
 }
-const ROW_KINDS: readonly RowKind[] = ['text', 'address', 'amount', 'total', 'heading', 'note'];
+const ROW_KINDS: readonly RowKind[] = ['text', 'address', 'amount', 'total', 'heading', 'note', 'image'];
+/** The longest picture (dialog.h MAX_IMAGE_URL), and the only pictures shown: PNG or JPEG bytes in base64, as the host checked them. */
+const MAX_IMAGE_URL = 44 * 1024;
+const IMAGE_URL = /^data:image\/(png|jpeg);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+export function isImageDataUrl(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 'data:image/png;base64,'.length && value.length <= MAX_IMAGE_URL && IMAGE_URL.test(value);
+}
 /** At most so many facts, and so long (the host cuts them so already). */
 const MAX_ROWS = 81;
 
@@ -32,6 +39,37 @@ export interface DialogLook {
   moneyFont: 'embedded' | 'system';
   rtl: boolean;
   lang: string;
+}
+
+/**
+ * A field of the host's question (dialog.h Field, doc/unified-app.md §23): a passphrase, a new one, a word or the words of
+ * a backup phrase, a day, an extra word. What is typed goes to the host in the answer, nowhere else.
+ */
+export type FieldKind = 'password' | 'new-password' | 'word' | 'words' | 'date' | 'secret';
+const FIELD_KINDS: readonly FieldKind[] = ['password', 'new-password', 'word', 'words', 'date', 'secret'];
+export interface FieldData {
+  id: string;
+  kind: FieldKind;
+  label: string;
+  hint: string;
+  optional: boolean;
+  /** What the user typed before, given back to be corrected. */
+  value: string;
+  error: string;
+}
+/** At most so many fields, so long a value (dialog.h MAX_FIELDS, MAX_FIELD_VALUE). */
+const MAX_FIELDS = 6;
+const MAX_FIELD_VALUE = 1024;
+const WORD_SET = new Set(BIP39_WORDS);
+/** Whether a word is one of BIP39's English list (the host checks again, with the phrase's checksum). */
+export function isListWord(word: string): boolean {
+  return WORD_SET.has(word.trim().toLowerCase());
+}
+/** What the words typed so far are: how many, the first not of the list (from 1), and whether the count is one of BIP39's. */
+export function phraseState(text: string): { count: number; bad: number; badWord: string; countOk: boolean } {
+  const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const bad = words.findIndex((w) => !WORD_SET.has(w));
+  return { count: words.length, bad: bad + 1, badWord: bad >= 0 ? words[bad] : '', countOk: [12, 15, 18, 21, 24].includes(words.length) };
 }
 
 export interface DialogData {
@@ -47,6 +85,14 @@ export interface DialogData {
   error: string;
   rows: Row[];
   look: DialogLook;
+  /** The chain the question is about when it is not Chains (a sidechain the app runs): shown above the title. */
+  chain: { name: string; network: string; logo: string } | null;
+  /** A backup phrase shown (§23): numbered, never selectable nor copied. */
+  words: string[];
+  fields: FieldData[];
+  /** A box to tick before the button that accepts can be pressed. */
+  checkbox: string;
+  minNewPassword: number;
 }
 
 export type DialogBridge = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -67,6 +113,14 @@ const FONTS: readonly FontChoice[] = ['', 'inter', 'nunito', 'mono', 'system'];
 
 function str(value: unknown, max: number, fallback = ''): string {
   return typeof value === 'string' ? [...value].slice(0, max).join('') : fallback;
+}
+
+function chainOf(raw: unknown): DialogData['chain'] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const c = raw as Record<string, unknown>;
+  const name = str(c.name, 60);
+  if (!name) return null;
+  return { name, network: str(c.network, 60), logo: isImageDataUrl(c.logo) ? c.logo : '' };
 }
 
 /** What the host sent, checked: every field of its type, text cut to its length; anything else its default. */
@@ -91,9 +145,32 @@ export function readData(raw: unknown): DialogData {
           if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
           const r = raw as Record<string, unknown>;
           const kind = ROW_KINDS.includes(r.kind as RowKind) ? (r.kind as RowKind) : 'text';
+          // A picture whole and of the one form, or a line that says it is not shown: never another URL, never cut.
+          if (kind === 'image') return [isImageDataUrl(r.value) ? { label: str(r.label, 60), value: r.value, kind } : { label: str(r.label, 60), value: '(a picture that cannot be shown)', kind: 'text' }];
           return [{ label: str(r.label, 60), value: str(r.value, 2000), kind }];
         })
       : [],
+    chain: chainOf(o.chain),
+    // A word of the list only (a to z, 3 to 8 letters), 24 at most.
+    words: Array.isArray(o.words) ? o.words.slice(0, 24).filter((w): w is string => typeof w === 'string' && /^[a-z]{3,8}$/.test(w)) : [],
+    fields: Array.isArray(o.fields)
+      ? o.fields.slice(0, MAX_FIELDS).flatMap((raw): FieldData[] => {
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+          const f = raw as Record<string, unknown>;
+          if (typeof f.id !== 'string' || !/^[a-z0-9-]{1,24}$/.test(f.id)) return [];
+          return [{
+            id: f.id,
+            kind: FIELD_KINDS.includes(f.kind as FieldKind) ? (f.kind as FieldKind) : 'password',
+            label: str(f.label, 200),
+            hint: str(f.hint, 200),
+            optional: f.optional === true,
+            value: typeof f.value === 'string' && f.value.length <= MAX_FIELD_VALUE ? f.value : '',
+            error: str(f.error, 400),
+          }];
+        })
+      : [],
+    checkbox: str(o.checkbox, 200),
+    minNewPassword: typeof o.minNewPassword === 'number' && o.minNewPassword > 0 && o.minNewPassword < 100 ? o.minNewPassword : 8,
     look: {
       theme: str(l.theme, 40, DEFAULT_THEME),
       custom: l.custom ?? null,
@@ -250,6 +327,10 @@ export interface Rendered {
   accept: HTMLButtonElement;
   cancel: HTMLButtonElement;
   field: HTMLInputElement | null;
+  /** The fields of the question (§23), by id, in order. */
+  inputs: { id: string; optional: boolean; el: HTMLInputElement | HTMLTextAreaElement }[];
+  /** The box to tick, if any. */
+  box: HTMLInputElement | null;
 }
 
 /**
@@ -264,6 +345,26 @@ export function render(doc: Document, data: DialogData): Rendered {
   root.setAttribute('aria-describedby', 'dialog-message');
   root.dataset.level = data.level;
 
+  // The chain it is about (a sidechain the app runs), above everything: its mark, "On <name>", its network.
+  let chain: HTMLElement | null = null;
+  if (data.chain) {
+    chain = el(doc, 'div', { id: 'dialog-chain', className: 'chain' });
+    if (data.chain.logo) {
+      const img = doc.createElement('img');
+      img.alt = '';
+      img.width = 28;
+      img.height = 28;
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.draggable = false;
+      img.src = data.chain.logo;
+      chain.append(img);
+    }
+    const words = el(doc, 'span', { className: 'chain-words' });
+    words.append(el(doc, 'span', { className: 'chain-on', text: 'On' }), el(doc, 'strong', { className: 'chain-name', text: revealBidi(data.chain.name) }));
+    if (data.chain.network) words.append(el(doc, 'span', { className: 'chain-network', text: revealBidi(data.chain.network) }));
+    chain.append(words);
+  }
   const header = el(doc, 'header');
   header.append(icon(doc, data.level));
   const title = el(doc, 'h1', { id: 'dialog-title', text: revealBidi(data.title) });
@@ -307,6 +408,22 @@ export function render(doc: Document, data: DialogData): Rendered {
     body.append(label);
   }
 
+  if (data.words.length) body.append(renderWords(doc, data.words));
+  const inputs: Rendered['inputs'] = [];
+  for (const f of data.fields) {
+    const { label, input } = renderField(doc, f, data.minNewPassword);
+    inputs.push({ id: f.id, optional: f.optional, el: input });
+    body.append(label);
+  }
+  let box: HTMLInputElement | null = null;
+  if (data.checkbox) {
+    const label = el(doc, 'label', { className: 'check' });
+    box = el(doc, 'input', { id: 'dialog-check' });
+    box.type = 'checkbox';
+    label.append(box, el(doc, 'span', { text: revealBidi(data.checkbox) }));
+    body.append(label);
+  }
+
   const footer = el(doc, 'footer');
   const cancel = el(doc, 'button', { id: 'dialog-cancel', className: 'btn', text: revealBidi(data.cancel) });
   cancel.type = 'button';
@@ -317,9 +434,114 @@ export function render(doc: Document, data: DialogData): Rendered {
   accept.append(el(doc, 'span', { text: revealBidi(data.accept) }));
   footer.append(cancel, accept);
 
+  if (chain) root.append(chain);
   root.append(header, body, footer);
   doc.title = data.title || doc.title;
-  return { root, accept, cancel, field };
+  if (box) {
+    // The button that accepts waits for the box (and still for its delay, wire).
+    accept.disabled = true;
+    box.addEventListener('change', () => (accept.disabled = !box!.checked));
+  }
+  return { root, accept, cancel, field, inputs, box };
+}
+
+/**
+ * A backup phrase: the words numbered in a grid, in a monospaced font. Nobody selects or copies them here: what is copied
+ * can be read by every program (the clipboard); a try says so.
+ */
+function renderWords(doc: Document, words: string[]): HTMLElement {
+  const wrap = el(doc, 'div', { className: 'phrase-wrap' });
+  const list = el(doc, 'ol', { id: 'dialog-words', className: `phrase${words.length > 12 ? ' long' : ''}` });
+  list.setAttribute('aria-label', 'Backup phrase');
+  list.setAttribute('translate', 'no');
+  words.forEach((w, i) => {
+    const li = el(doc, 'li');
+    li.append(el(doc, 'span', { className: 'n', text: String(i + 1) }), el(doc, 'span', { className: 'w', text: w }));
+    list.append(li);
+  });
+  const note = el(doc, 'p', { id: 'dialog-words-note', className: 'phrase-note' });
+  note.setAttribute('role', 'status');
+  const refuse = (e: Event) => {
+    e.preventDefault();
+    note.textContent = 'Copying is off on purpose: write the words on paper.';
+  };
+  for (const type of ['copy', 'cut', 'dragstart', 'contextmenu', 'selectstart']) list.addEventListener(type, refuse);
+  wrap.append(list, note);
+  return wrap;
+}
+
+/** One field: its label, the input (a text area for a phrase), its hint, what it says as it is typed, its error. */
+function renderField(doc: Document, f: FieldData, minNew: number): { label: HTMLElement; input: HTMLInputElement | HTMLTextAreaElement } {
+  const label = el(doc, 'label', { className: `field kind-${f.kind}` });
+  label.dataset.field = f.id;
+  label.append(el(doc, 'span', { className: 'field-label', text: revealBidi(f.label) + (f.optional ? '' : '') }));
+  const input = f.kind === 'words' ? el(doc, 'textarea', { id: `dialog-field-${f.id}` }) : el(doc, 'input', { id: `dialog-field-${f.id}` });
+  if (input instanceof HTMLInputElement) {
+    input.type = f.kind === 'password' || f.kind === 'new-password' || f.kind === 'secret' ? 'password' : 'text';
+    if (f.kind === 'date') {
+      input.placeholder = 'YYYY-MM-DD';
+      input.inputMode = 'numeric';
+      input.maxLength = 10;
+    }
+  } else {
+    input.rows = 3;
+  }
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('autocapitalize', 'off');
+  input.setAttribute('autocorrect', 'off');
+  input.maxLength = f.kind === 'date' ? 10 : MAX_FIELD_VALUE;
+  if (f.kind === 'word' || f.kind === 'words') input.setAttribute('translate', 'no');
+  input.value = f.value;
+  label.append(input);
+  if (f.hint) label.append(el(doc, 'small', { className: 'hint', text: revealBidi(f.hint) }));
+  // What it says as it is typed: a word of the list or not, how many words, how long a new passphrase is.
+  const live = el(doc, 'small', { className: 'live' });
+  live.setAttribute('aria-live', 'polite');
+  const update = () => {
+    const v = input.value;
+    live.classList.remove('bad', 'good');
+    if (f.kind === 'word') {
+      const known = !v.trim() || isListWord(v);
+      live.textContent = known ? '' : 'Not a word of the list: check its spelling.';
+      if (!known) live.classList.add('bad');
+    } else if (f.kind === 'words') {
+      const st = phraseState(v);
+      if (!st.count) live.textContent = '';
+      else if (st.bad) {
+        live.textContent = `Word ${st.bad}, “${st.badWord}”, is not a word of the list.`;
+        live.classList.add('bad');
+      } else if (!st.countOk) live.textContent = `${st.count} word${st.count === 1 ? '' : 's'} · 12 or 24 are needed`;
+      else {
+        live.textContent = `${st.count} words`;
+        live.classList.add('good');
+      }
+    } else if (f.kind === 'new-password') {
+      const short = minNew - [...v].length;
+      live.textContent = !v ? '' : short > 0 ? `${short} more character${short === 1 ? '' : 's'}` : 'Long enough';
+      if (v && short <= 0) live.classList.add('good');
+    }
+  };
+  input.addEventListener('input', update);
+  if (f.kind === 'words') {
+    input.addEventListener('paste', () => {
+      setTimeout(() => {
+        update();
+        live.textContent = `${live.textContent} · Pasted: copy something else afterwards, so the phrase does not stay in the clipboard.`;
+      }, 0);
+    });
+  }
+  update();
+  label.append(live);
+  if (f.error) {
+    const error = el(doc, 'span', { className: 'error', text: revealBidi(f.error) });
+    error.id = `dialog-error-${f.id}`;
+    error.setAttribute('role', 'alert');
+    input.setAttribute('aria-invalid', 'true');
+    input.setAttribute('aria-describedby', error.id);
+    label.append(error);
+  }
+  return { label, input };
 }
 
 /**
@@ -341,6 +563,27 @@ function renderRows(doc: Document, rows: Row[]): HTMLElement {
       box.append(n);
       continue;
     }
+    if (row.kind === 'image') {
+      // Only as an image (never markup), only of the form checked again here; its label as its text alternative.
+      const line = el(doc, 'div', { className: 'row image' });
+      line.dataset.kind = 'image';
+      const dt = el(doc, 'dt', { text: revealBidi(row.label) });
+      const dd = el(doc, 'dd');
+      if (isImageDataUrl(row.value)) {
+        const img = doc.createElement('img');
+        img.alt = row.label;
+        img.width = 128;
+        img.height = 128;
+        img.decoding = 'async';
+        img.referrerPolicy = 'no-referrer';
+        img.draggable = false;
+        img.src = row.value;
+        dd.append(img);
+      }
+      line.append(dt, dd);
+      box.append(line);
+      continue;
+    }
     const line = el(doc, 'div', { className: `row ${row.kind}` });
     line.dataset.kind = row.kind;
     const dt = el(doc, 'dt', { text: revealBidi(row.label) });
@@ -357,9 +600,22 @@ function renderRows(doc: Document, rows: Row[]): HTMLElement {
   return box;
 }
 
-/** The elements Tab goes through, in order: the field, Cancel, the button that accepts. */
+/** The elements Tab goes through, in order: the fields, the box, Cancel, the button that accepts. */
 function focusables(r: Rendered): HTMLElement[] {
-  return [r.field, r.cancel, r.accept].filter((x): x is HTMLInputElement | HTMLButtonElement => !!x && !x.disabled);
+  return [r.field, ...r.inputs.map((i) => i.el), r.box, r.cancel, r.accept].filter((x): x is HTMLInputElement | HTMLButtonElement | HTMLTextAreaElement => !!x && !x.disabled);
+}
+
+/** Where the focus starts: the first field with an error, else the first field, else the box, else Cancel (the safe default). */
+function firstFocus(r: Rendered): HTMLElement {
+  const invalid = r.inputs.find((i) => i.el.getAttribute('aria-invalid') === 'true');
+  return r.field ?? invalid?.el ?? r.inputs[0]?.el ?? r.box ?? r.cancel;
+}
+
+/** What the user answered: the passphrase, the fields by id, the box. */
+export interface Typed {
+  passphrase?: string;
+  fields?: Record<string, string>;
+  checked?: boolean;
 }
 
 export interface Controller {
@@ -383,7 +639,7 @@ export interface Controller {
  * The button that accepts (audit 7 #7) takes a click only when the press of the pointer that made it started after the
  * dialog was armed, and a key only when it was pressed after (a key held down repeats: those are never taken).
  */
-export function wire(doc: Document, r: Rendered, answer: (accept: boolean, passphrase?: string) => void, clock: () => number = () => performance.now()): Controller {
+export function wire(doc: Document, r: Rendered, answer: (accept: boolean, passphrase?: string, typed?: Typed) => void, clock: () => number = () => performance.now()): Controller {
   let armedAt = Number.POSITIVE_INFINITY;
   let done = false;
   // The press of the pointer not clicked yet, and the last Enter or Space: when they started.
@@ -403,11 +659,29 @@ export function wire(doc: Document, r: Rendered, answer: (accept: boolean, passp
         return;
       }
     }
+    let typed: Typed | undefined;
+    if (accept && (r.inputs.length || r.box)) {
+      // Every field that is needed filled, the box ticked: else said there, nothing sent.
+      const empty = r.inputs.find((i) => !i.optional && !i.el.value.trim());
+      if (empty) {
+        empty.el.setAttribute('aria-invalid', 'true');
+        empty.el.focus();
+        return;
+      }
+      if (r.box && !r.box.checked) {
+        r.box.focus();
+        return;
+      }
+      typed = { checked: r.box ? r.box.checked : undefined };
+      if (r.inputs.length) typed.fields = Object.fromEntries(r.inputs.filter((i) => i.el.value !== '').map((i) => [i.id, i.el.value]));
+    }
     done = true;
     if (r.field) r.field.value = '';
+    // What was typed does not stay in the page.
+    for (const i of r.inputs) i.el.value = '';
     r.accept.disabled = true;
     r.cancel.disabled = true;
-    answer(accept, passphrase);
+    answer(accept, passphrase, typed);
   };
   const onPress = () => {
     pressAt = clock();
@@ -440,7 +714,11 @@ export function wire(doc: Document, r: Rendered, answer: (accept: boolean, passp
       e.preventDefault();
       if (target === r.accept) finish(true);
       else if (r.field && target === r.field) finish(true);
-      else finish(false);
+      else if (r.inputs.some((i) => i.el === target)) finish(true);
+      else if (r.box && target === r.box) {
+        r.box.checked = !r.box.checked;
+        r.box.dispatchEvent(new Event('change'));
+      } else finish(false);
     } else if (e.key === 'Tab') {
       const list = focusables(r);
       if (!list.length) return;
@@ -458,7 +736,7 @@ export function wire(doc: Document, r: Rendered, answer: (accept: boolean, passp
       // A press or a key from before does not count.
       pressAt = null;
       keyAt = null;
-      (r.field ?? r.cancel).focus();
+      if (!r.root.contains(doc.activeElement) || doc.activeElement === r.cancel) firstFocus(r).focus();
     },
     disarm() {
       armedAt = Number.POSITIVE_INFINITY;
@@ -494,8 +772,12 @@ export async function start(bridge: DialogBridge, doc: Document = document, win:
   applyDialogLook(doc, data.look, prefersDark);
   const r = render(doc, data);
   doc.body.replaceChildren(r.root);
-  const control = wire(doc, r, (accept, passphrase) => {
-    void bridge('answer', passphrase === undefined ? { accept } : { accept, passphrase });
+  const control = wire(doc, r, (accept, passphrase, typed) => {
+    const body: Record<string, unknown> = { accept };
+    if (passphrase !== undefined) body.passphrase = passphrase;
+    if (typed?.fields) body.fields = typed.fields;
+    if (typed?.checked !== undefined) body.checked = typed.checked;
+    void bridge('answer', body);
   });
   // The delay of the button that accepts starts when the window is on the screen with the focus, as the host and the
   // page see it, and again each time it comes back (audit 7 #7).
@@ -519,7 +801,7 @@ export async function start(bridge: DialogBridge, doc: Document = document, win:
   await bridge('ready', measure(doc, r.root));
   doc.body.classList.remove('loading');
   // The focus on the safe default from the start (Cancel, or the field), armed or not.
-  (r.field ?? r.cancel).focus();
+  firstFocus(r).focus();
   // Without a word of the host that the window shows (a platform that says nothing), from a moment after now.
   setTimeout(() => {
     if (!shown) control.arm();

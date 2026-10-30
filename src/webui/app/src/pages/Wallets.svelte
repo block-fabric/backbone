@@ -1,4 +1,11 @@
 <script lang="ts">
+  import ChainWallets from '../components/ChainWallets.svelte';
+  import ChainBadge from '../components/ChainBadge.svelte';
+  import { productName } from '../lib/modules.svelte';
+  import { ALL, chainEntries, HOST, viewFilter } from '../lib/chains.svelte';
+  // Every chain's wallets (doc/unified-app.md §18): this app's own, then each sidechain's, with a filter of chains.
+  const walletChains = $derived(chainEntries());
+  const walletFilter = $derived(walletChains.length > 1 ? viewFilter('wallets', walletChains) : HOST);
   import { every } from '../lib/poll';
   import { product as productName } from '../lib/brand.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -33,6 +40,7 @@
   import { formatAmount } from '../lib/units';
   import { BridgeError } from '../lib/bridge';
   import { current, refreshInfo } from '../lib/walletdata.svelte';
+  import { phraseWalletState, refreshSeed, seed, seedHost } from '../lib/seed.svelte';
 
   let dir: WalletDirEntry[] = $state([]);
   let busy: string | null = $state(null);
@@ -54,6 +62,9 @@
 
   const name = $derived(walletState.current);
   const summary = $derived(walletState.list.find((w) => w.name === name) ?? null);
+  // The backup phrase's wallet (doc §23.11): its password is the phrase's (changed, added or removed with it, in Settings →
+  // Wallet); without one the app keeps it open, and it is said as "no password".
+  const phrase = $derived(phraseWalletState(seed.status, name));
   const info = $derived(current.info);
   const product = $derived(productName());
 
@@ -480,6 +491,18 @@
 
   async function changePassphrase() {
     if (name === null) return;
+    if (phrase) {
+      // The phrase's: changed on seed.dat and this wallet at once (never this wallet alone: the phrase would keep the old one).
+      try {
+        const r = phrase === 'open' ? await seedHost.addPassword() : await seedHost.changePassphrase();
+        if (!r.cancelled) await inform(t('Wallet password'), phrase === 'open' ? t('A password protects your wallet now.') : t('The password is changed.'));
+      } catch (e) {
+        await inform(t('Password change failed'), errorText(e), 'error');
+      } finally {
+        void refreshSeed();
+      }
+      return;
+    }
     let error: string | undefined;
     for (;;) {
       const p = await askPassphrase('change', { wallet: name, error });
@@ -563,6 +586,9 @@
     <div class="busy panel" role="status"><span class="spinner" aria-hidden="true"></span> {busy}</div>
   {/if}
 
+
+  {#if walletFilter === ALL || walletFilter === HOST}
+  {#if walletChains.length > 1}<h2 class="chain-head"><ChainBadge id={HOST} name={productName()} /></h2>{/if}
   <div class="grid">
     <section class="panel current" aria-labelledby="current-title">
       <div class="panel-head">
@@ -572,7 +598,9 @@
             {#if summary.privateKeysDisabled}<span class="badge">watch-only</span>{/if}
             {#if info?.externalSigner}<span class="badge">hardware wallet</span>{/if}
             {#if summary.hd}<span class="badge accent" title="HD key generation is enabled">HD</span>{/if}
-            {#if summary.encrypted}
+            {#if phrase === 'open'}
+              <span class="badge warning" title={t('No password: anyone with access to this computer can spend')} data-no-password><Icon name="unlock" size={13} /> {t('no password')}</span>
+            {:else if summary.encrypted}
               <span class="badge" class:warning={!summary.locked} title={summary.locked ? 'Wallet is encrypted and currently locked' : 'Wallet is encrypted and currently unlocked'}>
                 <Icon name={summary.locked ? 'lock' : 'unlock'} size={13} />
                 {summary.locked ? 'locked' : 'unlocked'}
@@ -590,9 +618,13 @@
               <Icon name="lock" /><span><strong>Encrypt wallet…</strong><small>Encrypt the private keys that belong to your wallet</small></span>
             </button>
           {/if}
-          {#if summary.encrypted}
+          {#if phrase === 'open'}
+            <button type="button" class="action" onclick={changePassphrase} data-action="wallet-add-password">
+              <Icon name="lock" /><span><strong>{t('Add a password…')}</strong><small>{t('Protect this wallet and your backup phrase: asked to send coins')}</small></span>
+            </button>
+          {:else if summary.encrypted}
             <button type="button" class="action" onclick={changePassphrase}>
-              <Icon name="key" /><span><strong>Change passphrase…</strong><small>Change the passphrase used for wallet encryption</small></span>
+              <Icon name="key" /><span><strong>{phrase ? t('Change the password…') : 'Change passphrase…'}</strong><small>{phrase ? t('The password of this wallet and of your backup phrase') : 'Change the passphrase used for wallet encryption'}</small></span>
             </button>
             {#if summary.locked}
               <button type="button" class="action" onclick={() => (unlockFor.open = true)}>
@@ -627,10 +659,7 @@
     <section class="panel dir" aria-labelledby="dir-title">
       <div class="panel-head">
         <h2 id="dir-title">Wallets of this node</h2>
-        <div class="row">
-          <button type="button" class="btn ghost small" onclick={restoreMigrate} title="Restore a legacy wallet file and migrate it">Restore and migrate…</button>
-          <button type="button" class="btn ghost small" onclick={closeAll} disabled={walletState.list.length === 0}>Close all</button>
-        </div>
+        <button type="button" class="btn ghost small" onclick={closeAll} disabled={walletState.list.length === 0}>Close all</button>
       </div>
       <ul class="panel-body list" id="wallet-dir" tabindex="-1" aria-label="Wallets in the data directory">
         {#each dir as w (w.name)}
@@ -654,8 +683,15 @@
           <li class="muted">No wallets available</li>
         {/each}
       </ul>
+      <div class="dir-foot">
+        <button type="button" class="btn ghost small" onclick={restoreMigrate} title="Restore a legacy wallet file and migrate it">Restore and migrate…</button>
+      </div>
     </section>
   </div>
+  {/if}
+  {#each walletChains.filter((e) => !e.host && (walletFilter === ALL || walletFilter === e.id)) as e (e.id)}
+    <ChainWallets stem={e.id} name={e.name} running={e.running} />
+  {/each}
 </div>
 
 <Dialog bind:open={create.open} title="Create Wallet">
@@ -857,6 +893,11 @@
 </Dialog>
 
 <style>
+  /* With other chains below, this app's own wallets are named as they are. */
+  .chain-head {
+    margin: 0.2rem 0 -0.3rem;
+    font-size: 1rem;
+  }
   .wallets {
     display: flex;
     flex-direction: column;
@@ -1015,5 +1056,9 @@
     .grid {
       grid-template-columns: minmax(0, 1fr);
     }
+  }
+  /* Rare: under the list, the head keeps its title on one line. */
+  .dir-foot {
+    padding: 0 1.3rem 1rem;
   }
 </style>

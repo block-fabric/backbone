@@ -22,6 +22,19 @@
   import { formatPaymentUri } from '../lib/uri';
   import { ADDRESS_TYPES, walletApi, type ReceiveRequest } from '../lib/wallet';
   import { current, refreshInfo } from '../lib/walletdata.svelte';
+  import ChainTiles from '../components/ChainTiles.svelte';
+  import SidechainReceive from '../components/SidechainReceive.svelte';
+  import { actionChain, chainEntries, chainLink, HOST, loadCapabilities } from '../lib/chains.svelte';
+
+  // Receive on which chain (doc/unified-app.md §19): the form's first field, in step with the top bar's selector; with
+  // All selected the form waits for one.
+  const recvEntries = $derived(chainEntries());
+  const recvChain = $derived(recvEntries.length > 1 ? actionChain('receive', recvEntries) : HOST);
+  $effect(() => {
+    void loadCapabilities();
+    if (chainLink.receive) chainLink.receive = null;
+  });
+  const recvOn = $derived(recvEntries.find((e) => e.id === recvChain));
 
   const wallet = $derived(wallets.current);
   const api = $derived(wallet === null ? null : walletApi(wallet));
@@ -141,6 +154,16 @@
 
 <div class="page receive">
   <header class="page-head"><h1>Receive</h1></header>
+  {#if recvEntries.length > 1}
+    <section class="panel chain-choice" data-receive-chain={recvChain ?? ''}>
+      <ChainTiles value={recvChain} label="Receive on" kind="receive" />
+    </section>
+  {/if}
+  {#if recvChain === null}
+    <p class="muted wait" data-receive-wait>{t('An address of the chain you pick: coins paid to it on another chain would not arrive.')}</p>
+  {:else if recvChain !== HOST && recvOn}
+    {#key recvChain}<SidechainReceive stem={recvOn.id} name={recvOn.name} />{/key}
+  {:else}
   <div class="tabs" role="tablist" aria-label="Receive">
     {#each TABS as tb (tb.id)}
       <button type="button" role="tab" aria-selected={tab === tb.id} onclick={() => (nav.tab = tb.id)}>{t(tb.label)}</button>
@@ -226,6 +249,7 @@
     </section>
   </div>
   {/if}
+  {/if}
 </div>
 
 {#if wallet !== null}
@@ -234,6 +258,12 @@
 <ContextMenu items={menuItems} x={menu.x} y={menu.y} bind:open={menu.open} label="Request" />
 
 <style>
+  .chain-choice {
+    padding: 0.95rem 1.1rem;
+  }
+  .wait {
+    margin: 0.2rem 0.2rem 0;
+  }
   .receive {
     display: flex;
     flex-direction: column;

@@ -996,6 +996,11 @@ private:
     /** A message box of the system, owned by the window (modal to it); Cancel is the default button. */
     void OpenNative(const dialog::Request& request, Done done)
     {
+        if (dialog::NeedsThemedWindow(request)) {
+            // A backup phrase, fields or a box to tick (§23): only in the dialog's window, never without them.
+            LogWarning("webui: no dialog window for a question with a backup phrase or fields: declined");
+            return Finish(done, {});
+        }
         const UniValue page{dialog::PageData(request)};
         if (request.passphrase) {
             // A message box has no field: a question with a passphrase is declined (never answered for the user).

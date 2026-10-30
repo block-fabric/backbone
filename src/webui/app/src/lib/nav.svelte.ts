@@ -22,7 +22,13 @@ export type PageId =
   | 'kit'
   | 'home'
   | 'tools'
-  | 'advanced';
+  | 'advanced'
+  | 'staking'
+  | 'assets'
+  | 'names'
+  | 'markets'
+  | 'trade'
+  | 'sidechain';
 
 export interface PageInfo {
   id: PageId;
@@ -72,6 +78,16 @@ export const PAGES: Record<PageId, PageInfo> = {
   // were apart are their tabs (tabOf).
   tools: { id: 'tools', title: 'Tools', icon: 'hash', summary: 'Timestamp a file, prove the funds of the wallet, and the crypto tools (hash, Merkle tree, address decoder)', parity: ['L07', 'L08', 'L10'], ready: true, advanced: true },
   advanced: { id: 'advanced', title: 'Advanced transactions', icon: 'key', summary: 'Sign and verify messages, partially signed transactions (PSBT), and the multisig lounge', parity: ['K01', 'K02', 'K03', 'L09'], wallet: true, ready: true, advanced: true },
+  // A sidechain the app runs, chosen in the chain switcher (doc/unified-app.md): its overview, read-only in phase 1.
+  sidechain: { id: 'sidechain', title: 'Sidechain', icon: 'sidechains', summary: 'A sidechain this app runs: its blocks, how it keeps up with Chains, its wallet', parity: [], ready: true },
+  // The pages of what sidechains add (doc/unified-app.md §18): shown only while a chain that has it is turned on.
+  staking: { id: 'staking', title: 'Staking', icon: 'shield', summary: 'Validators, bonds, rewards and the fee split of the chains that stake', simpleSummary: 'Earn by staking', parity: [], ready: true },
+  assets: { id: 'assets', title: 'Assets', icon: 'coins', summary: 'The assets of every chain that has them, and their markets', simpleSummary: 'Your tokens', parity: [], wallet: false, ready: true },
+  names: { id: 'names', title: 'Names', icon: 'book', summary: 'Your names on the chains that keep names', parity: [], ready: true },
+  markets: { id: 'markets', title: 'Markets', icon: 'dashboard', summary: 'Prediction markets on the chains that have them', parity: [], ready: true },
+  // The DEX of every chain that has one (doc/unified-app.md §22): Swap, Pools, Positions, Orders, the market index; in
+  // Simple mode a simple Swap only. In the Wallet section: it acts on the user's coins on one chain, as Send does.
+  trade: { id: 'trade', title: 'Trade', simpleTitle: 'Swap', icon: 'swap', summary: 'Swap assets, provide liquidity to pools and follow the markets of the chains with a DEX', simpleSummary: 'Trade one asset for another', parity: [], wallet: true, ready: true },
   home: { id: 'home', title: 'Home', icon: 'home', summary: 'Live cards of the wallet, the chain, the sidechains and the node', simpleSummary: 'Your balance at a glance', parity: [], ready: true },
 };
 

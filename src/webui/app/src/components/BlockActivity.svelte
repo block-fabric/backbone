@@ -16,6 +16,23 @@
   import { outputKindText, voteEntryText, voteFormText, type BlockDetail } from '../lib/explorer';
   import { formatCount, shortHash } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
+  import { go } from '../lib/nav.svelte';
+  import { chainEntries, setSelectedChain, type ChainEntry } from '../lib/chains.svelte';
+
+  // The sidechains this app runs, by their slot: a block of one, or an address it credits, opens in its own explorer
+  // (doc/unified-app.md §20.5: links between the chains).
+  const runBySlot = $derived(new Map<number, ChainEntry>(chainEntries().filter((e) => !e.host && e.running && e.entry).map((e) => [e.entry!.slot, e])));
+  function openOnSide(slot: number | undefined, q: string) {
+    const e = slot === undefined ? undefined : runBySlot.get(slot);
+    if (!e) return;
+    setSelectedChain(e.id);
+    go('explorer', `search:${q}`);
+  }
+  /** The address a deposit address credits on its sidechain (s<slot>_<address>_<check>), or ''. */
+  function credited(destination: string | undefined, slot: number | undefined): string {
+    const m = /^s(\d+)_([A-Za-z0-9]+)_[0-9a-f]+$/.exec(destination ?? '');
+    return m && Number(m[1]) === slot ? m[2] : '';
+  }
 
   let { detail, ontx, onaddress }: { detail: BlockDetail; ontx: (txid: string) => void; onaddress: (address: string) => void } = $props();
   /** A bundle or a proposal, on the Sidechains page (its tab, the sidechain's slot and the hash chosen there). */
@@ -74,7 +91,7 @@
 
 {#snippet sidechain(s: { slot?: number; title?: string; position?: number })}
   {#if s.slot === undefined}<span class="faint">#{s.position}</span>
-  {:else}<span class="sc">{#if s.title}<SafeText text={s.title} /> {/if}<span class="faint">slot {s.slot}</span></span>{/if}
+  {:else}<span class="sc">{#if s.title}<SafeText text={s.title} />{' '}{/if}<span class="faint">slot {s.slot}</span></span>{/if}
 {/snippet}
 {#snippet hash(h: string, label: string, tip?: string)}
   <span class="hashc"><span class="mono hash" title={tip ?? h}>{shortHash(h, 8)}</span><CopyButton text={h} {label} /></span>
@@ -169,12 +186,12 @@
       <div class="split" class:one={!(detail.bmm.length && hasBundles)}>
         <div class="split-side">
         {#if detail.bmm.length}
-          <h3>Blind merged mining ({detail.bmm.length})</h3>
+          <h3>Blind merged mining ({detail.bmm.length}) <span class="tag">M7</span><span class="tag">M8</span></h3>
           <div class="rows" role="table" aria-label="BMM accepts">
             {#each detail.bmm as b (b.slot)}
               <div class="row-line" role="row">
                 <span role="cell">{@render sidechain(b)}</span>
-                <span role="cell"><span class="faint">sidechain block</span> {@render hash(b.hash, 'Copy the sidechain block hash', sidechainBlockTip(b.title))}</span>
+                <span role="cell"><span class="faint">{t('its block')}</span> {#if runBySlot.has(b.slot)}<span data-bmm-link={b.slot}>{@render linked(b.hash, 'Copy the sidechain block hash', t('Open it in the explorer of %1', runBySlot.get(b.slot)!.name), () => openOnSide(b.slot, b.hash))}</span>{:else}{@render hash(b.hash, 'Copy the sidechain block hash', sidechainBlockTip(b.title))}{/if}</span>
                 <span role="cell">{#if b.request}<span class="faint">request</span> {@render tx(b.request)}{/if}</span>
                 <span class="amt" role="cell">{#if b.bid !== undefined}<span class="faint">bid</span> <Amount sats={b.bid} masked={false} />{/if}</span>
               </div>
@@ -184,7 +201,7 @@
         </div>
         <div class="split-side">
         {#if detail.votes.form || detail.proposed.length || detail.closed.length || detail.pending.length}
-          <h3>Withdrawal bundles</h3>
+          <h3>Withdrawal bundles <span class="tag">M3</span><span class="tag">M4</span></h3>
           <p class="faint votes-form">Votes: {voteFormText(detail.votes.form)}{#if detail.votes.form && castVotes}&nbsp;· {formatCount(castVotes)} cast{/if}{#if !detail.votes.known}&nbsp;· the sidechains they are for cannot be told{/if}</p>
           <div class="rows" role="table" aria-label="Bundle votes and bundles">
             {#each bundleRows as r (r.key)}
@@ -204,7 +221,7 @@
       </div>
     {/if}
     {#if detail.proposals.length || detail.acks.length || detail.activations.length}
-      <h3>Sidechain proposals</h3>
+      <h3>Sidechain proposals <span class="tag">M1</span><span class="tag">M2</span></h3>
       <div class="rows" role="table" aria-label="Sidechain proposals and acks">
         {#each detail.activations as a (a.slot)}
           <div class="row-line" role="row"><span role="cell"><span class="badge accent">Activated</span></span><span role="cell">{@render sidechain(a)}</span></div>
@@ -212,7 +229,7 @@
         {#each detail.proposals as p (p.hash)}
           <div class="row-line" role="row">
             <span role="cell"><span class="badge accent">Proposed</span></span>
-            <span role="cell">{@render sidechain(p)}{#if p.replaces} <span class="faint">replacing</span> <SafeText text={p.replaces} />{/if}</span>
+            <span role="cell">{@render sidechain(p)}{#if p.replaces}{' '}<span class="faint">replacing</span> <SafeText text={p.replaces} />{/if}</span>
             <span class="desc" role="cell"><SafeText text={p.description} /></span>
             <span role="cell">{@render proposalHash(p.slot, p.hash)}</span>
           </div>
@@ -223,7 +240,7 @@
       </div>
     {/if}
     {#if detail.escrow.length}
-      <h3>Deposits and withdrawals ({formatCount(detail.escrowCount)})</h3>
+      <h3>Deposits and withdrawals ({formatCount(detail.escrowCount)}) <span class="tag">M5</span><span class="tag">M6</span></h3>
       <div class="rows" role="table" aria-label="Escrow changes">
         {#each detail.escrow as e (e.txid + e.slot)}
           <div class="row-line" role="row" data-escrow={e.kind}>
@@ -231,7 +248,8 @@
             <span role="cell">{@render sidechain(e)}</span>
             <span role="cell">
               {#if e.kind === 'deposit'}<span class="faint">to</span> {#if e.mainchain && e.destination}<AddressLink address={e.destination} onopen={onaddress} />{:else}<SafeText text={e.destination} class="mono" />{/if}
-              {:else}{#if e.bundle}<span class="faint">bundle</span> {@render bundleHash(e.slot, e.bundle)} {/if}<span class="faint">{formatCount(e.payouts ?? 0)} payouts of</span> <Amount sats={e.paid ?? 0} masked={false} />{#if e.fee !== undefined} <span class="faint">· fee</span> <Amount sats={e.fee} masked={false} />{/if}{/if}
+                {#if credited(e.destination, e.slot) && runBySlot.has(e.slot)}<button type="button" class="linkish credit" data-credit-link={e.slot} title={t('The address it credits, in the explorer of %1', runBySlot.get(e.slot)!.name)} onclick={() => openOnSide(e.slot, credited(e.destination, e.slot))}>{t('see it on %1', runBySlot.get(e.slot)!.name)}</button>{/if}
+              {:else}{#if e.bundle}<span class="faint">bundle</span> {@render bundleHash(e.slot, e.bundle)}{' '}{/if}<span class="faint">{formatCount(e.payouts ?? 0)} payouts of</span> <Amount sats={e.paid ?? 0} masked={false} />{#if e.fee !== undefined}{' '}<span class="faint">· fee</span> <Amount sats={e.fee} masked={false} />{/if}{/if}
               <span class="faint">· tx</span> {@render tx(e.txid)}
             </span>
             <span class="amt" role="cell">{#if e.kind === 'deposit'}<Amount sats={e.amount} plus masked={false} />{/if} <span class="faint">escrow</span> <Amount sats={e.total} masked={false} /></span>
@@ -245,6 +263,21 @@
 </div>
 
 <style>
+  .tag {
+    margin-left: 0.3rem;
+    padding: 0 0.35rem;
+    border-radius: 4px;
+    background: var(--raised);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    vertical-align: 0.1em;
+  }
+  .credit {
+    margin-left: 0.4rem;
+    font-size: 0.85rem;
+  }
   .activity-grid {
     display: grid;
     grid-template-columns: minmax(26rem, 1fr) minmax(24rem, 1.1fr);

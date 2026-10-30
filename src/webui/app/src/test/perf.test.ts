@@ -95,3 +95,134 @@ describe('the styles stay cheap to paint (software GL, as under WSLg)', () => {
     expect(layer).toMatch(/will-change:\s*transform/);
   });
 });
+
+describe('the frames of the sidechains at the scale of the hub (doc/unified-app.md §21.3)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('only the newest of their node\'s state, once a second; everything while hidden waits, then the newest', async () => {
+    vi.useFakeTimers();
+    const { deliver, registerFrame, setFrameHidden, FRAME_STATE_MS } = await import('../lib/packs.svelte');
+    const posted: { type?: string; data?: unknown; batch?: string }[] = [];
+    const win = { postMessage: (m: Record<string, unknown>) => posted.push(m as never) } as unknown as Window;
+    registerFrame('layers', win);
+    const batch = (...events: [string, unknown][]) => JSON.stringify(events.map(([type, data]) => ({ type, data })));
+    const sent = () => posted.splice(0).map((m) => (m.batch ? JSON.parse(m.batch).map((e: { type: string; data: { height?: number } }) => `${e.type}${e.data?.height ?? ''}`) : `${m.type}:${JSON.stringify(m.data)}`));
+    // Shown: the transaction at once, the tip at once (the first), the next ones once a second, the newest.
+    deliver('layers', batch(['tip', { height: 1 }], ['wallet.tx', { txid: 'a' }]));
+    expect(sent()).toEqual([['wallet.tx'], ['tip1']]);
+    deliver('layers', batch(['tip', { height: 2 }]));
+    deliver('layers', batch(['tip', { height: 3 }], ['mempool', { size: 1 }]));
+    expect(sent()).toEqual([]);
+    vi.advanceTimersByTime(FRAME_STATE_MS);
+    expect(sent()).toEqual([['tip3', 'mempool']]);
+    // Hidden: told so (its pages rest), its state kept, the transactions of its wallet still handed.
+    setFrameHidden('layers', true);
+    expect(sent()).toEqual(['visibility:{"hidden":true}']);
+    for (let h = 4; h < 40; h++) deliver('layers', batch(['tip', { height: h }]));
+    deliver('layers', batch(['wallet.tx', { txid: 'b' }]));
+    vi.advanceTimersByTime(60000);
+    expect(sent()).toEqual([['wallet.tx']]);
+    // Shown again: the newest tip alone.
+    setFrameHidden('layers', false);
+    expect(sent()).toEqual(['visibility:{"hidden":false}', ['tip39']]);
+    registerFrame('layers', null);
+  });
+});
+
+describe('the parts of a page that every block and payment changes (doc/unified-app.md §21.3)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('follow their data at most once a period, the newest (at once while they start)', async () => {
+    vi.useFakeTimers();
+    const { render } = await import('@testing-library/svelte');
+    const { flushSync } = await import('svelte');
+    const { WARMUP_MS } = await import('../lib/throttle.svelte');
+    const Harness = (await import('./ThrottleHarness.svelte')).default;
+    const { component } = render(Harness, { ms: 10000 });
+    const set = (n: number) => (component as unknown as { set: (n: number) => void }).set(n);
+    const text = () => document.querySelector('[data-throttled]')!.textContent;
+    set(1);
+    flushSync();
+    expect(text()).toBe('1');
+    vi.advanceTimersByTime(WARMUP_MS);
+    // Then a change a period after the one before at most, the newest.
+    for (let i = 2; i < 20; i++) {
+      set(i);
+      flushSync();
+      vi.advanceTimersByTime(300);
+    }
+    expect(text()).toBe('1');
+    vi.advanceTimersByTime(10000);
+    flushSync();
+    expect(text()).toBe('19');
+    // Quiet for a period: the next at once.
+    vi.advanceTimersByTime(10000);
+    set(20);
+    flushSync();
+    expect(text()).toBe('20');
+  });
+
+  it('follow what they are of at once (another chain picked), their data still at most once a period', async () => {
+    vi.useFakeTimers();
+    const { render } = await import('@testing-library/svelte');
+    const { flushSync } = await import('svelte');
+    const { WARMUP_MS } = await import('../lib/throttle.svelte');
+    const Harness = (await import('./ThrottleHarness.svelte')).default;
+    const { component } = render(Harness, { ms: 10000, scoped: true });
+    const set = (n: number, scope?: string) => (component as unknown as { set: (n: number, scope?: string) => void }).set(n, scope);
+    const text = () => document.querySelector('[data-throttled]')!.textContent;
+    vi.advanceTimersByTime(WARMUP_MS);
+    set(1);
+    flushSync();
+    set(2);
+    flushSync();
+    expect(text()).toBe('1');
+    // Another chain picked: at once.
+    set(3, 'zside');
+    flushSync();
+    expect(text()).toBe('3');
+    // Its data: once a period again.
+    set(4);
+    flushSync();
+    expect(text()).toBe('3');
+    vi.advanceTimersByTime(10000);
+    flushSync();
+    expect(text()).toBe('4');
+  });
+
+  it('a sidechain whose pages are not shown raises a notice at most every 30 s (the bell has them all)', async () => {
+    const { allowHiddenRaise, HIDDEN_RAISE_MS } = await import('../lib/modules.svelte');
+    expect(allowHiddenRaise('thunder', 1000)).toBe(true);
+    expect(allowHiddenRaise('thunder', 2000)).toBe(false);
+    expect(allowHiddenRaise('layers', 2000)).toBe(true);
+    expect(allowHiddenRaise('thunder', 1000 + HIDDEN_RAISE_MS)).toBe(true);
+  });
+
+  it('a text of the outside: its direction set once, again only when it changes (not at each update of the row)', async () => {
+    const { autoDir } = await import('../lib/actions');
+    const el = document.createElement('span');
+    const seen: string[] = [];
+    new MutationObserver((rs) => rs.forEach((r) => seen.push(r.attributeName ?? ''))).observe(el, { attributes: true });
+    autoDir('Alice')(el);
+    autoDir('Alice')(el);
+    autoDir('Alice')(el);
+    autoDir('Bob')(el);
+    await Promise.resolve();
+    expect(el.getAttribute('dir')).toBe('auto');
+    expect(seen).toEqual(['dir', 'dir']);
+  });
+});
+
+describe('a column of dates that must stay narrow', () => {
+  it('this year the month in words, the day and the time; another year the date', async () => {
+    const { compactTime } = await import('../lib/format');
+    const now = new Date(2026, 9, 21, 12, 0).getTime();
+    const same = compactTime(new Date(2026, 9, 21, 12, 3).getTime() / 1000, now);
+    expect(same).toMatch(/Oct/);
+    expect(same).toMatch(/12:03/);
+    const other = compactTime(new Date(2025, 9, 21, 12, 3).getTime() / 1000, now);
+    expect(other).toMatch(/2025/);
+    expect(other).not.toMatch(/12:03/);
+    expect(compactTime(0, now)).toBe('–');
+  });
+});

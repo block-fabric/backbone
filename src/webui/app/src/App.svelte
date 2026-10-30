@@ -9,8 +9,10 @@
   import TitleStrip from './components/TitleStrip.svelte';
   import Toasts from './components/Toasts.svelte';
   import { hasHost, installEventSink, on } from './lib/bridge';
+  import { installPackRoute } from './lib/packs.svelte';
   import { t, followLocale, loadLocale } from './lib/i18n.svelte';
   import { handleShortcut } from './lib/keyboard';
+  import { goBack, goForward } from './lib/history.svelte';
   import { go, nav, PAGES, type PageId } from './lib/nav.svelte';
   import { host } from './lib/rpc';
   import { app, applySnapshot, loadPrefs, phaseEvents, prefs, subscribe, toast } from './lib/state.svelte';
@@ -29,6 +31,10 @@
   $effect(() => {
     applyLook(document, prefs.theme, prefs.customThemes, look.preview, prefs.fontAdjust, prefersDark, prefs.fontFamily, prefs.moneyFont);
   });
+  // Drawn by the processor (software GL, as under WSLg): no animations, no heavy shadows (doc/unified-app.md §20.6).
+  $effect(() => {
+    document.documentElement.classList.toggle('reduced-effects', !!app.info?.softwareRendering);
+  });
 
   async function refreshNode() {
     try {
@@ -45,6 +51,8 @@
     media.addEventListener('change', onScheme);
 
     installEventSink();
+    // The pages of the sidechains in frames: their requests and events go through this page's bridge.
+    installPackRoute();
     let offWindow: (() => void) | undefined;
     subscribe();
     const offPhase = on<{ phase: string }>('phase', ({ phase }) => {
@@ -87,7 +95,7 @@
           const walletdata = await import('./lib/walletdata.svelte');
           const i18n = await import('./lib/i18n.svelte');
           const commands = await import('./lib/commands.svelte');
-          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current, i18n: i18n.i18n, t: i18n.t, buildCommands: commands.buildCommands };
+          (window as unknown as Record<string, unknown>).__chainsTest = { ...state, ...navigation, dialogs: dialogs.dialogs, answerDialog: dialogs.answer, walletData: walletdata.current, i18n: i18n.i18n, t: i18n.t, buildCommands: commands.buildCommands, packs: await import('./lib/packs.svelte'), modules: (await import('./lib/modules.svelte')).modules, hub: (await import('./lib/sidechains.svelte')).hub, chains: await import('./lib/chains.svelte') };
         }
         offWindow = watchWindow();
         await loadPrefs();
@@ -151,7 +159,17 @@
   }
 </script>
 
-<svelte:window {onkeydown} {ondragover} {ondrop} />
+<svelte:window
+  {onkeydown}
+  {ondragover}
+  {ondrop}
+  onmouseup={(e) => {
+    // The back and forward buttons of a mouse: the app's history.
+    if (app.phase !== 'ready') return;
+    if (e.button === 3 && goBack()) e.preventDefault();
+    if (e.button === 4 && goForward()) e.preventDefault();
+  }}
+/>
 
 {#if connectError || app.phase !== 'ready'}
   <!-- Before the node runs: the integrated title bar alone (the layouts have theirs). -->

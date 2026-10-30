@@ -9,6 +9,7 @@
 #include <key_io.h>
 #include <node/context.h>
 #include <rpc/server.h>
+#include <rpc/util.h>
 #include <txmempool.h>
 #include <script/descriptor.h>
 #include <script/script.h>
@@ -851,13 +852,15 @@ BOOST_AUTO_TEST_CASE(history_in_parts)
     BOOST_CHECK_EQUAL(all["maturity"].getInt<int>(), 101);
     // The fields the status follows from: block height, state, coinbase, abandoned, trusted.
     const UniValue& first{all["records"][0]};
-    BOOST_REQUIRE_EQUAL(first.size(), 18U);
+    BOOST_REQUIRE_EQUAL(first.size(), 19U);
     const int height{first[13].getInt<int>()};
     BOOST_CHECK(height >= 101 && height <= 103);
     BOOST_CHECK_EQUAL(first[14].get_str(), "c");
     BOOST_CHECK(first[15].get_bool());
     BOOST_CHECK(!first[16].get_bool());
     BOOST_CHECK(first[17].get_bool());
+    // What it does on the drivechain (a merged mining bid, a deposit the wallet paid): a reward, nothing.
+    BOOST_CHECK_EQUAL(first[18].get_str(), "");
     BOOST_CHECK_EQUAL(first[9].getInt<int>(), 105 - height + 1);
 
     // Some transactions only, and the ids no longer in the wallet.
@@ -1041,6 +1044,50 @@ BOOST_AUTO_TEST_CASE(dust)
     BOOST_CHECK(Call("send.isDust", Obj({{"address", a}, {"amount", 100}})).get_bool());
     BOOST_CHECK(!Call("send.isDust", Obj({{"address", a}, {"amount", 100000}})).get_bool());
     BOOST_CHECK(!Call("send.isDust", Obj({{"address", "nonsense"}, {"amount", 1}})).get_bool());
+}
+
+BOOST_AUTO_TEST_CASE(deposit_paid_with_chosen_coins)
+{
+    // doc/unified-app.md §20.7: a deposit paid with only the coins chosen (inputs of createsidechaindeposit). The question
+    // says so, with what they hold and each coin with its amount; a coin that is not an unspent coin of the wallet is
+    // refused before anything is asked.
+    if (RPCIsInWarmup(nullptr)) SetRPCWarmupFinished();
+    loader->registerRpcs();
+    webui::confirm::ConfirmedRpc confirmed{[this]() -> interfaces::Node& { return *node; },
+                                           [this](const webui::Window::ConfirmDialog& dialog) { return Ask(dialog); },
+                                           [this](const std::string& wallet, webui::Window::ConfirmDialog dialog, bool always, bool fee_unknown, const std::function<UniValue()>& run) {
+                                               return api->WithKeys(wallet, std::move(dialog), always, fee_unknown, run);
+                                           },
+                                           [this](const std::string& wallet, int64_t vsize) { return api->FeeFor(wallet, vsize); }};
+    Call("wallets.create", Obj({{"name", "cc"}}));
+    const std::string a{Call("wallet.newAddress", Obj({{"wallet", "cc"}})).get_str()};
+    Mine(101, GetScriptForDestination(DecodeDestination(a)));
+    UniValue range{UniValue::VARR};
+    range.push_back(1);
+    const UniValue unspent{node->executeRpc("listunspent", range, webui::WalletUri("cc"))};
+    BOOST_REQUIRE(unspent.size() >= 1);
+    const UniValue coin{Obj({{"txid", unspent[0]["txid"]}, {"vout", unspent[0]["vout"]}})};
+    const auto deposit{[&](const UniValue& inputs) {
+        try {
+            confirmed.Call(Obj({{"wallet", "cc"}, {"method", "createsidechaindeposit"}, {"params", List({UniValue{1}, UniValue{"dest"}, UniValue{"1"}, UniValue{}, inputs})}}));
+            return 0;
+        } catch (const webui::HostError& e) {
+            return e.code;
+        }
+    }};
+    asked.clear();
+    // Malformed, or not a coin of the wallet: refused, not asked.
+    const UniValue stranger{Obj({{"txid", std::string(64, 'a')}, {"vout", 0}})};
+    for (const UniValue& bad : {UniValue{"x"}, List({}), List({UniValue{"x"}}), List({coin, coin}), List({stranger}), List({coin, stranger})}) {
+        BOOST_CHECK_EQUAL(deposit(bad), webui::BRIDGE_INVALID_REQUEST);
+    }
+    BOOST_CHECK(asked.empty());
+    // Its own coin: asked, with the coin, what it holds, and the coins only.
+    BOOST_CHECK_EQUAL(deposit(List({coin})), webui::BRIDGE_CANCELLED);
+    BOOST_REQUIRE_EQUAL(asked.size(), 1U);
+    BOOST_CHECK_EQUAL(RowValue(asked[0], "Paid with"), "only the coin you chose");
+    BOOST_CHECK_EQUAL(RowValue(asked[0], "They hold"), webui::confirm::Coins(AmountFromValue(unspent[0]["amount"])));
+    BOOST_CHECK(RowValue(asked[0], "Coin").starts_with(unspent[0]["txid"].get_str() + ":" + unspent[0]["vout"].getValStr()));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

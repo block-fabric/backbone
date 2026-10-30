@@ -1,0 +1,41 @@
+{
+  "comment": "The pages of the sidechains built into the Chains app (doc/unified-app.md \u00a713): each pack from its repository at a pinned commit (never a branch), in the folder <repos>/<repo> (WEBUI_SIDECHAIN_REPOS, default: next to this repository). Bump a commit to take a newer version of a sidechain's pages; the build checks each speaks this app's hostApi and was made with this app's interface kit (the same packages).",
+  "hostApi": 1,
+  "packs": [
+    {
+      "stem": "layers",
+      "repo": "layers",
+      "commit": "86bfa44d208df10c249999681966e4e9edae7739"
+    },
+    {
+      "stem": "fastblocks",
+      "repo": "fastblocks",
+      "commit": "e616ff8cfa805771d1f06567fc8ca685c50f887f"
+    },
+    {
+      "stem": "thunder",
+      "repo": "thunder",
+      "commit": "5f698d6a25e979631085262ba0d3a6faf699ac88"
+    },
+    {
+      "stem": "bitnames",
+      "repo": "bitnames",
+      "commit": "49e06a02a2e21391d4590b35bc63988cf0a9099e"
+    },
+    {
+      "stem": "bitassets",
+      "repo": "bitassets",
+      "commit": "93657babd093d56e0840f7ae75f4a218da637f0b"
+    },
+    {
+      "stem": "zside",
+      "repo": "zside",
+      "commit": "28b3e6da8fbe8883d38b39eb4627517999c2892d"
+    },
+    {
+      "stem": "hivemind",
+      "repo": "hivemind",
+      "commit": "1143c922adced9df166807265a746309dedfeda8"
+    }
+  ]
+}

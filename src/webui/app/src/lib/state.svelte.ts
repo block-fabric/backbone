@@ -9,6 +9,7 @@ import { isUnit, setCurrency, type Unit } from './units';
 import { clampFontAdjust, DEFAULT_THEME } from './themes';
 import { checkStoredThemes, isThemeChoice, type CustomTheme, type ThemeChoice } from './customthemes';
 import { DEFAULT_LAYOUT, isLayout, type LayoutId } from './layout';
+import { cleanChainGroups, cleanChainId, cleanChainViews, WALLET_NAME } from './chainprefs';
 
 export interface Tip {
   height: number;
@@ -126,6 +127,18 @@ export const prefs = $state({
   tipsDone: false,
   /** The navigation folded into icons: the dashboard's sidebar a rail, the workspace's areas without their names (Ctrl+B). */
   sidebarCollapsed: false,
+  /** The wallet the app's pages use on each sidechain (Manage wallets). */
+  chainWallets: {} as Record<string, string>,
+  /** The chain selected in the top bar for every page ('all' or a chain's id; lib/chains.svelte.ts). */
+  chain: 'all',
+  /** The sidechains whose group of the sidebar is folded (Sidebar.svelte). */
+  chainGroupsFolded: [] as string[],
+  /** The chain whose staking the Staking page showed last (its tab, pages/Staking.svelte); '' for the first. */
+  stakingChain: '',
+  /** The slippage of the Trade page's swaps, in basis points (1 to 5000; 50: 0.5 %). */
+  dexSlippage: 50,
+  /** Every page of each sidechain in its group of the sidebar (Settings → Interface; for debugging, off by default). */
+  sidebarAllPages: false,
   loaded: false,
 });
 
@@ -169,6 +182,31 @@ function setTip(tip: Tip): void {
     node.recent.push({ height: tip.height, hash: tip.hash, time: tip.time });
     if (node.recent.length > RECENT_BLOCKS) node.recent.splice(0, node.recent.length - RECENT_BLOCKS);
   }
+}
+
+/**
+ * Blocks that come faster than one a TIP_MS (a node catching up, a script mining) are one change a TIP_MS for the pages:
+ * the newest. Each tip taken is work for every part that shows the chain (the height, the balances, the lists read
+ * again) and a frame of the window, which under software GL (WSLg) is drawn on every core: the catch-up of 670 blocks
+ * cost four cores before (doc/unified-app.md §20.8). The first of a burst is taken at once.
+ */
+export const TIP_MS = 1000;
+let tipTakenAt = 0;
+let tipWaiting: Tip | null = null;
+let tipTimer: ReturnType<typeof setTimeout> | undefined;
+function takeTip(tip: Tip): void {
+  tipWaiting = tip;
+  if (tipTimer !== undefined) return;
+  const wait = tipTakenAt + TIP_MS - Date.now();
+  const take = () => {
+    tipTimer = undefined;
+    tipTakenAt = Date.now();
+    const newest = tipWaiting;
+    tipWaiting = null;
+    if (newest) setTip(newest);
+  };
+  if (wait <= 0) take();
+  else tipTimer = setTimeout(take, wait);
 }
 
 function sats(n: unknown): bigint {
@@ -265,7 +303,7 @@ export function subscribe(): void {
   on('bans', () => {
     node.bansChanged++;
   });
-  on<Tip>('tip', (tip) => setTip(tip));
+  on<Tip>('tip', takeTip);
   on<{ recv: number; sent: number; time: number }>('traffic', ({ recv, sent, time }) => addSample({ t: time, recv, sent }));
   on<{ size: number; usage: number; max: number }>('mempool', (m) => {
     node.mempool = m;
@@ -340,7 +378,7 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (raw.layout !== undefined) prefs.layout = isLayout(raw.layout) ? raw.layout : DEFAULT_LAYOUT;
   if (typeof raw.lastWallet === 'string') prefs.lastWallet = raw.lastWallet;
   if (raw.uiMode === 'simple' || raw.uiMode === 'advanced') prefs.uiMode = raw.uiMode;
-  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'showTray', 'minimizeToTray', 'minimizeOnClose', 'tipsDone', 'sidebarCollapsed'] as const) {
+  for (const key of ['coinControl', 'psbtControls', 'subtractFeeDefault', 'feeMinimized', 'coinTree', 'showTray', 'minimizeToTray', 'minimizeOnClose', 'tipsDone', 'sidebarCollapsed', 'sidebarAllPages'] as const) {
     if (typeof raw[key] === 'boolean') prefs[key] = raw[key];
   }
   if (raw.feeMode === 'smart' || raw.feeMode === 'custom') prefs.feeMode = raw.feeMode;
@@ -359,6 +397,11 @@ export function applyPrefs(raw: Record<string, unknown>): void {
   if (raw.moneyFont === 'embedded' || raw.moneyFont === 'system') prefs.moneyFont = raw.moneyFont;
   if (raw.fontFamily === '' || raw.fontFamily === 'inter' || raw.fontFamily === 'nunito' || raw.fontFamily === 'mono' || raw.fontFamily === 'system') prefs.fontFamily = raw.fontFamily;
   if (typeof raw.trafficRange === 'number' && raw.trafficRange >= 5 && raw.trafficRange <= 1440) prefs.trafficRange = Math.round(raw.trafficRange / 5) * 5;
+  if (raw.chainWallets !== undefined) prefs.chainWallets = cleanChainViews(raw.chainWallets, WALLET_NAME);
+  if (raw.chain !== undefined) prefs.chain = cleanChainId(raw.chain);
+  if (raw.chainGroupsFolded !== undefined) prefs.chainGroupsFolded = cleanChainGroups(raw.chainGroupsFolded);
+  if (typeof raw.dexSlippage === 'number' && Number.isInteger(raw.dexSlippage) && raw.dexSlippage >= 1 && raw.dexSlippage <= 5000) prefs.dexSlippage = raw.dexSlippage;
+  if (raw.stakingChain !== undefined) prefs.stakingChain = cleanChainId(raw.stakingChain) === 'all' ? '' : cleanChainId(raw.stakingChain);
   prefs.loaded = true;
 }
 

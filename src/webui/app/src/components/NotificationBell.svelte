@@ -13,18 +13,25 @@
   import { prefs, wallets } from '../lib/state.svelte';
   import { addressText, noticeRecordOf, typeText, walletDisplayName } from '../lib/wallet';
   import { current } from '../lib/walletdata.svelte';
+  import { markModuleNoticesRead, modules, moduleName, moduleUnread, openModule, productName } from '../lib/modules.svelte';
 
   let open = $state(false);
   let root: HTMLElement | undefined = $state();
   const list = $derived(noticeList());
-  const unread = $derived(list.filter((n) => n.unread).length);
+  // One bell for the app and its modules: theirs come named after them (lib/modules.svelte.ts).
+  const fromModules = $derived([...modules.notices].reverse().slice(0, 12));
+  const unread = $derived(list.filter((n) => n.unread).length + moduleUnread());
   const label = $derived(unread ? `Notifications: ${unread} new` : 'Notifications');
 
   function toggle() {
     open = !open;
   }
+  function readAll() {
+    markAllRead();
+    markModuleNoticesRead();
+  }
   function close() {
-    if (open) markAllRead();
+    if (open) readAll();
     open = false;
   }
   function record(wallet: string, txid: string) {
@@ -60,9 +67,9 @@
     <div class="pop" role="dialog" aria-label="Notifications">
       <header>
         <h2>Notifications</h2>
-        {#if unread}<button type="button" class="btn ghost small" onclick={markAllRead}>Mark all as read</button>{/if}
+        {#if unread}<button type="button" class="btn ghost small" onclick={readAll}>Mark all as read</button>{/if}
       </header>
-      {#if list.length === 0}
+      {#if list.length === 0 && fromModules.length === 0}
         <p class="muted empty">No new transactions since {product()} started. They show here as they come.</p>
       {:else}
         <ul>
@@ -73,9 +80,24 @@
                 <span class="ic" class:in={r && r.amount >= 0n}><Icon name={r && r.amount < 0n ? 'send' : 'receive'} size={15} /></span>
                 <span class="what">
                   <span class="title">{r ? (r.amount >= 0n ? 'Incoming transaction' : 'Sent transaction') : 'New transaction'}</span>
-                  <span class="faint small">{#if r}{#if addressText(r)}<SafeText text={addressText(r)} />{:else}{typeText(r.type)}{/if} · {formatTime(r.time)}{:else}In wallet <SafeText text={walletDisplayName(n.wallet)} />{/if}</span>
+                  <span class="faint small">{#if r}{#if addressText(r)}<SafeText text={addressText(r)} />{:else}{typeText(r.type)}{/if}<span class="dot-sep">{' · '}</span>{formatTime(r.time)}{:else}In wallet <SafeText text={walletDisplayName(n.wallet)} />{/if}</span>
                 </span>
                 {#if r}<Amount sats={r.amount} colored plus showUnit={false} />{/if}
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if fromModules.length}
+        <ul class="from-modules" aria-label={t('From the modules')}>
+          {#each fromModules as n (n.id)}
+            <li>
+              <button type="button" class="item" class:unread={n.unread} data-module-notice={n.stem} onclick={() => { close(); if (n.app) go('settings', 'sidechains'); else openModule(n.stem, n.kind === 'tx' ? 'transactions' : 'home'); }}>
+                <span class="ic in"><Icon name={n.kind === 'tx' ? 'receive' : 'bell'} size={15} /></span>
+                <span class="what">
+                  <span class="title"><SafeText text={moduleName(n.stem)} /><span class="dot-sep">{' · '}</span>{#if n.kind === 'tx'}{t('New transaction')}{:else}<SafeText text={n.title} />{/if}</span>
+                  <span class="faint small">{#if n.kind === 'tx'}<SafeText text={(n.txid ?? '').slice(0, 16) + '…'} />{:else}<SafeText text={n.text} />{/if}<span class="dot-sep">{' · '}</span>{formatTime(n.time)}</span>
+                </span>
               </button>
             </li>
           {/each}

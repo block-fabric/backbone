@@ -1,0 +1,194 @@
+<script lang="ts">
+  // The block explorer with every chain (doc/unified-app.md §20.5): one search for a height, a hash, a transaction id or
+  // an address on every chain at once, each result named by its chain and opening that chain's own explorer at it; then
+  // a strip of boxes for each chain, its newest blocks, a block clicked opening under them (components/BlockStrips.svelte,
+  // §21.4: it took the place of the table of the newest blocks and of the one of the waiting transactions, each strip's
+  // first box the block being made and what waits for it). This app's own chain is searched by its own node, a
+  // sidechain by its node (chain.search: reads only, no index).
+  import { untrack } from 'svelte';
+  import { t } from '../lib/i18n.svelte';
+  import Icon from './Icon.svelte';
+  import ChainBadge from './ChainBadge.svelte';
+  import SafeText from './SafeText.svelte';
+  import BlockStrips from './BlockStrips.svelte';
+  import { formatCount, shortHash } from '../lib/format';
+  import { request } from '../lib/bridge';
+  import { rpc } from '../lib/rpc';
+  import { go, nav } from '../lib/nav.svelte';
+  import { productName } from '../lib/modules.svelte';
+  import { mayBeAddress } from '../lib/explorer';
+  import { chainEntries, HOST, openName, searchChain, setSelectedChain } from '../lib/chains.svelte';
+
+  interface Found {
+    chain: string;
+    name: string;
+    kind: 'block' | 'tx' | 'address' | 'name';
+    id: string;
+    height?: number;
+    mine?: boolean;
+    confirmations?: number;
+    /** A name (BitNames): its number and its owner. */
+    seq?: string;
+    owner?: string;
+  }
+
+  const entries = $derived(chainEntries());
+  const shownIds = $derived(entries.filter((e) => e.host || e.running).map((e) => e.id));
+  let query = $state('');
+  let searching = $state(false);
+  let searched = $state('');
+  let found = $state<Found[]>([]);
+
+  /** What this app's own node knows of a search. */
+  async function searchHost(q: string): Promise<Found[]> {
+    const name = productName();
+    const out: Found[] = [];
+    if (/^\d{1,9}$/.test(q)) {
+      const hash = await rpc.call('getblockhash', [Number(q)]).catch(() => null);
+      if (typeof hash === 'string') out.push({ chain: HOST, name, kind: 'block', id: hash, height: Number(q) });
+    } else if (/^[0-9a-fA-F]{64}$/.test(q)) {
+      const h = await rpc.raw<{ height: number }>('getblockheader', [q.toLowerCase(), true]).catch(() => null);
+      if (h) out.push({ chain: HOST, name, kind: 'block', id: q.toLowerCase(), height: h.height });
+      else {
+        const tx = await rpc.raw<{ txid: string; confirmations?: number }>('getrawtransaction', [q.toLowerCase(), 1]).catch(() => null);
+        if (tx?.txid) out.push({ chain: HOST, name, kind: 'tx', id: tx.txid, confirmations: tx.confirmations ?? 0 });
+      }
+    } else if (mayBeAddress(q)) {
+      const v = await rpc.call('validateaddress', [q]).catch(() => null);
+      if (v?.isvalid) out.push({ chain: HOST, name, kind: 'address', id: q });
+    }
+    return out;
+  }
+
+  async function search() {
+    const q = query.trim();
+    if (!q) return;
+    searching = true;
+    searched = q;
+    found = [];
+    const asks = shownIds.map((id) =>
+      id === HOST
+        ? searchHost(q)
+        : searchChain(id, q).then(
+            (r) => r.map((x) => ({ ...x, name: entries.find((e) => e.id === id)?.name ?? id })),
+            () => [] as Found[],
+          ),
+    );
+    const lists = await Promise.all(asks);
+    found = lists.flat();
+    searching = false;
+  }
+  // A search given with the page ("search:<q>", the palette): over every chain; taken, as the other explorers take theirs.
+  $effect(() => {
+    const asked = nav.tab;
+    if (!asked.startsWith('search:')) return;
+    nav.tab = '';
+    query = asked.slice('search:'.length);
+    untrack(() => void search());
+  });
+
+  function open(f: Found) {
+    // A name: the chain's own directory, at it.
+    if (f.kind === 'name') return openName(f.chain, f.id);
+    setSelectedChain(f.chain);
+    if (f.chain === HOST) go('explorer', `${f.kind === 'block' ? 'block' : f.kind}:${f.id}`);
+    else go('explorer', `search:${f.id}`);
+  }
+  const kindText = (f: Found) => (f.kind === 'block' ? t('Block %1', formatCount(f.height ?? 0)) : f.kind === 'tx' ? t('Transaction') : f.kind === 'name' ? t('Name %1', f.id) : t('Address'));
+</script>
+
+<div class="page all-explorer">
+  <header class="page-head"><h1>{t('Block explorer')}</h1></header>
+  <form class="search" onsubmit={(e) => { e.preventDefault(); void search(); }}>
+    <div class="box grow">
+      <Icon name="search" size={17} />
+      <input type="search" class="mono" placeholder={chainEntries().some((e) => e.running && e.caps?.names) ? t('Height, block hash, transaction id, address or name, on every chain') : t('Height, block hash, transaction id or address, on every chain')} spellcheck="false" autocomplete="off" bind:value={query} aria-label={t('Search every chain')} data-all-search />
+    </div>
+    <button type="submit" class="btn primary" disabled={searching || !query.trim()}>{searching ? t('Searching…') : t('Search')}</button>
+  </form>
+
+  {#if searched}
+    <section class="panel results" aria-label={t('Found')} data-all-results={found.length}>
+      <div class="panel-body">
+        {#if searching}
+          <p class="muted">{t('Searching every chain…')}</p>
+        {:else if found.length === 0}
+          <p class="muted">{t('Nothing on any chain matches “%1”.', searched)}</p>
+          <p class="faint small">{t('A transaction that is not in a block, nor in your wallet, is only found by a node that keeps an index of transactions.')}</p>
+        {:else}
+          <table class="rows">
+            <tbody>
+              {#each found as f (f.chain + f.kind + f.id)}
+                <tr class="clickable" onclick={() => open(f)} data-found={`${f.chain}:${f.kind}`}>
+                  <td><ChainBadge id={f.chain} name={f.name} /></td>
+                  <td class="what">{kindText(f)}{#if f.mine}<span class="badge accent">{t('yours')}</span>{/if}{#if f.kind === 'tx' && f.confirmations === 0}<span class="badge">{t('waiting')}</span>{/if}</td>
+                  <td class="mono faint" translate="no">{#if f.kind === 'name'}<SafeText text={`#${f.seq ?? ''}${f.owner ? ` · ${shortHash(f.owner, 8)}` : ''}`} />{:else}<SafeText text={shortHash(f.id, 10)} />{/if}</td>
+                  <td class="end"><span class="link">{t('Open')} <Icon name="arrow" size={14} /></span></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      </div>
+    </section>
+  {/if}
+
+  <BlockStrips chains={shownIds} />
+</div>
+
+<style>
+  .all-explorer {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .search {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+  }
+  .box {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-s);
+    background: var(--surface);
+    color: var(--text-muted);
+  }
+  .box input {
+    border: 0;
+    padding-left: 0;
+    background: transparent;
+  }
+  .box input:focus-visible {
+    outline: none;
+  }
+  .box:has(input:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .results .panel-body {
+    padding-top: 1rem;
+  }
+  .results p {
+    margin: 0;
+  }
+  .what {
+    font-weight: 600;
+  }
+  .what .badge {
+    margin-left: 0.5rem;
+  }
+  .link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--link);
+  }
+  .small {
+    font-size: 0.82rem;
+  }
+
+</style>

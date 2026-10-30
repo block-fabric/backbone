@@ -52,9 +52,9 @@ describe('a dropped deposit', () => {
   });
 
   it('the deposit made again names the one it replaces (the host shows it and checks it)', () => {
-    // The form passes "replaces" as the fourth parameter of createsidechaindeposit, which the host shows (confirm.cpp).
-    const page = readFileSync(join(__dirname, '../pages/Sidechains.svelte'), 'utf8');
-    expect(page).toMatch(/'createsidechaindeposit', replaces \? \[selected\.slot, dest, satsToCoins\(sats\), replaces\]/);
+    // Move coins passes "replaces" as the fourth parameter of createsidechaindeposit, which the host shows (confirm.cpp).
+    const page = readFileSync(join(__dirname, '../components/MovePanel.svelte'), 'utf8');
+    expect(page).toMatch(/'createsidechaindeposit', \[replaces\.slot, replaces\.destination, amount\.trim\(\), replaces\.txid\]/);
     expect(page).toMatch(/Make it again/);
     const confirm = readFileSync(join(__dirname, '../../../confirm.cpp'), 'utf8');
     expect(confirm).toMatch(/"Makes again"/);

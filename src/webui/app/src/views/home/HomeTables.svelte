@@ -19,6 +19,8 @@
   import { coinsToSats } from '../../lib/units';
   import { addressText, typeText, walletApi, type TxRecord } from '../../lib/wallet';
   import { current } from '../../lib/walletdata.svelte';
+  import ManyChainRecent from '../../components/ManyChainRecent.svelte';
+  import ManyChainBlocks from '../../components/ManyChainBlocks.svelte';
 
   interface Peer {
     id: number;
@@ -56,6 +58,8 @@
     blocks,
     peers,
     now,
+    chains = [],
+    withHost = true,
   }: {
     recent: TxRecord[];
     history: { time: number; balance: bigint }[];
@@ -67,7 +71,12 @@
     blocks: BlockRow[];
     peers: Peer[];
     now: number;
+    /** The chains shown (doc/unified-app.md §19): with a sidechain among them, the transactions and blocks of each. */
+    chains?: string[];
+    /** This app's own chain shown: its sidechains (slots, escrows) and its peers. */
+    withHost?: boolean;
   } = $props();
+  const manyChains = $derived(chains.some((c) => c !== 'chains'));
 
   type Tab = 'transactions' | 'sidechains' | 'blocks' | 'peers';
   const TABS: { id: Tab; label: string; open: string }[] = [
@@ -77,6 +86,10 @@
     { id: 'peers', label: 'Peers', open: 'All peers' },
   ];
   let tab: Tab = $state('transactions');
+  const tabs = $derived(TABS.filter((tb) => withHost || tb.id === 'transactions' || tb.id === 'blocks'));
+  $effect(() => {
+    if (!tabs.some((tb) => tb.id === tab)) tab = 'transactions';
+  });
   const counts = $derived({ transactions: recent.length, sidechains: sidechains.length, blocks: blocks.length, peers: peers.length });
 
   function openTab() {
@@ -89,7 +102,7 @@
   function tabKey(e: KeyboardEvent, i: number) {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     e.preventDefault();
-    const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : -1) + TABS.length) % TABS.length];
+    const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
     tab = next.id;
     queueMicrotask(() => document.getElementById(`home-tab-${next.id}`)?.focus());
   }
@@ -200,7 +213,7 @@
 <section class="panel tables" aria-label="Activity">
   <header>
     <div class="tabs-row" role="tablist" aria-label="Activity">
-      {#each TABS as tb, i (tb.id)}
+      {#each tabs as tb, i (tb.id)}
         <button
           type="button"
           role="tab"
@@ -212,7 +225,7 @@
           onkeydown={(e) => tabKey(e, i)}
         >
           {t(tb.label)}
-          {#if counts[tb.id]}<span class="count">{counts[tb.id]}</span>{/if}
+          {#if counts[tb.id] && !(manyChains && (tb.id === 'transactions' || tb.id === 'blocks'))}<span class="count">{counts[tb.id]}</span>{/if}
         </button>
       {/each}
     </div>
@@ -220,7 +233,11 @@
   </header>
 
   <div class="scroll" id="home-panel" role="tabpanel" aria-labelledby="home-tab-{tab}">
-    {#if tab === 'transactions'}
+    {#if manyChains && tab === 'transactions'}
+      <div class="many"><ManyChainRecent {chains} count={10} /></div>
+    {:else if manyChains && tab === 'blocks'}
+      <div class="many"><ManyChainBlocks {chains} hostBlocks={blocks} {now} count={6} /></div>
+    {:else if tab === 'transactions'}
       {#if wallets.current === null}
         <p class="muted empty">No wallet loaded.</p>
       {:else if recent.length === 0}
@@ -390,6 +407,9 @@
 <style>
   .tables {
     min-width: 0;
+  }
+  .many {
+    padding: 0.4rem 1rem 1rem;
   }
   header {
     display: flex;

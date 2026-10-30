@@ -1,6 +1,9 @@
 // Every action of the main window in one list: the pages, and the items of the menu bar of
 // chains-qt (bitcoingui.cpp createMenuBar), which the layouts put in tabs, sidebars, an
 // overflow menu and the command palette (doc/webui-layouts.md maps each one).
+import { seed } from './seed.svelte';
+import { hub } from './sidechains.svelte';
+import { modules, openChains, openModule, productName } from './modules.svelte';
 import { t } from './i18n.svelte';
 import { chainName, product } from './brand.svelte';
 import type { IconName } from '../components/Icon.svelte';
@@ -12,6 +15,8 @@ import { app, node, prefs, savePrefs, toast, wallets, walletsEnabled } from './s
 import { clampFontAdjust, THEMES } from './themes';
 import { UNITS } from './units';
 import { pageTitleSource, simpleMode, switchModeLabel, toggleUiMode } from './uimode.svelte';
+import { ALL, chainEntries, chainsWith, cycleChain, selectedChain, selectedWith, setSelectedChain } from './chains.svelte';
+import { chainGroupItems, openChainItem } from './chaingroups';
 
 /** The menus of chains-qt, in their order, then the groups of the app. */
 // The menus: what concerns the chain (sidechains, mining, the explorer) before the tools.
@@ -22,7 +27,7 @@ export type MenuGroup = (typeof MENU_GROUPS)[number];
 export function groupTitle(group: string): string {
   return group === 'Chains' ? chainName() : t(group);
 }
-export type CommandGroup = 'Go to' | MenuGroup | 'Layout' | 'Display' | 'Network';
+export type CommandGroup = 'Go to' | MenuGroup | 'Layout' | 'Display' | 'Network' | 'Modules';
 
 export interface Command {
   /** Stable: tests and the mapping of doc/webui-layouts.md use it. */
@@ -61,12 +66,26 @@ export function setLayout(id: LayoutId): void {
 }
 
 /** The pages that can be shown now (the kit only for tests and developers). */
+/** The pages of what the sidechains add, and what a chain needs for each. */
+const CHAIN_PAGES: Partial<Record<PageId, 'staking' | 'assets' | 'names' | 'markets'>> = { staking: 'staking', assets: 'assets', names: 'names', markets: 'markets' };
+
 export function pageAvailable(id: PageId): boolean {
   // With -disablewallet there are no wallet pages (chains-qt builds no wallet UI then).
   if ((PAGES[id].wallet || id === 'wallets') && !walletsEnabled()) return false;
   if (id === 'kit') return !!(app.info?.test || app.info?.devtools);
   // A tab of another page: reached through it (and through its own command), not as a page.
   if (PAGES[id].tabOf) return false;
+  // A sidechain is shown from the chain switcher, which says which one.
+  if (id === 'sidechain') return false;
+  // What sidechains add: only while one that has it is turned on (its table, lib/chains.svelte.ts).
+  // Within the chain selected in the top bar: Staking goes when Thunder alone is shown.
+  // Staking stays in the navigation while a chain that stakes is on, whatever the selection (its page says which chains
+  // stake when the one selected does not); the others while the selection has one.
+  const needs = CHAIN_PAGES[id];
+  if (needs === 'staking') return chainsWith('staking').length > 0;
+  // Trade stays while a chain with a DEX is on, whatever the selection (its page says which chains have one).
+  if (id === 'trade') return chainsWith('dex').length > 0;
+  if (needs) return selectedWith(needs).length > 0;
   return true;
 }
 
@@ -99,6 +118,7 @@ export function buildCommands(): Command[] {
   const menus: Command[] = [
     // Your wallet
     { id: 'wallet.create', group: 'Your wallet', label: 'Create wallet…', run: to('wallets', 'create'), keywords: 'new', tip: 'Create a new wallet' },
+    { id: 'wallet.phrase', group: 'Your wallet', label: 'Backup phrase…', run: to('settings', 'wallet'), keywords: 'seed words mnemonic restore bip39 recovery', tip: 'Your backup phrase: each chain\u2019s wallet made from it, show it, change its passphrase' },
     { id: 'wallet.open', group: 'Your wallet', label: 'Open wallet…', run: to('wallets', 'open'), keywords: 'load', tip: 'Open a wallet' },
     { id: 'wallet.close', group: 'Your wallet', label: 'Close wallet…', run: to('wallets', 'close'), disabled: noWallet, keywords: 'unload', tip: 'Close wallet' },
     { id: 'wallet.closeAll', group: 'Your wallet', label: 'Close all wallets…', run: to('wallets', 'close-all'), disabled: noWallet, tip: 'Close all wallets' },
@@ -125,6 +145,8 @@ export function buildCommands(): Command[] {
     { id: 'banking.psbtClipboard', group: 'Banking', label: 'Load PSBT from clipboard…', run: to('psbt', 'clipboard'), disabled: noWallet, keywords: 'partially signed paste', tip: `Load Partially Signed ${chainName()} Transaction from clipboard` },
     // Chains: what concerns the chain, before the tools
     { id: 'use.sidechains', group: 'Chains', label: 'Sidechains', run: to('sidechains'), shortcut: 'Alt+5', keywords: 'deposit', tip: 'Deposit to sidechains, and manage sidechain proposals and withdrawal votes' },
+    { id: 'use.moveGuide', group: 'Chains', label: 'Move coins, step by step…', run: () => (seed.open = 'move'), keywords: 'deposit withdraw sidechain guide wizard', tip: 'Move coins into a sidechain, or back, one step at a time' },
+    { id: 'chains.run', group: 'Chains', label: 'Run sidechains', run: to('settings', 'sidechains'), keywords: 'nodes start stop enable layers thunder', tip: 'Turn on the sidechains this app runs, with their pages' },
     { id: 'chains.mine', group: 'Chains', label: 'Solo mine', run: to('mine'), tip: 'Mine blocks with the processor of this computer' },
     { id: 'chains.proposals', group: 'Chains', label: 'Sidechain proposals', run: to('sidechains', 'proposals'), keywords: 'ack acknowledge vote', tip: 'Propose sidechains, acknowledge proposals and vote on withdrawals in the blocks this node mines' },
     { id: 'chains.withdrawals', group: 'Chains', label: 'Withdrawal votes', run: to('sidechains', 'withdrawals'), keywords: 'bundle withdrawal vote upvote' },
@@ -181,7 +203,7 @@ export function buildCommands(): Command[] {
   const walletOnly = new Set(['Your wallet', 'Banking']);
   const shown = walletsEnabled() ? menus : menus.filter((c) => !walletOnly.has(c.group) && c.id !== 'use.sign' && c.id !== 'use.verify');
   // What a command opens, from the function it runs (to(page)).
-  return [...pages, ...shown, ...extra].map((c) => ('page' in c.run ? { ...c, page: (c.run as { page: PageId }).page } : c));
+  return [...pages, ...shown, ...extra, ...moduleCommands()].map((c) => ('page' in c.run ? { ...c, page: (c.run as { page: PageId }).page } : c));
 }
 
 /** The commands of the old menu bar, by menu (the overflow menus of the layouts). */
@@ -219,4 +241,45 @@ export function searchCommands(all: readonly Command[], query: string): Command[
   });
   scored.sort((a, b) => b.score - a.score || a.i - b.i);
   return scored.map((s) => s.c);
+}
+
+/**
+ * The modules in the palette (doc/unified-app.md §14): switching to each, and the pages and actions each one's manifest
+ * names, shown as "<module>: <page>" (its words as it sent them: never translated again, never taken for the app's).
+ */
+export function moduleCommands(): Command[] {
+  const out: Command[] = [];
+  const on = (hub.list?.chains ?? []).filter((c) => c.enabled);
+  if (on.length === 0) return out;
+  out.push({ id: 'module.chains', group: 'Modules', label: 'Switch to %1', arg: productName(), icon: 'modules', run: () => openChains('home'), keywords: 'module switch' });
+  // The chain every page shows (the top bar's selector): All, each chain, the next and the one before.
+  const sel = selectedChain();
+  out.push({ id: 'chain.select.all', group: 'Modules', label: 'Show all chains', icon: 'modules', checked: sel === ALL, run: () => setSelectedChain(ALL), keywords: 'chain selector every all filter' });
+  for (const e of chainEntries()) {
+    out.push({ id: `chain.select.${e.id}`, group: 'Modules', label: 'Show only %1', arg: e.name, icon: 'modules', checked: sel === e.id, run: () => setSelectedChain(e.id), keywords: `chain selector filter ${e.id}` });
+  }
+  out.push({ id: 'chain.next', group: 'Modules', label: 'Next chain', icon: 'chevron-right', shortcut: 'Ctrl+]', run: () => void cycleChain(1), keywords: 'chain selector cycle' });
+  out.push({ id: 'chain.previous', group: 'Modules', label: 'Previous chain', icon: 'chevron-left', shortcut: 'Ctrl+[', run: () => void cycleChain(-1), keywords: 'chain selector cycle' });
+  for (const c of on) {
+    out.push({ id: `module.${c.stem}`, group: 'Modules', label: 'Switch to %1', arg: c.name, icon: 'modules', run: () => openModule(c.stem), keywords: `module switch ${c.stem}` });
+    // What it adds, as its group of the sidebar has it ("Layers: Trade").
+    const entry = chainEntries().find((e) => e.id === c.stem);
+    const grouped = new Set<string>();
+    if (entry) {
+      for (const item of chainGroupItems(entry)) {
+        grouped.add(item.id);
+        out.push({ id: `chain.${c.stem}.${item.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${item.label}`, icon: item.icon, run: () => openChainItem(c.stem, item), keywords: `${c.stem} ${item.summary}` });
+      }
+    }
+    const m = modules.manifests[c.stem];
+    if (!m) continue;
+    for (const p of m.pages) {
+      if (grouped.has(p.id)) continue;
+      out.push({ id: `module.${c.stem}.${p.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${p.title}`, icon: 'modules', run: () => openModule(c.stem, p.id), keywords: `${c.stem} ${p.summary}` });
+    }
+    for (const x of m.commands) {
+      out.push({ id: `module.${c.stem}.cmd.${x.id}`, group: 'Modules', label: '%1', arg: `${c.name}: ${x.label}`, icon: 'modules', run: () => openModule(c.stem, x.page, x.tab ?? ''), keywords: c.stem });
+    }
+  }
+  return out;
 }

@@ -33,7 +33,11 @@ namespace webui {
 class AppConfig;
 class Bridge;
 class NodeApi;
-class SidechainNodes;
+class SidechainSupervisor;
+class SidechainPages;
+class ChainAdapter;
+class SeedKeeper;
+class ModuleInstaller;
 class EventHub;
 class NodeEvents;
 class OptionsJournal;
@@ -45,6 +49,7 @@ class ConfirmedRpc;
 
 /** The options of the app on top of the ones of the node (the GUI options of chains-qt, and the debug ones of chains-app). */
 void SetupUIArgs(ArgsManager& args);
+
 
 /**
  * chains-app: the node, in this process, with its interface in a web view.
@@ -77,6 +82,30 @@ public:
 
 private:
     void RegisterHostMethods();
+    void RegisterSidechainMethods(Bridge& b);
+    //! The pages of the sidechains, once the node is ready; throws HostError before.
+    std::shared_ptr<SidechainPages> Pages() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    std::shared_ptr<ChainAdapter> Adapter() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! An address of this app's own chain: {isvalid, ismine} (in the wallet shown).
+    UniValue MainchainAddress(const std::string& address) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! A host method of the app run for the pages of a sidechain, on the thread it must run on.
+    UniValue RunHost(const std::string& method, const UniValue& params);
+    //! A deposit into a sidechain from its pages: Chains' own confirmed createsidechaindeposit, from the wallet shown.
+    UniValue PackDeposit(const std::string& stem, const UniValue& params);
+    //! The supervisor of the sidechains, once the node is ready; throws HostError before.
+    std::shared_ptr<SidechainSupervisor> Supervisor() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    std::shared_ptr<ModuleInstaller> Installer() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! The single seed (doc/unified-app.md §23): made when the node is ready.
+    std::shared_ptr<SeedKeeper> Seed() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    void RegisterSeedMethods(Bridge& b);
+    //! mining.status: which wallet pays merged mining's bids, whether it can (locked, empty), the mining wallet (doc §23.12).
+    UniValue MiningStatus() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! The downloads, updates and rollbacks of the sidechains' programs (modules.*, moduleinstaller.h).
+    void RegisterModuleMethods(Bridge& b);
+    //! Make the supervisor (the node is ready) and start the sidechains enabled.
+    void StartSidechains() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+    //! The RPC server of the node runs (started now if it did not), for the sidechains. Throws HostError.
+    void EnsureRpcServer() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     void NodeThread() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     bool IntroIfNeeded() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
     bool StartNode() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
@@ -162,8 +191,20 @@ private:
     std::unique_ptr<NodeApi> m_node_api;
     //! The RPC methods that pay, sign or change the votes of the node, confirmed on the desktop (confirm.h).
     std::unique_ptr<confirm::ConfirmedRpc> m_confirmed_rpc;
-    //! The nodes of sidechains run from here.
-    std::unique_ptr<SidechainNodes> m_sidechain_nodes;
+    //! The sidechains this app runs (Settings → Sidechains, doc/unified-app.md): made when the node is ready.
+    std::shared_ptr<SidechainSupervisor> m_supervisor GUARDED_BY(m_mutex);
+    //! The pages of the sidechains, in frames of the page (doc/unified-app.md §13): made with the supervisor.
+    std::shared_ptr<SidechainPages> m_pages GUARDED_BY(m_mutex);
+    //! The app's own pages over every chain it runs (chain.*, doc/unified-app.md §18): made with the supervisor.
+    std::shared_ptr<ChainAdapter> m_adapter GUARDED_BY(m_mutex);
+    //! The downloads of the sidechains' programs from their releases (modules.*): made with the supervisor.
+    std::shared_ptr<ModuleInstaller> m_installer GUARDED_BY(m_mutex);
+    //! The backup phrase of every chain and the wallets made from it (seed.*, doc/unified-app.md §23): made when the node is ready.
+    std::shared_ptr<SeedKeeper> m_seed GUARDED_BY(m_mutex);
+    //! The password of the user the sidechain daemons reach this node as (an -rpcauth of this run only).
+    std::string m_sidechain_rpc_password;
+    //! The folder the user last chose for the data of each sidechain (the page can only set one chosen so).
+    std::map<std::string, std::string> m_chosen_sidechain_dirs GUARDED_BY(m_mutex);
     std::thread m_node_thread;
     std::atomic<bool> m_restart_requested{false};
     //! Messages and questions of the node.
@@ -206,6 +247,8 @@ private:
         TestConfirm kind;
         //! The passphrase typed in the field of a question that has one (YES).
         std::string passphrase;
+        //! What is typed in the fields of a question that has some (YES; dialog::Field), by id; its box ticked.
+        std::map<std::string, std::string> fields{};
     };
     std::deque<TestAnswer> m_test_confirms GUARDED_BY(m_mutex);
     //! The answer of every question asked when none is queued (test.confirmAnswer {always}): none, a no for each.
