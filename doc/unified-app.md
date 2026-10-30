@@ -2712,3 +2712,63 @@ sidebar's groups, the selector, Sidechains; Thunder's question to turn it off an
 - **Blocks of stake on regtest** come every second (FastBlocks' 1 s slots) once a bond is in the set: the explorer's strip
   and Home follow them, at their usual cost.
 - **Drop-in chains** (§25.7): to build on the `ecash` branch with that agent's packs.
+
+---
+
+## 26. Backbone (eCash): the unified app on Backbone (2026-10-30, branch `backbone-unified`)
+
+The owner: bring the unified app to Backbone, the eCash mainnet client. **Mainnet only: betanet is retired.** Done in
+phases; P0 (the port) is on branch **`backbone-unified`**, made from `ecash` (v0.2.5, f03f61e362) with `unified-allchains`
+(49828339fd) merged in (a merge commit, no rebase). Not pushed, not released.
+
+### 26.1 What P0 did
+
+- **The merge** (merge base 0175968371; `ecash` 140 commits ahead, `unified-allchains` 60). The C++ merged by itself; its
+  meaning was checked: `createsidechaindeposit` keeps Backbone's plain deposit addresses (dad027b35f) and aggregated
+  deposits (c1585a4386) with the unified app's coin control (`inputs`: only the coins named pay, with the escrow output
+  when there is one to spend); `AppStartServersLate` (RPC for the sidechains) sits next to `StartGrpcServer`, which Backbone
+  starts by default. The conflicts were in the interface only (Backbone's names of f3f0fc8d11 and no Nodes tab, against
+  the unified app's pages), resolved keeping Backbone's names and behaviour and the unified app's features; the catalogs
+  of translations were made again (`scripts/i18n.mjs`).
+- **No sidechain on eCash yet.** `SidechainSupervisor::Catalog(chain)` is Chains' on the Chains networks (MAIN, TESTNET,
+  SIGNET, REGTEST: the developers' and the tests'), empty on `ecash`, `ecashbeta`, `ecashtest`; the app sets the network
+  (`UseNetwork`) before anything reads it. `NetDir`, `RpcPort`, `DaemonArgs` have the eCash cases (unreached). Nothing
+  offers a sidechain that cannot run: no Run sidechains command or button, no move guide, no Setup guide, no sidechain step
+  in the first start (`sidechainsToRun()`); Settings → Sidechains says none can run yet. Trade, Markets, Staking, Names,
+  Assets and the chains' groups follow the running chains' capabilities, so none shows.
+- **No download on eCash**: `ModuleInstaller::Repos(chain)` is empty on the eCash networks (P3 brings signed releases).
+- **The first start offers eCash mainnet** (the intro); eCash testnet and Chains' networks with `-devnetworks`, any with
+  `-chain`. The first-start guide names the eCash networks.
+- **As Backbone 0.2.5 when no sidechain is on**: no RPC server, no supervisor thread, no child process (run_unified.py's
+  standalone checks); the offer to move wallets of before into the backup phrase is not made where no sidechain runs.
+- **Names**: the unified app's pages named Chains; they name the product (Backbone), the chain (eCash) and the coin (ECX)
+  from the host and the network (`brand.test.ts`). The app's own chain is "eCash" in the chain lists and Chain columns.
+
+### 26.2 Overlaps left for later
+
+- **Two BIP39s**: Backbone's `wallet::bip39` (`createwalletfrommnemonic`, `generatemnemonic`, the Wallets page's recovery
+  phrases) and the unified app's `webui::bip39` (seed.dat, `SeedKeeper`). Their interfaces differ (the page's word list, a
+  word's place in an error, scrypt-sealed seed.dat); both are kept. P2 points the webui at one.
+- **Two phrases for a new wallet**: Wallets → Create makes a BIP39 wallet of its own phrase (Backbone), the first-start guide
+  makes the backup phrase of seed.dat and the app's wallet from it (the unified app). Both work; P2 decides the one.
+- `chaindex.cpp` names the DEX's coin `CHN` (Layers' word): Layers is not on eCash; to name per chain when a DEX comes.
+
+### 26.3 The plan
+
+| Phase | What |
+|---|---|
+| **P0** | The port (this section). |
+| **P1** | Flush and Thunder supervised, with their pages: the catalog's `ecash` family (drop-in kind, §23.8 items 8–11, §25.7: program names, `-chain=ecash` flags, ports and folders per eCash network, the `--bt-app-*` flags, `appserverproof`, the late gRPC for a drop-in, their packs). |
+| **P2** | One seed: one phrase for Backbone's wallet and its sidechains (the two BIP39s and the two phrases of §26.2 made one; BIP85 children for the drop-ins, §23.8 item 12). |
+| **P3** | Signed downloads: Backbone's sidechains' releases signed with a key built into the app (`-sidechainsignatures=require`), their repositories in `Repos`. |
+| **P4** | Merged mining and validators from the app (BMM of the drop-ins by the main wallet or a mining wallet; Flush's validators). |
+| **P5** | Hivemind and the other drop-ins (BitNames, BitAssets, zSide) on eCash. |
+
+### 26.4 Tests (P0)
+
+`test_bitcoin` (ctest, 163 suites), `test_chains-app` (166 cases, among them `supervisor_tests` with
+`catalog_of_the_network`, `moduleinstaller_tests` with `no_downloads_on_ecash`, `seed_tests`, `sidechainpages_tests`,
+`chainadapter_tests`); vitest 61 files / 561; svelte-check 0/0; `i18n.mjs --check`; functional `feature_ecash_*` (9),
+`feature_drivechain*` (11), `wallet_drivechain_encrypted`, `wallet_bip39`, `interface_ecash_grpc`, `rpc_help`;
+`run_startup.py` (6 starts) and `run_unified.py` (regtest, Layers `unified-dex`, 21 checks) with a backbone-app built with
+the test hooks.
