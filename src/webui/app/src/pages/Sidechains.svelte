@@ -40,6 +40,7 @@
   import { formatCount, formatTime, shortHash } from '../lib/format';
   import { detail, showDetail } from '../lib/detail.svelte';
   import { go, nav, takeFocus } from '../lib/nav.svelte';
+  import { sidechainsToRun } from '../lib/sidechains.svelte';
   import MoveCoins from './MoveCoins.svelte';
   import Term from '../components/Term.svelte';
   import { simpleMode } from '../lib/uimode.svelte';
@@ -240,7 +241,7 @@
 <div class="page sidechains">
   <header class="page-head">
     <h1>{#if simple}Move coins{:else}Sidechains{/if}</h1>
-    <button type="button" class="btn small" data-action="run-sidechains" onclick={() => go('settings', 'sidechains')}>Run sidechains in this app</button>
+    {#if sidechainsToRun()}<button type="button" class="btn small" data-action="run-sidechains" onclick={() => go('settings', 'sidechains')}>Run sidechains in this app</button>{/if}
   </header>
   {#if simple}
     <p class="summary muted">Move {ticker()} to a <Term id="sidechain">sidechain</Term> to use what it adds (markets, names, private payments…), and bring it back when you are done.</p>

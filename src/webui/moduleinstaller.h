@@ -7,6 +7,7 @@
 
 #include <sync.h>
 #include <univalue.h>
+#include <util/chaintype.h>
 #include <util/fs.h>
 
 #include <atomic>
@@ -59,10 +60,18 @@ public:
         std::string repo;
         std::string prefix;
     };
+    /**
+     * The table of the network: Chains' repositories on the Chains networks; none on the eCash networks (Backbone downloads
+     * nothing until its releases are signed with a key built into it, P3 of doc/unified-app.md "Backbone (eCash)").
+     */
+    static const std::vector<Repo>& Repos(ChainType chain);
+    /** The table of the network the app runs (UseNetwork), Chains' until it is set. */
     static const std::vector<Repo>& Repos();
+    /** The network the app runs, for Repos() and what follows from it: set once, when the network is known (App). */
+    static void UseNetwork(ChainType chain);
     static const Repo* FindRepo(std::string_view stem);
     /** The sidechains whose releases can be downloaded (the stems of Repos). */
-    static const std::vector<std::string>& AllowedStems();
+    static std::vector<std::string> AllowedStems();
     static bool IsAllowed(std::string_view stem);
     /** The platform of this build, as the release packages name it: "x86_64-linux-gnu", "win64", or "" (none). */
     static std::string Platform();

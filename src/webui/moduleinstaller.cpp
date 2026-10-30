@@ -19,6 +19,7 @@
 #include <webui/sidechainnodes.h>
 
 #include <algorithm>
+#include <atomic>
 #include <fstream>
 #include <set>
 #include <stdexcept>
@@ -134,8 +135,27 @@ std::string HumanSize(uint64_t bytes)
 
 } // namespace
 
+namespace {
+//! The network the app runs (UseNetwork); -1 until it is set: Chains' table.
+std::atomic<int> g_repos_network{-1};
+} // namespace
+
+void ModuleInstaller::UseNetwork(ChainType chain)
+{
+    g_repos_network = static_cast<int>(chain);
+}
+
 const std::vector<ModuleInstaller::Repo>& ModuleInstaller::Repos()
 {
+    const int network{g_repos_network.load()};
+    return Repos(network < 0 ? ChainType::MAIN : static_cast<ChainType>(network));
+}
+
+const std::vector<ModuleInstaller::Repo>& ModuleInstaller::Repos(ChainType chain)
+{
+    // The eCash networks: no download at all for now (P3 brings signed releases of Backbone's sidechains).
+    static const std::vector<Repo> ecash{};
+    if (IsEcashChain(chain)) return ecash;
     // The one table of the repositories whose releases this app downloads (the sidechains of supervisor.cpp's catalog).
     static const std::vector<Repo> repos{
         {"layers", "block-fabric", "layers", "layers"},
@@ -157,14 +177,11 @@ const ModuleInstaller::Repo* ModuleInstaller::FindRepo(std::string_view stem)
     return nullptr;
 }
 
-const std::vector<std::string>& ModuleInstaller::AllowedStems()
+std::vector<std::string> ModuleInstaller::AllowedStems()
 {
-    static const std::vector<std::string> stems{[] {
-        std::vector<std::string> out;
-        for (const Repo& r : Repos()) out.push_back(r.stem);
-        return out;
-    }()};
-    return stems;
+    std::vector<std::string> out;
+    for (const Repo& r : Repos()) out.push_back(r.stem);
+    return out;
 }
 
 bool ModuleInstaller::IsAllowed(std::string_view stem)

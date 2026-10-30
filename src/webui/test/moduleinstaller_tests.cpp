@@ -287,6 +287,21 @@ bool Clean(const fs::path& dir)
 
 BOOST_FIXTURE_TEST_SUITE(webui_moduleinstaller_tests, BasicTestingSetup)
 
+BOOST_AUTO_TEST_CASE(no_downloads_on_ecash)
+{
+    // Backbone downloads nothing until its sidechains' releases are signed (P3 of doc/unified-app.md "Backbone (eCash)").
+    for (const ChainType chain : {ChainType::ECASH, ChainType::ECASH_BETANET, ChainType::ECASH_TESTNET}) {
+        BOOST_CHECK(ModuleInstaller::Repos(chain).empty());
+    }
+    BOOST_CHECK_EQUAL(ModuleInstaller::Repos(ChainType::REGTEST).size(), 7U);
+    ModuleInstaller::UseNetwork(ChainType::ECASH);
+    BOOST_CHECK(!ModuleInstaller::IsAllowed("layers"));
+    BOOST_CHECK(!ModuleInstaller::IsAllowed("thunder"));
+    BOOST_CHECK(ModuleInstaller::AllowedStems().empty());
+    ModuleInstaller::UseNetwork(ChainType::REGTEST);
+    BOOST_CHECK(ModuleInstaller::IsAllowed("layers"));
+}
+
 BOOST_AUTO_TEST_CASE(names_tags_platforms)
 {
     BOOST_CHECK(ModuleInstaller::IsAllowed("layers"));

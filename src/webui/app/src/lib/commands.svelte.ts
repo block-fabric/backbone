@@ -2,7 +2,7 @@
 // chains-qt (bitcoingui.cpp createMenuBar), which the layouts put in tabs, sidebars, an
 // overflow menu and the command palette (doc/webui-layouts.md maps each one).
 import { seed } from './seed.svelte';
-import { hub } from './sidechains.svelte';
+import { hub, sidechainsToRun } from './sidechains.svelte';
 import { modules, openChains, openModule, productName } from './modules.svelte';
 import { t } from './i18n.svelte';
 import { chainName, product } from './brand.svelte';
@@ -145,8 +145,12 @@ export function buildCommands(): Command[] {
     { id: 'banking.psbtClipboard', group: 'Banking', label: 'Load PSBT from clipboard…', run: to('psbt', 'clipboard'), disabled: noWallet, keywords: 'partially signed paste', tip: `Load Partially Signed ${chainName()} Transaction from clipboard` },
     // Chains: what concerns the chain, before the tools
     { id: 'use.sidechains', group: 'Chains', label: 'Sidechains', run: to('sidechains'), shortcut: 'Alt+5', keywords: 'deposit', tip: 'Deposit to sidechains, and manage sidechain proposals and withdrawal votes' },
-    { id: 'use.moveGuide', group: 'Chains', label: 'Move coins, step by step…', run: () => (seed.open = 'move'), keywords: 'deposit withdraw sidechain guide wizard', tip: 'Move coins into a sidechain, or back, one step at a time' },
-    { id: 'chains.run', group: 'Chains', label: 'Run sidechains', run: to('settings', 'sidechains'), keywords: 'nodes start stop enable layers thunder', tip: 'Turn on the sidechains this app runs, with their pages' },
+    ...(sidechainsToRun()
+      ? [
+          { id: 'use.moveGuide', group: 'Chains', label: 'Move coins, step by step…', run: () => (seed.open = 'move'), keywords: 'deposit withdraw sidechain guide wizard', tip: 'Move coins into a sidechain, or back, one step at a time' },
+          { id: 'chains.run', group: 'Chains', label: 'Run sidechains', run: to('settings', 'sidechains'), keywords: 'nodes start stop enable layers thunder', tip: 'Turn on the sidechains this app runs, with their pages' },
+        ] satisfies Command[]
+      : []),
     { id: 'chains.mine', group: 'Chains', label: 'Solo mine', run: to('mine'), tip: 'Mine blocks with the processor of this computer' },
     { id: 'chains.proposals', group: 'Chains', label: 'Sidechain proposals', run: to('sidechains', 'proposals'), keywords: 'ack acknowledge vote', tip: 'Propose sidechains, acknowledge proposals and vote on withdrawals in the blocks this node mines' },
     { id: 'chains.withdrawals', group: 'Chains', label: 'Withdrawal votes', run: to('sidechains', 'withdrawals'), keywords: 'bundle withdrawal vote upvote' },

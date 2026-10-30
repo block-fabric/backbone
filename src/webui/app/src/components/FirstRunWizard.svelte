@@ -12,6 +12,8 @@
   import { ErrorCode } from '../lib/bridge';
   import { errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
+  import { chainName } from '../lib/brand.svelte';
+  import { app } from '../lib/state.svelte';
   import { productName } from '../lib/modules.svelte';
   import { hub, refreshSidechains, sidechainHost } from '../lib/sidechains.svelte';
   import { allReady, refreshSeed, seed, seedHost } from '../lib/seed.svelte';
@@ -38,12 +40,14 @@
   const status = $derived(seed.status);
   // A phrase made before the guide opened (Settings → Sidechains → Setup guide): nothing to make again.
   const hasPhrase = $derived(!!status?.exists);
-  const steps = $derived(firstRunSteps(choices));
-  const index = $derived(steps.indexOf(step));
   const list = $derived(hub.list?.chains ?? []);
+  // Sidechains this app can run on this network: none yet on eCash (Backbone), until they come (doc/unified-app.md).
+  const offered = $derived(list.length > 0);
+  const steps = $derived(firstRunSteps(choices, offered));
+  const index = $derived(steps.indexOf(step));
   const total = $derived(totalResources(list, choices.picked));
-  const network = $derived(hub.list?.network ?? 'main');
-  const NETWORKS: Record<string, string> = { main: 'the main network: real coins', test: 'the test network: coins for trying things out, worth nothing', testnet: 'the test network: coins for trying things out, worth nothing', signet: 'signet: a test network', regtest: 'regtest: a private test chain on this computer' };
+  const network = $derived(hub.list?.network ?? app.info?.network ?? 'ecash');
+  const NETWORKS: Record<string, string> = { ecash: 'eCash mainnet: real coins', ecashtest: 'the eCash test network: coins for trying things out, worth nothing', ecashbeta: 'eCash betanet: retired, a rehearsal of the main network', main: 'the main network: real coins', test: 'the test network: coins for trying things out, worth nothing', testnet: 'the test network: coins for trying things out, worth nothing', signet: 'signet: a test network', regtest: 'regtest: a private test chain on this computer' };
   const TITLES: Record<FirstRunStep, string> = { welcome: 'Welcome', wallet: 'Your wallet', backup: 'Backup phrase', restore: 'Restore', network: 'Network', sidechains: 'Sidechains', storage: 'Storage', sync: 'Getting ready' };
   // The chains whose wallets the guide made or turned on: the app's own, and those picked.
   const shownChains = $derived((status?.chains ?? []).filter((c) => c.id === 'chains' || choices.picked.includes(c.id)));
@@ -127,10 +131,10 @@
 
     {#if step === 'welcome'}
       <h3>{t('Welcome to %1', product)}</h3>
-      <p class="lead">{t('%1 is a coin with sidechains: other chains, each good at something, that your coins can move into and back out of.', product)}</p>
+      <p class="lead">{t('%1 is a coin with sidechains: other chains, each good at something, that your coins can move into and back out of.', chainName())}</p>
       <ul class="plain">
         <li><Icon name="key" size={16} /> {t('First, your wallet: one backup phrase keeps it safe, on every chain.')}</li>
-        <li><Icon name="sidechains" size={16} /> {t('Then, if you like, a few sidechains. You can add or remove them any time later in Settings.')}</li>
+        {#if offered}<li><Icon name="sidechains" size={16} /> {t('Then, if you like, a few sidechains. You can add or remove them any time later in Settings.')}</li>{/if}
         <li><Icon name="clock" size={16} /> {t('A few minutes to set up; the chains download in the background after.')}</li>
       </ul>
     {:else if step === 'wallet'}
@@ -191,7 +195,11 @@
     {:else if step === 'network'}
       <h3>{t('Network')}</h3>
       <p>{t('This app is on')} <strong>{t(NETWORKS[network] ?? network)}</strong>.</p>
+      {#if network === 'ecash'}
+        <p class="muted">{t('The network is chosen when the app starts. Each network keeps its own wallet and data.')}</p>
+      {:else}
       <p class="muted">{t('The network is chosen when the app starts. Try things on the test network first if you like: its coins are free and worth nothing. Each network keeps its own wallet and data.')}</p>
+      {/if}
     {:else if step === 'sidechains'}
       <h3>{t('Pick the sidechains you want')}</h3>
       <p class="muted">{t('None is needed: %1 works on its own. Each one you pick runs in the background, takes some room, and gets its keys from your backup phrase (all but zSide).', product)}</p>
@@ -234,8 +242,10 @@
       {#if !finished}
         <ol class="plain numbered">
           <li>{t('%1 downloads and checks its blocks. The first time, this takes a while; the app works meanwhile.', product)}</li>
+          {#if offered}
           <li>{t('Each sidechain follows %1 and catches up behind it; its keys are made from your backup phrase as it starts.', product)}</li>
           <li>{t('Then move coins into a sidechain from %1, and use them there.', product)}</li>
+          {/if}
         </ol>
       {/if}
       {#if progress.length}

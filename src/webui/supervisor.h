@@ -59,8 +59,16 @@ public:
         //! not made from the phrase, so its private funds would not be brought back by it): always a wallet of its own.
         bool phrase_keys{true};
     };
+    /**
+     * The catalog of a network: Chains' sidechains on the Chains networks (MAIN, TESTNET, SIGNET, REGTEST); none yet on
+     * the eCash networks (Backbone, doc/unified-app.md "Backbone (eCash)": Flush and Thunder come in P1).
+     */
+    static const std::vector<Spec>& Catalog(ChainType chain);
+    /** The catalog of the network the app runs (UseNetwork), Chains' until it is set. */
     static const std::vector<Spec>& Catalog();
     static const Spec* FindSpec(std::string_view stem);
+    /** The network the app runs, for Catalog() and FindSpec(): set once, when the network is known (App). */
+    static void UseNetwork(ChainType chain);
 
     enum class State { DISABLED, STOPPED, STARTING, RUNNING, STOPPING, CRASHED, FAILED };
     static std::string StateName(State state);

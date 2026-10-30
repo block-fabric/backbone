@@ -22,6 +22,7 @@
   import { productName, productUnit } from '../lib/modules.svelte';
   import { simpleMode } from '../lib/uimode.svelte';
   import { seed } from '../lib/seed.svelte';
+  import { sidechainsToRun } from '../lib/sidechains.svelte';
   import {
     ALL,
     amountProblem,
@@ -262,7 +263,7 @@
 <section class="panel move" aria-labelledby="move-title" data-move-panel>
   <div class="panel-head">
     <h2 id="move-title">{t('Move coins')}</h2>
-    <button type="button" class="btn small ghost" onclick={() => (seed.open = 'move')} data-action="move-guide"><Icon name="book" size={14} /> {t('Step by step…')}</button>
+    {#if sidechainsToRun()}<button type="button" class="btn small ghost" onclick={() => (seed.open = 'move')} data-action="move-guide"><Icon name="book" size={14} /> {t('Step by step…')}</button>{/if}
   </div>
   <form class="panel-body form" onsubmit={(e) => { e.preventDefault(); void submit(); }}>
     {#if dropped.length}

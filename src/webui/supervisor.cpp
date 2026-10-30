@@ -4,6 +4,8 @@
 
 #include <webui/supervisor.h>
 
+#include <atomic>
+
 #include <webui/chainadapter.h>
 
 #include <common/secretfile.h>
@@ -83,6 +85,10 @@ std::string NetDir(ChainType chain)
     case ChainType::TESTNET: return "testnet";
     case ChainType::SIGNET: return "signet";
     case ChainType::REGTEST: return "regtest";
+    // The eCash networks: the folders of Backbone's own (chainparamsbase.cpp); no sidechain runs on them yet (P1).
+    case ChainType::ECASH: return "";
+    case ChainType::ECASH_BETANET: return "betanet";
+    case ChainType::ECASH_TESTNET: return "testnet4";
     }
     return "";
 }
@@ -230,10 +236,11 @@ UniValue Without(const UniValue& object, const std::string& key)
 }
 } // namespace
 
-const std::vector<SidechainSupervisor::Spec>& SidechainSupervisor::Catalog()
+namespace {
+const std::vector<SidechainSupervisor::Spec>& ChainsCatalog()
 {
     // The order is that of the list in Settings → Sidechains (and of the ports with Options::port_base).
-    static const std::vector<Spec> catalog{
+    static const std::vector<SidechainSupervisor::Spec> catalog{
         {"layers", "Layers", "Make and trade assets on a fast chain: a block every 15 seconds.", 7, 2, 4, 400, true},
         {"fastblocks", "FastBlocks", "Quick, cheap payments: a block every 15 seconds, kept honest by stake.", 5, 1, 3, 400, true},
         {"thunder", "Thunder", "Very large blocks, for many small payments at a low fee.", 2, 7, 10, 600, false},
@@ -243,6 +250,29 @@ const std::vector<SidechainSupervisor::Spec>& SidechainSupervisor::Catalog()
         {"hivemind", "Hivemind", "Prediction markets: trade on what will happen.", 9, 8, 2, 400, false},
     };
     return catalog;
+}
+
+//! The network the app runs (UseNetwork); -1 until it is set: Chains' catalog.
+std::atomic<int> g_network{-1};
+} // namespace
+
+const std::vector<SidechainSupervisor::Spec>& SidechainSupervisor::Catalog(ChainType chain)
+{
+    // The eCash networks (Backbone) have no sidechain this app can run yet: Flush and Thunder, drop-ins with their own
+    // flags, ports and folders, come in P1 (doc/unified-app.md "Backbone (eCash)"). Nothing is offered until then.
+    static const std::vector<Spec> ecash{};
+    return IsEcashChain(chain) ? ecash : ChainsCatalog();
+}
+
+const std::vector<SidechainSupervisor::Spec>& SidechainSupervisor::Catalog()
+{
+    const int network{g_network.load()};
+    return network < 0 ? ChainsCatalog() : Catalog(static_cast<ChainType>(network));
+}
+
+void SidechainSupervisor::UseNetwork(ChainType chain)
+{
+    g_network = static_cast<int>(chain);
 }
 
 const SidechainSupervisor::Spec* SidechainSupervisor::FindSpec(std::string_view stem)
@@ -496,6 +526,8 @@ int SidechainSupervisor::RpcPort(const std::string& stem) const
         case ChainType::TESTNET: net = 10000; break;
         case ChainType::REGTEST: net = 20000; break;
         case ChainType::SIGNET: net = 30000; break;
+        // Not reached: the eCash networks have no row in the catalog yet (their ports come with their rows in P1).
+        case ChainType::ECASH: case ChainType::ECASH_BETANET: case ChainType::ECASH_TESTNET: return 0;
         }
         return net + 9054 + 100 * catalog[i].port_code;
     }
@@ -536,6 +568,8 @@ std::vector<std::string> SidechainSupervisor::DaemonArgs(const std::string& stem
         args.emplace_back("-regtest");
         args.push_back(strprintf("-sidechainslot=%d", spec->slot));
         break;
+    // Not reached: no row of the catalog on the eCash networks yet (P1 adds their flags, -chain=ecash and its kind).
+    case ChainType::ECASH: case ChainType::ECASH_BETANET: case ChainType::ECASH_TESTNET: return {};
     }
     // Its own RPC server, on 127.0.0.1 only (the default binding). This app is a user of its own there, which may call
     // only AppRpcMethods (no spend but through webuihost, which asks); the cookie stays the user's, unrestricted

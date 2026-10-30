@@ -113,16 +113,18 @@ std::string NetworkLabel(const std::string& network)
     return network;
 }
 
-/** The networks the intro offers: eCash's; Chains' (CHN) too with -devnetworks. */
+/**
+ * The networks the intro offers: eCash's main network (betanet is retired); its test network and Chains' (CHN) networks
+ * too with -devnetworks (developers; -chain on the command line names any network still).
+ */
 std::vector<std::pair<ChainType, std::string>> IntroNetworks(const ArgsManager& args)
 {
     std::vector<std::pair<ChainType, std::string>> networks{
         {ChainType::ECASH, "eCash mainnet"},
-        {ChainType::ECASH_BETANET, "eCash betanet"},
-        {ChainType::ECASH_TESTNET, "eCash testnet"},
     };
     if (args.GetBoolArg("-devnetworks", false)) {
-        networks.insert(networks.end(), {{ChainType::MAIN, "Chains (CHN) main network"},
+        networks.insert(networks.end(), {{ChainType::ECASH_TESTNET, "eCash testnet"},
+                                         {ChainType::MAIN, "Chains (CHN) main network"},
                                          {ChainType::TESTNET, "Chains (CHN) testnet"},
                                          {ChainType::SIGNET, "Chains (CHN) signet"},
                                          {ChainType::REGTEST, "regtest"}});
@@ -173,7 +175,7 @@ UniValue SpaceOf(const std::string& dir)
 
 void SetupUIArgs(ArgsManager& argsman)
 {
-    argsman.AddArg("-devnetworks", "Offer the Chains (CHN) networks too in the choice of the network at the first start (development)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-devnetworks", "Offer eCash's test network and the Chains (CHN) networks too in the choice of the network at the first start (development)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-choosedatadir", strprintf("Choose data directory on startup (default: %u)", DEFAULT_CHOOSE_DATADIR), ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-lang=<lang>", "Set language, for example \"de_DE\" (default: system locale)", ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-min", "Start minimized", ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
@@ -495,7 +497,7 @@ bool App::IntroIfNeeded()
         data.pushKV("minPruneGB", NodeOptions::MinPruneGB(m_args));
         // -prune on the command line decides, as in the Qt intro (the box is ticked or not, and disabled).
         if (m_args.IsArgSet("-prune")) data.pushKV("pruneForced", prune_arg >= 1);
-        // The network: eCash's main network, betanet or test network (Chains' with -devnetworks).
+        // The network: eCash's main network (its test network and Chains' with -devnetworks).
         UniValue networks{UniValue::VARR};
         for (const auto& [chain, label] : IntroNetworks(m_args)) {
             const auto params{CreateChainParams(m_args, chain)};
@@ -1919,6 +1921,10 @@ void App::EnsureRpcServer()
 
 void App::StartSidechains()
 {
+    // The catalog of sidechains and the table of downloads are those of the network (none yet on eCash's, P1 and P3 of
+    // doc/unified-app.md "Backbone (eCash)"), before anything reads them.
+    SidechainSupervisor::UseNetwork(m_args.GetChainType());
+    ModuleInstaller::UseNetwork(m_args.GetChainType());
     // The single seed (doc/unified-app.md §23), made first: the supervisor asks it which wallet a sidechain's node loads.
     SeedKeeper::Hooks seed_hooks;
     seed_hooks.file = m_args.GetDataDirNet() / "seed.dat";

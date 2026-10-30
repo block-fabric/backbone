@@ -47,12 +47,12 @@ def processes():
 
 
 def find_app(root_pid):
-    """The pid of chains-app under xvfb-run."""
+    """The pid of the app (chains-app, or backbone-app on Backbone) under xvfb-run."""
     procs = processes()
     todo = [root_pid]
     while todo:
         pid = todo.pop()
-        if pid in procs and procs[pid][1].startswith("chains-app"):
+        if pid in procs and procs[pid][1].startswith(("chains-app", "backbone-app")):
             return pid
         todo += [p for p, (pp, _, _) in procs.items() if pp == pid]
     return None
@@ -157,7 +157,7 @@ def main():
         else:
             layers_cli = next(d / "layers-cli" for d in args.sidechain_bindir if (d / "layersd").is_file())
             try:
-                bmm_blocks(args.app.parent / "chains-cli", layers_cli, datadir, rpc_port, sc_base, 3)
+                bmm_blocks(next(c for c in (args.app.parent / "chains-cli", args.app.parent / "backbone-cli") if c.is_file()), layers_cli, datadir, rpc_port, sc_base, 3)
                 print("  bmm: 3 blocks of Layers", flush=True)
             except (RuntimeError, subprocess.TimeoutExpired, StopIteration) as e:
                 failures.append(f"bmm: {e}")

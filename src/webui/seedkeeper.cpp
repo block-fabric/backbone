@@ -493,7 +493,9 @@ UniValue SeedKeeper::Status()
         }
         out.pushKV("hasWallets", any);
         out.pushKV("firstRun", wallets && !any && !records.find_value("firstRunDone").isNum());
-        out.pushKV("offer", wallets && any && !records.find_value("offerShown").isNum());
+        // Not where this app runs no sidechain (Backbone on eCash, until P2 of doc/unified-app.md "Backbone (eCash)"):
+        // nothing would share the phrase, and a wallet of before stays as it is, as in Backbone 0.2.5.
+        out.pushKV("offer", wallets && any && !records.find_value("offerShown").isNum() && !SidechainSupervisor::Catalog().empty());
     } else {
         out.pushKV("firstRun", false);
         out.pushKV("offer", false);

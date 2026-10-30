@@ -60,6 +60,24 @@ SidechainSupervisor::Options Regtest(const fs::path& base)
 
 BOOST_FIXTURE_TEST_SUITE(webui_supervisor_tests, BasicTestingSetup)
 
+BOOST_AUTO_TEST_CASE(catalog_of_the_network)
+{
+    // Backbone (doc/unified-app.md "Backbone (eCash)", P0): no sidechain on the eCash networks yet; Chains' elsewhere.
+    for (const ChainType chain : {ChainType::ECASH, ChainType::ECASH_BETANET, ChainType::ECASH_TESTNET}) {
+        BOOST_CHECK(SidechainSupervisor::Catalog(chain).empty());
+    }
+    for (const ChainType chain : {ChainType::MAIN, ChainType::TESTNET, ChainType::SIGNET, ChainType::REGTEST}) {
+        BOOST_CHECK_EQUAL(SidechainSupervisor::Catalog(chain).size(), 7U);
+    }
+    // The network the app runs decides what FindSpec finds; and on eCash's, nothing is offered, started or downloaded.
+    SidechainSupervisor::UseNetwork(ChainType::ECASH);
+    BOOST_CHECK(SidechainSupervisor::Catalog().empty());
+    BOOST_CHECK(!SidechainSupervisor::FindSpec("layers"));
+    BOOST_CHECK(!SidechainSupervisor::FindSpec("thunder"));
+    SidechainSupervisor::UseNetwork(ChainType::REGTEST);
+    BOOST_CHECK(SidechainSupervisor::FindSpec("layers"));
+}
+
 BOOST_AUTO_TEST_CASE(catalog_and_ports)
 {
     BOOST_CHECK(SidechainSupervisor::FindSpec("layers"));

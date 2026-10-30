@@ -10,6 +10,7 @@
   import FirstRunWizard from './FirstRunWizard.svelte';
   import { confirm, errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
+  import { chainName, product } from '../lib/brand.svelte';
   import { prefs, savePrefs, toast } from '../lib/state.svelte';
   import { simpleMode } from '../lib/uimode.svelte';
   import { chainColor } from '../lib/chaincolors';
@@ -73,7 +74,7 @@
   async function resetFolder(e: SidechainEntry) {
     busy[e.stem] = true;
     try {
-      const move = e.hasData && (await confirm(t('Move the data of %1 back?', e.name), t('Move it back with the data of Chains?'), { yes: 'Move it', no: 'Leave it there' }));
+      const move = e.hasData && (await confirm(t('Move the data of %1 back?', e.name), t('Move it back with the data of {product}?'), { yes: 'Move it', no: 'Leave it there' }));
       await sidechainHost.setDataDir(e.stem, null, move);
     } catch (err) {
       toast('error', t('Sidechains'), errorText(err));
@@ -101,12 +102,17 @@
   <div class="panel-body intro">
     <div class="grow">
       <h2>Sidechains</h2>
+      {#if hub.list && list.length === 0}
+        <!-- No sidechain this app can run on this network yet (Backbone on eCash: they come in a later version). -->
+        <p class="muted" data-no-sidechains>{product()} runs on its own. No sidechain can be run from {product()} on this network yet: a later version adds them here.</p>
+      {:else}
       <p class="muted">
-        Chains runs on its own. Turn on any of these sidechains and this app also runs its node in the background, connected to your Chains node, with one window for all of
+        {product()} runs on its own. Turn on any of these sidechains and this app also runs its node in the background, connected to your {chainName()} node, with one window for all of
         them. You can turn one off at any time: its data and its keys stay.
       </p>
+      {/if}
     </div>
-    <button type="button" class="btn" onclick={() => (hub.wizard = { kind: 'firstrun' })}><Icon name="book" size={16} /> Setup guide</button>
+    {#if list.length}<button type="button" class="btn" onclick={() => (hub.wizard = { kind: 'firstrun' })}><Icon name="book" size={16} /> Setup guide</button>{/if}
   </div>
 </section>
 

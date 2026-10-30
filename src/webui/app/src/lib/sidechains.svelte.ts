@@ -4,6 +4,8 @@ import { on, request } from './bridge';
 import { go, nav } from './nav.svelte';
 import { openModule } from './modules.svelte';
 import type { SidechainList, SidechainOverview } from './unified';
+import { app } from './state.svelte';
+import { isEcashNetwork } from './units';
 
 export const hub = $state({
   list: null as SidechainList | null,
@@ -29,6 +31,15 @@ export const sidechainHost = {
   rpc: <T>(stem: string, method: string, params: unknown[] = [], wallet?: string) => request<T>('host', 'sidechains.rpc', { stem, method, params, ...(wallet ? { wallet } : {}) }),
   log: (stem: string) => request<{ node: string; supervisor: string }>('host', 'sidechains.log', { stem }),
 };
+
+/**
+ * Whether this app has sidechains it can run on its network: the host's catalog (none yet on the eCash networks, where
+ * Backbone runs on its own until they come, doc/unified-app.md "Backbone (eCash)"). Before the list is read: not on eCash.
+ * Nothing offers to turn a sidechain on (or guides a move into one) when there is none.
+ */
+export function sidechainsToRun(): boolean {
+  return hub.list ? hub.list.chains.length > 0 : !isEcashNetwork(app.info?.network);
+}
 
 let refreshing: Promise<void> | null = null;
 
