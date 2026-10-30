@@ -11,7 +11,8 @@ import ModuleFrames from '../components/ModuleFrames.svelte';
 import { modules, NODE_PAGE, openModule } from '../lib/modules.svelte';
 import { dispatch, setTransport, type BridgeRequest } from '../lib/bridge';
 import { nav } from '../lib/nav.svelte';
-import { hub, refreshSidechains, selectChain } from '../lib/sidechains.svelte';
+import { hub, refreshSidechains, selectChain, sidechainsToRun } from '../lib/sidechains.svelte';
+import { buildCommands } from '../lib/commands.svelte';
 import { seed } from '../lib/seed.svelte';
 import { app, prefs } from '../lib/state.svelte';
 import { deliver, installPackRoute, onFrameMessage, packs, packUrl, registerFrame, route, wrap } from '../lib/packs.svelte';
@@ -442,5 +443,31 @@ describe('the wizards render their steps', () => {
     await fireEvent.click(document.querySelector('[data-action="finish"]') as HTMLButtonElement);
     await waitFor(() => expect(document.querySelector('.progress li[data-stem="layers"]')?.getAttribute('data-status')).toBe('on'));
     expect(calls.filter((c) => c.method === 'sidechains.enable').map((c) => (c.params as Record<string, unknown>).stem)).toEqual(['layers']);
+  });
+});
+
+describe('Backbone on eCash: no sidechain to run yet (doc/unified-app.md "Backbone (eCash)")', () => {
+  it('offers nothing to turn on: no card, no guide, no command, no sidechain step in the first start', async () => {
+    state = { network: 'ecash', rpcServer: false, chainsDataDir: '/data', chains: [] };
+    render(SidechainSettings);
+    await waitFor(() => expect(document.querySelector('[data-no-sidechains]')).toBeTruthy());
+    expect(document.querySelectorAll('.card').length).toBe(0);
+    expect(screen.queryByText('Setup guide')).toBeNull();
+    expect(sidechainsToRun()).toBe(false);
+    expect(buildCommands().some((c) => c.id === 'chains.run' || c.id === 'use.moveGuide')).toBe(false);
+    expect(firstRunSteps({ wallet: 'create', picked: [], storage: 'unified' }, false)).not.toContain('sidechains');
+    // With the Chains catalog (regtest), they are offered.
+    state = listOf(entry('layers'));
+    await refreshSidechains();
+    expect(sidechainsToRun()).toBe(true);
+    expect(buildCommands().some((c) => c.id === 'chains.run')).toBe(true);
+  });
+
+  it('before the host has said, nothing is offered on an eCash network', () => {
+    hub.list = null;
+    app.info = { ...(app.info ?? {}), network: 'ecash' } as typeof app.info;
+    expect(sidechainsToRun()).toBe(false);
+    app.info = { ...(app.info ?? {}), network: 'regtest' } as typeof app.info;
+    expect(sidechainsToRun()).toBe(true);
   });
 });
