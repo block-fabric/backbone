@@ -79,7 +79,7 @@ describe('words and the switcher', () => {
     const base = { stem: 'layers', name: 'Layers', state: 'running' as const, mainchainHeight: 150 };
     expect(describeSync(null).key).toBe('Loading…');
     expect(describeSync({ ...base, height: 3, mainchainConnected: false }).tone).toBe('warn');
-    expect(describeSync({ ...base, height: 3, mainchainConnected: true, mainchainSeen: 150, synced: true })).toMatchObject({ key: 'In step with Chains', tone: 'ok' });
+    expect(describeSync({ ...base, height: 3, mainchainConnected: true, mainchainSeen: 150, synced: true })).toMatchObject({ key: 'In step with {chain}', tone: 'ok' });
     const behind = describeSync({ ...base, height: 3, mainchainConnected: true, mainchainSeen: 90, synced: false });
     expect(behind.tone).toBe('busy');
     expect(behind.args).toEqual([90, 150]);
@@ -364,7 +364,7 @@ describe('the chains of the sidebar and the overview', () => {
     expect(nav.page).toBe('sidechain');
     render(SidechainView);
     await waitFor(() => expect(document.querySelector('[data-field="height"]')?.textContent).toBe('12'));
-    expect(document.querySelector('[data-field="sync"]')?.textContent).toBe('In step with Chains');
+    expect(document.querySelector('[data-field="sync"]')?.textContent).toBe('In step with eCash');
     expect(document.querySelector('[data-field="balance"]')?.textContent).toBe('1.50000000');
     expect(document.querySelector('tr[data-height="12"]')).toBeTruthy();
     // Without its pages built in (no pack.info here): its node, read-only.

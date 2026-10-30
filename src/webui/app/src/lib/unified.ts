@@ -104,9 +104,9 @@ export function describeSync(o: SidechainOverview | null | undefined): Said {
   if (o.state !== 'running') return describeState({ state: o.state, enabled: true });
   if (o.error) return said('Cannot be read right now', 'warn');
   if (o.height === undefined) return said('Starting…', 'busy');
-  if (!o.mainchainConnected) return said('Not connected to Chains yet', 'warn');
-  if (o.synced) return said('In step with Chains', 'ok');
-  return said('Catching up with Chains: block %1 of %2', 'busy', Math.max(0, o.mainchainSeen ?? 0), o.mainchainHeight);
+  if (!o.mainchainConnected) return said('Not connected to {chain} yet', 'warn');
+  if (o.synced) return said('In step with {chain}', 'ok');
+  return said('Catching up with {chain}: block %1 of %2', 'busy', Math.max(0, o.mainchainSeen ?? 0), o.mainchainHeight);
 }
 
 export interface SwitcherItem {
@@ -116,7 +116,7 @@ export interface SwitcherItem {
 }
 
 /** The chain switcher: Chains, then each sidechain turned on. Nothing to switch between: no switcher. */
-export function switcherItems(list: SidechainList | null | undefined, product = 'Chains'): SwitcherItem[] {
+export function switcherItems(list: SidechainList | null | undefined, product = 'Backbone'): SwitcherItem[] {
   const on = (list?.chains ?? []).filter((c) => c.enabled || c.state === 'stopping');
   if (on.length === 0) return [];
   return [{ id: 'chains', name: product, tone: 'ok' }, ...on.map((c) => ({ id: c.stem, name: c.name, tone: describeState(c).tone }))];
@@ -209,8 +209,9 @@ export interface FirstRunChoices {
   storage: 'unified' | 'advanced';
 }
 
-export function firstRunSteps(c: FirstRunChoices): FirstRunStep[] {
-  const steps: FirstRunStep[] = ['welcome', 'wallet', c.wallet === 'create' ? 'backup' : 'restore', 'network', 'sidechains'];
+export function firstRunSteps(c: FirstRunChoices, sidechains = true): FirstRunStep[] {
+  // No sidechain this app can run on the network (Backbone on eCash, for now): no step to pick them.
+  const steps: FirstRunStep[] = ['welcome', 'wallet', c.wallet === 'create' ? 'backup' : 'restore', 'network', ...(sidechains ? (['sidechains'] as FirstRunStep[]) : [])];
   if (c.picked.length > 0) steps.push('storage');
   steps.push('sync');
   return steps;

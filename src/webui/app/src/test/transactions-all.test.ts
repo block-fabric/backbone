@@ -171,7 +171,7 @@ describe('the Transactions page over every chain shown', () => {
     expect(lines[0]).toBe('"Chain","Confirmed","Date","Type","Label","Address","Amount (CHN)","ID"');
     expect(lines.length).toBe(6);
     expect(lines.find((l) => l.includes('a1'.repeat(32)))).toMatch(/^"Layers",/);
-    expect(lines.find((l) => l.includes('cc'.repeat(32)))).toMatch(/^"Chains",/);
+    expect(lines.find((l) => l.includes('cc'.repeat(32)))).toMatch(/^"eCash",/);
     expect(lines.find((l) => l.includes('dd'.repeat(32)))).toContain('"Deposit into Layers"');
   });
 

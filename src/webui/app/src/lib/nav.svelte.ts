@@ -79,7 +79,7 @@ export const PAGES: Record<PageId, PageInfo> = {
   tools: { id: 'tools', title: 'Tools', icon: 'hash', summary: 'Timestamp a file, prove the funds of the wallet, and the crypto tools (hash, Merkle tree, address decoder)', parity: ['L07', 'L08', 'L10'], ready: true, advanced: true },
   advanced: { id: 'advanced', title: 'Advanced transactions', icon: 'key', summary: 'Sign and verify messages, partially signed transactions (PSBT), and the multisig lounge', parity: ['K01', 'K02', 'K03', 'L09'], wallet: true, ready: true, advanced: true },
   // A sidechain the app runs, chosen in the chain switcher (doc/unified-app.md): its overview, read-only in phase 1.
-  sidechain: { id: 'sidechain', title: 'Sidechain', icon: 'sidechains', summary: 'A sidechain this app runs: its blocks, how it keeps up with Chains, its wallet', parity: [], ready: true },
+  sidechain: { id: 'sidechain', title: 'Sidechain', icon: 'sidechains', summary: 'A sidechain this app runs: its blocks, how it keeps up with its main chain, its wallet', parity: [], ready: true },
   // The pages of what sidechains add (doc/unified-app.md §18): shown only while a chain that has it is turned on.
   staking: { id: 'staking', title: 'Staking', icon: 'shield', summary: 'Validators, bonds, rewards and the fee split of the chains that stake', simpleSummary: 'Earn by staking', parity: [], ready: true },
   assets: { id: 'assets', title: 'Assets', icon: 'coins', summary: 'The assets of every chain that has them, and their markets', simpleSummary: 'Your tokens', parity: [], wallet: false, ready: true },

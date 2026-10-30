@@ -9,6 +9,7 @@
   import { productName } from '../lib/modules.svelte';
   import { errorText } from '../lib/dialogs.svelte';
   import { t } from '../lib/i18n.svelte';
+  import { chainName, product } from '../lib/brand.svelte';
   import { refreshSidechains, selectChain, sidechainHost } from '../lib/sidechains.svelte';
   import { refreshSeed, seed, seedHost } from '../lib/seed.svelte';
   import SeedChainList from './SeedChainList.svelte';
@@ -112,7 +113,7 @@
       <h3><SafeText text={entry.name} /></h3>
       <p class="lead">{t(entry.description)}</p>
       <ul class="plain">
-        <li><Icon name="nodes" size={16} /> This app runs its node in the background, whenever the app runs. It connects to your Chains node on this computer by itself: nothing to set up.</li>
+        <li><Icon name="nodes" size={16} /> This app runs its node in the background, whenever the app runs. It connects to your {chainName()} node on this computer by itself: nothing to set up.</li>
         <li><Icon name="download" size={16} /> {t(res.key, ...res.args)}. It downloads its own blocks the first time.</li>
         <li><Icon name="power" size={16} /> You can turn it off at any time. Its data and keys stay, until you delete them.</li>
       </ul>
@@ -125,7 +126,7 @@
         <label class="choice" class:chosen={choices.storage === 'default'}>
           <input type="radio" name="storage" checked={choices.storage === 'default'} onchange={() => (choices.storage = 'default')} />
           <span>
-            <span class="title"><strong>With the data of Chains</strong> <span class="badge accent">recommended</span></span>
+            <span class="title"><strong>With the data of {product()}</strong> <span class="badge accent">recommended</span></span>
             <span class="path"><SafeText text={entry.defaultDataDir} /></span>
             <span class="muted">One place for everything: easy to back up and to find.</span>
           </span>

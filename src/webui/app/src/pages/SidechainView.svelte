@@ -8,6 +8,7 @@
   import SafeText from '../components/SafeText.svelte';
   import { formatCount, formatTime } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
+  import { chainName } from '../lib/brand.svelte';
   import { go } from '../lib/nav.svelte';
   import { hub, sidechainHost } from '../lib/sidechains.svelte';
   import { describeState, describeSync, type SidechainOverview } from '../lib/unified';
@@ -98,9 +99,9 @@
         <div class="muted small">blocks of <SafeText text={entry.name} /></div>
       </section>
       <section class="panel stat">
-        <div class="caps">With Chains</div>
+        <div class="caps">With {chainName()}</div>
         <div class="value sync {sync.tone}" data-field="sync" data-synced={overview?.synced ? 'yes' : 'no'}>{t(sync.key, ...sync.args)}</div>
-        <div class="muted small">Chains is at block {formatCount(Math.max(0, overview?.mainchainHeight ?? 0))}</div>
+        <div class="muted small">{chainName()} is at block {formatCount(Math.max(0, overview?.mainchainHeight ?? 0))}</div>
       </section>
       <section class="panel stat">
         <div class="caps">Balance</div>

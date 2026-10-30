@@ -11,7 +11,7 @@
   import { productName, productUnit } from '../lib/modules.svelte';
   import { toast } from '../lib/state.svelte';
   import { walletApi } from '../lib/wallet';
-  import { coinsToSats, satsToCoins, parseAmount } from '../lib/units';
+  import { coinsToSats, satsToCoins, parseAmount, UNITS } from '../lib/units';
   import { ErrorCode } from '../lib/bridge';
   import { miningHost, miningProblem, refreshSeed, seed, type MiningStatus } from '../lib/seed.svelte';
 
@@ -39,7 +39,7 @@
 
   const problem = $derived(miningProblem(status));
   const balance = $derived(status?.mining?.trusted !== undefined ? String(status.mining.trusted) : '');
-  const parsed = $derived(parseAmount(amount, 'CHN'));
+  const parsed = $derived(parseAmount(amount, UNITS[0].id));
   const declined = (e: unknown) => !!e && typeof e === 'object' && 'code' in e && (e as { code: number }).code === ErrorCode.CANCELLED;
 
   async function run(what: string, fn: () => Promise<unknown>) {

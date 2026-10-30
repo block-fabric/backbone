@@ -13,7 +13,8 @@ import { untrack } from 'svelte';
 import { request } from './bridge';
 import { prefs, savePrefs, wallets } from './state.svelte';
 import { hub } from './sidechains.svelte';
-import { moduleTabOk, modules, openModule, productName, productUnit } from './modules.svelte';
+import { moduleTabOk, modules, openModule, productUnit } from './modules.svelte';
+import { chainName } from './brand.svelte';
 import type { SidechainEntry } from './unified';
 
 /** The id of this app's own chain in every list of chains. */
@@ -292,7 +293,8 @@ export function chainUnit(id: string): string {
 /** Every chain of the app's pages: its own first, then each sidechain turned on (in the catalog's order). */
 export function chainEntries(on: SidechainEntry[] = (hub.list?.chains ?? []).filter((c) => c.enabled)): ChainEntry[] {
   return [
-    { id: HOST, name: productName(), unit: productUnit(), host: true, running: true, caps: null },
+    // The app's own chain by the network's name (eCash on Backbone's networks), as the sidechains are named by theirs.
+    { id: HOST, name: chainName(), unit: productUnit(), host: true, running: true, caps: null },
     ...on.map((c) => ({ id: c.stem, name: c.name, unit: chainUnit(c.stem), host: false, running: c.state === 'running' && c.ready, caps: chainState.caps[c.stem] ?? null, entry: c })),
   ];
 }
@@ -523,7 +525,7 @@ export function canEmbed(stem: string, page: string): boolean {
 
 /** The key of the chain in the dialog: the label in words, never a mark alone. */
 export function chainLabel(id: string): string {
-  if (id === HOST) return productName();
+  if (id === HOST) return chainName();
   return hub.list?.chains.find((c) => c.stem === id)?.name ?? id;
 }
 

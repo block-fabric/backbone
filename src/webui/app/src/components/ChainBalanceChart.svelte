@@ -114,7 +114,7 @@
 
 <div class="chain-chart" data-chain-chart={drawn.map((s) => s.id).join(',')}>
   {#if series.length > 1}
-    <ul class="legend" aria-label={t('Chains of the chart')}>
+    <ul class="legend" aria-label={t('The chains of the chart')}>
       {#each series as s (s.id)}
         {@const last = s.points[s.points.length - 1]}
         <li data-chart-series={s.id}>

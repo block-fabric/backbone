@@ -78,7 +78,7 @@
           {#if !all && block.tx.length > SHOWN}<button type="button" class="btn small ghost" onclick={() => (all = true)}>{t('Show all %1', formatCount(block.tx.length))}</button>{/if}
         </div>
       </div>
-      <p class="faint small">{t('Peg activity and the Chains block that merged-mined it:')} <button type="button" class="linkish" onclick={onexplore}>{t('open it in the %1 explorer', name)}</button>.</p>
+      <p class="faint small">{t('Peg activity and the {chain} block that merged-mined it:')} <button type="button" class="linkish" onclick={onexplore}>{t('open it in the %1 explorer', name)}</button>.</p>
     {/if}
   </div>
 </section>

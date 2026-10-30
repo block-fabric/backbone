@@ -1,7 +1,6 @@
 <script lang="ts">
   import ChainWallets from '../components/ChainWallets.svelte';
   import ChainBadge from '../components/ChainBadge.svelte';
-  import { productName } from '../lib/modules.svelte';
   import { ALL, chainEntries, HOST, viewFilter } from '../lib/chains.svelte';
   // Every chain's wallets (doc/unified-app.md §18): this app's own, then each sidechain's, with a filter of chains.
   const walletChains = $derived(chainEntries());
@@ -64,7 +63,7 @@
   const summary = $derived(walletState.list.find((w) => w.name === name) ?? null);
   // The backup phrase's wallet (doc §23.11): its password is the phrase's (changed, added or removed with it, in Settings →
   // Wallet); without one the app keeps it open, and it is said as "no password".
-  const phrase = $derived(phraseWalletState(seed.status, name));
+  const seedWallet = $derived(phraseWalletState(seed.status, name));
   const info = $derived(current.info);
   const product = $derived(productName());
 
@@ -491,11 +490,11 @@
 
   async function changePassphrase() {
     if (name === null) return;
-    if (phrase) {
+    if (seedWallet) {
       // The phrase's: changed on seed.dat and this wallet at once (never this wallet alone: the phrase would keep the old one).
       try {
-        const r = phrase === 'open' ? await seedHost.addPassword() : await seedHost.changePassphrase();
-        if (!r.cancelled) await inform(t('Wallet password'), phrase === 'open' ? t('A password protects your wallet now.') : t('The password is changed.'));
+        const r = seedWallet === 'open' ? await seedHost.addPassword() : await seedHost.changePassphrase();
+        if (!r.cancelled) await inform(t('Wallet password'), seedWallet === 'open' ? t('A password protects your wallet now.') : t('The password is changed.'));
       } catch (e) {
         await inform(t('Password change failed'), errorText(e), 'error');
       } finally {
@@ -598,7 +597,7 @@
             {#if summary.privateKeysDisabled}<span class="badge">watch-only</span>{/if}
             {#if info?.externalSigner}<span class="badge">hardware wallet</span>{/if}
             {#if summary.hd}<span class="badge accent" title="HD key generation is enabled">HD</span>{/if}
-            {#if phrase === 'open'}
+            {#if seedWallet === 'open'}
               <span class="badge warning" title={t('No password: anyone with access to this computer can spend')} data-no-password><Icon name="unlock" size={13} /> {t('no password')}</span>
             {:else if summary.encrypted}
               <span class="badge" class:warning={!summary.locked} title={summary.locked ? 'Wallet is encrypted and currently locked' : 'Wallet is encrypted and currently unlocked'}>
@@ -618,13 +617,13 @@
               <Icon name="lock" /><span><strong>Encrypt wallet…</strong><small>Encrypt the private keys that belong to your wallet</small></span>
             </button>
           {/if}
-          {#if phrase === 'open'}
+          {#if seedWallet === 'open'}
             <button type="button" class="action" onclick={changePassphrase} data-action="wallet-add-password">
               <Icon name="lock" /><span><strong>{t('Add a password…')}</strong><small>{t('Protect this wallet and your backup phrase: asked to send coins')}</small></span>
             </button>
           {:else if summary.encrypted}
             <button type="button" class="action" onclick={changePassphrase}>
-              <Icon name="key" /><span><strong>{phrase ? t('Change the password…') : 'Change passphrase…'}</strong><small>{phrase ? t('The password of this wallet and of your backup phrase') : 'Change the passphrase used for wallet encryption'}</small></span>
+              <Icon name="key" /><span><strong>{seedWallet ? t('Change the password…') : 'Change passphrase…'}</strong><small>{seedWallet ? t('The password of this wallet and of your backup phrase') : 'Change the passphrase used for wallet encryption'}</small></span>
             </button>
             {#if summary.locked}
               <button type="button" class="action" onclick={() => (unlockFor.open = true)}>

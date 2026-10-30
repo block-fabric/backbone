@@ -87,7 +87,7 @@
   <header class="page-head">
     <h1>{t('Staking')}</h1>
     {#if offered.length}
-      <div class="chain-tabs" role="tablist" aria-label={t('Chains that stake')}>
+      <div class="chain-tabs" role="tablist" aria-label={t('The chains that stake')}>
         {#each offered as e (e.id)}
           {@const tone = e.entry ? describeState(e.entry).tone : 'off'}
           <button type="button" role="tab" class="chain-tab" aria-selected={shown?.id === e.id} title={`${e.name}: ${t(toneWords[tone])}`} onclick={() => pick(e)} data-staking-tab={e.id}>
