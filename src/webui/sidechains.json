@@ -1,5 +1,5 @@
 {
-  "comment": "The pages of the sidechains built into the Chains app (doc/unified-app.md \u00a713): each pack from its repository at a pinned commit (never a branch), in the folder <repos>/<repo> (WEBUI_SIDECHAIN_REPOS, default: next to this repository). Bump a commit to take a newer version of a sidechain's pages; the build checks each speaks this app's hostApi and was made with this app's interface kit (the same packages).",
+  "comment": "The pages of the sidechains built into the app (doc/unified-app.md \u00a713): each pack from its repository at a pinned commit (never a branch), in the folder <repos>/<repo> (WEBUI_SIDECHAIN_REPOS, default: next to this repository). Bump a commit to take a newer version of a sidechain's pages; the build checks each speaks this app's hostApi and was made with this app's interface kit (the same packages). Flush (Backbone, doc/unified-app.md \u00a726): the copy shown when its release has no pages of its own (8.3.7).",
   "hostApi": 1,
   "packs": [
     {
@@ -36,6 +36,11 @@
       "stem": "hivemind",
       "repo": "hivemind",
       "commit": "1143c922adced9df166807265a746309dedfeda8"
+    },
+    {
+      "stem": "flush",
+      "repo": "backbone-flush",
+      "commit": "deb187a0ac5b57e9432de5a742cf562daa647aeb"
     }
   ]
 }
