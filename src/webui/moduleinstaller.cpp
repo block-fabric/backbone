@@ -138,24 +138,30 @@ std::string HumanSize(uint64_t bytes)
 namespace {
 //! The network the app runs (UseNetwork); -1 until it is set: Chains' table.
 std::atomic<int> g_repos_network{-1};
+std::atomic<bool> g_repos_ecash_regtest{false};
 } // namespace
 
-void ModuleInstaller::UseNetwork(ChainType chain)
+void ModuleInstaller::UseNetwork(ChainType chain, bool ecash_regtest)
 {
+    g_repos_ecash_regtest = ecash_regtest;
     g_repos_network = static_cast<int>(chain);
 }
 
 const std::vector<ModuleInstaller::Repo>& ModuleInstaller::Repos()
 {
     const int network{g_repos_network.load()};
-    return Repos(network < 0 ? ChainType::MAIN : static_cast<ChainType>(network));
+    return Repos(network < 0 ? ChainType::MAIN : static_cast<ChainType>(network), g_repos_ecash_regtest.load());
 }
 
-const std::vector<ModuleInstaller::Repo>& ModuleInstaller::Repos(ChainType chain)
+const std::vector<ModuleInstaller::Repo>& ModuleInstaller::Repos(ChainType chain, bool ecash_regtest)
 {
-    // The eCash networks: no download at all for now (P3 brings signed releases of Backbone's sidechains).
-    static const std::vector<Repo> ecash{};
-    if (IsEcashChain(chain)) return ecash;
+    // Backbone's sidechains (the eCash networks, and regtest with eCash's rules): their own repositories, the latest
+    // release of each (decided 2026-10-30: the programs always from the sidechain's latest release, nothing bundled).
+    static const std::vector<Repo> ecash{
+        {"flush", "block-fabric", "backbone-flush", "flush", /*latest=*/true, {"flushd", "flush-cli"}},
+        {"thunder", "block-fabric", "backbone-thunder", "thunder", /*latest=*/true, {"thunder", "thunder-cli"}},
+    };
+    if (IsEcashChain(chain) || (chain == ChainType::REGTEST && ecash_regtest)) return ecash;
     // The one table of the repositories whose releases this app downloads (the sidechains of supervisor.cpp's catalog).
     static const std::vector<Repo> repos{
         {"layers", "block-fabric", "layers", "layers"},
@@ -209,7 +215,65 @@ std::string ModuleInstaller::ArchiveName(const std::string& stem, const std::str
 std::vector<std::string> ModuleInstaller::AllowedBinaries(const std::string& stem, const std::string& platform)
 {
     const std::string ext{platform == "win64" ? ".exe" : ""};
+    if (const Repo* repo{FindRepo(stem)}; repo && !repo->programs.empty()) {
+        std::vector<std::string> out;
+        for (const auto& p : repo->programs) out.push_back(p + ext);
+        return out;
+    }
     return {stem + "d" + ext, stem + "-cli" + ext};
+}
+
+namespace {
+//! Whether a file of a release is <prefix>-<version><suffix>, its version a plain one (a tag's characters).
+bool NamedLike(std::string_view name, const std::string& prefix, std::string_view suffix)
+{
+    if (!name.starts_with(prefix + "-") || !name.ends_with(suffix) || name.size() <= prefix.size() + 1 + suffix.size()) return false;
+    const std::string_view version{name.substr(prefix.size() + 1, name.size() - prefix.size() - 1 - suffix.size())};
+    return ModuleInstaller::IsValidTag(version);
+}
+} // namespace
+
+std::string ModuleInstaller::LatestArchive(const Repo& repo, const std::vector<std::string>& names, const std::string& platform)
+{
+    if (platform.empty()) return {};
+    const std::string suffix{"-" + platform + (platform == "win64" ? ".zip" : ".tar.gz")};
+    std::string found;
+    for (const auto& n : names) {
+        if (!NamedLike(n, repo.prefix, suffix)) continue;
+        // One package for this computer, or none is taken (never a guess between two).
+        if (!found.empty()) return {};
+        found = n;
+    }
+    return found;
+}
+
+std::string ModuleInstaller::LatestPack(const Repo& repo, const std::vector<std::string>& names)
+{
+    std::string found;
+    for (const auto& n : names) {
+        if (!NamedLike(n, repo.prefix, "-pack.tar.gz")) continue;
+        if (!found.empty()) return {};
+        found = n;
+    }
+    return found;
+}
+
+std::string ModuleInstaller::SumOf(std::string_view sums, std::string_view name)
+{
+    std::string summed;
+    for (const auto& raw : util::SplitString(sums, '\n')) {
+        const std::string line{TrimString(raw)};
+        const size_t space{line.find(' ')};
+        if (space != 64) continue;
+        std::string file{TrimString(line.substr(space))};
+        if (!file.empty() && file[0] == '*') file.erase(0, 1);
+        if (file != name) continue;
+        const std::string sha{ToLower(line.substr(0, 64))};
+        // A file named twice with two hashes: none is taken.
+        if (!IsSha256Hex(sha) || (!summed.empty() && summed != sha)) return {};
+        summed = sha;
+    }
+    return summed;
 }
 
 bool ModuleInstaller::IsValidTag(std::string_view tag)
@@ -255,11 +319,21 @@ const std::vector<std::string>& ModuleInstaller::ReleaseKeys()
     return keys;
 }
 
-bool ModuleInstaller::VerifyManifestSignature(std::string_view manifest, std::string_view sig_hex, const std::vector<std::string>& keys)
+const std::vector<std::string>& ModuleInstaller::SumsKeys()
+{
+    // The release key of Backbone's sidechains (P3 of doc/unified-app.md §26.3): made OFFLINE, its x-only public key (64
+    // hex digits) written here; each release's SHA256SUMS then signed on that machine (SHA256SUMS.sig, BIP340 over
+    // TaggedHash(SUMS_SIGNATURE_TAG, its bytes)). Empty until then: the releases are checked by their sums only, and
+    // -sidechainsignatures=require refuses them all.
+    static const std::vector<std::string> keys{};
+    return keys;
+}
+
+bool ModuleInstaller::VerifyManifestSignature(std::string_view manifest, std::string_view sig_hex, const std::vector<std::string>& keys, std::string_view tag)
 {
     const auto sig{TryParseHex<unsigned char>(TrimString(sig_hex))};
     if (!sig || sig->size() != 64) return false;
-    HashWriter hasher{TaggedHash(std::string{SIGNATURE_TAG})};
+    HashWriter hasher{TaggedHash(std::string{tag})};
     hasher.write(std::as_bytes(std::span{manifest.data(), manifest.size()}));
     const uint256 hash{hasher.GetSHA256()};
     for (const std::string& key_hex : keys) {
@@ -498,6 +572,16 @@ std::vector<std::string> ModuleInstaller::Installed(const std::string& stem) con
     return out;
 }
 
+std::optional<fs::path> ModuleInstaller::CurrentPackDir(const std::string& stem) const
+{
+    const auto dir{CurrentDir(stem)};
+    if (!dir) return std::nullopt;
+    std::error_code ec;
+    const fs::path pack{*dir / "pack"};
+    if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(pack / "pack.json", ec))) return std::nullopt;
+    return pack;
+}
+
 std::optional<fs::path> ModuleInstaller::CurrentDir(const std::string& stem) const
 {
     if (!IsAllowed(stem)) return std::nullopt;
@@ -549,9 +633,70 @@ std::string ModuleInstaller::FetchSmall(const std::string& url, uint64_t max, co
     return *text;
 }
 
+void ModuleInstaller::CheckLatest(const std::string& stem, Release& r, const std::string& base, const fs::path& tmp, const std::function<bool()>& cancelled) const
+{
+    const Repo& repo{*FindRepo(stem)};
+    const auto url{[&](const std::string& name) { return strprintf("%s/%s/%s/releases/download/%s/%s", base, repo.owner, repo.repo, r.tag, name); }};
+    const std::string platform{m_options.platform};
+    if (platform.empty()) {
+        r.reason = "There are no packages of the sidechains for this kind of computer.";
+        return;
+    }
+    if (r.asset_name.empty()) {
+        r.reason = strprintf("No package for this computer (%s) in this release.", platform);
+        return;
+    }
+    if (r.asset_size > MAX_ARCHIVE_BYTES || r.pack_size > MAX_PACK_BYTES) {
+        r.reason = strprintf("Its package is too large (%s; %s at most).", HumanSize(r.asset_size), HumanSize(MAX_ARCHIVE_BYTES));
+        return;
+    }
+    if (!r.sums) {
+        r.reason = "The release has no SHA256SUMS: its package cannot be checked.";
+        return;
+    }
+    const std::string sums{FetchSmall(url(r.sums_name), MAX_SUMS_BYTES, tmp, cancelled)};
+    r.sha256 = SumOf(sums, r.asset_name);
+    if (r.sha256.empty()) {
+        r.reason = strprintf("SHA256SUMS has no line for %s.", r.asset_name);
+        return;
+    }
+    if (!r.pack_asset.empty()) {
+        r.pack_sha256 = SumOf(sums, r.pack_asset);
+        if (r.pack_sha256.empty()) {
+            r.reason = strprintf("SHA256SUMS has no line for %s.", r.pack_asset);
+            return;
+        }
+    }
+    r.binaries = AllowedBinaries(stem, platform);
+    std::vector<std::string> keys{SumsKeys()};
+    keys.insert(keys.end(), m_options.extra_keys.begin(), m_options.extra_keys.end());
+    // P3's hook: once a release key of the family is there, the sums must be signed by it (left out is no way around it);
+    // the sums verified are the very ones the package is checked against.
+    if (!keys.empty()) {
+        if (!r.sums_signature) {
+            r.reason = "Not signed by the release key of this app: refused.";
+            return;
+        }
+        const std::string sig{FetchSmall(url(r.sums_name + ".sig"), MAX_SIG_BYTES, tmp, cancelled)};
+        if (!VerifyManifestSignature(sums, sig, keys, SUMS_SIGNATURE_TAG)) {
+            r.reason = "Its signature does not verify with the release key of this app: refused.";
+            return;
+        }
+        r.signed_ok = true;
+    } else {
+        r.unsigned_only = true;
+    }
+    if (m_options.signatures == "require" && !r.signed_ok) {
+        r.reason = "Signed releases are required, and this app has no release key to check them yet.";
+        return;
+    }
+    r.compatible = true;
+}
+
 void ModuleInstaller::Check(const std::string& stem, Release& r, const std::string& base, const fs::path& tmp, const std::function<bool()>& cancelled) const
 {
     const Repo& repo{*FindRepo(stem)};
+    if (repo.latest) return CheckLatest(stem, r, base, tmp, cancelled);
     const std::string& prefix{repo.prefix};
     const auto url{[&](const std::string& name) { return strprintf("%s/%s/%s/releases/download/%s/%s", base, repo.owner, repo.repo, r.tag, name); }};
     const std::string platform{m_options.platform};
@@ -680,15 +825,24 @@ std::vector<ModuleInstaller::Release> ModuleInstaller::List(const std::string& s
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     const fs::path tmp{dir / fs::PathFromString(".fetch-" + Random8())};
-    // Pre-releases too: the releases of the test network are pre-releases (GitHub's "latest" leaves them out).
+    // Pre-releases too: the releases of the test network are pre-releases (GitHub's "latest" leaves them out). Backbone's
+    // sidechains: their latest release alone (GitHub's "latest": never a pre-release nor a draft).
     const Repo& repo{*FindRepo(stem)};
-    const std::string api{FetchSmall(strprintf("%s/repos/%s/%s/releases?per_page=10", m_options.api_base, repo.owner, repo.repo), MAX_API_BYTES, tmp, cancelled)};
+    const std::string api{FetchSmall(repo.latest ? strprintf("%s/repos/%s/%s/releases/latest", m_options.api_base, repo.owner, repo.repo)
+                                                 : strprintf("%s/repos/%s/%s/releases?per_page=10", m_options.api_base, repo.owner, repo.repo),
+                                     MAX_API_BYTES, tmp, cancelled)};
     UniValue list;
-    if (!list.read(api) || !list.isArray()) throw Error("The list of the releases cannot be read.");
+    if (!list.read(api) || !(repo.latest ? list.isObject() : list.isArray())) throw Error("The list of the releases cannot be read.");
+    if (repo.latest) {
+        UniValue one{UniValue::VARR};
+        one.push_back(list);
+        list = std::move(one);
+    }
     std::vector<Release> out;
     for (size_t i{0}; i < list.size() && out.size() < 10; ++i) {
         const UniValue& rel{list[i]};
         if (!rel.isObject() || rel.find_value("draft").isTrue()) continue;
+        if (repo.latest && rel.find_value("prerelease").isTrue()) continue;
         Release r;
         r.tag = rel.find_value("tag_name").isStr() ? rel.find_value("tag_name").get_str() : "";
         if (!IsValidTag(r.tag)) continue;
@@ -697,7 +851,24 @@ std::vector<ModuleInstaller::Release> ModuleInstaller::List(const std::string& s
         r.published = rel.find_value("published_at").isStr() ? rel.find_value("published_at").get_str().substr(0, 40) : "";
         const std::string archive{ArchiveName(stem, r.tag, m_options.platform)};
         const UniValue& assets{rel.find_value("assets")};
-        for (size_t a{0}; assets.isArray() && a < assets.size(); ++a) {
+        if (repo.latest) {
+            std::vector<std::string> names;
+            std::map<std::string, uint64_t> sizes;
+            for (size_t a{0}; assets.isArray() && a < assets.size(); ++a) {
+                const UniValue& asset{assets[a]};
+                if (!asset.isObject() || !asset.find_value("name").isStr() || !IsValidAssetName(asset.find_value("name").get_str())) continue;
+                names.push_back(asset.find_value("name").get_str());
+                sizes[names.back()] = asset.find_value("size").isNum() ? asset.find_value("size").getInt<int64_t>() : 0;
+            }
+            r.asset_name = LatestArchive(repo, names, m_options.platform);
+            if (!r.asset_name.empty()) r.asset_size = sizes[r.asset_name];
+            r.pack_asset = LatestPack(repo, names);
+            if (!r.pack_asset.empty()) r.pack_size = sizes[r.pack_asset];
+            r.sums_name = "SHA256SUMS";
+            r.sums = sizes.contains(r.sums_name);
+            r.sums_signature = sizes.contains(r.sums_name + ".sig");
+        }
+        for (size_t a{0}; !repo.latest && assets.isArray() && a < assets.size(); ++a) {
             const UniValue& asset{assets[a]};
             if (!asset.isObject() || !asset.find_value("name").isStr()) continue;
             const std::string name{asset.find_value("name").get_str()};
@@ -883,14 +1054,18 @@ void ModuleInstaller::Install(const std::string& stem, const std::string& tag, b
     const SidechainNodes::Output listing{SidechainNodes::Run({"tar", zip ? "-tf" : "-tzf", archive}, 300)};
     if (listing.code != 0) throw Error(listing.code == -1 ? "Unpacking needs the program tar, which could not be started." : "The package cannot be read as an archive.");
     std::map<std::string, std::string> members;
+    std::vector<std::string> names;
     for (const auto& raw : util::SplitString(listing.out, '\n')) {
         std::string name{TrimString(raw, "\r")};
         if (name.empty()) continue;
         if (UnsafeMember(name)) throw Error(strprintf("The package holds a file that would go outside its folder (%s): refused.", name.substr(0, 120)));
+        names.push_back(name);
+        // A folder is not a program.
+        if (name.ends_with('/')) continue;
         std::string trimmed{name};
-        while (trimmed.ends_with('/')) trimmed.pop_back();
         const auto parts{util::SplitString(trimmed, '/')};
-        if (parts.empty() || parts.size() > 2) continue;
+        // Backbone's sidechains have their programs in a folder of the package (bin/, daemon/ on Windows).
+        if (parts.empty() || parts.size() > (repo.latest ? 4 : 2)) continue;
         const std::string base{parts.back()};
         if (std::ranges::find(r.binaries, base) == r.binaries.end()) continue;
         if (members.contains(base)) throw Error(strprintf("The package holds %s twice: refused.", base));
@@ -916,12 +1091,48 @@ void ModuleInstaller::Install(const std::string& stem, const std::string& tag, b
         std::filesystem::permissions(to, std::filesystem::perms::owner_all | std::filesystem::perms::group_read | std::filesystem::perms::group_exec | std::filesystem::perms::others_read | std::filesystem::perms::others_exec, std::filesystem::perm_options::replace, ec);
     }
     RemoveAll(unpack);
+    // Its pages (doc/unified-app.md §26): in the package (Thunder's pack/thunder/), else the release's pages' asset, checked
+    // by the same sums; none: the copy built into the app shows it.
+    bool pages{false};
+    if (repo.latest) {
+        SetJob(stem, [&](Job& j) { j.state = "unpacking"; });
+        pages = UnpackPack(stem, part, zip, names, staging / ".pack", staging / "pack");
+        if (!pages && !r.pack_asset.empty()) {
+            const fs::path pack_part{dir / fs::PathFromString(".download-" + tag + "-pack.part")};
+            struct Remove {
+                fs::path p;
+                ~Remove() { RemoveAll(p); }
+            } remove_pack{pack_part};
+            FetchRequest preq;
+            preq.url = strprintf("%s/%s/%s/releases/download/%s/%s", m_options.download_base, repo.owner, repo.repo, tag, r.pack_asset);
+            preq.max_bytes = r.pack_size;
+            preq.expected = r.pack_size;
+            preq.out = pack_part;
+            preq.cancelled = cancelled;
+            const FetchResult pgot{m_options.fetcher(preq)};
+            if (pgot.cancelled || (cancelled && cancelled())) throw Cancelled{};
+            if (!pgot.ok) throw Error(strprintf("The download of its pages failed: %s. Nothing was installed; try again.", pgot.error));
+            if (FileSha256(pack_part) != r.pack_sha256) throw Error("Its pages do not match their SHA-256: they were changed or damaged on their way. Nothing was installed.");
+            const SidechainNodes::Output plist{SidechainNodes::Run({"tar", "-tzf", fs::PathToString(pack_part)}, 300)};
+            if (plist.code != 0) throw Error("Its pages cannot be read as an archive.");
+            std::vector<std::string> pnames;
+            for (const auto& raw : util::SplitString(plist.out, '\n')) {
+                std::string name{TrimString(raw, "\r")};
+                if (name.empty()) continue;
+                if (UnsafeMember(name)) throw Error(strprintf("Its pages hold a file that would go outside their folder (%s): refused.", name.substr(0, 120)));
+                pnames.push_back(name);
+            }
+            pages = UnpackPack(stem, pack_part, /*zip=*/false, pnames, staging / ".pack", staging / "pack");
+            if (!pages) throw Error(strprintf("Its pages (%s) have no pack/%s/pack.json: refused.", r.pack_asset, stem));
+        }
+    }
     UniValue info{UniValue::VOBJ};
     info.pushKV("stem", stem);
     info.pushKV("tag", tag);
     info.pushKV("file", r.asset_name);
     info.pushKV("sha256", r.sha256);
     info.pushKV("signed", r.signed_ok);
+    info.pushKV("pages", pages);
     info.pushKV("installed", FormatISO8601DateTime(GetTime()));
     WriteAtomic(staging / "release.json", info.write(2) + "\n");
     if (cancelled && cancelled()) throw Cancelled{};
@@ -949,6 +1160,53 @@ void ModuleInstaller::Install(const std::string& stem, const std::string& tag, b
     }
     if (activate) Activate(stem, tag);
     else Prune(stem, tag);
+}
+
+bool ModuleInstaller::UnpackPack(const std::string& stem, const fs::path& archive, bool zip, const std::vector<std::string>& listing, const fs::path& work, const fs::path& dest) const
+{
+    // The folder of its pages: pack/<stem>/ (any depth), the one holding pack.json.
+    const std::string marker{"pack/" + stem + "/pack.json"};
+    std::string root;
+    for (const auto& name : listing) {
+        if (name == marker || name.ends_with("/" + marker)) {
+            if (!root.empty()) throw Error("The package holds its pages twice: refused.");
+            root = name.substr(0, name.size() - std::string_view{"pack.json"}.size());
+        }
+    }
+    if (root.empty()) return false;
+    size_t count{0};
+    for (const auto& name : listing) {
+        if (name.starts_with(root)) ++count;
+    }
+    if (count > MAX_PACK_FILES) throw Error("Its pages hold too many files: refused.");
+    RemoveAll(work);
+    std::error_code ec;
+    std::filesystem::create_directories(work, ec);
+    if (ec) throw Error(strprintf("Cannot make the folder %s: %s", fs::PathToString(work), ec.message()));
+    const SidechainNodes::Output out{SidechainNodes::Run({"tar", zip ? "-xf" : "-xzf", fs::PathToString(archive), "-C", fs::PathToString(work), "--no-same-owner", "--", root}, 600)};
+    if (out.code != 0) throw Error(strprintf("Its pages could not be unpacked: %s", TrimString(out.err).substr(0, 200)));
+    // Plain files and folders only (no link), bounded.
+    const fs::path from{work / fs::PathFromString(root)};
+    uint64_t bytes{0};
+    for (auto it{std::filesystem::recursive_directory_iterator(from, ec)}; !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        const auto status{std::filesystem::symlink_status(it->path(), ec)};
+        if (ec || (!std::filesystem::is_regular_file(status) && !std::filesystem::is_directory(status))) throw Error("Its pages hold something that is not a plain file (a link?): refused.");
+        if (std::filesystem::is_regular_file(status)) bytes += std::filesystem::file_size(it->path(), ec);
+        if (bytes > MAX_PACK_BYTES) throw Error("Its pages are larger than allowed: refused.");
+    }
+    if (ec) throw Error(strprintf("Its pages could not be read: %s", ec.message()));
+    UniValue pack;
+    const auto text{ReadFile(from / "pack.json", MAX_MANIFEST_BYTES)};
+    if (!text || !pack.read(*text) || !pack.isObject()) throw Error("Its pages' pack.json cannot be read: refused.");
+    if (!pack.find_value("stem").isStr() || pack.find_value("stem").get_str() != stem) throw Error("Its pages are of another sidechain: refused.");
+    const UniValue& api{pack.find_value("hostApi")};
+    if (!api.isNum() || api.getInt<int>() != HOST_API) {
+        throw Error(strprintf("Its pages speak another version of the host (%s, this app %d): update the app.", api.isNum() ? api.getValStr() : std::string{"none"}, HOST_API));
+    }
+    std::filesystem::rename(from, dest, ec);
+    if (ec) throw Error(strprintf("Cannot install its pages: %s", ec.message()));
+    RemoveAll(work);
+    return true;
 }
 
 void ModuleInstaller::InstallNow(const std::string& stem, const std::string& tag, bool activate, bool allow_older)

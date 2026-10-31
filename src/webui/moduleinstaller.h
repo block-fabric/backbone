@@ -34,6 +34,14 @@ namespace webui {
  * programs named unpacked into <bin root>/<stem>/<tag>/, made current atomically, the version before kept for rollback.
  *
  * A release without a manifest, or of another host API, is not compatible: it is never downloaded.
+ *
+ * Backbone's sidechains (the eCash family, doc/unified-app.md §26) are taken another way, the one their releases have:
+ * only the repository's latest release (GitHub's releases/latest: never a pre-release), its package for this computer
+ * found by its name (<prefix>-<version>-<platform>.tar.gz, .zip on win64), checked against the release's SHA256SUMS; the
+ * programs named found anywhere in the package, and its pages (pack/<stem>/ in the package, else the release's
+ * <prefix>-<version>-pack.tar.gz) installed beside them. SHA256SUMS.sig (BIP340, over SHA256SUMS) is checked against the
+ * release keys of the family when there are some (P3: the offline key; -sidechainsignatures=require then refuses an
+ * unsigned release). The version made current before is kept for rollback, as above.
  */
 class ModuleInstaller
 {
@@ -47,6 +55,11 @@ public:
     static constexpr uint64_t MAX_ARCHIVE_BYTES{200 * 1024 * 1024};
     //! The tag of the hash a manifest is signed over (BIP340 tagged hash of the manifest's bytes).
     static constexpr std::string_view SIGNATURE_TAG{"ChainsReleaseManifest/1"};
+    //! The tag of the hash the SHA256SUMS of a latest-release repository are signed over (SHA256SUMS.sig).
+    static constexpr std::string_view SUMS_SIGNATURE_TAG{"BackboneReleaseSums/1"};
+    //! A pack's files: at most so many, of so many bytes in all (its fonts and languages: about 5 MB).
+    static constexpr uint64_t MAX_PACK_BYTES{64 * 1024 * 1024};
+    static constexpr size_t MAX_PACK_FILES{4000};
 
     /**
      * Where the releases of a sidechain are: the one table of the repositories asked (no other is ever asked, and the
@@ -59,16 +72,21 @@ public:
         std::string owner;
         std::string repo;
         std::string prefix;
+        //! Backbone's sidechains: the latest release only, checked by its SHA256SUMS (no manifest), its pages with it.
+        bool latest{false};
+        //! The programs installed (without .exe), the first one the daemon; empty: <stem>d and <stem>-cli.
+        std::vector<std::string> programs{};
     };
     /**
-     * The table of the network: Chains' repositories on the Chains networks; none on the eCash networks (Backbone downloads
-     * nothing until its releases are signed with a key built into it, P3 of doc/unified-app.md "Backbone (eCash)").
+     * The table of the network: Chains' repositories on the Chains networks; Backbone's on the eCash networks (and on
+     * regtest with eCash's rules, ecash_regtest): block-fabric/backbone-flush and block-fabric/backbone-thunder, their
+     * latest releases (doc/unified-app.md §26).
      */
-    static const std::vector<Repo>& Repos(ChainType chain);
+    static const std::vector<Repo>& Repos(ChainType chain, bool ecash_regtest = false);
     /** The table of the network the app runs (UseNetwork), Chains' until it is set. */
     static const std::vector<Repo>& Repos();
     /** The network the app runs, for Repos() and what follows from it: set once, when the network is known (App). */
-    static void UseNetwork(ChainType chain);
+    static void UseNetwork(ChainType chain, bool ecash_regtest = false);
     static const Repo* FindRepo(std::string_view stem);
     /** The sidechains whose releases can be downloaded (the stems of Repos). */
     static std::vector<std::string> AllowedStems();
@@ -85,8 +103,16 @@ public:
     static int CompareTags(std::string_view a, std::string_view b);
     /** The release keys built into the app (x-only public keys, hex). Empty until the maintainer makes the key. */
     static const std::vector<std::string>& ReleaseKeys();
+    /** The release keys of Backbone's sidechains (SHA256SUMS.sig): empty until P3 (the key made offline). */
+    static const std::vector<std::string>& SumsKeys();
     /** Whether a signature (hex, 64 bytes) of a manifest verifies under one of the keys (hex x-only). */
-    static bool VerifyManifestSignature(std::string_view manifest, std::string_view sig_hex, const std::vector<std::string>& keys);
+    static bool VerifyManifestSignature(std::string_view manifest, std::string_view sig_hex, const std::vector<std::string>& keys, std::string_view tag = SIGNATURE_TAG);
+    /** The file of a latest-release repository's package for a platform among a release's files, "" when there is not one alone. */
+    static std::string LatestArchive(const Repo& repo, const std::vector<std::string>& names, const std::string& platform);
+    /** Its pages' asset among a release's files (<prefix>-<version>-pack.tar.gz), "". */
+    static std::string LatestPack(const Repo& repo, const std::vector<std::string>& names);
+    /** The SHA-256 a SHA256SUMS text gives a file ("" when none). */
+    static std::string SumOf(std::string_view sums, std::string_view name);
 
     struct FetchRequest {
         std::string url;
@@ -147,6 +173,12 @@ public:
         std::string reason;
         std::string sha256;
         std::vector<std::string> binaries;
+        //! Latest-release repositories: the name of the sums file, its signature, and the pages' asset ("" none) with its hash.
+        std::string sums_name;
+        bool sums_signature{false};
+        std::string pack_asset;
+        uint64_t pack_size{0};
+        std::string pack_sha256;
     };
 
     ModuleInstaller(Options options, NotifyFn notify = {});
@@ -169,6 +201,8 @@ public:
     std::vector<std::string> Installed(const std::string& stem) const;
     /** The folder of the current version, when its daemon is there. */
     std::optional<fs::path> CurrentDir(const std::string& stem) const;
+    /** The pages of the current version (its pack/, with pack.json), when the release had them. */
+    std::optional<fs::path> CurrentPackDir(const std::string& stem) const;
 
     /**
      * Download, check and install a release now (the thread of a job, the tests). activate: made current at once
@@ -219,6 +253,10 @@ private:
     std::string FetchSmall(const std::string& url, uint64_t max, const fs::path& tmp, const std::function<bool()>& cancelled) const;
     std::vector<Release> List(const std::string& stem, const std::function<bool()>& cancelled) const;
     void Check(const std::string& stem, Release& r, const std::string& base, const fs::path& tmp, const std::function<bool()>& cancelled) const;
+    //! Check of a latest-release repository's release (its SHA256SUMS, its signature when keys are there).
+    void CheckLatest(const std::string& stem, Release& r, const std::string& base, const fs::path& tmp, const std::function<bool()>& cancelled) const;
+    //! The pages of a package (pack/<stem>/ in it, any depth) unpacked into `dest`: false when it has none. Throws.
+    bool UnpackPack(const std::string& stem, const fs::path& archive, bool zip, const std::vector<std::string>& listing, const fs::path& work, const fs::path& dest) const;
     void Install(const std::string& stem, const std::string& tag, bool activate, bool allow_older, const std::function<bool()>& cancelled);
     void SetJob(const std::string& stem, const std::function<void(Job&)>& change, bool force_notify = false);
 

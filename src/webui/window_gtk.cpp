@@ -74,16 +74,20 @@ void ServePackAsset(WebKitURISchemeRequest* request, gpointer)
 {
     const char* uri{webkit_uri_scheme_request_get_uri(request)};
     const auto path{uri ? PackAssetPath(uri) : std::nullopt};
-    const Asset* asset{path ? FindAsset(BuiltinAssets(), *path) : nullptr};
-    if (!asset) {
+    // Built in, or from the sidechain's own release (assets.h PackFile).
+    const auto file{path ? PackFile(*path) : std::nullopt};
+    if (!file) {
         GError* error{g_error_new_literal(G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Not found")};
         webkit_uri_scheme_request_finish_error(request, error);
         g_error_free(error);
         return;
     }
-    GInputStream* stream{g_memory_input_stream_new_from_data(asset->data.data(), asset->data.size(), nullptr)};
-    WebKitURISchemeResponse* response{webkit_uri_scheme_response_new(stream, asset->data.size())};
-    const std::string_view mime{MimeType(asset->path)};
+    // A copy the stream owns (a file of a release is read anew each time).
+    GBytes* bytes{g_bytes_new(file->data(), file->size())};
+    GInputStream* stream{g_memory_input_stream_new_from_bytes(bytes)};
+    g_bytes_unref(bytes);
+    WebKitURISchemeResponse* response{webkit_uri_scheme_response_new(stream, file->size())};
+    const std::string_view mime{MimeType(*path)};
     const std::string content_type{mime.substr(0, mime.find(';'))};
     webkit_uri_scheme_response_set_content_type(response, content_type.c_str());
     SoupMessageHeaders* headers{soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE)};

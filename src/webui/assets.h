@@ -5,6 +5,8 @@
 #ifndef BITCOIN_WEBUI_ASSETS_H
 #define BITCOIN_WEBUI_ASSETS_H
 
+#include <util/fs.h>
+
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -51,6 +53,21 @@ std::optional<std::string> PackAssetPath(std::string_view uri);
 std::string PackContentSecurityPolicy();
 /** Whether the app's own origin serves a path: not the packs (served under their own origins only). */
 bool AppServes(std::string_view path);
+
+/**
+ * The pages of a sidechain from its own release (doc/unified-app.md §26, the folder of pack/<stem>/ the installer put next
+ * to its program), in place of the copy built into the app; nullopt: the copy built in again. A folder whose pack.json is
+ * not of that sidechain, or of another host version, is not taken. Thread-safe.
+ */
+void SetPackFolder(const std::string& stem, const std::optional<fs::path>& folder);
+std::optional<fs::path> PackFolder(const std::string& stem);
+/**
+ * A file of a pack (/packs/<stem>/<file>, or /packs/shim.js): from the sidechain's own folder when it has one (only from
+ * it: never a mix of two versions), else built in; its page with the shim loaded first. Plain files of that folder only.
+ */
+std::optional<std::string> PackFile(std::string_view path);
+/** A pack's page with the shim (/packs/shim.js) loaded first, before its own script (packs.mjs withShim). */
+std::string WithShim(std::string html);
 
 /**
  * One self-contained HTML document with every script, style sheet and font of

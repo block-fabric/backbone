@@ -131,8 +131,33 @@ void SidechainPages::Stop()
 UniValue SidechainPages::Packs()
 {
     const Asset* asset{FindAsset(BuiltinAssets(), "/packs/index.json")};
-    UniValue list;
-    if (!asset || !list.read(AssetText(*asset)) || !list.isArray()) return UniValue{UniValue::VARR};
+    UniValue built;
+    if (!asset || !built.read(AssetText(*asset)) || !built.isArray()) built = UniValue{UniValue::VARR};
+    // A sidechain's pages from its own release take the place of the copy built in (doc/unified-app.md §26): its pack.json.
+    UniValue list{UniValue::VARR};
+    std::set<std::string> seen;
+    const auto from_release{[&](const std::string& stem) -> std::optional<UniValue> {
+        if (!PackFolder(stem)) return std::nullopt;
+        const auto text{PackFile("/packs/" + stem + "/pack.json")};
+        UniValue pack;
+        if (!text || !pack.read(*text) || !pack.isObject()) return std::nullopt;
+        UniValue entry{UniValue::VOBJ};
+        for (const char* key : {"stem", "name", "hostApi", "commit", "brand", "coin", "rpc", "dropin"}) {
+            if (!pack.find_value(key).isNull()) entry.pushKV(key, pack.find_value(key));
+        }
+        entry.pushKV("source", "release");
+        return entry;
+    }};
+    for (const UniValue& p : built.getValues()) {
+        const std::string stem{Str(p, "stem")};
+        seen.insert(stem);
+        if (auto own{from_release(stem)}) list.push_back(std::move(*own));
+        else list.push_back(p);
+    }
+    for (const SidechainSupervisor::Spec& spec : SidechainSupervisor::Catalog()) {
+        if (seen.contains(spec.stem)) continue;
+        if (auto own{from_release(spec.stem)}) list.push_back(std::move(*own));
+    }
     return list;
 }
 
@@ -143,7 +168,8 @@ std::vector<std::string> SidechainPages::PackMethods(const std::string& stem)
     for (const UniValue& p : packs.getValues()) {
         if (Str(p, "stem") != stem) continue;
         const UniValue& rpc{Param(p, "rpc")};
-        for (const char* group : {"reads", "confirmed", "host"}) {
+        // A drop-in's pack names the protocol of its app RPC too (webuihost, appserverproof, ...).
+        for (const char* group : {"protocol", "reads", "confirmed", "host"}) {
             const UniValue& names{Param(rpc, group)};
             if (!names.isArray()) continue;
             for (const UniValue& n : names.getValues()) {
@@ -157,9 +183,9 @@ std::vector<std::string> SidechainPages::PackMethods(const std::string& stem)
 std::string SidechainPages::Logo(const std::string& stem)
 {
     if (stem.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789") != std::string::npos) return {};
-    const Asset* asset{FindAsset(BuiltinAssets(), "/packs/" + stem + "/icon-256.png")};
-    if (!asset) return {};
-    std::string url{"data:image/png;base64," + EncodeBase64(asset->data)};
+    const auto icon{PackFile("/packs/" + stem + "/icon-256.png")};
+    if (!icon || icon->size() > 512 * 1024) return {};
+    std::string url{"data:image/png;base64," + EncodeBase64(*icon)};
     return dialog::IsImageDataUrl(url) ? url : std::string{};
 }
 
@@ -393,8 +419,8 @@ UniValue SidechainPages::Local(const std::string& stem, const std::string& metho
         UniValue out{UniValue::VOBJ};
         out.pushKV("code", language);
         UniValue catalog;
-        const Asset* asset{language.empty() || language.find_first_of("/.\\") != std::string::npos ? nullptr : FindAsset(BuiltinAssets(), "/packs/" + stem + "/locales/" + language + ".json")};
-        if (asset && catalog.read(AssetText(*asset)) && catalog.isObject()) {
+        const auto words{language.empty() || language.find_first_of("/.\\") != std::string::npos ? std::nullopt : PackFile("/packs/" + stem + "/locales/" + language + ".json")};
+        if (words && catalog.read(*words) && catalog.isObject()) {
             out.pushKV("name", catalog.find_value("name"));
             out.pushKV("rtl", catalog.find_value("rtl"));
             out.pushKV("messages", catalog.find_value("gui"));

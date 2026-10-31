@@ -5,10 +5,14 @@
 #include <webui/assets.h>
 
 #include <crypto/sha256.h>
+#include <sync.h>
+#include <univalue.h>
 #include <util/strencodings.h>
 
 #include <algorithm>
 #include <array>
+#include <fstream>
+#include <map>
 #include <utility>
 #include <vector>
 
@@ -138,6 +142,76 @@ std::string PackContentSecurityPolicy()
 bool AppServes(std::string_view path)
 {
     return !path.starts_with("/packs/");
+}
+
+namespace {
+Mutex g_pack_mutex;
+std::map<std::string, fs::path> g_pack_folders GUARDED_BY(g_pack_mutex);
+
+std::optional<std::string> ReadPlainFile(const fs::path& path, uint64_t max)
+{
+    std::error_code ec;
+    const auto status{std::filesystem::symlink_status(path, ec)};
+    if (ec || !std::filesystem::is_regular_file(status)) return std::nullopt;
+    if (std::filesystem::file_size(path, ec) > max || ec) return std::nullopt;
+    std::ifstream file{path.std_path(), std::ios::binary};
+    if (!file) return std::nullopt;
+    return std::string{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+} // namespace
+
+void SetPackFolder(const std::string& stem, const std::optional<fs::path>& folder)
+{
+    std::optional<fs::path> take;
+    if (folder) {
+        UniValue pack;
+        const auto text{ReadPlainFile(*folder / "pack.json", 64 * 1024)};
+        // hostApi 1: what the app's host speaks (sidechainpages.h HOST_API).
+        if (text && pack.read(*text) && pack.isObject() && pack.find_value("stem").isStr() && pack.find_value("stem").get_str() == stem &&
+            pack.find_value("hostApi").isNum() && pack.find_value("hostApi").getInt<int>() == 1) {
+            take = *folder;
+        }
+    }
+    LOCK(g_pack_mutex);
+    if (take) g_pack_folders[stem] = *take;
+    else g_pack_folders.erase(stem);
+}
+
+std::optional<fs::path> PackFolder(const std::string& stem)
+{
+    LOCK(g_pack_mutex);
+    const auto it{g_pack_folders.find(stem)};
+    if (it == g_pack_folders.end()) return std::nullopt;
+    return it->second;
+}
+
+std::string WithShim(std::string html)
+{
+    if (html.find("/packs/shim.js") != std::string::npos) return html;
+    const size_t at{html.find("<script")};
+    if (at == std::string::npos) return html;
+    html.insert(at, "<script src=\"/packs/shim.js\"></script>\n    ");
+    return html;
+}
+
+std::optional<std::string> PackFile(std::string_view path)
+{
+    if (!path.starts_with("/packs/") || path.find("..") != std::string_view::npos || path.find('\\') != std::string_view::npos || path.find("//") != std::string_view::npos) return std::nullopt;
+    std::string_view rest{path.substr(std::string_view{"/packs/"}.size())};
+    const size_t slash{rest.find('/')};
+    if (slash != std::string_view::npos && slash > 0) {
+        const std::string stem{rest.substr(0, slash)};
+        std::string_view file{rest.substr(slash + 1)};
+        if (file.empty()) file = "index.html";
+        if (const auto folder{PackFolder(stem)}) {
+            auto text{ReadPlainFile(*folder / fs::PathFromString(std::string{file}), 32 * 1024 * 1024)};
+            if (text && file == "index.html") return WithShim(std::move(*text));
+            return text;
+        }
+    }
+    const Asset* asset{FindAsset(BuiltinAssets(), path)};
+    if (!asset) return std::nullopt;
+    return std::string{Text(*asset)};
 }
 
 std::optional<std::string> InlineDocument(std::span<const Asset> assets)
