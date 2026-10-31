@@ -298,7 +298,9 @@ BOOST_FIXTURE_TEST_SUITE(chainadapter_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(a_row_of_capabilities_for_every_chain_of_the_catalog)
 {
     for (const SidechainSupervisor::Spec& s : SidechainSupervisor::Catalog()) BOOST_CHECK_MESSAGE(ChainAdapter::Find(s.stem), s.stem);
-    BOOST_CHECK_EQUAL(ChainAdapter::Table().size(), SidechainSupervisor::Catalog().size());
+    // Chains' seven, and Backbone's Flush (Thunder's row is shared: a drop-in on eCash, ecash_sidechains_tests.cpp).
+    BOOST_CHECK_EQUAL(ChainAdapter::Table().size(), SidechainSupervisor::Catalog().size() + 1);
+    for (const SidechainSupervisor::Spec& s : SidechainSupervisor::Catalog(ChainType::ECASH)) BOOST_CHECK_MESSAGE(ChainAdapter::Find(s.stem), s.stem);
     BOOST_CHECK(ChainAdapter::Find("layers")->assets && ChainAdapter::Find("layers")->staking && ChainAdapter::Find("layers")->dex);
     BOOST_CHECK(ChainAdapter::Find("bitassets")->assets && !ChainAdapter::Find("bitassets")->staking);
     BOOST_CHECK(ChainAdapter::Find("fastblocks")->staking && !ChainAdapter::Find("fastblocks")->assets);

@@ -20,6 +20,7 @@ add_executable(test_chains-app
   seed_tests.cpp
   singleinstance_tests.cpp
   supervisor_tests.cpp
+  ecash_sidechains_tests.cpp
   sidechainpages_tests.cpp
   windowframe_tests.cpp
   $<$<BOOL:${ENABLE_WALLET}>:walletapi_tests.cpp>
