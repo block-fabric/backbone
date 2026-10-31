@@ -2,7 +2,7 @@
 // pinned commit by scripts/packs.mjs, written into the packs' index, named by the app in that daemon's -rpcwhitelist.
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error: a build script of plain JavaScript, without types.
-import { chainMethods, withShim } from '../../scripts/packs.mjs';
+import { chainMethods, sameKit, withShim } from '../../scripts/packs.mjs';
 
 const LOCAL = `
 std::map<std::string, Bridge::Thread> RpcMethods()
@@ -44,5 +44,15 @@ describe('the methods a pack uses of its daemon', () => {
   });
   it("puts the shim before the pack's own script", () => {
     expect(withShim('<head><meta charset="utf-8"><script type="module" src="x.js"></script></head>')).toContain('<script src="/packs/shim.js"></script>\n    <script type="module"');
+  });
+});
+
+describe('the kit of a pack', () => {
+  it('is the app\'s: every package of the pack at the app\'s version (the app may have more)', () => {
+    const app = { dependencies: { svelte: '5.57.2', '@fontsource/barlow': '5.3.0' }, devDependencies: { vite: '8.3.4' } };
+    expect(sameKit({ dependencies: { svelte: '5.57.2' }, devDependencies: { vite: '8.3.4' } }, app)).toBe(true);
+    expect(sameKit({ dependencies: { svelte: '5.57.2', '@fontsource/barlow': '5.3.0' } }, app)).toBe(true);
+    expect(sameKit({ dependencies: { svelte: '5.57.1' } }, app)).toBe(false);
+    expect(sameKit({ dependencies: { other: '1.0.0' } }, app)).toBe(false);
   });
 });

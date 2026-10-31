@@ -3,7 +3,8 @@
 // scripts/pack.mjs), checked, and put into the interface of the app with the shim that routes its bridge here.
 //   node scripts/packs.mjs --config <sidechains.json> --repos <dir> --out <dist>/packs --work <dir>
 // Fails (and so the build) when a commit is missing, a pack speaks another hostApi, or was made with other packages of
-// the interface kit than this app's (package.json): a change of the kit makes the packs be bumped together.
+// the interface kit than this app's (package.json): every package of the pack is the app's, at the same version (the app
+// may have more: a font of one pack's, Flush's Barlow); a change of the kit makes the packs be bumped together.
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -18,7 +19,12 @@ const arg = (name) => {
 };
 
 const own = JSON.parse(readFileSync(join(APP, 'package.json'), 'utf8'));
-const kit = (pkg) => JSON.stringify({ dependencies: pkg.dependencies ?? {}, devDependencies: pkg.devDependencies ?? {} });
+/** Whether a pack's packages are all the app's, at the same versions (it is built with the app's node_modules). */
+export function sameKit(pkg, app) {
+  const mine = { ...(app.dependencies ?? {}), ...(app.devDependencies ?? {}) };
+  const theirs = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+  return Object.entries(theirs).every(([name, version]) => mine[name] === version);
+}
 
 /** Turns the pack's page into one that loads the shim first (a classic script: before its module). */
 export function withShim(html) {
@@ -105,7 +111,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     run('tar', ['-x', '-C', src], undefined, tar);
     const app = join(src, 'src/webui/app');
     const pkg = JSON.parse(readFileSync(join(app, 'package.json'), 'utf8'));
-    if (kit(pkg) !== kit(own)) throw new Error(`packs: ${p.stem} at ${p.commit.slice(0, 10)} was made with other packages than this app's interface: bump it to a commit with this kit`);
+    if (!sameKit(pkg, own)) throw new Error(`packs: ${p.stem} at ${p.commit.slice(0, 10)} was made with other packages than this app's interface: bump it to a commit with this kit`);
     if (!existsSync(join(app, 'scripts/pack.mjs'))) throw new Error(`packs: ${p.stem} at ${p.commit.slice(0, 10)} cannot be built as a pack (no scripts/pack.mjs): bump it`);
     // The same packages: this app's, not downloaded again.
     symlinkSync(join(APP, 'node_modules'), join(app, 'node_modules'), 'dir');
