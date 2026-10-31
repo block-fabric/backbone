@@ -41,6 +41,8 @@ namespace webui {
 class SidechainSupervisor
 {
 public:
+    /** How a sidechain's program is run and spoken to. */
+    enum class Kind { TEMPLATE, DROPIN };
     /** A sidechain this app knows (the catalog built in; a sidechain added by hand comes in phase 2). */
     struct Spec {
         std::string stem;
@@ -58,17 +60,33 @@ public:
         //! Whether its wallet may get its keys from the backup phrase (doc §23). zSide: never for now (its shielded keys are
         //! not made from the phrase, so its private funds would not be brought back by it): always a wallet of its own.
         bool phrase_keys{true};
+        //! TEMPLATE: a daemon of our sidechain template (Core's flags, its host over RPC, the mainchain over JSON-RPC: Layers,
+        //! Flush). DROPIN: a drop-in client of a LayerTwo chain (its own flags, the app layer --bt-app-*, the mainchain over
+        //! the enforcer's gRPC: Thunder), doc/unified-app.md §25.7.
+        Kind kind{Kind::TEMPLATE};
+        //! Its program, "" for <stem>d (the Chains catalog's).
+        std::string program;
+        //! Its ports on the network of the catalog (the eCash family's rows; 0: <net>9<code>54 and the next one): the RPC
+        //! this app talks to (a drop-in's app RPC), its peers, and a drop-in's own LayerTwo RPC.
+        int rpc_port{0};
+        int p2p_port{0};
+        int l2l_rpc_port{0};
     };
     /**
-     * The catalog of a network: Chains' sidechains on the Chains networks (MAIN, TESTNET, SIGNET, REGTEST); none yet on
-     * the eCash networks (Backbone, doc/unified-app.md "Backbone (eCash)": Flush and Thunder come in P1).
+     * The catalog of a network, one per family of networks: Chains' sidechains on the Chains networks (MAIN, TESTNET,
+     * SIGNET, REGTEST); Backbone's on the eCash networks (doc/unified-app.md §26: Flush and Thunder, each on the networks it
+     * has), and on regtest with eCash's rules (ecash_regtest: -testecash, the tests).
      */
-    static const std::vector<Spec>& Catalog(ChainType chain);
+    static const std::vector<Spec>& Catalog(ChainType chain, bool ecash_regtest = false);
     /** The catalog of the network the app runs (UseNetwork), Chains' until it is set. */
     static const std::vector<Spec>& Catalog();
     static const Spec* FindSpec(std::string_view stem);
     /** The network the app runs, for Catalog() and FindSpec(): set once, when the network is known (App). */
-    static void UseNetwork(ChainType chain);
+    static void UseNetwork(ChainType chain, bool ecash_regtest = false);
+    /** Whether a network takes the eCash family's catalog. */
+    static bool EcashFamily(ChainType chain, bool ecash_regtest) { return IsEcashChain(chain) || (chain == ChainType::REGTEST && ecash_regtest); }
+    /** A drop-in's name of a network (its --network): mainnet, betanet, regtest; "" where it has none. */
+    static std::string DropinNetwork(ChainType chain);
 
     enum class State { DISABLED, STOPPED, STARTING, RUNNING, STOPPING, CRASHED, FAILED };
     static std::string StateName(State state);
@@ -88,8 +106,15 @@ public:
         std::function<std::optional<fs::path>(const std::string& stem)> downloaded;
         //! 0: each sidechain on its own default ports; else RPC port_base + 2 i, peers port_base + 2 i + 1 (i: catalog order).
         int port_base{0};
-        //! Given to every daemon after the arguments of the app (tests: -listen=0).
+        //! Given to every daemon after the arguments of the app (tests: -listen=0); to a drop-in, dropin_args (--bt-no-seeds).
         std::vector<std::string> extra_args;
+        std::vector<std::string> dropin_args;
+        //! The network has the eCash family's catalog (UseNetwork): on regtest, the template daemons follow the enforcer's rules.
+        bool ecash_family{false};
+        //! The port of this app's node's gRPC (the bip300301_enforcer's interface) the drop-ins follow it by; 0: not served.
+        int mainchain_grpc_port{0};
+        //! Serve that gRPC now if it is not served yet (a drop-in turned on, doc §23.8 item 10): "" when it is, else why not.
+        std::function<std::string()> ensure_grpc;
         std::chrono::milliseconds stop_timeout{std::chrono::seconds{120}};
         std::chrono::milliseconds poll{std::chrono::milliseconds{250}};
         //! Waits before each restart of a daemon that stopped by itself; past the last one, FAILED.
@@ -134,12 +159,24 @@ public:
      * downloaded and checked by ModuleInstaller), "bundled" (next to the app, or -sidechainbindir), "none".
      */
     std::string BinarySource(const std::string& stem) const;
+    /** The port this app talks to it on (a drop-in: its app RPC), the port of its peers, a drop-in's own LayerTwo RPC. */
     int RpcPort(const std::string& stem) const;
     int P2pPort(const std::string& stem) const;
+    int L2lRpcPort(const std::string& stem) const;
+    /** The program of a sidechain (spec.program, else <stem>d; .exe on Windows). */
+    static std::string ProgramName(const Spec& spec);
     /** The arguments its daemon is started with (after the program). Never a password: PasswordFile holds it. */
     std::vector<std::string> DaemonArgs(const std::string& stem) const;
     fs::path PasswordFile(const std::string& stem) const;
+    /** The cookie of its own user (its node's .cookie; a drop-in's backbone-app.cookie, of its app RPC). */
     fs::path CookieFile(const std::string& stem) const;
+    /**
+     * Whether the program on a drop-in's app port is its node (appserverproof, doc §25.7 item 3): its answer to a challenge
+     * is HMAC-SHA256(the cookie's secret, "bt-app-server-proof/v1" 0x00 challenge), the cookie read from its data folder.
+     */
+    bool ProvesServer(const std::string& stem) const;
+    /** The answer a server holding a cookie's secret gives to a challenge (the drop-ins' auth.cpp server_proof). */
+    static std::string ServerProof(std::string_view cookie_secret, std::string_view challenge);
     fs::path LogFile(const std::string& stem) const;
 
     bool Enabled(const std::string& stem) const;
@@ -218,6 +255,8 @@ public:
      */
     static constexpr std::string_view APP_RPC_USER{"chains-app"};
     static const std::vector<std::string>& AppRpcMethods();
+    /** What this app's user calls on a drop-in's app RPC itself (its health, the overview, the host protocol), beside its pack's. */
+    static const std::vector<std::string>& DropinRpcMethods();
     std::vector<std::string> AppRpcMethodsFor(const std::string& stem) const;
     /** The wallet that pays a daemon's merged mining now (Options::bmm_wallet), "" for none named. */
     std::string BmmWallet(const std::string& stem) const;
@@ -256,6 +295,10 @@ private:
         int restarts{0};
         //! The wallet it was started to pay merged mining from (-mainchainrpcwallet; "" none named).
         std::string bmm_wallet;
+        //! A drop-in's standard input, kept open while it is to run (--bt-app-exit-with-stdin: closed, it stops).
+        int stdin_fd{-1};
+        //! A drop-in's node proved it is the program on its app port (ProvesServer), once per start.
+        bool proven{false};
         std::chrono::steady_clock::time_point started{};
         std::chrono::steady_clock::time_point next_try{};
         std::chrono::steady_clock::time_point stop_deadline{};
@@ -263,6 +306,8 @@ private:
         std::string error;
     };
 
+    //! The arguments of a drop-in's program (DaemonArgs of a DROPIN row).
+    std::vector<std::string> DropinArgs(const Spec& spec) const;
     UniValue Settings(const std::string& stem) const;
     UniValue Setting(const std::string& stem, const std::string& key) const;
     void SetSetting(const std::string& stem, const std::string& key, const UniValue& value);

@@ -2,6 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <bitcoin-build-config.h> // IWYU pragma: keep
+
 #include <webui/supervisor.h>
 
 #include <atomic>
@@ -85,7 +87,7 @@ std::string NetDir(ChainType chain)
     case ChainType::TESTNET: return "testnet";
     case ChainType::SIGNET: return "signet";
     case ChainType::REGTEST: return "regtest";
-    // The eCash networks: the folders of Backbone's own (chainparamsbase.cpp); no sidechain runs on them yet (P1).
+    // The eCash networks: the folders of Backbone's own (chainparamsbase.cpp), which Flush keeps too.
     case ChainType::ECASH: return "";
     case ChainType::ECASH_BETANET: return "betanet";
     case ChainType::ECASH_TESTNET: return "testnet4";
@@ -252,27 +254,110 @@ const std::vector<SidechainSupervisor::Spec>& ChainsCatalog()
     return catalog;
 }
 
+/**
+ * Backbone's sidechains on an eCash network (doc/unified-app.md §26): Flush (slot 46), our template's daemon, on the
+ * networks it has, on its own default ports (its chainparamsbase.cpp); Thunder (slot 9), the drop-in client of LayerTwo's
+ * chain, on eCash's main network only (betanet is retired, and it has no test network of eCash's), on the ports its own app
+ * uses (RPC 6009, peers 4009, the app RPC 6109: thunder-app's). Regtest (the tests) has both.
+ */
+std::vector<SidechainSupervisor::Spec> EcashCatalog(ChainType chain)
+{
+    using Spec = SidechainSupervisor::Spec;
+    using Kind = SidechainSupervisor::Kind;
+    std::vector<Spec> out;
+#ifndef WIN32
+    // Not on Windows yet: the supervisor runs no program there (Spawn), so nothing is offered.
+    const auto flush{[&](int rpc, int p2p) {
+        Spec s{"flush", "Flush", "Trade, launch and stake assets: a DEX on a fast chain, a block every 15 seconds.", 46, 0, 4, 500, true};
+        s.kind = Kind::TEMPLATE;
+        s.program = "flushd";
+        s.rpc_port = rpc;
+        s.p2p_port = p2p;
+        out.push_back(std::move(s));
+    }};
+    const auto thunder{[&](int app, int p2p, int l2l) {
+        // Its wallet is its own until P2 (one phrase: a BIP85 child of it, or a phrase of its own, the user's choice).
+        Spec s{"thunder", "Thunder", "Very large blocks, for many small payments at a low fee.", 9, 0, 10, 600, false, /*phrase_keys=*/false};
+        s.kind = Kind::DROPIN;
+        s.program = "thunder";
+        s.rpc_port = app;
+        s.p2p_port = p2p;
+        s.l2l_rpc_port = l2l;
+        out.push_back(std::move(s));
+    }};
+    switch (chain) {
+    case ChainType::ECASH:
+        flush(8254, 8255);
+        thunder(6109, 4009, 6009);
+        break;
+    case ChainType::ECASH_TESTNET:
+        flush(48254, 48255);
+        break;
+    case ChainType::REGTEST:
+        flush(29254, 29255);
+        thunder(26109, 24009, 26009);
+        break;
+    // Betanet is retired: no sidechain is run there.
+    case ChainType::ECASH_BETANET: case ChainType::MAIN: case ChainType::TESTNET: case ChainType::SIGNET:
+        break;
+    }
+#else
+    (void)chain;
+#endif
+    return out;
+}
+
 //! The network the app runs (UseNetwork); -1 until it is set: Chains' catalog.
 std::atomic<int> g_network{-1};
+std::atomic<bool> g_ecash_regtest{false};
 } // namespace
 
-const std::vector<SidechainSupervisor::Spec>& SidechainSupervisor::Catalog(ChainType chain)
+const std::vector<SidechainSupervisor::Spec>& SidechainSupervisor::Catalog(ChainType chain, bool ecash_regtest)
 {
-    // The eCash networks (Backbone) have no sidechain this app can run yet: Flush and Thunder, drop-ins with their own
-    // flags, ports and folders, come in P1 (doc/unified-app.md "Backbone (eCash)"). Nothing is offered until then.
-    static const std::vector<Spec> ecash{};
-    return IsEcashChain(chain) ? ecash : ChainsCatalog();
+    if (!EcashFamily(chain, ecash_regtest)) return ChainsCatalog();
+    static const std::vector<Spec> ecash{EcashCatalog(ChainType::ECASH)};
+    static const std::vector<Spec> betanet{EcashCatalog(ChainType::ECASH_BETANET)};
+    static const std::vector<Spec> testnet{EcashCatalog(ChainType::ECASH_TESTNET)};
+    static const std::vector<Spec> regtest{EcashCatalog(ChainType::REGTEST)};
+    switch (chain) {
+    case ChainType::ECASH: return ecash;
+    case ChainType::ECASH_BETANET: return betanet;
+    case ChainType::ECASH_TESTNET: return testnet;
+    default: return regtest;
+    }
 }
 
 const std::vector<SidechainSupervisor::Spec>& SidechainSupervisor::Catalog()
 {
     const int network{g_network.load()};
-    return network < 0 ? ChainsCatalog() : Catalog(static_cast<ChainType>(network));
+    return network < 0 ? ChainsCatalog() : Catalog(static_cast<ChainType>(network), g_ecash_regtest.load());
 }
 
-void SidechainSupervisor::UseNetwork(ChainType chain)
+void SidechainSupervisor::UseNetwork(ChainType chain, bool ecash_regtest)
 {
+    g_ecash_regtest = ecash_regtest;
     g_network = static_cast<int>(chain);
+}
+
+std::string SidechainSupervisor::DropinNetwork(ChainType chain)
+{
+    switch (chain) {
+    case ChainType::ECASH: return "mainnet";
+    case ChainType::ECASH_BETANET: return "betanet";
+    case ChainType::REGTEST: return "regtest";
+    case ChainType::ECASH_TESTNET: case ChainType::MAIN: case ChainType::TESTNET: case ChainType::SIGNET: return "";
+    }
+    return "";
+}
+
+std::string SidechainSupervisor::ProgramName(const Spec& spec)
+{
+    const std::string name{spec.program.empty() ? spec.stem + "d" : spec.program};
+#ifdef WIN32
+    return name + ".exe";
+#else
+    return name;
+#endif
 }
 
 const SidechainSupervisor::Spec* SidechainSupervisor::FindSpec(std::string_view stem)
@@ -352,9 +437,22 @@ const std::vector<std::string>& SidechainSupervisor::AppRpcMethods()
     return methods;
 }
 
+const std::vector<std::string>& SidechainSupervisor::DropinRpcMethods()
+{
+    // A drop-in's app RPC (backbone-core doc/app.md §2): its health and the overview (the Core-style reads of its app
+    // layer), who answers (appserverproof), and the host of its pages over RPC. Never setwalletphrase or stop (the
+    // supervisor's own cookie user only), never a LayerTwo spend by name (only through rpc.confirmed, asked first).
+    static const std::vector<std::string> methods{
+        "appserverproof", "getblockcount", "getblockchaininfo", "getmainchaininfo", "getbalances", "getnetworkinfo", "uptime",
+        "webuihost", "webuievents", "describeconfirmation", "webuichosenfile",
+    };
+    return methods;
+}
+
 std::vector<std::string> SidechainSupervisor::AppRpcMethodsFor(const std::string& stem) const
 {
-    std::vector<std::string> m{AppRpcMethods()};
+    const Spec* spec{FindSpec(stem)};
+    std::vector<std::string> m{spec && spec->kind == Kind::DROPIN ? DropinRpcMethods() : AppRpcMethods()};
     if (m_options.chain_methods) {
         for (const std::string& name : m_options.chain_methods(stem)) {
             // A name of a method only (a whitelist is "user:a,b,c").
@@ -460,6 +558,8 @@ fs::path SidechainSupervisor::DataDir(const std::string& stem) const
 
 fs::path SidechainSupervisor::NetDataDir(const std::string& stem) const
 {
+    // A drop-in keeps one network per data folder (it refuses another's): a folder of each, named as its --network.
+    if (const Spec* spec{FindSpec(stem)}; spec && spec->kind == Kind::DROPIN) return DataDir(stem) / fs::PathFromString(DropinNetwork(m_options.chain));
     const std::string net{NetDir(m_options.chain)};
     return net.empty() ? DataDir(stem) : DataDir(stem) / fs::PathFromString(net);
 }
@@ -467,6 +567,8 @@ fs::path SidechainSupervisor::NetDataDir(const std::string& stem) const
 namespace {
 std::string DaemonName(const std::string& stem)
 {
+    const SidechainSupervisor::Spec* spec{SidechainSupervisor::FindSpec(stem)};
+    if (spec) return SidechainSupervisor::ProgramName(*spec);
 #ifdef WIN32
     return stem + "d.exe";
 #else
@@ -520,13 +622,15 @@ int SidechainSupervisor::RpcPort(const std::string& stem) const
     for (size_t i{0}; i < catalog.size(); ++i) {
         if (catalog[i].stem != stem) continue;
         if (m_options.port_base > 0) return m_options.port_base + 2 * static_cast<int>(i);
+        // The eCash family's rows say their ports.
+        if (catalog[i].rpc_port > 0) return catalog[i].rpc_port;
         int net{0};
         switch (m_options.chain) {
         case ChainType::MAIN: net = 0; break;
         case ChainType::TESTNET: net = 10000; break;
         case ChainType::REGTEST: net = 20000; break;
         case ChainType::SIGNET: net = 30000; break;
-        // Not reached: the eCash networks have no row in the catalog yet (their ports come with their rows in P1).
+        // Not reached: the eCash family's rows say their ports.
         case ChainType::ECASH: case ChainType::ECASH_BETANET: case ChainType::ECASH_TESTNET: return 0;
         }
         return net + 9054 + 100 * catalog[i].port_code;
@@ -537,7 +641,19 @@ int SidechainSupervisor::RpcPort(const std::string& stem) const
 int SidechainSupervisor::P2pPort(const std::string& stem) const
 {
     if (const UniValue port{Setting(stem, "port")}; port.isNum()) return port.getInt<int>();
+    const Spec* spec{FindSpec(stem)};
+    if (spec && spec->p2p_port > 0 && m_options.port_base <= 0 && !Setting(stem, "rpcPort").isNum()) return spec->p2p_port;
     return RpcPort(stem) + 1;
+}
+
+int SidechainSupervisor::L2lRpcPort(const std::string& stem) const
+{
+    const Spec* spec{FindSpec(stem)};
+    if (!spec || spec->kind != Kind::DROPIN) return 0;
+    if (const UniValue port{Setting(stem, "l2lRpcPort")}; port.isNum()) return port.getInt<int>();
+    // With a base of ports (the tests): 100 above the chain's own two.
+    if (m_options.port_base > 0 || Setting(stem, "rpcPort").isNum()) return RpcPort(stem) + 100;
+    return spec->l2l_rpc_port;
 }
 
 fs::path SidechainSupervisor::PasswordFile(const std::string& stem) const
@@ -547,7 +663,47 @@ fs::path SidechainSupervisor::PasswordFile(const std::string& stem) const
 
 fs::path SidechainSupervisor::CookieFile(const std::string& stem) const
 {
+    if (const Spec* spec{FindSpec(stem)}; spec && spec->kind == Kind::DROPIN) return NetDataDir(stem) / "backbone-app.cookie";
     return NetDataDir(stem) / ".cookie";
+}
+
+std::string SidechainSupervisor::ServerProof(std::string_view cookie_secret, std::string_view challenge)
+{
+    std::string message{"bt-app-server-proof/v1"};
+    message.push_back('\0');
+    message.append(challenge);
+    std::array<unsigned char, CHMAC_SHA256::OUTPUT_SIZE> out;
+    CHMAC_SHA256(UCharCast(cookie_secret.data()), cookie_secret.size()).Write(UCharCast(message.data()), message.size()).Finalize(out.data());
+    return HexStr(out);
+}
+
+bool SidechainSupervisor::ProvesServer(const std::string& stem) const
+{
+    std::string cookie;
+    {
+        std::ifstream file{static_cast<const std::filesystem::path&>(CookieFile(stem))};
+        std::getline(file, cookie);
+    }
+    const size_t colon{cookie.find(':')};
+    std::string secret{colon == std::string::npos ? std::string{} : cookie.substr(colon + 1)};
+    memory_cleanse(cookie.data(), cookie.size());
+    if (secret.empty()) return false;
+    std::array<unsigned char, 32> random;
+    GetStrongRandBytes(random);
+    const std::string challenge{HexStr(random)};
+    std::string expected{ServerProof(secret, challenge)};
+    memory_cleanse(secret.data(), secret.size());
+    UniValue params{UniValue::VARR};
+    params.push_back(challenge);
+    bool ok{false};
+    try {
+        const UniValue proof{Rpc(stem, "appserverproof", params, {}, std::chrono::seconds{5})};
+        ok = proof.isStr() && proof.get_str().size() == expected.size() && TimingResistantEqual(proof.get_str(), expected);
+    } catch (const std::exception&) {
+        ok = false;
+    }
+    memory_cleanse(expected.data(), expected.size());
+    return ok;
 }
 
 fs::path SidechainSupervisor::LogFile(const std::string& stem) const
@@ -559,6 +715,7 @@ std::vector<std::string> SidechainSupervisor::DaemonArgs(const std::string& stem
 {
     const Spec* spec{FindSpec(stem)};
     if (!spec) return {};
+    if (spec->kind == Kind::DROPIN) return DropinArgs(*spec);
     std::vector<std::string> args{"-datadir=" + fs::PathToString(DataDir(stem))};
     switch (m_options.chain) {
     case ChainType::MAIN: break;
@@ -567,9 +724,13 @@ std::vector<std::string> SidechainSupervisor::DaemonArgs(const std::string& stem
     case ChainType::REGTEST:
         args.emplace_back("-regtest");
         args.push_back(strprintf("-sidechainslot=%d", spec->slot));
+        // This app's node follows the enforcer's rules (-testecash): the daemon too, as on the eCash networks.
+        if (m_options.ecash_family) args.emplace_back("-testmainenforcer");
         break;
-    // Not reached: no row of the catalog on the eCash networks yet (P1 adds their flags, -chain=ecash and its kind).
-    case ChainType::ECASH: case ChainType::ECASH_BETANET: case ChainType::ECASH_TESTNET: return {};
+    // Backbone's sidechains (Flush): the eCash network of this app's node, by its name.
+    case ChainType::ECASH: args.emplace_back("-chain=ecash"); break;
+    case ChainType::ECASH_BETANET: args.emplace_back("-chain=ecashbeta"); break;
+    case ChainType::ECASH_TESTNET: args.emplace_back("-chain=ecashtest"); break;
     }
     // Its own RPC server, on 127.0.0.1 only (the default binding). This app is a user of its own there, which may call
     // only AppRpcMethods (no spend but through webuihost, which asks); the cookie stays the user's, unrestricted
@@ -605,6 +766,31 @@ std::vector<std::string> SidechainSupervisor::DaemonArgs(const std::string& stem
     args.emplace_back("-dbcache=100");
     args.emplace_back("-maxmempool=100");
     for (const auto& a : m_options.extra_args) args.push_back(a);
+    return args;
+}
+
+std::vector<std::string> SidechainSupervisor::DropinArgs(const Spec& spec) const
+{
+    // Its own flags (doc/unified-app.md §25.7 items 1 to 3, backbone-core doc/app.md §2): its data and network, the
+    // mainchain by this app's node's gRPC (the enforcer's interface), its LayerTwo RPC and its peers, and the app layer:
+    // its app RPC on 127.0.0.1, this app's user there (an rpcauth of this run) limited to what it and the pages use, the
+    // files the user chose given to that user only, and stopped when this app goes (its standard input closes).
+    const std::string stem{spec.stem};
+    std::vector<std::string> args{"--datadir", fs::PathToString(NetDataDir(stem)), "--network", DropinNetwork(m_options.chain)};
+    args.insert(args.end(), {"--mainchain-grpc-url", strprintf("http://127.0.0.1:%d", m_options.mainchain_grpc_port)});
+    args.insert(args.end(), {"--rpc-addr", strprintf("127.0.0.1:%d", L2lRpcPort(stem))});
+    args.insert(args.end(), {"--net-addr", strprintf("0.0.0.0:%d", P2pPort(stem))});
+    args.emplace_back("--headless");
+    args.insert(args.end(), {"--bt-app-rpc-port", strprintf("%d", RpcPort(stem))});
+    args.insert(args.end(), {"--bt-app-rpcauth", m_app_rpcauth});
+    const std::vector<std::string> allowed{AppRpcMethodsFor(stem)};
+    std::string whitelist{strprintf("%s:", APP_RPC_USER)};
+    for (size_t i{0}; i < allowed.size(); ++i) whitelist += (i ? "," : "") + allowed[i];
+    args.insert(args.end(), {"--bt-app-rpcwhitelist", std::move(whitelist)});
+    args.emplace_back("--bt-app-rpcwhitelistdefault=0");
+    args.insert(args.end(), {"--bt-app-chooser", std::string{APP_RPC_USER}});
+    args.emplace_back("--bt-app-exit-with-stdin");
+    for (const auto& a : m_options.dropin_args) args.push_back(a);
     return args;
 }
 
@@ -710,7 +896,8 @@ void SidechainSupervisor::EnsureThread()
 std::string SidechainSupervisor::RunningElsewhere(const std::string& stem) const
 {
     const Spec* spec{FindSpec(stem)};
-    if (!spec) return {};
+    // A drop-in takes no lock file of Core's (its own program run by hand is found by its ports, at its start).
+    if (!spec || spec->kind == Kind::DROPIN) return {};
     // Its data folder in use: the lock a node takes on it (bitcoind's .lock) is held by another program, such as its
     // own app run by itself. Its data is then left as it is: no second node on it.
     const fs::path dir{NetDataDir(stem)};
@@ -734,7 +921,13 @@ void SidechainSupervisor::Enable(const std::string& stem, const std::optional<st
         if (const std::string running{RunningElsewhere(stem)}; !running.empty()) throw Error(running);
     }
     if (!FindBinary(stem)) {
-        throw Error(strprintf("The program of %s (%sd) is not on this computer: it is looked for next to this app and in the folder set for it.", spec->name, stem));
+        throw Error(strprintf("The program of %s (%s) is not on this computer: it is looked for next to this app and in the folder set for it.", spec->name, ProgramName(*spec)));
+    }
+    // A drop-in follows this app's node by its gRPC (the enforcer's interface): served now if it is not yet.
+    if (spec->kind == Kind::DROPIN) {
+        if (DropinNetwork(m_options.chain).empty()) throw Error(strprintf("%s does not run on this network.", spec->name));
+        const std::string why{m_options.ensure_grpc ? m_options.ensure_grpc() : (m_options.mainchain_grpc_port > 0 ? std::string{} : std::string{"no gRPC"})};
+        if (!why.empty()) throw Error(strprintf("%s follows %s through its gRPC interface, which cannot be served: %s", spec->name, CLIENT_NAME, why));
     }
     if (wallet_mode) SetSetting(stem, "wallet", UniValue{*wallet_mode == "separate" || !spec->phrase_keys ? "separate" : "shared"});
     SetSetting(stem, "enabled", UniValue{true});
@@ -851,6 +1044,11 @@ void SidechainSupervisor::Signal(Proc& proc, int sig)
 {
 #ifndef WIN32
     if (proc.pid > 0) kill(proc.pid, sig);
+    // A drop-in stops when its standard input closes, too (--bt-app-exit-with-stdin).
+    if (proc.stdin_fd >= 0) {
+        close(proc.stdin_fd);
+        proc.stdin_fd = -1;
+    }
 #endif
 }
 
@@ -867,20 +1065,26 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
     return;
 #else
     if (!spec) return fail("unknown sidechain");
+    const bool dropin{spec->kind == Kind::DROPIN};
     const auto binary{FindBinary(stem)};
-    if (!binary) return fail(strprintf("The program %sd is not on this computer.", stem));
+    if (!binary) return fail(strprintf("The program %s is not on this computer.", ProgramName(*spec)));
     if (const std::string running{RunningElsewhere(stem)}; !running.empty()) return fail(running);
-    for (const int port : {RpcPort(stem), P2pPort(stem)}) {
+    std::vector<int> ports{RpcPort(stem), P2pPort(stem)};
+    if (dropin) ports.push_back(L2lRpcPort(stem));
+    for (const int port : ports) {
         if (!PortFree(port)) return fail(strprintf("Port %d is in use: another %s node may run on this computer. Stop it, or give this one other ports.", port, spec->name));
     }
     std::error_code ec;
-    std::filesystem::create_directories(DataDir(stem), ec);
+    std::filesystem::create_directories(dropin ? NetDataDir(stem) : DataDir(stem), ec);
     if (ec) return fail(strprintf("Its data folder %s could not be made: %s", fs::PathToString(DataDir(stem)), ec.message()));
     std::filesystem::create_directories(HomeDir(stem), ec);
-    std::string password{m_options.mainchain_rpc_password + "\n"};
-    const auto written{common::WriteSecretFile(PasswordFile(stem), password)};
-    memory_cleanse(password.data(), password.size());
-    if (!written) return fail(strprintf("The key of its connection to Chains could not be written (%s).", util::ErrorString(written).original));
+    if (!dropin) {
+        // A drop-in has no JSON-RPC connection to this node (its gRPC has no password): no file of a key.
+        std::string password{m_options.mainchain_rpc_password + "\n"};
+        const auto written{common::WriteSecretFile(PasswordFile(stem), password)};
+        memory_cleanse(password.data(), password.size());
+        if (!written) return fail(strprintf("The key of its connection to %s could not be written (%s).", CLIENT_NAME, util::ErrorString(written).original));
+    }
 
     std::vector<std::string> argv{fs::PathToString(*binary)};
     const std::string bmm_wallet{BmmWallet(stem)};
@@ -896,6 +1100,14 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
     int status_pipe[2];
     if (pipe2(status_pipe, O_CLOEXEC) != 0) {
         if (log_fd >= 0) close(log_fd);
+        return fail("no pipe");
+    }
+    // A drop-in's standard input: a pipe this app holds open while it is to run (it stops when it closes).
+    int stdin_pipe[2]{-1, -1};
+    if (dropin && pipe2(stdin_pipe, O_CLOEXEC) != 0) {
+        if (log_fd >= 0) close(log_fd);
+        close(status_pipe[0]);
+        close(status_pipe[1]);
         return fail("no pipe");
     }
     const pid_t parent{getpid()};
@@ -915,8 +1127,12 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
         sigprocmask(SIG_SETMASK, &none, nullptr);
         // Below the node of the app and the window: a sidechain catching up does not make the app lag.
         setpriority(PRIO_PROCESS, 0, 5);
-        const int devnull{open("/dev/null", O_RDONLY)};
-        if (devnull >= 0) dup2(devnull, 0);
+        if (stdin_pipe[0] >= 0) {
+            dup2(stdin_pipe[0], 0);
+        } else {
+            const int devnull{open("/dev/null", O_RDONLY)};
+            if (devnull >= 0) dup2(devnull, 0);
+        }
         if (log_fd >= 0) {
             dup2(log_fd, 1);
             dup2(log_fd, 2);
@@ -931,8 +1147,10 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
     }
     close(status_pipe[1]);
     if (log_fd >= 0) close(log_fd);
+    if (stdin_pipe[0] >= 0) close(stdin_pipe[0]);
     if (pid < 0) {
         close(status_pipe[0]);
+        if (stdin_pipe[1] >= 0) close(stdin_pipe[1]);
         return fail("The process could not be made.");
     }
     char failed{0};
@@ -944,13 +1162,17 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
         int status;
         while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
         }
+        if (stdin_pipe[1] >= 0) close(stdin_pipe[1]);
         return fail(strprintf("%s could not be run.", fs::PathToString(*binary)));
     }
     proc.pid = pid;
+    proc.stdin_fd = stdin_pipe[1];
+    proc.proven = false;
     proc.bmm_wallet = bmm_wallet;
     proc.state = State::STARTING;
     proc.rpc_ready = false;
-    proc.wallet_checked = false;
+    // A drop-in's wallet is its pages' (a phrase of its own until P2): nothing for the supervisor to load or make.
+    proc.wallet_checked = dropin;
     {
         const UniValue payout{Setting(stem, "validatorPayout")};
         proc.payout_wanted = HasValidatorKey(stem) && !(payout.isStr() && !payout.get_str().empty());
@@ -958,7 +1180,7 @@ void SidechainSupervisor::Spawn(const std::string& stem, Proc& proc)
     proc.error.clear();
     proc.started = std::chrono::steady_clock::now();
     proc.next_ping = proc.started + 300ms;
-    LogInfo("webui: started the %s node (pid %d) on ports %d/%d, wired to this node on %d", stem, pid, RpcPort(stem), P2pPort(stem), m_options.mainchain_rpc_port);
+    LogInfo("webui: started the %s node (pid %d) on ports %d/%d, wired to this node on %d", stem, pid, RpcPort(stem), P2pPort(stem), dropin ? m_options.mainchain_grpc_port : m_options.mainchain_rpc_port);
 #endif
 }
 
@@ -980,6 +1202,10 @@ void SidechainSupervisor::Loop()
                     LogInfo("webui: the %s node (pid %d) ended: %s", stem, proc.pid, DescribeExit(status));
                     proc.pid = 0;
                     proc.rpc_ready = false;
+                    if (proc.stdin_fd >= 0) {
+                        close(proc.stdin_fd);
+                        proc.stdin_fd = -1;
+                    }
                     if (asked) {
                         proc.state = proc.want_start ? State::STOPPED : (Enabled(stem) ? State::STOPPED : State::DISABLED);
                         proc.error.clear();
@@ -987,7 +1213,8 @@ void SidechainSupervisor::Loop()
                         // It stopped by itself: restarted after a wait that grows, until it is given up.
                         if (now - proc.started > m_options.healthy_after) proc.restarts = 0;
                         ++proc.restarts;
-                        const std::string tail{Tail(NetDataDir(stem) / "debug.log", 400)};
+                        const Spec* spec{FindSpec(stem)};
+                        const std::string tail{Tail(spec && spec->kind == Kind::DROPIN ? LogFile(stem) : NetDataDir(stem) / "debug.log", 400)};
                         proc.error = DescribeExit(status) + (tail.empty() ? "" : ". The end of its log: " + tail);
                         if (proc.restarts > static_cast<int>(m_options.backoff.size())) {
                             proc.state = State::FAILED;
@@ -1027,6 +1254,32 @@ void SidechainSupervisor::Loop()
                     ready = true;
                 } catch (const std::exception&) {
                     // Not yet (the cookie is written, the node warms up).
+                }
+                // A drop-in proves, once, that the program on its app port is its node (its cookie's secret), before
+                // anything is shown from it or sent to it: another program there is stopped from being used.
+                if (const Spec* spec{FindSpec(stem)}; ready && spec && spec->kind == Kind::DROPIN) {
+                    bool proven;
+                    {
+                        LOCK(m_mutex);
+                        auto it{m_procs.find(stem)};
+                        proven = it != m_procs.end() && it->second.proven;
+                    }
+                    if (!proven && !ProvesServer(stem)) {
+                        LOCK(m_mutex);
+                        auto it{m_procs.find(stem)};
+                        if (it != m_procs.end() && it->second.pid != 0) {
+                            LogWarning("webui: the program on the app port of %s cannot prove it is its node: stopped", stem);
+                            it->second.want_start = false;
+                            it->second.error = strprintf("Another program answers on the port of %s (%d): it cannot prove it is its node, so this app does not use it.", spec->name, RpcPort(stem));
+                            Signal(it->second, SIGTERM);
+                            it->second.state = State::STOPPING;
+                            it->second.stop_deadline = std::chrono::steady_clock::now() + m_options.stop_timeout;
+                        }
+                        continue;
+                    }
+                    LOCK(m_mutex);
+                    auto it{m_procs.find(stem)};
+                    if (it != m_procs.end()) it->second.proven = true;
                 }
                 bool check_wallet{false};
                 bool now_ready{false};
@@ -1353,6 +1606,19 @@ UniValue SidechainSupervisor::Overview(const std::string& stem, int mainchain_he
         if (!connected && main.find_value("error").isStr()) out.pushKV("mainchainError", main.find_value("error"));
         // In step with Chains: it has seen every block of the node of this app.
         out.pushKV("synced", connected && main_height >= mainchain_height);
+        if (spec->kind == Kind::DROPIN) {
+            // A drop-in's app layer has the Core-style reads above and its wallet's balances; its blocks are in its pages.
+            const UniValue balances{Rpc(stem, "getbalances")};
+            const UniValue counted{ChainAdapter::WalletBalances(balances.find_value("mine"))};
+            UniValue wallet{UniValue::VOBJ};
+            wallet.pushKV("name", "");
+            wallet.pushKV("trusted", UniValue{UniValue::VNUM, counted.find_value("trusted").get_str()});
+            wallet.pushKV("pending", UniValue{UniValue::VNUM, counted.find_value("pending").get_str()});
+            wallet.pushKV("immature", UniValue{UniValue::VNUM, counted.find_value("immature").get_str()});
+            out.pushKV("blocks", UniValue{UniValue::VARR});
+            out.pushKV("wallet", std::move(wallet));
+            return out;
+        }
         const int height{chain.find_value("blocks").getInt<int>()};
         UniValue blocks{UniValue::VARR};
         for (int h{height}; h >= 0 && h > height - 6; --h) {
@@ -1405,6 +1671,8 @@ UniValue SidechainSupervisor::List() const
         entry.pushKV("name", s.name);
         entry.pushKV("description", s.description);
         entry.pushKV("slot", s.slot);
+        // A drop-in client of a LayerTwo chain (its own pages for its wallet), or our template's daemon.
+        entry.pushKV("kind", s.kind == Kind::DROPIN ? "dropin" : "template");
         entry.pushKV("diskGB", s.disk_gb);
         entry.pushKV("ramMB", s.ram_mb);
         entry.pushKV("staking", s.staking);

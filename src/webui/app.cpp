@@ -187,6 +187,7 @@ void SetupUIArgs(ArgsManager& argsman)
     argsman.AddArg("-sidechainbindir=<dir>", "Folder with the programs of sidechains this app runs (<name>d), searched before the folder of the app (can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::NETWORK_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-sidechainportbase=<port>", "Ports of the sidechains this app runs: RPC <port>+2i, peers <port>+2i+1 (default: the default ports of each sidechain)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-sidechainarg=<arg>", "An argument given to every sidechain daemon this app starts (can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
+    argsman.AddArg("-sidechaindropinarg=<arg>", "An argument given to every drop-in sidechain's program this app starts (Thunder; can be given more than once)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-sidechainsignatures=<auto|require>", "Releases of sidechains downloaded by this app: \"require\" takes only those whose manifest is signed with the release key built into the app; \"auto\" checks a signature when there is one (default: auto)", ArgsManager::ALLOW_ANY, OptionsCategory::GUI);
     argsman.AddArg("-sidechainreleaseapi=<https url>", "Ask this mirror for the releases of the sidechains instead of GitHub (regtest only: the tests)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
     argsman.AddArg("-sidechaindownloadcacert=<file>", "Trust this certificate for the downloads of the sidechains' releases (regtest only: the tests)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::GUI);
@@ -1921,10 +1922,11 @@ void App::EnsureRpcServer()
 
 void App::StartSidechains()
 {
-    // The catalog of sidechains and the table of downloads are those of the network (none yet on eCash's, P1 and P3 of
-    // doc/unified-app.md "Backbone (eCash)"), before anything reads them.
-    SidechainSupervisor::UseNetwork(m_args.GetChainType());
-    ModuleInstaller::UseNetwork(m_args.GetChainType());
+    // The catalog of sidechains and the table of downloads are those of the network's family (doc/unified-app.md §26:
+    // Backbone's sidechains on the eCash networks, and on regtest with eCash's rules), before anything reads them.
+    const bool ecash_regtest{m_args.GetChainType() == ChainType::REGTEST && (m_args.GetBoolArg("-testecash", false) || m_args.IsArgSet("-ecashregtest"))};
+    SidechainSupervisor::UseNetwork(m_args.GetChainType(), ecash_regtest);
+    ModuleInstaller::UseNetwork(m_args.GetChainType(), ecash_regtest);
     // The single seed (doc/unified-app.md §23), made first: the supervisor asks it which wallet a sidechain's node loads.
     SeedKeeper::Hooks seed_hooks;
     seed_hooks.file = m_args.GetDataDirNet() / "seed.dat";
@@ -2020,6 +2022,19 @@ void App::StartSidechains()
     };
     options.chains_datadir = m_args.GetDataDirBase();
     options.chain = m_args.GetChainType();
+    options.ecash_family = SidechainSupervisor::EcashFamily(m_args.GetChainType(), ecash_regtest);
+    // The drop-ins follow this node by its gRPC (the enforcer's interface: on by default on the eCash networks), served
+    // late if it is not (doc §23.8 item 10).
+    options.mainchain_grpc_port = static_cast<int>(m_args.GetIntArg("-grpcport", 50051));
+    options.ensure_grpc = [this]() -> std::string {
+        interfaces::Node* node;
+        {
+            LOCK(m_mutex);
+            if (!m_node_started || !m_node || m_phase != "ready") return "the node is not running";
+            node = m_node.get();
+        }
+        return node->startGrpcServer();
+    };
     options.mainchain_rpc_port = m_args.GetIntArg("-rpcport", BaseParams().RPCPort());
     options.mainchain_rpc_user = SIDECHAIN_RPC_USER;
     options.mainchain_rpc_password = m_sidechain_rpc_password;
@@ -2034,6 +2049,7 @@ void App::StartSidechains()
 #endif
     options.port_base = m_args.GetIntArg("-sidechainportbase", 0);
     options.extra_args = m_args.GetArgs("-sidechainarg");
+    options.dropin_args = m_args.GetArgs("-sidechaindropinarg");
     // The programs downloaded from the sidechains' releases (doc/unified-app.md, downloads): before the bundled ones.
     ModuleInstaller::Options module_options;
     module_options.bin_root = m_args.GetDataDirBase() / "sidechains" / "bin";
@@ -2062,6 +2078,8 @@ void App::StartSidechains()
         data.pushKV("stem", stem);
         if (m_hub) m_hub->Emit("modules", std::move(data), "modules:" + stem);
     })};
+    // The pages of each sidechain from the version of its program made current (doc/unified-app.md §26), else built in.
+    for (const auto& repo : ModuleInstaller::Repos()) SetPackFolder(repo.stem, installer->CurrentPackDir(repo.stem));
     options.downloaded = [weak = std::weak_ptr<ModuleInstaller>{installer}](const std::string& stem) -> std::optional<fs::path> {
         const auto installer{weak.lock()};
         return installer ? installer->CurrentDir(stem) : std::nullopt;
@@ -2685,6 +2703,13 @@ void App::RegisterModuleMethods(Bridge& b)
         };
     }};
     const auto changed{[this](const std::string& stem) {
+        // Its pages: those of the version made current, when its release had them, else the copy built in (§26).
+        std::shared_ptr<ModuleInstaller> installer;
+        {
+            LOCK(m_mutex);
+            installer = m_installer;
+        }
+        if (installer && ModuleInstaller::IsAllowed(stem)) SetPackFolder(stem, installer->CurrentPackDir(stem));
         UniValue data{UniValue::VOBJ};
         data.pushKV("stem", stem);
         if (m_hub) m_hub->Emit("sidechains", std::move(data), "sidechains:" + stem);
