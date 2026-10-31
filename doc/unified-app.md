@@ -2758,7 +2758,7 @@ phases; P0 (the port) is on branch **`backbone-unified`**, made from `ecash` (v0
 | Phase | What |
 |---|---|
 | **P0** | The port (this section). |
-| **P1** | Flush and Thunder supervised, with their pages: the catalog's `ecash` family (drop-in kind, §23.8 items 8–11, §25.7: program names, `-chain=ecash` flags, ports and folders per eCash network, the `--bt-app-*` flags, `appserverproof`, the late gRPC for a drop-in, their packs). |
+| **P1** | Flush and Thunder supervised, with their pages: the catalog's `ecash` family (drop-in kind, §23.8 items 8–11, §25.7: program names, `-chain=ecash` flags, ports and folders per eCash network, the `--bt-app-*` flags, `appserverproof`, the late gRPC for a drop-in, their packs). **Done (§26.5).** |
 | **P2** | One seed: one phrase for Backbone's wallet and its sidechains (the two BIP39s and the two phrases of §26.2 made one; BIP85 children for the drop-ins, §23.8 item 12). |
 | **P3** | Signed downloads: Backbone's sidechains' releases signed with a key built into the app (`-sidechainsignatures=require`), their repositories in `Repos`. |
 | **P4** | Merged mining and validators from the app (BMM of the drop-ins by the main wallet or a mining wallet; Flush's validators). |
@@ -2772,3 +2772,147 @@ phases; P0 (the port) is on branch **`backbone-unified`**, made from `ecash` (v0
 `feature_drivechain*` (11), `wallet_drivechain_encrypted`, `wallet_bip39`, `interface_ecash_grpc`, `rpc_help`;
 `run_startup.py` (6 starts) and `run_unified.py` (regtest, Layers `unified-dex`, 21 checks) with a backbone-app built with
 the test hooks.
+
+### 26.5 What P1 did (2026-10-30)
+
+**The owner's decisions (binding):**
+
+1. **A sidechain's programs always come from its latest GitHub release**, downloaded when the user turns it on; nothing is
+   bundled with Backbone. Flush: `block-fabric/backbone-flush` (latest `flush-v8.3.7`); Thunder:
+   `block-fabric/backbone-thunder` (latest `mainnet-v1`; its betanet pre-releases are never taken: betanet is retired).
+   P1 checks a download against the release's `SHA256SUMS`; P3 adds the signature of an offline release key. A newer latest
+   release is offered as an update, with a rollback to the version installed before.
+2. **The pages come from each program's own release**, with a copy built into Backbone as the fallback.
+3. **No merged mining in P1** (P4). Following the sidechains, their wallets, deposits and withdrawals work without it.
+4. **Wallets (P2):** both options are wanted: one phrase for Backbone and its sidechains (BIP85 children), or a separate
+   phrase and wallet per sidechain. P1 makes no choice that blocks either (below).
+5. **All of Flush in the one window, nothing twice:** what both apps have appears once; Flush's DEX and assets go to the
+   app's Trade and Assets where they fit, not to parallel pages.
+
+**The catalog (`SidechainSupervisor::Catalog`, `supervisor.cpp`).** One catalog per family of networks: Chains' on the Chains
+networks, Backbone's on the eCash networks and on regtest with eCash's rules (`-testecash` or `-ecashregtest`: the tests;
+plain regtest keeps Chains' catalog, so P0's tests run unchanged). A row now says its kind (`TEMPLATE`: our template's
+daemon; `DROPIN`: a drop-in client of a LayerTwo chain), its program and its ports. Not on Windows: the supervisor runs no
+program there yet, so nothing is offered.
+
+| | Flush | Thunder |
+|---|---|---|
+| Slot, kind, program | 46, template, `flushd` | 9, drop-in, `thunder` |
+| eCash main network | `-chain=ecash`, RPC 8254, peers 8255 | `--network mainnet`, app RPC 6109, peers 4009, its own RPC 6009 (thunder-app's ports) |
+| eCash test network | `-chain=ecashtest`, 48254/48255 | none (Thunder has no network of eCash's test network) |
+| Betanet | none (retired) | none (retired) |
+| Regtest (`-testecash`) | `-regtest -sidechainslot=46 -testmainenforcer`, 29254/29255 | `--network regtest`, 26109/24009/26009 |
+| Data | `<datadir>/sidechains/flush/data` (`testnet4/` for the test network, as Flush's own) | `<datadir>/sidechains/thunder/data/<network>` (it keeps one network per folder) |
+| Mainchain | Backbone's JSON-RPC, as Layers on Chains (`-mainchainrpc*`, the password in a file) | Backbone's gRPC (the enforcer's interface): `--mainchain-grpc-url http://127.0.0.1:<grpcport>` |
+| Wallet | the backup phrase's or its own (as Layers) | its own, in its own pages (until P2) |
+| Validator from the app | not yet (P4: its anchors are merged mining's bids) | no |
+
+**The drop-in (§25.7):** its flags `--datadir --network --mainchain-grpc-url --rpc-addr --net-addr --headless`, then the app
+layer `--bt-app-rpc-port --bt-app-rpcauth <this run's user> --bt-app-rpcwhitelist chains-app:<…> --bt-app-rpcwhitelistdefault=0
+--bt-app-chooser chains-app --bt-app-exit-with-stdin` (and `-sidechaindropinarg`, the tests' `--bt-no-seeds`). The whitelist
+of this app's user is what it reads itself (`DropinRpcMethods`: `getblockcount`, `getblockchaininfo`, `getmainchaininfo`,
+`getbalances`, `appserverproof`, the host protocol) and what the pack's `pack.json` names (`protocol`, `reads`, `confirmed`,
+`host`); never `setwalletphrase`, `stop` or a LayerTwo spend by name. Its standard input is a pipe the app holds: it stops
+when the app goes, and when it is turned off (with SIGTERM). Before anything is shown from it, the program on its app port
+proves it holds the cookie of its data folder (`appserverproof`: HMAC-SHA256 of the cookie's secret over
+`"bt-app-server-proof/v1" 0x00 challenge`, `ProvesServer`); one that cannot is stopped and said. Its health is
+`getblockcount` on its app RPC; its overview and the app's summary of it read its app layer (`getblockchaininfo`,
+`getmainchaininfo`, `getbalances`).
+
+**Backbone's gRPC for a drop-in.** It is served by default on the eCash networks (`-grpc`, port `-grpcport`). When it is not
+(regtest, or its port was taken at the start), turning a drop-in on serves it then (`AppStartGrpcLate`,
+`interfaces::Node::startGrpcServer`); `-nogrpc` is kept, and the drop-in is then refused with the reason.
+
+**The downloads (`ModuleInstaller::Repos`, a `latest` row).** For Backbone's family: `block-fabric/backbone-flush` and
+`block-fabric/backbone-thunder`, programs `flushd`/`flush-cli` and `thunder`/`thunder-cli`. Only
+`/repos/<owner>/<repo>/releases/latest` is asked (never a pre-release or a draft). The package for this computer is the one
+file `<prefix>-<version>-x86_64-linux-gnu.tar.gz` (`-win64.zip`), its SHA-256 the one `SHA256SUMS` gives (a file named
+twice with two hashes: none). No manifest: the host version is checked on the pages (`pack.json` `hostApi`, at the install)
+and on the node (`pack.info`, at run time). The programs are taken anywhere in the package (`bin/`, Windows' `daemon/`), only
+those named, plain files. A latest release newer than the one installed is an update (Settings → Sidechains, as §15.3); the
+one before is kept for rollback.
+
+**Signatures: the P3 hook.** `SHA256SUMS.sig`, a BIP340 signature over `TaggedHash("BackboneReleaseSums/1", SHA256SUMS)`,
+is checked against `ModuleInstaller::SumsKeys()` (empty until the offline key is made) and `-sidechainreleasekey` (regtest).
+As soon as a key is there, an unsigned or badly signed release is refused; `-sidechainsignatures=require` refuses every
+release while there is no key. P3 writes the key and signs each release's sums.
+
+**The pages.** A release's pages are `pack/<stem>/` in its package (Thunder's mainnet-v1 has them) or, else, the release's
+`<prefix>-<version>-pack.tar.gz` checked by the same sums (Flush from 8.3.8: the Flush repository's `deploy-pack`, its
+`doc/release-pack.md`). They are installed beside the program (`<datadir>/sidechains/bin/<stem>/<tag>/pack/`), plain files
+only, at most 4 000 files and 64 MB, refused whole when `pack.json` is of another sidechain or another host version. The
+app serves them under `chains-pack://<stem>/` from that folder (`SetPackFolder`, `PackFile`: only its files then, never a
+mix of two versions; the shim put before its script), and its `pack.json` gives the methods named in the daemon's
+whitelist. Without them (Flush 8.3.7), the copy built into the app: `sidechains.json` pins Flush's pages at
+`backbone-flush` `flush-8.3.8-pack` deb187a0ac (8.3.7's pages with the kit's module mode, cherry-picked from the template:
+without it Flush's pages would bring their own window chrome into the frame). A pack's packages must be the app's at the same
+versions; the app may have more (Flush's font, `@fontsource/barlow`).
+
+**The coin of a DEX per chain:** the requests of the app's DEX name a chain's coin by its own word (`ChainAdapter::CoinWord`):
+`ECX` on Flush, `CHN` on Layers.
+
+**Settings, the first start, the switcher.** They follow the catalog (§26.1): on eCash mainnet Flush and Thunder are offered
+in Settings → Sidechains, the first start's sidechain step and the chain switcher; on the test network Flush alone; nothing on
+betanet or Windows. With no sidechain on, Backbone is 0.2.5: no RPC server, no gRPC beyond its own default, no supervisor
+thread, no child process (`run_unified.py`, `run_startup.py`, `run_backbone.py`'s first checkpoint).
+
+**Flush's features in the one window:**
+
+| Flush (its own app) | In Backbone's window |
+|---|---|
+| Swap (the best price over pools, order books and curves, routes) with its tabs: market index, order book and my orders, other pools, add liquidity, create a pool of any kind, auctions | **Trade → Swap**: Flush's own Swap page in its frame, headless (`dexFeatures.pages`). The app's own DEX views (constant product, stable and weighted pools only) would hide Flush's concentrated pools, its books and its curves: they are not shown for Flush. |
+| Markets: pools of every kind and launches, positions of concentrated liquidity, a new pool | **Trade → Markets**: Flush's Markets page |
+| Create asset (no market, bonding curve, funded pool), register an asset | Flush's group in the sidebar → **Create asset** |
+| A launch's page (buy, sell, claim the creator's allocation) | from Markets and Browse assets (Flush's pages) |
+| Browse assets (explorer of assets, search, history) | Flush's group → **Browse assets** |
+| Portfolio (holdings, pool shares, mint, burn, control, logo, display name, activity) | Flush's group → **Portfolio**; the holdings also in the app's **Assets** with every chain's |
+| Send an asset | the app's **Send** (Flush's tile, its asset) |
+| ECX of its wallet: balances, send, receive, transactions, wallets | the app's **Home, Overview, Send, Receive, Transactions, Manage wallets** (Flush's own kit pages are not in its group) |
+| Staking: overview, bonds, the validators, the schedule, finality and BMM, slashing | the app's **Staking** (Flush's Staking page, headless, under the app's title) |
+| Deposit from eCash, withdraw to it | the app's **Sidechains → Move coins** (a deposit is Backbone's own payment, its own question) |
+| A withdrawal refunded | Flush's Drivechains page (All its pages, Settings → Interface) |
+| Its explorer | the app's **block explorer** (Flush's explorer in its frame) |
+| Network status, its node, settings | the app's status bar, Settings → Sidechains (its program, its data, its updates) |
+| Merged mining (`setbmm`, a block asked by hand, its history) and the Bidding panel (anchor bids) | **P4.** Not in Flush's group (All its pages only); the Bidding panel shows in Staking → Finality & BMM, read only: this app's user may not call `setbmm`, `requestbmmblock` or `setanchorbidpolicy` on a sidechain of Backbone's, and no validator key is made from the app |
+
+**Thunder** (a drop-in): its wallet is its node's own, so its group leads with its own Send, Receive, Transactions and
+Drivechains (deposit, withdraw), then its Batch pay, Payments and Throughput; the app's Send, Receive, Move coins and Manage
+wallets leave it out and say where it is (`OwnWalletNote`); Home and Overview show its balance and height (its app layer).
+
+**P2 (the wallets), not built:** both options stay open. Flush's wallet is the backup phrase's (`shared`, §23) or its own
+(`separate`), chosen when it is turned on, as Layers' was. Thunder's is its own phrase today (`phrase_keys` false, made in
+its pages); P2 gives the drop-ins the BIP85 child of the one phrase (`setwalletphrase` by the cookie user,
+`seed::Bip85Phrase`, `DropinPhraseIndex`, `DropinFingerprint`, §25.7 item 7) or keeps a phrase of their own, the user's
+choice, and makes Backbone's two BIP39s and two phrases one (§26.2).
+
+### 26.6 Tests (P1)
+
+- `test_chains-app`: `ecash_sidechains_tests` (the eCash catalog, Flush's and Thunder's arguments on eCash and on regtest,
+  the server proof's vector, the names of a latest release's files and its sums, a latest release by a fake server: its
+  pages in the package, of their own, none, of another host version, a tampered package, no sums, a pre-release, the
+  signatures' hook with and without a key, an update and its rollback; pages from the release else built in, no link, no
+  mix; Flush's capabilities, its coin, Thunder a drop-in on eCash only); P0's tests of the empty eCash catalog brought to
+  P1. `BACKBONE_TEST_REAL_RELEASES=1` runs `the_real_latest_releases`: the real latest releases downloaded from GitHub with
+  the app's fetcher, checked by their sums and installed in a test folder (run by hand).
+- vitest `backbone-sidechains.test.ts` (offered on eCash, Flush's Trade, its group, Thunder's wallet in its pages) and
+  `packs.test.ts` (the kit of a pack).
+- `run_backbone.py` + `backbone.js` (regtest with `-testecash`, a local HTTPS mirror of the latest releases made of the
+  real Flush 8.3.7 package, the pages of `deploy-pack`, and Thunder's mainnet-v1 package): Backbone alone; both downloaded
+  and checked; Flush on, its pages from its release, a deposit credited, its Swap in the Trade page; Thunder on, Backbone's
+  gRPC served late, its arguments, its stdin a pipe of the app, `appserverproof`, its pages from its package; both off.
+
+
+Results (2026-10-30): `test_chains-app` 179 cases; `ctest` 167 (test_bitcoin's suites); vitest 62 files / 568; svelte-check
+0/0; `i18n.mjs --check`; functional 24 (`feature_ecash_*` 9, `feature_drivechain*` 11, `wallet_drivechain_encrypted`,
+`wallet_bip39`, `interface_ecash_grpc`, `rpc_help`); `run_startup.py` (every start); `run_unified.py` 21 checks (Layers on
+plain regtest: Backbone alone as 0.2.5); `run_backbone.py` 17 checks; the real latest releases (flush-v8.3.7, Thunder
+mainnet-v1) downloaded from GitHub, checked by their SHA256SUMS and installed in a test folder.
+
+### 26.7 Open
+
+- Flush's next release (8.3.8) attaches `flush-8.3.8-pack.tar.gz` (`deploy-pack` of `flush-8.3.8-pack`, not pushed) and its
+  line in `SHA256SUMS`; until then the copy built in shows Flush.
+- Thunder has no copy of its pages built in: its pages come in the same package as its program, so they cannot be missing
+  where its program is (its pages are built by its own CMake, not by `packs.mjs`).
+- On regtest the app's own chain is still named Chains (CHN), as P0 left it; the eCash networks say eCash (ECX).
+- Not run on Windows: nothing is offered there (the supervisor runs no program on Windows yet).
