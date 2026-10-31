@@ -1,7 +1,8 @@
 <script lang="ts">
   import ChainTiles from '../components/ChainTiles.svelte';
   import SidechainSend from '../components/SidechainSend.svelte';
-  import { actionChain, chainEntries, HOST, loadCapabilities } from '../lib/chains.svelte';
+  import OwnWalletNote from '../components/OwnWalletNote.svelte';
+  import { actionChain, chainEntries, HOST, loadCapabilities, ownWallet } from '../lib/chains.svelte';
   // Send on which chain (doc/unified-app.md §19): the first field of the form, its tiles above "Pay to", in step with
   // the top bar's selector (a chain's card or an asset's Send selects it). With All selected the form waits for one;
   // with only this app's own chain there is nothing to pick. A sidechain's form is SidechainSend, its spend asked in
@@ -429,6 +430,8 @@
 
   {#if sendChain === null}
     <p class="muted wait" data-send-wait>{t('Pick a chain above to send on it.')}</p>
+  {:else if sendChain !== HOST && sendOn && ownWallet(sendOn)}
+    <OwnWalletNote stem={sendOn.id} name={sendOn.name} />
   {:else if sendChain !== HOST && sendOn}
     {#key sendChain}<SidechainSend stem={sendOn.id} name={sendOn.name} />{/key}
   {:else}

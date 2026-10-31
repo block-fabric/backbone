@@ -64,6 +64,9 @@ public:
             bool orders{false};
             //! 24-hour prices and volumes of every pair (phase C): none yet.
             bool stats{false};
+            //! Its own Swap and Markets are the Trade page's (in its frame, headless): a DEX beyond the app's views
+            //! (Flush: concentrated pools by default, order books, launches on curves, the best price over all of them).
+            bool pages{false};
         } dex_features{};
         //! Its coin's word in its DEX's requests (CoinWord).
         std::string coin{"CHN"};

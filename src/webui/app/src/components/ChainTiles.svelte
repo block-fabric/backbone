@@ -9,13 +9,14 @@
   import Amount from './Amount.svelte';
   import ModuleAmount from './ModuleAmount.svelte';
   import { chainColor } from '../lib/chaincolors';
-  import { balanceOf, chainEntries, chainState, refreshSummary, setSelectedChain, type ChainEntry } from '../lib/chains.svelte';
+  import { balanceOf, chainEntries, chainState, ownWallet, refreshSummary, setSelectedChain, type ChainEntry } from '../lib/chains.svelte';
   import { wallets } from '../lib/state.svelte';
 
   // only: the chains offered (Trade: those with a DEX); every chain else.
   let { value, label, kind, only = null }: { value: string | null; label: string; kind: 'send' | 'receive' | 'trade'; only?: string[] | null } = $props();
 
-  const entries = $derived(only ? chainEntries().filter((e) => only.includes(e.id)) : chainEntries());
+  // A drop-in's wallet sends and receives in its own pages (ownWallet): not offered here.
+  const entries = $derived(only ? chainEntries().filter((e) => only.includes(e.id)) : chainEntries().filter((e) => !ownWallet(e)));
   const own = $derived(wallets.current !== null ? wallets.balances[wallets.current] : undefined);
 
   $effect(() => {

@@ -16,7 +16,7 @@
   import { productName, productUnit } from '../lib/modules.svelte';
   import { wallets } from '../lib/state.svelte';
   import { walletApi } from '../lib/wallet';
-  import { amountProblem, chainEntries, chainHost, chainState, chainWallet, creditDeposits, deposits, noteDeposit, refreshSummary, type ChainWithdrawal } from '../lib/chains.svelte';
+  import { amountProblem, chainEntries, chainHost, chainState, chainWallet, creditDeposits, deposits, noteDeposit, ownWallet, refreshSummary, type ChainWithdrawal } from '../lib/chains.svelte';
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -37,7 +37,7 @@
 
   const product = $derived(productName());
   const unit = $derived(productUnit());
-  const side = $derived(chainEntries().filter((e) => !e.host));
+  const side = $derived(chainEntries().filter((e) => !e.host && !ownWallet(e)));
   const entry = $derived(side.find((e) => e.id === target) ?? null);
   const summary = $derived(entry ? chainState.summaries[entry.id] : undefined);
   const own = $derived(wallets.current !== null ? wallets.balances[wallets.current] : undefined);

@@ -6,6 +6,10 @@
   // chain with a DEX and Swap asks which chain; a chain without a DEX selected is said, with those that have one.
   // Simple mode: Swap alone, simpler.
   //
+  // A chain whose DEX goes beyond these views (its capabilities' dexFeatures.pages: Flush, doc/unified-app.md §26) has its
+  // own Swap and Markets laid in this page instead (its frame, headless), each tab on its own page and tab: one Trade page,
+  // never two DEX pages for one chain.
+  //
   // Light: only what the tab shown needs, of the chains it shows, while the window is seen (lib/dex.svelte.ts poll).
   import { t } from '../lib/i18n.svelte';
   import ChainTiles from '../components/ChainTiles.svelte';
@@ -18,6 +22,7 @@
   import Positions from '../components/dex/Positions.svelte';
   import Orders from '../components/dex/Orders.svelte';
   import MarketIndex from '../components/dex/MarketIndex.svelte';
+  import ModuleEmbed from '../components/ModuleEmbed.svelte';
   import { ALL, chainEntries, chainsWith, chainWallet, loadCapabilities, refreshSummary, selectedChain, setSelectedChain } from '../lib/chains.svelte';
   import { loadInfo, loadPools, loadPositions, parsePoolTab, poll } from '../lib/dex.svelte';
   import { nav } from '../lib/nav.svelte';
@@ -49,12 +54,29 @@
   /** The chains a read tab shows: the one selected, or with All every chain with a DEX that runs. */
   const shown = $derived(one ? [one] : sel === ALL ? dexChains.filter((e) => e.running) : []);
   const offTopic = $derived(!!selEntry && !one && !poolAt);
+  /** The chain whose own DEX pages this page shows: the one shown, or with All the only chain with a DEX, when it has them. */
+  const ownDex = $derived.by(() => {
+    const e = one ?? (sel === ALL && dexChains.length === 1 ? dexChains[0] : null);
+    return e && e.caps?.dexFeatures?.pages ? e : null;
+  });
+  /**
+   * Its two pages are this page's tabs (their own tabs inside: Flush's Swap has its order book, market index, auctions and
+   * pools of every kind; its Markets the pools and launches, the positions, a new pool).
+   */
+  const OWN_TABS = [
+    { id: '', label: 'Swap', page: 'trade' },
+    { id: 'pools', label: 'Markets', page: 'pools' },
+  ];
+  const tabs = $derived(ownDex ? OWN_TABS : TABS);
+  const ownAt = $derived(OWN_TABS.find((x) => x.id === tabShown) ?? OWN_TABS[0]);
 
-  // What the tab shown reads, of the chains it shows, at its own pace.
+  // What the tab shown reads, of the chains it shows, at its own pace (nothing for a chain whose own pages show it).
   $effect(() => {
+    if (ownDex) return;
     for (const e of shown) if (e.running) void loadInfo(e.id);
   });
   $effect(() => {
+    if (ownDex) return;
     const ids = shown.filter((e) => e.running).map((e) => e.id);
     if (!ids.length || view === 'pool' || view === 'orders') return;
     if (view === '' || view === 'create') {
@@ -79,7 +101,7 @@
     <h1>{simple ? t('Swap') : t('Trade')}</h1>
     {#if !simple}
       <div class="tabs" role="tablist" aria-label={t('Trade')}>
-        {#each TABS as tb (tb.id)}
+        {#each tabs as tb (tb.id)}
           <button type="button" role="tab" aria-selected={tabShown === tb.id} onclick={() => (nav.tab = tb.id)} data-trade-tab={tb.id || 'swap'}>{t(tb.label)}</button>
         {/each}
       </div>
@@ -91,11 +113,15 @@
   {:else if offTopic}
     <NotOnThisChain what="DEX" have={dexChains} none="No chain with a DEX is turned on." />
   {:else}
-    {#if view !== 'pool'}
+    {#if view !== 'pool' && dexChains.length > 1}
+      <ChainTiles value={one?.id ?? null} label={view === '' ? 'Trade on' : 'Chain'} kind="trade" only={dexIds} />
+    {:else if view !== 'pool' && !ownDex}
       <ChainTiles value={one?.id ?? null} label={view === '' ? 'Trade on' : 'Chain'} kind="trade" only={dexIds} />
     {/if}
 
-    {#if view === ''}
+    {#if ownDex}
+      {#key `${ownDex.id}:${ownAt.page}`}<ModuleEmbed stem={ownDex.id} page={ownAt.page} name={ownDex.name} height="calc(100vh - 12.6rem)" bare headless />{/key}
+    {:else if view === ''}
       {#if one}
         {#key one.id}<SwapPanel stem={one.id} name={one.name} {simple} />{/key}
       {/if}

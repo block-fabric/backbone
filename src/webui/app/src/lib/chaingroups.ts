@@ -123,7 +123,26 @@ export const OWN_PAGES: Record<string, OwnPage[]> = {
   ],
   // FastBlocks: Staking is its only page of its own (the app's Staking entry).
   fastblocks: [],
+  // Flush (Backbone, doc/unified-app.md §26): its Swap and Markets are the app's Trade page, its Staking the app's
+  // Staking; its assets, its portfolio (mint, burn, control, activity) and its launches are its own. Its Merged mining
+  // page (the Bidding panel) waits for P4: under "All its pages" only.
+  flush: [
+    { id: 'assets', label: 'Browse assets', icon: 'coins', summary: 'Every asset of the chain: its supply, markets, launches and history' },
+    { id: 'my-assets', label: 'Portfolio', simple: 'My assets', icon: 'wallet', summary: 'What this wallet holds and controls: balances, pool shares, auctions to collect, activity' },
+    { id: 'launch', label: 'Create asset', icon: 'plus', summary: 'Create an asset: with no market yet, on a bonding curve, or straight into a pool you fund' },
+  ],
 };
+
+/**
+ * A drop-in's wallet pages (Thunder on Backbone): its wallet is its node's own, so sending, receiving, its history and its
+ * coins in and out are its own pages, listed first in its group (the app's Send, Receive and Move coins leave it to them).
+ */
+const DROPIN_PAGES: OwnPage[] = [
+  { id: 'send', label: 'Send', simple: 'Send', icon: 'send', summary: 'Pay from its wallet' },
+  { id: 'receive', label: 'Receive', simple: 'Receive', icon: 'download', summary: 'An address of its wallet, to be paid' },
+  { id: 'transactions', label: 'Transactions', simple: 'History', icon: 'history', summary: 'The payments of its wallet' },
+  { id: 'peg', label: 'Drivechains', simple: 'Move coins', icon: 'refresh', summary: 'Deposit from the mainchain, withdraw to it, and follow the withdrawal bundles' },
+];
 
 /**
  * The items of a sidechain's group. `allPages` (Settings → Interface, off by default) adds "All its pages": the chain's
@@ -133,7 +152,8 @@ export function chainGroupItems(e: ChainEntry, simple = false, allPages = false)
   const manifest = modules.manifests[e.id];
   const listed = manifest ? new Map(manifest.pages.map((p) => [p.id, p])) : null;
   const out: ChainGroupItem[] = [];
-  for (const own of OWN_PAGES[e.id] ?? []) {
+  const owns = [...(e.caps?.dropin ? DROPIN_PAGES : []), ...(OWN_PAGES[e.id] ?? [])];
+  for (const own of owns) {
     const p = listed?.get(own.id);
     if (own.under !== undefined) {
       // A tab of another page, under it: while that page is listed, in Advanced (its own manifest may still list it

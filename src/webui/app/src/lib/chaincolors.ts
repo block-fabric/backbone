@@ -6,7 +6,7 @@
 export const HOST_ID = 'chains';
 
 /** The catalog's chains in its order: each takes the slot of its place (webui/sidechains.json). */
-export const CHAIN_SLOTS = ['layers', 'fastblocks', 'thunder', 'bitnames', 'bitassets', 'zside', 'hivemind'] as const;
+export const CHAIN_SLOTS = ['layers', 'fastblocks', 'thunder', 'bitnames', 'bitassets', 'zside', 'hivemind', 'flush'] as const;
 
 /** The CSS colour of a chain: a value for `fill`, `stroke`, `background`. */
 export function chainColor(id: string): string {

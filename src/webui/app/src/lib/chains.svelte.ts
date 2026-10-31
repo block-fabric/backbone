@@ -37,6 +37,12 @@ export interface ChainCaps {
   withdraw: boolean;
   /** Its pages the app shows inside its own (the module's frame), where it has no view of its own for them. */
   embed: string[];
+  /** A drop-in (Thunder on Backbone): its wallet is its node's own, in its own pages (send, receive, peg false then). */
+  dropin?: boolean;
+  /** Its coin's word in its DEX's requests (CHN, ECX). */
+  coin?: string;
+  /** What its DEX does; `pages`: the chain's own Swap and Markets are the Trade page's (Flush: concentrated pools, books, curves). */
+  dexFeatures?: { pair?: boolean; liquidity?: boolean; route?: boolean; twap?: boolean; curves?: boolean; orders?: boolean; stats?: boolean; pages?: boolean };
 }
 
 export interface ChainAsset {
@@ -297,6 +303,11 @@ export function chainEntries(on: SidechainEntry[] = (hub.list?.chains ?? []).fil
     { id: HOST, name: chainName(), unit: productUnit(), host: true, running: true, caps: null },
     ...on.map((c) => ({ id: c.stem, name: c.name, unit: chainUnit(c.stem), host: false, running: c.state === 'running' && c.ready, caps: chainState.caps[c.stem] ?? null, entry: c })),
   ];
+}
+
+/** A chain whose wallet is in its own pages (a drop-in): the app's own wallet pages leave it to them. */
+export function ownWallet(e: ChainEntry | undefined | null): boolean {
+  return !!e && !e.host && !!e.caps?.dropin;
 }
 
 export type Capability = 'assets' | 'dex' | 'staking' | 'names' | 'markets' | 'shielded';

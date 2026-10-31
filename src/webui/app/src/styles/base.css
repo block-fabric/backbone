@@ -767,6 +767,7 @@ textarea.mono {
   --chain-bitassets: #e87ba4;
   --chain-zside: #008300;
   --chain-hivemind: #6250d6;
+  --chain-flush: #5b7d9e;
 }
 :root:is([data-theme='midnight'], [data-theme='dark'], [data-theme='ocean'], [data-theme='matrix'], [data-theme='qdarkstyle'], [data-theme='mocha'], [data-theme='dracula']) {
   --chain-layers: #3987e5;
@@ -776,4 +777,5 @@ textarea.mono {
   --chain-bitassets: #d55181;
   --chain-zside: #008300;
   --chain-hivemind: #9085e9;
+  --chain-flush: #8aa6c2;
 }

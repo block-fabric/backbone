@@ -17,7 +17,7 @@
   import { ErrorCode } from '../lib/bridge';
   import { host } from '../lib/rpc';
   import { node, toast, wallets } from '../lib/state.svelte';
-  import { formatUnits as fmtSats } from '../lib/chains.svelte';
+  import { formatUnits as fmtSats, ownWallet } from '../lib/chains.svelte';
   import { walletApi } from '../lib/wallet';
   import { productName, productUnit } from '../lib/modules.svelte';
   import { simpleMode } from '../lib/uimode.svelte';
@@ -53,7 +53,8 @@
 
   // The sidechains: those this app runs (by their slot), then the other active ones of the drivechain (a deposit only,
   // to a typed deposit address; Advanced).
-  const run = $derived(chainEntries().filter((e) => !e.host));
+  // A drop-in moves its coins on its own Drivechains page (its wallet is its own): by its slot here, as another sidechain.
+  const run = $derived(chainEntries().filter((e) => !e.host && !ownWallet(e)));
   const slotOf = (stem: string) => run.find((e) => e.id === stem)?.entry?.slot;
   const others = $derived((dc?.sidechains ?? []).filter((s) => !run.some((e) => e.entry?.slot === s.slot)));
   /** The choice: a chain this app runs (its id), or "slot:<n>" of another active sidechain. */

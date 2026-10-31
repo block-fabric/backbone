@@ -99,11 +99,12 @@ const std::vector<ChainAdapter::Capabilities>& ChainAdapter::Table()
          // averaged over time; pool kinds when its node says they apply (dex-curves).
          .dex_features = {.route = true, .twap = true, .curves = true}},
         {.stem = "fastblocks", .staking = true, .embed = {"staking"}},
-        // Flush (Backbone, doc/unified-app.md §26): Layers' DEX and assets with stake, its coin ECX in its requests. The
-        // app's Trade has its pools of three kinds; its concentrated pools, order books, launches and auctions are its own
-        // pages (Markets, Launch, Swap's tabs), shown in its frame.
+        // Flush (Backbone, doc/unified-app.md §26): Layers' DEX and assets with stake, its coin ECX in its requests. Its DEX
+        // goes beyond the app's views (concentrated pools, its default; order books; launches on curves; the best price
+        // over all of them), so the Trade page shows its own Swap and Markets (dex_features.pages); the app's reads of its
+        // pools stay for the portfolio and Home.
         {.stem = "flush", .assets = true, .dex = true, .staking = true, .embed = {"trade", "staking", "assets", "my-assets", "pools", "launch"},
-         .dex_features = {.route = true, .twap = true, .curves = true}, .coin = "ECX"},
+         .dex_features = {.route = true, .twap = true, .curves = true, .pages = true}, .coin = "ECX"},
         {.stem = "thunder", .embed = {}},
         {.stem = "bitnames", .names = true, .embed = {"names", "register", "directory"}},
         // BitAssets: pools of two assets, constant product at 0.30 %, a swap in one pool.
@@ -192,6 +193,7 @@ UniValue ChainAdapter::CapabilitiesJson(const Capabilities& caps)
         dex.pushKV("curves", caps.dex_features.curves);
         dex.pushKV("orders", caps.dex_features.orders);
         dex.pushKV("stats", caps.dex_features.stats);
+        dex.pushKV("pages", caps.dex_features.pages);
         out.pushKV("dexFeatures", std::move(dex));
     }
     return out;

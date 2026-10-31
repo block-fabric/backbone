@@ -1,9 +1,10 @@
 <script lang="ts">
   import ChainWallets from '../components/ChainWallets.svelte';
   import ChainBadge from '../components/ChainBadge.svelte';
-  import { ALL, chainEntries, HOST, viewFilter } from '../lib/chains.svelte';
+  import { ALL, chainEntries, HOST, ownWallet, viewFilter } from '../lib/chains.svelte';
   // Every chain's wallets (doc/unified-app.md §18): this app's own, then each sidechain's, with a filter of chains.
-  const walletChains = $derived(chainEntries());
+  // A drop-in has one wallet, its node's own, in its own pages (its backup phrase there too).
+  const walletChains = $derived(chainEntries().filter((e) => !ownWallet(e)));
   const walletFilter = $derived(walletChains.length > 1 ? viewFilter('wallets', walletChains) : HOST);
   import { every } from '../lib/poll';
   import { product as productName } from '../lib/brand.svelte';

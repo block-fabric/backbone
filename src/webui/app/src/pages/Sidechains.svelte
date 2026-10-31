@@ -1,10 +1,13 @@
 <script lang="ts">
   import MovePanel from '../components/MovePanel.svelte';
   import SidechainStatus from '../components/SidechainStatus.svelte';
-  import { chainEntries, loadCapabilities } from '../lib/chains.svelte';
+  import OwnWalletNote from '../components/OwnWalletNote.svelte';
+  import { chainEntries, loadCapabilities, ownWallet } from '../lib/chains.svelte';
   // The sidechains this app runs, in one place (doc/unified-app.md §18): coins into and out of each, its link and its
   // merged mining; the drivechain's own state (escrows, proposals, bundles and votes) in the tabs below.
-  const pegChains = $derived(chainEntries().filter((e) => !e.host));
+  // A drop-in's coins move on its own Drivechains page (OwnWalletNote below the others).
+  const pegChains = $derived(chainEntries().filter((e) => !e.host && !ownWallet(e)));
+  const ownChains = $derived(chainEntries().filter((e) => ownWallet(e)));
   // The top bar's selection (§19): one sidechain shows its panel only; All or this app's own chain, every sidechain
   // (what moves coins into them is this app's chain).
   $effect(() => {
@@ -255,6 +258,7 @@
       {#if pegChains.length}<SidechainStatus />{/if}
     </div>
   {/if}
+  {#each ownChains as e (e.id)}<OwnWalletNote stem={e.id} name={e.name} page="peg" what="Its Drivechains page" />{/each}
   {#if tabs.length > 1}
   <div class="tabs" role="tablist" aria-label="Sidechains">
     {#each tabs as tb (tb.id)}

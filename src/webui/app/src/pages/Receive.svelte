@@ -24,7 +24,8 @@
   import { current, refreshInfo } from '../lib/walletdata.svelte';
   import ChainTiles from '../components/ChainTiles.svelte';
   import SidechainReceive from '../components/SidechainReceive.svelte';
-  import { actionChain, chainEntries, chainLink, HOST, loadCapabilities } from '../lib/chains.svelte';
+  import OwnWalletNote from '../components/OwnWalletNote.svelte';
+  import { actionChain, chainEntries, chainLink, HOST, loadCapabilities, ownWallet } from '../lib/chains.svelte';
 
   // Receive on which chain (doc/unified-app.md §19): the form's first field, in step with the top bar's selector; with
   // All selected the form waits for one.
@@ -161,6 +162,8 @@
   {/if}
   {#if recvChain === null}
     <p class="muted wait" data-receive-wait>{t('An address of the chain you pick: coins paid to it on another chain would not arrive.')}</p>
+  {:else if recvChain !== HOST && recvOn && ownWallet(recvOn)}
+    <OwnWalletNote stem={recvOn.id} name={recvOn.name} />
   {:else if recvChain !== HOST && recvOn}
     {#key recvChain}<SidechainReceive stem={recvOn.id} name={recvOn.name} />{/key}
   {:else}
