@@ -31,5 +31,7 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args);
  */
 int GrpcFileDescriptors(const ArgsManager& args);
 void StopGrpcServer();
+/** Whether the gRPC server runs (StartGrpcServer served it). */
+bool IsGrpcServing();
 
 #endif // BITCOIN_GRPC_INIT_H

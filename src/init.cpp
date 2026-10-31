@@ -832,6 +832,28 @@ bool AppStartServersLate(NodeContext& node)
     return *s_result;
 }
 
+std::string AppStartGrpcLate(NodeContext& node)
+{
+#ifdef ENABLE_GRPC
+    static Mutex s_mutex;
+    LOCK(s_mutex);
+    if (IsGrpcServing()) return {};
+    if (ShutdownRequested(node)) return "the node is stopping";
+    ArgsManager& args{*Assert(node.args)};
+    if (args.IsArgNegated("-grpc")) return "it was turned off (-nogrpc)";
+    if (!Params().GetConsensus().drivechain.EnforcerRules()) return "this network's drivechain rules are not the enforcer's";
+    args.SoftSetBoolArg("-grpc", true);
+    if (!StartGrpcServer(node, args) || !IsGrpcServing()) {
+        return strprintf("its port (%d) could not be opened: is another program using it? See the log of the node.", args.GetIntArg("-grpcport", DEFAULT_GRPC_PORT));
+    }
+    LogInfo("The gRPC server was started after the node, for its drop-in sidechains");
+    return {};
+#else
+    (void)node;
+    return "this build has no gRPC server";
+#endif
+}
+
 // Parameter interaction based on rules
 void InitParameterInteraction(ArgsManager& args)
 {

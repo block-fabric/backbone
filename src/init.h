@@ -7,6 +7,7 @@
 #define BITCOIN_INIT_H
 
 #include <atomic>
+#include <string>
 
 //! Default value for -daemon option
 inline constexpr bool DEFAULT_DAEMON = false;
@@ -76,6 +77,8 @@ bool AppInitMain(node::NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip
  * was requested, or when they could not be started (see the log).
  */
 bool AppStartServersLate(node::NodeContext& node);
+/** Serve the enforcer's gRPC interface after the start, if it is not served and -grpc was not turned off: "" when it is served, else why not. */
+std::string AppStartGrpcLate(node::NodeContext& node);
 
 /**
  * Register all arguments with the ArgsManager

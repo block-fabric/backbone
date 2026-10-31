@@ -98,6 +98,10 @@ public:
     //! -server, as the Chains app does once a sidechain it runs needs it. True when it runs (it ran already).
     virtual bool startRpcServer() = 0;
 
+    //! Serve the bip300301_enforcer's gRPC interface now if it is not served (-grpc not given, or its port was taken at the
+    //! start), as the app does once a drop-in sidechain it runs needs it. "" when it is served, else why not.
+    virtual std::string startGrpcServer() = 0;
+
     //! Return whether shutdown was requested.
     virtual bool shutdownRequested() = 0;
 

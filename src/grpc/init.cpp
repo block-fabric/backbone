@@ -181,6 +181,11 @@ bool StartGrpcServer(node::NodeContext& node, const ArgsManager& args)
     return true;
 }
 
+bool IsGrpcServing()
+{
+    return g_server != nullptr;
+}
+
 void StopGrpcServer()
 {
     if (g_server) {
