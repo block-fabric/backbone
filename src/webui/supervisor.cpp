@@ -268,7 +268,9 @@ std::vector<SidechainSupervisor::Spec> EcashCatalog(ChainType chain)
 #ifndef WIN32
     // Not on Windows yet: the supervisor runs no program there (Spawn), so nothing is offered.
     const auto flush{[&](int rpc, int p2p) {
-        Spec s{"flush", "Flush", "Trade, launch and stake assets: a DEX on a fast chain, a block every 15 seconds.", 46, 0, 4, 500, true};
+        // Not a validator from the app yet (staking false: no validator key made here): its anchors are merged mining's
+        // bids, which come with P4. Bonds to validators are its Staking page's (ChainAdapter: staking).
+        Spec s{"flush", "Flush", "Trade, launch and stake assets: a DEX on a fast chain, a block every 15 seconds.", 46, 0, 4, 500, false};
         s.kind = Kind::TEMPLATE;
         s.program = "flushd";
         s.rpc_port = rpc;
@@ -453,6 +455,10 @@ std::vector<std::string> SidechainSupervisor::AppRpcMethodsFor(const std::string
 {
     const Spec* spec{FindSpec(stem)};
     std::vector<std::string> m{spec && spec->kind == Kind::DROPIN ? DropinRpcMethods() : AppRpcMethods()};
+    // Backbone's sidechains: no merged mining from the app before P4 (doc/unified-app.md §26): its bids, a block asked by
+    // hand, Flush's anchor bids (the Bidding panel shows, its changes are refused) are not this app's user's to call.
+    static const std::vector<std::string> P4{"setbmm", "requestbmmblock", "setanchorbidpolicy"};
+    const bool ecash{m_options.ecash_family};
     if (m_options.chain_methods) {
         for (const std::string& name : m_options.chain_methods(stem)) {
             // A name of a method only (a whitelist is "user:a,b,c").
@@ -460,6 +466,7 @@ std::vector<std::string> SidechainSupervisor::AppRpcMethodsFor(const std::string
             m.push_back(name);
         }
     }
+    if (ecash) std::erase_if(m, [](const std::string& n) { return std::ranges::find(P4, n) != P4.end(); });
     std::ranges::sort(m);
     m.erase(std::unique(m.begin(), m.end()), m.end());
     return m;
@@ -823,7 +830,7 @@ std::string SidechainSupervisor::MakeValidatorKey(const std::string& stem)
 {
     const Spec* spec{FindSpec(stem)};
     if (!spec) throw Error(strprintf("There is no sidechain %s.", stem));
-    if (!spec->staking) throw Error(strprintf("%s does not stake: it has no validators.", spec->name));
+    if (!spec->staking) throw Error(strprintf("This app makes no validator key for %s.", spec->name));
     const fs::path file{ValidatorKeyFile(stem)};
     std::string pubkey;
     if (Exists(file)) {

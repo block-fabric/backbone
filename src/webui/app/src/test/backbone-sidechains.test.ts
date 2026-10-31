@@ -28,7 +28,7 @@ function entry(stem: string, over: Partial<SidechainEntry> = {}): SidechainEntry
     slot: stem === 'flush' ? 46 : 9,
     diskGB: 4,
     ramMB: 400,
-    staking: stem === 'flush',
+    staking: false,
     enabled: true,
     state: 'running',
     pid: 1,

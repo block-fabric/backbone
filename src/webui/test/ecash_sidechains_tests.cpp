@@ -24,6 +24,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 
@@ -255,7 +256,8 @@ BOOST_AUTO_TEST_CASE(the_ecash_catalog)
     const SidechainSupervisor::Spec& flush{main[0]};
     BOOST_CHECK_EQUAL(flush.stem, "flush");
     BOOST_CHECK_EQUAL(flush.slot, 46);
-    BOOST_CHECK(flush.kind == Kind::TEMPLATE && flush.staking && flush.phrase_keys);
+    // Not a validator from the app before P4 (its anchors are merged mining's bids): bonds only, in its Staking page.
+    BOOST_CHECK(flush.kind == Kind::TEMPLATE && !flush.staking && flush.phrase_keys);
     BOOST_CHECK_EQUAL(SidechainSupervisor::ProgramName(flush), "flushd");
     BOOST_CHECK_EQUAL(flush.rpc_port, 8254);
     BOOST_CHECK_EQUAL(flush.p2p_port, 8255);
@@ -307,6 +309,12 @@ BOOST_AUTO_TEST_CASE(arguments_of_flush_and_thunder)
         BOOST_CHECK_MESSAGE(Has(flush, a), a);
     }
     BOOST_CHECK(!Has(flush, "-regtest") && !Has(flush, "-testmainenforcer"));
+    // No merged mining from the app before P4: its bids, a block asked by hand, its anchor bids are not this app's to call.
+    const auto whitelisted{std::ranges::find_if(flush, [](const std::string& a) { return a.starts_with("-rpcwhitelist=chains-app:"); })};
+    BOOST_REQUIRE(whitelisted != flush.end());
+    for (const char* m : {"setbmm", "requestbmmblock", "setanchorbidpolicy"}) BOOST_CHECK_MESSAGE(!Contains(*whitelisted + ",", std::string{","} + m + ",") && !Contains(*whitelisted, std::string{":"} + m + ","), m);
+    BOOST_CHECK(Contains(*whitelisted + ",", ",webuihost,") && Contains(*whitelisted + ",", ",createwithdrawal,"));
+    BOOST_CHECK_THROW(s.MakeValidatorKey("flush"), std::runtime_error);
     BOOST_CHECK(s.NetDataDir("flush") == s.DataDir("flush"));
     // Thunder: its own flags, a folder of its network, the mainchain by this node's gRPC, the app layer.
     const std::vector<std::string> thunder{s.DaemonArgs("thunder")};
@@ -605,6 +613,33 @@ BOOST_AUTO_TEST_CASE(what_the_apps_pages_make_of_them)
     }
     BOOST_CHECK(!ChainAdapter::Dropin("thunder"));
     BOOST_CHECK(ChainAdapter::CapabilitiesJson(*ChainAdapter::Find("thunder")).find_value("send").isTrue());
+}
+
+BOOST_AUTO_TEST_CASE(the_real_latest_releases)
+{
+    // A check by hand, off by default (no network in the tests): BACKBONE_TEST_REAL_RELEASES=1 downloads the latest
+    // releases of Flush and Thunder from GitHub with the app's own fetcher (curl, https only), checks them by their
+    // SHA256SUMS and installs them in this test's folder; nothing is run.
+    const char* real{std::getenv("BACKBONE_TEST_REAL_RELEASES")};
+    if (!real || std::string{real} != "1") return;
+    UseNet net{ChainType::ECASH};
+    ModuleInstaller::Options o;
+    o.bin_root = m_args.GetDataDirBase() / "real";
+    o.fetcher = ModuleInstaller::CurlFetcher();
+    ModuleInstaller installer{o};
+    for (const std::string stem : {"flush", "thunder"}) {
+        const auto releases{installer.Releases(stem, true)};
+        BOOST_REQUIRE_EQUAL(releases.size(), 1U);
+        const auto& r{releases[0]};
+        BOOST_TEST_MESSAGE(strprintf("%s: %s %s sha256 %s pages %s: %s", stem, r.tag, r.asset_name, r.sha256, r.pack_asset.empty() ? "in the package or none" : r.pack_asset, r.compatible ? "compatible" : r.reason));
+        BOOST_REQUIRE_MESSAGE(r.compatible, r.reason);
+        BOOST_CHECK(!r.prerelease);
+        installer.InstallNow(stem, r.tag);
+        const auto dir{installer.CurrentDir(stem)};
+        BOOST_REQUIRE(dir);
+        BOOST_CHECK(std::filesystem::is_regular_file(*dir / fs::PathFromString(ModuleInstaller::AllowedBinaries(stem, PLATFORM)[0])));
+        BOOST_TEST_MESSAGE(strprintf("%s: installed in %s, its pages %s", stem, fs::PathToString(*dir), installer.CurrentPackDir(stem) ? "from the release" : "built in"));
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
