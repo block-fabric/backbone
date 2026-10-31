@@ -69,10 +69,10 @@ constexpr int COIN_DECIMALS{8};
 const std::string COIN_ID(64, '0');
 
 //! An asset as a request of the chain names it: by its id ("0x" and its hash), the chain's coin by its own word
-//! ("CHN": what its RPCs and its questions take for the coin; never a name of an asset that may look alike).
-std::string Arg(const std::string& id)
+//! (ChainAdapter::CoinWord: what its RPCs and its questions take for the coin; never a name of an asset that may look alike).
+std::string Arg(const std::string& id, const std::string& coin)
 {
-    return id == COIN_ID ? std::string{"CHN"} : "0x" + id;
+    return id == COIN_ID ? coin : "0x" + id;
 }
 
 //! A plain decimal as a node writes an amount (no sign, no exponent): its text, else "".
@@ -265,39 +265,39 @@ std::string ChainAdapter::WhyNotPoolKind(const std::string& curve, int64_t fee, 
     return {};
 }
 
-UniValue ChainAdapter::SwapRequest(const std::string& wallet, const std::vector<std::string>& path, const std::string& amount, int slippage_bps, const std::string& min_out)
+UniValue ChainAdapter::SwapRequest(const std::string& wallet, const std::vector<std::string>& path, const std::string& amount, int slippage_bps, const std::string& min_out, const std::string& coin)
 {
     if (path.size() == 2) {
         // In one pool: what every DEX of these chains does (its default bound on the price impact kept).
-        return ConfirmedRequest(wallet, "swapasset", Array({UniValue{Arg(path[0])}, UniValue{amount}, UniValue{Arg(path[1])}, Number(SlippageText(slippage_bps)), UniValue{}, UniValue{min_out}}));
+        return ConfirmedRequest(wallet, "swapasset", Array({UniValue{Arg(path[0], coin)}, UniValue{amount}, UniValue{Arg(path[1], coin)}, Number(SlippageText(slippage_bps)), UniValue{}, UniValue{min_out}}));
     }
     UniValue assets{UniValue::VARR};
-    for (const std::string& id : path) assets.push_back(Arg(id));
+    for (const std::string& id : path) assets.push_back(Arg(id, coin));
     return ConfirmedRequest(wallet, "swaproute", Array({assets, UniValue{amount}, Number(SlippageText(slippage_bps)), UniValue{min_out}}));
 }
 
-UniValue ChainAdapter::AddLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps, std::optional<bool> sets_price)
+UniValue ChainAdapter::AddLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps, std::optional<bool> sets_price, const std::string& coin)
 {
-    return ConfirmedRequest(wallet, "addliquidity", Array({UniValue{Arg(a)}, UniValue{amount_a}, UniValue{Arg(b)}, amount_b.empty() ? UniValue{} : UniValue{amount_b}, Number(SlippageText(slippage_bps)), sets_price ? UniValue{*sets_price} : UniValue{}}));
+    return ConfirmedRequest(wallet, "addliquidity", Array({UniValue{Arg(a, coin)}, UniValue{amount_a}, UniValue{Arg(b, coin)}, amount_b.empty() ? UniValue{} : UniValue{amount_b}, Number(SlippageText(slippage_bps)), sets_price ? UniValue{*sets_price} : UniValue{}}));
 }
 
-UniValue ChainAdapter::RemoveLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& b, const std::string& percent, int slippage_bps)
+UniValue ChainAdapter::RemoveLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& b, const std::string& percent, int slippage_bps, const std::string& coin)
 {
-    return ConfirmedRequest(wallet, "removeliquidity", Array({UniValue{Arg(a)}, UniValue{Arg(b)}, Number(percent), Number(SlippageText(slippage_bps))}));
+    return ConfirmedRequest(wallet, "removeliquidity", Array({UniValue{Arg(a, coin)}, UniValue{Arg(b, coin)}, Number(percent), Number(SlippageText(slippage_bps))}));
 }
 
-UniValue ChainAdapter::SwapPoolsRequest(const std::string& wallet, const std::string& asset_in, const std::vector<std::string>& pools, const std::string& amount, int slippage_bps, const std::string& min_out)
+UniValue ChainAdapter::SwapPoolsRequest(const std::string& wallet, const std::string& asset_in, const std::vector<std::string>& pools, const std::string& amount, int slippage_bps, const std::string& min_out, const std::string& coin)
 {
     UniValue ids{UniValue::VARR};
     for (const std::string& p : pools) ids.push_back(p);
-    return ConfirmedRequest(wallet, "swappools", Array({UniValue{Arg(asset_in)}, UniValue{amount}, ids, Number(SlippageText(slippage_bps)), UniValue{min_out}}));
+    return ConfirmedRequest(wallet, "swappools", Array({UniValue{Arg(asset_in, coin)}, UniValue{amount}, ids, Number(SlippageText(slippage_bps)), UniValue{min_out}}));
 }
 
-UniValue ChainAdapter::AddPoolLiquidityRequest(const std::string& wallet, const std::string& pool, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps)
+UniValue ChainAdapter::AddPoolLiquidityRequest(const std::string& wallet, const std::string& pool, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps, const std::string& coin)
 {
     UniValue amounts{UniValue::VOBJ};
-    amounts.pushKV(Arg(a), amount_a);
-    if (!amount_b.empty()) amounts.pushKV(Arg(b), amount_b);
+    amounts.pushKV(Arg(a, coin), amount_a);
+    if (!amount_b.empty()) amounts.pushKV(Arg(b, coin), amount_b);
     return ConfirmedRequest(wallet, "addpoolliquidity", Array({UniValue{pool}, amounts, Number(SlippageText(slippage_bps))}));
 }
 
@@ -314,10 +314,10 @@ std::string ChainAdapter::FeePercentText(int64_t millionths)
     return text;
 }
 
-UniValue ChainAdapter::CreatePoolRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a, int slippage_bps, bool by_kind)
+UniValue ChainAdapter::CreatePoolRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a, int slippage_bps, bool by_kind, const std::string& coin)
 {
     // A chain without pool kinds: constant product at 0.30 % is the pool addliquidity makes; the amounts set its price.
-    if (!by_kind) return AddLiquidityRequest(wallet, a, amount_a, b, amount_b, slippage_bps, true);
+    if (!by_kind) return AddLiquidityRequest(wallet, a, amount_a, b, amount_b, slippage_bps, true, coin);
     // With them: Layers' createpool, the kind named whole (its curve, its fee tier in percent, its parameter).
     UniValue kind{UniValue::VOBJ};
     std::string node_curve{curve};
@@ -326,7 +326,7 @@ UniValue ChainAdapter::CreatePoolRequest(const std::string& wallet, const std::s
     kind.pushKV("fee", Number(FeePercentText(fee)));
     if (curve == "stable") kind.pushKV("amp", amp);
     if (curve == "weighted") kind.pushKV("weight_a", weight_a);
-    return ConfirmedRequest(wallet, "createpool", Array({UniValue{Arg(a)}, UniValue{amount_a}, UniValue{Arg(b)}, UniValue{amount_b}, kind, Number(SlippageText(slippage_bps))}));
+    return ConfirmedRequest(wallet, "createpool", Array({UniValue{Arg(a, coin)}, UniValue{amount_a}, UniValue{Arg(b, coin)}, UniValue{amount_b}, kind, Number(SlippageText(slippage_bps))}));
 }
 
 // ---- Over the nodes ----
@@ -380,7 +380,7 @@ UniValue ChainAdapter::PoolsOf(const std::string& stem, const std::string& id, s
     UniValue out{UniValue::VARR};
     constexpr int64_t PAGE{1000};
     for (int64_t skip{0}; skip < 20 * PAGE && out.size() < most; skip += PAGE) {
-        const UniValue listed{PageRead(stem, "listpools", Array({UniValue{Arg(id)}, UniValue{PAGE}, UniValue{skip}}), "")};
+        const UniValue listed{PageRead(stem, "listpools", Array({UniValue{Arg(id, CoinWord(stem))}, UniValue{PAGE}, UniValue{skip}}), "")};
         for (size_t i{0}; listed.isArray() && i < listed.size() && out.size() < most; ++i) {
             UniValue row{PoolRow(listed[i])};
             if (!row.isNull()) out.push_back(std::move(row));
@@ -576,7 +576,7 @@ UniValue ChainAdapter::DexQuote(const UniValue& params) const
     bool routed{false};
     if (caps.dex_features.route && max_hops > 1) {
         try {
-            const UniValue q{PageRead(stem, "quoteroute", Array({UniValue{Arg(in)}, UniValue{amount}, UniValue{Arg(out_id)}, UniValue{max_hops}, UniValue{3}}), "")};
+            const UniValue q{PageRead(stem, "quoteroute", Array({UniValue{Arg(in, CoinWord(stem))}, UniValue{amount}, UniValue{Arg(out_id, CoinWord(stem))}, UniValue{max_hops}, UniValue{3}}), "")};
             routed = true;
             via = "route";
             const UniValue& found{Param(q, "routes")};
@@ -619,7 +619,7 @@ UniValue ChainAdapter::DexQuote(const UniValue& params) const
     if (!routed) {
         UniValue q;
         try {
-            q = PageRead(stem, "quoteswap", Array({UniValue{Arg(in)}, UniValue{amount}, UniValue{Arg(out_id)}}), "");
+            q = PageRead(stem, "quoteswap", Array({UniValue{Arg(in, CoinWord(stem))}, UniValue{amount}, UniValue{Arg(out_id, CoinWord(stem))}}), "");
         } catch (const HostError&) {
             throw;
         } catch (const std::exception& e) {
@@ -971,7 +971,7 @@ UniValue ChainAdapter::DexSwap(const UniValue& params) const
     if (route->find_value("priceImpact").isStr()) rows.push_back(Row("Price impact", strprintf("%.2f %%", Real(route->find_value("priceImpact").get_str()))));
     rows.push_back(Row("", strprintf("%s refuses the swap rather than give less than this; what does not fill comes back.", name), "note"));
 
-    const UniValue request{by_id ? SwapPoolsRequest(wallet, in, pools, amount, bps, FormatUnits(*min_out, dout)) : SwapRequest(wallet, path, amount, bps, FormatUnits(*min_out, dout))};
+    const UniValue request{by_id ? SwapPoolsRequest(wallet, in, pools, amount, bps, FormatUnits(*min_out, dout), CoinWord(stem)) : SwapRequest(wallet, path, amount, bps, FormatUnits(*min_out, dout), CoinWord(stem))};
     const UniValue result{CallWithRows(stem, request, rows)};
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
@@ -1023,8 +1023,8 @@ UniValue ChainAdapter::DexAddLiquidity(const UniValue& params) const
     rows.push_back(Row("Pool", PoolWords(row)));
     rows.push_back(Row("You put in at most", strprintf("%s of the first asset%s", FormatUnits(*ua, da), ub ? strprintf(", %s of the second", FormatUnits(*ub, db)) : std::string{})));
     if (sets_price && *sets_price) rows.push_back(Row("", "These amounts set the pool's price.", "note"));
-    const UniValue request{by_id ? AddPoolLiquidityRequest(wallet, pool, a, FormatUnits(*ua, da), b, ub ? FormatUnits(*ub, db) : std::string{}, bps)
-                                 : AddLiquidityRequest(wallet, a, FormatUnits(*ua, da), b, ub ? FormatUnits(*ub, db) : std::string{}, bps, sets_price)};
+    const UniValue request{by_id ? AddPoolLiquidityRequest(wallet, pool, a, FormatUnits(*ua, da), b, ub ? FormatUnits(*ub, db) : std::string{}, bps, CoinWord(stem))
+                                 : AddLiquidityRequest(wallet, a, FormatUnits(*ua, da), b, ub ? FormatUnits(*ub, db) : std::string{}, bps, sets_price, CoinWord(stem))};
     const UniValue result{CallWithRows(stem, request, rows)};
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
@@ -1082,7 +1082,7 @@ UniValue ChainAdapter::DexRemoveLiquidity(const UniValue& params) const
     }};
     const std::string about_a{part(held.find_value("valueA").get_str(), la)}, about_b{part(held.find_value("valueB").get_str(), lb)};
     if (!about_a.empty() && !about_b.empty()) rows.push_back(Row("You get about", about_a + " and " + about_b));
-    const UniValue request{by_id ? RemovePoolLiquidityRequest(wallet, pool, shown_percent, bps) : RemoveLiquidityRequest(wallet, a, b, shown_percent, bps)};
+    const UniValue request{by_id ? RemovePoolLiquidityRequest(wallet, pool, shown_percent, bps) : RemoveLiquidityRequest(wallet, a, b, shown_percent, bps, CoinWord(stem))};
     const UniValue result{CallWithRows(stem, request, rows)};
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
@@ -1130,7 +1130,7 @@ UniValue ChainAdapter::DexCreatePool(const UniValue& params) const
         if (curve == "stable") node_kind.pushKV("amp", amp);
         if (curve == "weighted") node_kind.pushKV("weight_a", weight);
         try {
-            const UniValue preview{PageRead(stem, "previewpool", Array({UniValue{Arg(a)}, UniValue{FormatUnits(*ua, da)}, UniValue{Arg(b)}, UniValue{FormatUnits(*ub, db)}, node_kind}), "")};
+            const UniValue preview{PageRead(stem, "previewpool", Array({UniValue{Arg(a, CoinWord(stem))}, UniValue{FormatUnits(*ua, da)}, UniValue{Arg(b, CoinWord(stem))}, UniValue{FormatUnits(*ub, db)}, node_kind}), "")};
             if (IsHex64(Str(preview, "pool"))) id = Str(preview, "pool");
             if (Param(preview, "open").isTrue()) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("A pool of this kind of these assets exists on %s and someone provides to it: add liquidity to it instead", name));
         } catch (const HostError&) {
@@ -1144,7 +1144,7 @@ UniValue ChainAdapter::DexCreatePool(const UniValue& params) const
     rows.push_back(Row("New pool", id.empty() ? KindWords(kind) : KindWords(kind) + "\n" + id));
     rows.push_back(Row("You put in", strprintf("%s of the first asset and %s of the second", FormatUnits(*ua, da), FormatUnits(*ub, db))));
     rows.push_back(Row("", "These amounts set the pool's first price.", "note"));
-    const UniValue result{CallWithRows(stem, CreatePoolRequest(wallet, a, FormatUnits(*ua, da), b, FormatUnits(*ub, db), curve, fee, amp, weight, bps, by_kind), rows)};
+    const UniValue result{CallWithRows(stem, CreatePoolRequest(wallet, a, FormatUnits(*ua, da), b, FormatUnits(*ub, db), curve, fee, amp, weight, bps, by_kind, CoinWord(stem)), rows)};
     UniValue out{UniValue::VOBJ};
     out.pushKV("stem", stem);
     out.pushKV("wallet", wallet);

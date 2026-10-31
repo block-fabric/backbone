@@ -9,6 +9,7 @@
 #include <util/strencodings.h>
 #include <util/string.h>
 #include <webui/bridge.h>
+#include <webui/supervisor.h>
 
 #include <algorithm>
 #include <map>
@@ -98,6 +99,11 @@ const std::vector<ChainAdapter::Capabilities>& ChainAdapter::Table()
          // averaged over time; pool kinds when its node says they apply (dex-curves).
          .dex_features = {.route = true, .twap = true, .curves = true}},
         {.stem = "fastblocks", .staking = true, .embed = {"staking"}},
+        // Flush (Backbone, doc/unified-app.md §26): Layers' DEX and assets with stake, its coin ECX in its requests. The
+        // app's Trade has its pools of three kinds; its concentrated pools, order books, launches and auctions are its own
+        // pages (Markets, Launch, Swap's tabs), shown in its frame.
+        {.stem = "flush", .assets = true, .dex = true, .staking = true, .embed = {"trade", "staking", "assets", "my-assets", "pools", "launch"},
+         .dex_features = {.route = true, .twap = true, .curves = true}, .coin = "ECX"},
         {.stem = "thunder", .embed = {}},
         {.stem = "bitnames", .names = true, .embed = {"names", "register", "directory"}},
         // BitAssets: pools of two assets, constant product at 0.30 %, a swap in one pool.
@@ -134,6 +140,18 @@ std::vector<std::string> ChainAdapter::MethodsUsed(std::string_view stem)
     return m;
 }
 
+bool ChainAdapter::Dropin(std::string_view stem)
+{
+    const SidechainSupervisor::Spec* spec{SidechainSupervisor::FindSpec(stem)};
+    return spec && spec->kind == SidechainSupervisor::Kind::DROPIN;
+}
+
+std::string ChainAdapter::CoinWord(std::string_view stem)
+{
+    const Capabilities* caps{Find(stem)};
+    return caps ? caps->coin : std::string{"CHN"};
+}
+
 const ChainAdapter::Capabilities* ChainAdapter::Find(std::string_view stem)
 {
     for (const Capabilities& c : Table()) {
@@ -153,11 +171,15 @@ UniValue ChainAdapter::CapabilitiesJson(const Capabilities& caps)
     out.pushKV("names", caps.names);
     out.pushKV("markets", caps.markets);
     out.pushKV("shielded", caps.shielded);
-    // What every sidechain does.
-    out.pushKV("send", true);
-    out.pushKV("receive", true);
-    out.pushKV("deposit", true);
-    out.pushKV("withdraw", true);
+    out.pushKV("coin", caps.coin);
+    // What every sidechain does; a drop-in (Thunder on Backbone, doc/unified-app.md §26) in its own pages: its wallet is
+    // its node's own (no wallets of Core's), shown and spent there, its coins in and out on its Drivechains page.
+    const bool dropin{Dropin(caps.stem)};
+    out.pushKV("dropin", dropin);
+    out.pushKV("send", !dropin);
+    out.pushKV("receive", !dropin);
+    out.pushKV("deposit", !dropin);
+    out.pushKV("withdraw", !dropin);
     UniValue embed{UniValue::VARR};
     for (const std::string& e : caps.embed) embed.push_back(e);
     out.pushKV("embed", std::move(embed));
@@ -494,6 +516,7 @@ const ChainAdapter::Capabilities& ChainAdapter::Caps(const UniValue& params, std
 std::string ChainAdapter::Wallet(const std::string& stem, const UniValue& params) const
 {
     if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
+    if (Dropin(stem)) throw HostError(BRIDGE_INVALID_REQUEST, strprintf("The wallet of %s is in its own pages (%s in the sidebar).", m_hooks.name(stem), m_hooks.name(stem)));
     const UniValue loaded{m_hooks.rpc(stem, "listwallets", UniValue{UniValue::VARR}, "")};
     const std::string wallet{PickWallet(loaded, Str(params, "wallet"), m_hooks.seed_wallet ? m_hooks.seed_wallet(stem) : std::string{})};
     if (wallet.empty()) throw HostError(-18, strprintf("%s has no wallet loaded", m_hooks.name(stem)));
@@ -624,6 +647,19 @@ UniValue ChainAdapter::Summary(const UniValue& params) const
             errors.pushKV(key, Line(e.what(), 300));
         }
     }};
+    if (Dropin(stem)) {
+        // A drop-in's app layer: its height, its mainchain, its wallet's balances (one wallet, its node's own).
+        out.pushKV("wallet", "");
+        out.pushKV("walletMode", "separate");
+        section("height", [&] { out.pushKV("height", m_hooks.rpc(stem, "getblockcount", UniValue{UniValue::VARR}, "")); });
+        section("mainchain", [&] {
+            const UniValue m{m_hooks.rpc(stem, "getmainchaininfo", UniValue{UniValue::VARR}, "")};
+            out.pushKV("mainchain", PlainFields(m, {"slot", "connected", "state", "height", "tipheight", "behind_blocks", "error"}));
+        });
+        section("balances", [&] { out.pushKV("balances", WalletBalances(m_hooks.rpc(stem, "getbalances", UniValue{UniValue::VARR}, "").find_value("mine"))); });
+        out.pushKV("errors", std::move(errors));
+        return out;
+    }
     std::string wallet;
     section("wallet", [&] {
         const UniValue loaded{m_hooks.rpc(stem, "listwallets", UniValue{UniValue::VARR}, "")};
@@ -699,6 +735,15 @@ UniValue ChainAdapter::Transactions(const UniValue& params) const
 {
     std::string stem;
     Caps(params, stem);
+    if (Dropin(stem)) {
+        // Its payments are listed in its own pages (Payments).
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("stem", stem);
+        out.pushKV("wallet", "");
+        out.pushKV("rows", UniValue{UniValue::VARR});
+        out.pushKV("own", true);
+        return out;
+    }
     const std::string wallet{Wallet(stem, params)};
     // Up to 5 000 rows: the whole history of a sidechain's wallet as the hub's (2 300 on Layers) for the app's Transactions
     // page (doc/unified-app.md §21.4), which reads it once and then its latest rows.
@@ -738,6 +783,16 @@ UniValue ChainAdapter::Wallets(const UniValue& params) const
     std::string stem;
     Caps(params, stem);
     if (!m_hooks.running(stem)) throw HostError(BRIDGE_NOT_READY, strprintf("The %s node is not running", m_hooks.name(stem)));
+    if (Dropin(stem)) {
+        // One wallet, its node's own, with a backup phrase of its own (its pages' Settings → Wallet).
+        UniValue out{UniValue::VOBJ};
+        out.pushKV("stem", stem);
+        out.pushKV("mode", "separate");
+        out.pushKV("selected", "");
+        out.pushKV("wallets", UniValue{UniValue::VARR});
+        out.pushKV("own", true);
+        return out;
+    }
     const UniValue loaded{m_hooks.rpc(stem, "listwallets", UniValue{UniValue::VARR}, "")};
     std::set<std::string> on;
     for (const UniValue& w : loaded.getValues()) {

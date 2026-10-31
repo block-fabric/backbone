@@ -65,8 +65,14 @@ public:
             //! 24-hour prices and volumes of every pair (phase C): none yet.
             bool stats{false};
         } dex_features{};
+        //! Its coin's word in its DEX's requests (CoinWord).
+        std::string coin{"CHN"};
     };
     static const std::vector<Capabilities>& Table();
+    /** Whether a chain is a drop-in on the network the app runs (its wallet is its node's own, in its pages). */
+    static bool Dropin(std::string_view stem);
+    /** The word a chain's RPCs take for its coin in the DEX's requests: Layers' "CHN" (the Chains suite), Flush's "ECX". */
+    static std::string CoinWord(std::string_view stem);
     /**
      * The methods of a sidechain's daemon the app's own pages use there (this adapter, chaindex.cpp), by its capabilities:
      * named in that daemon's -rpcwhitelist for this app's user beside its pack's (SidechainSupervisor::AppRpcMethodsFor).
@@ -230,13 +236,13 @@ public:
     //! A pool kind as the wizard gives it: why it is not one (fee tiers, amplification, weights), "" when it is.
     static std::string WhyNotPoolKind(const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a);
     //! The requests of the DEX (the same as the chain's own pages would make): assets by "0x" and their hash.
-    static UniValue SwapRequest(const std::string& wallet, const std::vector<std::string>& path, const std::string& amount, int slippage_bps, const std::string& min_out);
-    static UniValue AddLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps, std::optional<bool> sets_price);
-    static UniValue RemoveLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& b, const std::string& percent, int slippage_bps);
-    static UniValue CreatePoolRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a, int slippage_bps, bool by_kind);
+    static UniValue SwapRequest(const std::string& wallet, const std::vector<std::string>& path, const std::string& amount, int slippage_bps, const std::string& min_out, const std::string& coin = "CHN");
+    static UniValue AddLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps, std::optional<bool> sets_price, const std::string& coin = "CHN");
+    static UniValue RemoveLiquidityRequest(const std::string& wallet, const std::string& a, const std::string& b, const std::string& percent, int slippage_bps, const std::string& coin = "CHN");
+    static UniValue CreatePoolRequest(const std::string& wallet, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, const std::string& curve, int64_t fee, int64_t amp, int64_t weight_a, int slippage_bps, bool by_kind, const std::string& coin = "CHN");
     //! By the pools' ids (the chain's pool kinds): exactly the pools shown, whatever else the pair has.
-    static UniValue SwapPoolsRequest(const std::string& wallet, const std::string& asset_in, const std::vector<std::string>& pools, const std::string& amount, int slippage_bps, const std::string& min_out);
-    static UniValue AddPoolLiquidityRequest(const std::string& wallet, const std::string& pool, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps);
+    static UniValue SwapPoolsRequest(const std::string& wallet, const std::string& asset_in, const std::vector<std::string>& pools, const std::string& amount, int slippage_bps, const std::string& min_out, const std::string& coin = "CHN");
+    static UniValue AddPoolLiquidityRequest(const std::string& wallet, const std::string& pool, const std::string& a, const std::string& amount_a, const std::string& b, const std::string& amount_b, int slippage_bps, const std::string& coin = "CHN");
     static UniValue RemovePoolLiquidityRequest(const std::string& wallet, const std::string& pool, const std::string& percent, int slippage_bps);
     //! A fee tier in percent as the chain's createpool takes it: "0.3" for 3000 millionths.
     static std::string FeePercentText(int64_t millionths);
