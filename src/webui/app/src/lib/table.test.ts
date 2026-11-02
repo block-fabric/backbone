@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareValues, filterAndSort, visibleRange, type Column } from './table';
+import { compareValues, filterAndSort, trackMin, visibleRange, type Column } from './table';
 
 interface Row {
   id: number;
@@ -44,5 +44,14 @@ describe('table', () => {
     expect(visibleRange(3_399_000, 340, 34, 100_000)).toEqual({ start: 99_962, end: 99_989 });
     expect(visibleRange(3_399_800, 340, 34, 100_000)).toEqual({ start: 99_986, end: 100_000 });
     expect(visibleRange(0, 340, 34, 0)).toEqual({ start: 0, end: 0 });
+  });
+});
+
+describe('the smallest width of a column', () => {
+  it('is its width, the first value of a minmax, nothing for a fraction', () => {
+    expect(trackMin('4.5rem')).toBe('4.5rem');
+    expect(trackMin('minmax(12rem, 1.4fr)')).toBe('12rem');
+    expect(trackMin('minmax(auto, 1fr)')).toBe('0px');
+    expect(trackMin('1fr')).toBe('0px');
   });
 });

@@ -111,8 +111,21 @@ export function installMock(options: MockOptions = {}): void {
     getmempoolinfo: () => ({ size: 3, usage: 4096 }),
     uptime: () => 3600,
     validateaddress: (p) => ({ isvalid: String(p[0]).startsWith('rchn1') }),
+    // The user agents and services of eCash's main network (2026-11-01): Backbone, eCash's client old and new, long
+    // user agents (a row as wide as the others), full and pruned nodes; more than the table shows, to scroll.
     getpeerinfo: () =>
-      [1, 2, 3, 4].map((id) => ({ id, addr: `203.0.113.${id * 11}:38333`, inbound: id === 3, pingtime: 0.02 * id, synced_blocks: height, network: 'ipv4', connection_type: 'outbound-full-relay', subver: `/${BUILD_PRODUCT}:32.0.0/`, version: 70016, startingheight: 1, synced_headers: height, bytessent: 1, bytesrecv: 2, conntime: start, lastsend: start, lastrecv: start })),
+      [
+        '/eCash Satoshi:1.2.0(Bitcoin Core 32.1.0)/',
+        '/eCash Backbone:0.2.5/',
+        '/eCash Satoshi:31.1.0/',
+        '/eCash Satoshi:1.2.0(Bitcoin Core 32.1.0; ecash-ecash; BitWindow-0.2)/',
+        '/eCash Satoshi:31.1.0(ecash-ecash; BitWindow-0.2)/',
+        '/eCash Satoshi:1.2.0(Bitcoin Core 32.1.0; SuperMegaUltraHyperTheftcoinDumper5Million)/',
+        '/eCash Backbone:0.2.4/',
+        '/eCash Backbone:0.2.5/',
+      ]
+        .flatMap((subver, i) => [subver, subver, subver].map((s, j) => ({ s, n: i * 3 + j + 1 })))
+        .map(({ s: subver, n: id }) => ({ id, addr: id % 5 === 0 ? `[2a01:4f8:1c1c:87e::${id}]:8533` : `203.0.113.${id * 7}:8533`, inbound: id % 3 === 0, pingtime: 0.02 * id, synced_blocks: height, network: id % 5 === 0 ? 'ipv6' : 'ipv4', connection_type: id % 3 === 0 ? 'inbound' : id % 4 === 0 ? 'manual' : 'outbound-full-relay', subver, servicesnames: id % 4 === 1 ? ['NETWORK_LIMITED', 'WITNESS', 'P2P_V2'] : ['NETWORK', 'WITNESS', 'NETWORK_LIMITED', 'P2P_V2'], version: 70016, startingheight: 1, synced_headers: height, bytessent: 1000 * id, bytesrecv: 2000 * id, conntime: start - 60 * id, lastsend: start, lastrecv: start })),
     getmininginfo: () => ({ blocks: height, difficulty: 4.6565e-10, networkhashps: 12.4, pooledtx: 3 }),
     getnetworkhashps: (p) => 12.4 * (1 + 0.2 * Math.sin((Number(p[1]) < 0 ? height : Number(p[1])) / 50)),
     getdrivechaininfo: () => ({ activesidechains: 2, proposals: 1, pendingbundles: 1, escrowtotal: 7.25, withdrawalperiod: 100 }),

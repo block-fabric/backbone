@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bundleCanPass, bundleProgress, proposalErrors, proposalNeeds, proposalProgress, slotOverview, summaryText, type DrivechainInfo, type PendingProposal } from './chain';
 import { CONSOLE_HISTORY, ConsoleHistory, commandsFromHelp, complete, completions } from './console';
-import { connectionType, networkName, peerDetails, pingText, sinceText, type PeerInfo } from './peers';
+import { blocksKindText, clientOrder, connectionType, networkName, peerClient, peerDetails, pingText, sinceText, type PeerInfo } from './peers';
 import { blocksLeft, estimate } from './syncoverlay';
 import {
   bareDescriptor,
@@ -105,6 +105,23 @@ describe('peers', () => {
     addr_processed: 0,
     addr_rate_limited: 0,
   };
+
+  it('names the node a peer runs, Backbone first and then the newest', () => {
+    expect(peerClient('/eCash Backbone:0.2.5/')).toEqual({ name: 'Backbone 0.2.5', backbone: true, core: [0, 2, 5] });
+    expect(peerClient('/eCash Satoshi:1.2.0(Bitcoin Core 32.1.0; ecash-ecash; BitWindow-0.2)/').name).toBe('eCash 1.2.0');
+    expect(peerClient('/eCash Satoshi:31.1.0/').name).toBe('eCash 31.1.0');
+    expect(peerClient('').name).toBe('?');
+    const agents = ['/eCash Satoshi:31.1.0/', '/odd/', '/eCash Satoshi:1.2.0(Bitcoin Core 32.1.0)/', '/eCash Backbone:0.2.4/', '/eCash Backbone:0.2.5/'];
+    const sorted = [...agents].sort((a, b) => clientOrder(a) - clientOrder(b));
+    expect(sorted).toEqual(['/eCash Backbone:0.2.5/', '/eCash Backbone:0.2.4/', '/eCash Satoshi:1.2.0(Bitcoin Core 32.1.0)/', '/eCash Satoshi:31.1.0/', '/odd/']);
+  });
+
+  it('tells a full node from a pruned one by its services', () => {
+    expect(blocksKindText({ servicesnames: ['NETWORK', 'WITNESS', 'NETWORK_LIMITED'] })).toBe('Full');
+    expect(blocksKindText({ servicesnames: ['NETWORK_LIMITED', 'WITNESS'] })).toBe('Pruned');
+    expect(blocksKindText({ servicesnames: ['WITNESS'] })).toBe('No blocks');
+    expect(blocksKindText({})).toBe('No blocks');
+  });
 
   it('names networks, types and times as chains-qt', () => {
     expect(networkName('ipv4')).toBe('IPv4');

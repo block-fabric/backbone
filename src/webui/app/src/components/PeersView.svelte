@@ -12,7 +12,7 @@
   import { confirm, errorText } from '../lib/dialogs.svelte';
   import { takeFocus } from '../lib/nav.svelte';
   import { formatBytes, formatTime, shortDuration } from '../lib/format';
-  import { BAN_TIMES, connectionType, networkName, peerDetails, pingText, type BanEntry, type PeerInfo } from '../lib/peers';
+  import { BAN_TIMES, blocksKindText, clientOrder, connectionType, networkName, peerClient, peerDetails, pingText, type BanEntry, type PeerInfo } from '../lib/peers';
   import { host, rpc } from '../lib/rpc';
   import { node, toast } from '../lib/state.svelte';
   import type { Column } from '../lib/table';
@@ -27,7 +27,8 @@
     if (id !== null && detail.follow) untrack(() => showDetail({ kind: 'peer', id: Number(id) }));
   });
   let selectedBan = $state<string | null>(null);
-  let sortKey = $state<string | null>('id');
+  // Backbone peers first (the Node column), as the owner asked.
+  let sortKey = $state<string | null>('client');
   let sortDir = $state<'asc' | 'desc'>('asc');
   let now = $state(Math.floor(Date.now() / 1000));
   let menu = $state({ open: false, x: 0, y: 0, peer: null as PeerInfo | null });
@@ -63,7 +64,10 @@
     { key: 'id', label: 'Peer', value: (p) => p.id, width: '4.5rem', align: 'end' },
     { key: 'age', label: 'Age', value: (p) => now - p.conntime, width: '6rem', align: 'end' },
     { key: 'addr', label: 'Address', value: (p) => p.addr, width: 'minmax(12rem, 1.4fr)', mono: true },
-    { key: 'direction', label: 'Direction', value: (p) => (p.inbound ? 'Inbound' : 'Outbound'), width: '6.5rem' },
+    // The node software (data of the peer), in the order of clientOrder: Backbone first, then the newest.
+    { key: 'client', label: 'Node', value: (p) => clientOrder(p.subver), width: '9rem' },
+    { key: 'blocks', label: 'Chain', value: (p) => blocksKindText(p), width: '6rem', words: true },
+    { key: 'direction', label: 'Direction', value: (p) => (p.inbound ? 'Inbound' : 'Outbound'), width: '7.5rem' },
     { key: 'type', label: 'Type', value: (p) => connectionType(p.connection_type, p.inbound), width: '8rem' },
     { key: 'network', label: 'Network', value: (p) => networkName(p.network), width: '6.5rem' },
     { key: 'ping', label: 'Ping', value: (p) => p.pingtime ?? -1, width: '5.5rem', align: 'end' },
@@ -137,6 +141,8 @@
           {:else if column.key === 'ping'}{pingText(p.pingtime)}
           {:else if column.key === 'sent'}{formatBytes(p.bytessent)}
           {:else if column.key === 'recv'}{formatBytes(p.bytesrecv)}
+          {:else if column.key === 'client'}<span class="client" class:backbone={peerClient(p.subver).backbone}><SafeText text={peerClient(p.subver).name} /></span>
+          {:else if column.key === 'blocks'}{blocksKindText(p)}
           {:else if column.key === 'direction'}<span class="dir" class:inbound={p.inbound}><Icon name={p.inbound ? 'down' : 'up'} size={13} /> {p.inbound ? 'Inbound' : 'Outbound'}</span>
           {:else}<SafeText text={String(column.value(p) ?? '')} />{/if}
         {/snippet}
@@ -231,6 +237,10 @@
   }
   .dir.inbound {
     color: var(--positive);
+  }
+  .client.backbone {
+    color: var(--accent-fg);
+    font-weight: 600;
   }
   .hint {
     font-size: 0.9rem;

@@ -59,6 +59,17 @@ export function filterAndSort<T>(rows: readonly T[], columns: readonly Column<T>
 }
 
 /** The rows to draw for a scroll position: first index and count, with some rows above and below. */
+/**
+ * The smallest width of a grid track ("8rem", "minmax(10rem, 1fr)", "1fr"): its own width, the first value of a
+ * minmax, nothing for a bare fraction. What the columns of a table add up to at the least.
+ */
+export function trackMin(width: string): string {
+  const w = width.trim();
+  const minmax = /^minmax\(\s*([^,]+?)\s*,/.exec(w);
+  if (minmax) return /fr$/.test(minmax[1]) || minmax[1] === 'auto' ? '0px' : minmax[1];
+  return /fr$/.test(w) || w === 'auto' ? '0px' : w;
+}
+
 export function visibleRange(scrollTop: number, viewport: number, rowHeight: number, total: number, overscan = 8): { start: number; end: number } {
   const first = Math.floor(Math.max(0, scrollTop) / rowHeight);
   const count = Math.ceil(Math.max(0, viewport) / rowHeight) + 1;

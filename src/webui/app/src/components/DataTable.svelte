@@ -6,7 +6,7 @@
   import { t } from '../lib/i18n.svelte';
   import type { Snippet } from 'svelte';
   import { css } from '../lib/actions';
-  import { filterAndSort, visibleRange, type Column, type SortDir } from '../lib/table';
+  import { filterAndSort, trackMin, visibleRange, type Column, type SortDir } from '../lib/table';
 
   let {
     rows,
@@ -50,6 +50,10 @@
   const range = $derived(visibleRange(scrollTop, viewport, rowHeight, shown.length));
   const slice = $derived(shown.slice(range.start, range.end));
   const template = $derived(columns.map((c) => c.width ?? 'minmax(6rem, 1fr)').join(' '));
+  // Every row is a grid of its own: sized to its content (max-content), a row with a long cell (a peer's
+  // user agent) came out wider than the others, its columns out of line with the header's. All share
+  // one minimum width instead, the sum of the columns' smallest (cells cut their text with an ellipsis).
+  const minWidth = $derived(`calc(${columns.map((c) => trackMin(c.width ?? 'minmax(6rem, 1fr)')).join(' + ')})`);
   const selectedIndex = $derived(selected === null ? -1 : shown.findIndex((r) => key(r) === selected));
 
   $effect(() => {
@@ -121,7 +125,7 @@
   onscroll={() => scrollTop = scroller?.scrollTop ?? 0}
   {onkeydown}
 >
-  <div class="head" role="row" aria-rowindex="1" use:css={{ 'grid-template-columns': template, height: `${rowHeight}px` }}>
+  <div class="head" role="row" aria-rowindex="1" use:css={{ 'grid-template-columns': template, height: `${rowHeight}px`, 'min-width': fit ? null : minWidth }}>
     {#each columns as column (column.key)}
       <div role="columnheader" aria-sort={ariaSort(column)} class="cell {column.align ?? 'start'}">
         {#if column.sortable === false}
@@ -138,7 +142,7 @@
   {#if shown.length === 0}
     <div class="empty">{rows.length === 0 ? empty : 'Nothing matches the filter'}</div>
   {:else}
-    <div class="body" use:css={{ height: `${shown.length * rowHeight}px` }}>
+    <div class="body" use:css={{ height: `${shown.length * rowHeight}px`, 'min-width': fit ? null : minWidth }}>
       <div class="rows" use:css={{ transform: `translateY(${range.start * rowHeight}px)` }}>
         {#each slice as row, i (key(row))}
           {@const index = range.start + i}
@@ -195,7 +199,6 @@
     top: 0;
     z-index: 1;
     display: grid;
-    min-width: max-content;
     width: 100%;
     background: var(--surface);
     border-bottom: 1px solid var(--line);
@@ -225,7 +228,6 @@
   }
   .body {
     position: relative;
-    min-width: max-content;
   }
   .rows {
     position: absolute;
@@ -235,7 +237,6 @@
   /* Not .row: that is the flex row of base.css, whose gap would widen every column of the rows (not of the head). */
   .dt-row {
     display: grid;
-    min-width: max-content;
     width: 100%;
     cursor: default;
   }

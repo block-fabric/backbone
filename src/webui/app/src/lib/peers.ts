@@ -73,6 +73,53 @@ export function connectionType(type: string, inbound: boolean, withDirection = f
   return name ? `${direction} ${name}` : direction;
 }
 
+/** The node software a peer runs, from its user agent: "/eCash Backbone:0.2.5/", "/eCash Satoshi:1.2.0(Bitcoin Core 32.1.0)/". */
+export interface PeerClient {
+  /** Data of the peer (shown with SafeText): "Backbone 0.2.5", "eCash 1.2.0", or the user agent's first part. */
+  name: string;
+  backbone: boolean;
+  /** The Bitcoin Core release it builds on (in brackets, or its own version when it has none): what "newer" compares. */
+  core: number[];
+}
+
+function versionParts(v: string): number[] {
+  return v.split('.').map((n) => Number.parseInt(n, 10) || 0);
+}
+
+export function peerClient(subver: string): PeerClient {
+  const m = /^\/?([^:/()]+):([0-9][0-9.]*)(?:\(([^)]*)\))?/.exec(subver ?? '');
+  if (!m) return { name: subver || '?', backbone: false, core: [] };
+  const product = m[1].trim();
+  const backbone = /\bBackbone\b/.test(product);
+  const core = /Bitcoin Core ([0-9][0-9.]*)/.exec(m[3] ?? '')?.[1];
+  // eCash's client calls itself "eCash Satoshi": eCash, with its own version.
+  const name = backbone ? 'Backbone' : product.replace(/^eCash Satoshi$/, 'eCash');
+  return { name: `${name} ${m[2]}`, backbone, core: versionParts(core ?? m[2]) };
+}
+
+/**
+ * The order of the Node column: Backbone first (the newest client of the network), then the other
+ * clients from the newest Bitcoin Core they build on, the unknown last.
+ */
+export function clientOrder(subver: string): number {
+  const c = peerClient(subver);
+  if (!c.core.length) return 3e9;
+  const [a = 0, b = 0, d = 0] = c.core;
+  const newer = Math.min(a, 999) * 1e6 + Math.min(b, 999) * 1e3 + Math.min(d, 999);
+  return (c.backbone ? 1e9 : 2e9) - newer;
+}
+
+/**
+ * Whether a peer keeps the whole chain: "Full" (it serves every block, NODE_NETWORK), "Pruned" (only the
+ * last 288 blocks, NODE_NETWORK_LIMITED alone), or "No blocks" (it serves none).
+ */
+export function blocksKindText(p: Pick<PeerInfo, 'servicesnames'>): string {
+  const services = p.servicesnames ?? [];
+  if (services.includes('NETWORK')) return t('Full');
+  if (services.includes('NETWORK_LIMITED')) return t('Pruned');
+  return t('No blocks');
+}
+
 /** A ping time (GUIUtil::formatPingTime): "N/A" when there is none. */
 export function pingText(seconds: number | undefined): string {
   if (seconds === undefined || seconds <= 0 || !Number.isFinite(seconds)) return t('N/A');
@@ -103,6 +150,7 @@ export function peerDetails(p: PeerInfo, now: number): DetailRow[] {
     { label: 'Version', value: p.version ? String(p.version) : 'N/A' },
     { label: 'User Agent', value: p.subver || 'N/A' },
     { label: 'Services', value: p.servicesnames && p.servicesnames.length ? p.servicesnames.map((s) => s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ')).join(' & ') : 'None' },
+    { label: 'Chain', value: blocksKindText(p) },
     { label: 'Transaction Relay', value: p.relaytxes ? 'Yes' : 'No' },
     { label: 'High Bandwidth', value: hb },
     { label: 'Starting Block', value: p.startingheight !== undefined && p.startingheight >= 0 ? String(p.startingheight) : 'Unknown' },
