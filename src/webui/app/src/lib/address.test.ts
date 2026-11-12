@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bech32Decode, checkAddress } from './address';
+import { addressTypeOf, bech32Decode, checkAddress, exampleAddress, isSingleKeyAddress } from './address';
 
 // Made with the bech32 reference algorithm for the human-readable parts of Chains.
 function encode(hrp: string, data: number[], bech32m: boolean): string {
@@ -60,6 +60,25 @@ describe('addresses', () => {
     expect(await checkAddress('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4', 'main')).toMatchObject({ valid: false });
     expect(await checkAddress('', 'main')).toMatchObject({ valid: false, error: 'Enter an address' });
     expect(await checkAddress('hello', 'main')).toMatchObject({ valid: false });
+  });
+
+  it('takes the addresses of eCash on its networks, and no other', async () => {
+    // A taproot address and BIP 173's key hash address, as an eCash wallet gives them; BIP 13's script hash address.
+    const taproot = 'bc1pfyr9nzwsde6n5mcady37jqqp20qn4aqst4xn0lzwr8p3zn7xtzzqzhy5cf';
+    const keyhash = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
+    for (const network of ['ecash', 'ecashbeta']) {
+      expect(await checkAddress(taproot, network)).toEqual({ valid: true, kind: 'bech32', type: 'witness_v1_taproot' });
+      expect(await checkAddress(keyhash, network)).toEqual({ valid: true, kind: 'bech32', type: 'witness_v0_keyhash' });
+      expect(await checkAddress('1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2', network)).toMatchObject({ valid: true, type: 'pubkeyhash' });
+      expect(await checkAddress('3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy', network)).toMatchObject({ valid: true, type: 'scripthash' });
+      expect(await checkAddress(v0, network)).toMatchObject({ valid: false, error: 'This address is for another network' });
+      expect(await checkAddress(taproot.slice(0, -1) + 'g', network)).toMatchObject({ valid: false, error: 'This address has a typing error in it' });
+    }
+    expect(await checkAddress(taproot, 'ecashtest')).toMatchObject({ valid: false, error: 'This address is for another network' });
+    expect(await checkAddress(taproot, 'main')).toMatchObject({ valid: false, error: 'This address is for another network' });
+    expect(exampleAddress('ecash')).toBe('bc1q…');
+    expect(isSingleKeyAddress(keyhash, 'ecash')).toBe(true);
+    expect(addressTypeOf(taproot, 'ecash')).toBe('bech32m');
   });
 
   it('checks base58 addresses', async () => {

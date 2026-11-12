@@ -15,6 +15,11 @@ export const NETWORKS: Record<string, NetworkParams> = {
   test: { hrp: 'tchn', pubkey: 111, script: 196 },
   signet: { hrp: 'tchn', pubkey: 111, script: 196 },
   regtest: { hrp: 'rchn', pubkey: 111, script: 196 },
+  // The eCash networks (lib/units.ts isEcashNetwork) keep Bitcoin's addresses (kernel/chainparams.cpp). Without them
+  // the page took Chains' prefix and refused every eCash address (0.2.5 and before).
+  ecash: { hrp: 'bc', pubkey: 0, script: 5 },
+  ecashbeta: { hrp: 'bc', pubkey: 0, script: 5 },
+  ecashtest: { hrp: 'tb', pubkey: 111, script: 196 },
 };
 
 export function networkParams(network: string): NetworkParams {
