@@ -211,6 +211,18 @@ public:
         for (auto& callback : callbacks) callback();
     }
 
+    /**
+     * A server stream is open: its handler returned without finishing it. The response headers are sent then, before
+     * any reply, as tonic's servers do (the bip300301_enforcer): a tonic client awaits them when it subscribes, and
+     * the handshake of thunder-rust's clients (GetChainTip, SubscribeEvents, GetChainTip) hangs until the next block
+     * without them, then takes that block's event for a race and starts over, for ever (Sidepot, 2026-11-17).
+     */
+    void Open() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
+    {
+        LOCK(m_mutex);
+        if (!m_finished && !m_cancelled) m_open = true;
+    }
+
     /** Take up to `max` bytes of the body written so far. */
     std::string Take(size_t max) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
     {
@@ -226,11 +238,13 @@ public:
         bool finished;
         Status status;
         uint64_t writes;
+        //! A server stream whose handler has returned with the call open: its response headers go now (Open()).
+        bool open;
     };
     State GetState() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
     {
         LOCK(m_mutex);
-        return {!m_out.empty(), m_finished, m_status, m_writes};
+        return {!m_out.empty(), m_finished, m_status, m_writes, m_open};
     }
 
     Protocol GetProtocol() const { return m_protocol; }
@@ -255,6 +269,7 @@ private:
     mutable Mutex m_mutex;
     std::string m_out GUARDED_BY(m_mutex);
     bool m_finished GUARDED_BY(m_mutex){false};
+    bool m_open GUARDED_BY(m_mutex){false};
     bool m_cancelled GUARDED_BY(m_mutex){false};
     Status m_status GUARDED_BY(m_mutex);
     uint64_t m_writes GUARDED_BY(m_mutex){0};
@@ -544,10 +559,12 @@ void EndRequest(Server& server, Request& r)
     }
     std::shared_ptr<Call> call{r.call};
     Handler handler{r.entry->handler};
-    server.Run([handler, call, request = std::move(request)]() {
+    const bool server_stream{method.server_streaming};
+    server.Run([handler, call, server_stream, request = std::move(request)]() {
         if (call->Closed()) return;
         try {
             handler(request, call);
+            if (server_stream) call->Open();
         } catch (const std::exception& e) {
             call->Finish({Code::INTERNAL, e.what()});
         }
@@ -664,7 +681,7 @@ public:
             const Call::State state{call.GetState()};
             // A Connect unary reply's HTTP status is its status: sent once the call is over.
             if (!stream.responded && call.GetProtocol() == Protocol::CONNECT_UNARY && !state.finished) continue;
-            if (!stream.responded && (state.has_data || state.finished)) {
+            if (!stream.responded && (state.has_data || state.finished || state.open)) {
                 Respond(id, stream, state);
             } else if (stream.responded && stream.deferred && (state.has_data || state.finished)) {
                 stream.deferred = false;
@@ -1016,7 +1033,7 @@ public:
             if (!m_keep_alive) m_open = false;
             return m_open && Parse();
         }
-        if (!m_started && (state.has_data || state.finished)) {
+        if (!m_started && (state.has_data || state.finished || state.open)) {
             m_started = true;
             m_out += strprintf("HTTP/1.1 200 OK\r\nContent-Type: %s\r\nTransfer-Encoding: chunked\r\n%s\r\n", call.ContentType(), m_keep_alive ? "" : "Connection: close\r\n");
         }

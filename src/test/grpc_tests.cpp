@@ -361,6 +361,13 @@ BOOST_AUTO_TEST_CASE(transport)
         const int32_t sub{client.Call("/cusf.mainchain.v1.ValidatorService/SubscribeEvents", Envelope(""))};
         client.Pump(5);
         BOOST_REQUIRE(stream_writer);
+        // Its response headers come as it opens, before any reply (a tonic client awaits them to subscribe), and no
+        // status with them: the call is open.
+        BOOST_CHECK_EQUAL(client.responses[sub].headers.at(":status"), "200");
+        BOOST_CHECK_EQUAL(client.responses[sub].headers.at("content-type"), "application/grpc");
+        BOOST_CHECK_EQUAL(client.responses[sub].headers.count("grpc-status"), 0U);
+        BOOST_CHECK(client.responses[sub].body.empty());
+        BOOST_CHECK(!client.responses[sub].closed);
         Message ev{New("cusf.mainchain.v1.SubscribeEventsResponse")};
         ev.Mutable("event").Mutable("disconnect_block");
         std::thread{[&] { stream_writer->Write(ev); }}.join();
